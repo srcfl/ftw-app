@@ -1,0 +1,27 @@
+# Build
+.gradle/
+build/
+**/build/
+.kotlin/
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+local.properties
+*.xcuserstate
+xcuserdata/
+DerivedData/
+
+# Android
+*.apk
+*.aab
+captures/
+
+# iOS
+iosApp/Pods/
+*.xcworkspace/xcuserdata/
+
+# Secrets
+*.jks
+keystore.properties
