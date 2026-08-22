@@ -1,7 +1,5 @@
 package energy.ftw.protocol
 
-enum class CarrierKind { Relay, Cache, None }
-
 enum class SourceState { Live, Lagging, Stale, Down, Never }
 
 data class Source(

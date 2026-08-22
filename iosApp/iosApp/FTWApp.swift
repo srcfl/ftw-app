@@ -14,6 +14,7 @@ struct FTWApp: App {
 
 struct RootView: View {
     @EnvironmentObject var model: AppModel
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         Group {
@@ -22,6 +23,9 @@ struct RootView: View {
             } else {
                 PairView()
             }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { model.wake() }
         }
     }
 }

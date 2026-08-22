@@ -73,6 +73,10 @@ class Session(private val build: String = "native", private val ua: String = "na
         patch(snapshot.copy(phase = "idle", carrier = CarrierKind.None))
     }
 
+    fun wake() {
+        carrier?.wake()
+    }
+
     private fun sendHello() {
         helloSubSent = true
         sendControl(helloEnvelope(build, ua, listOf("en"), CONTROL_BUCKET, 1))

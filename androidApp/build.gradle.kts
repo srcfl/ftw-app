@@ -36,4 +36,5 @@ dependencies {
     implementation(libs.mlkit.barcode)
     implementation(libs.androidx.credentials)
     implementation(libs.androidx.credentials.play)
+    implementation(libs.androidx.security.crypto)
 }

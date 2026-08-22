@@ -38,6 +38,10 @@ class SiteStore(private val kv: KeyValueStore = MemoryStore()) {
         write(all().filter { it.siteId != id })
     }
 
+    fun clear() {
+        kv.remove(K_SITES)
+    }
+
     private fun write(sites: List<PairedSite>) {
         kv.put(
             K_SITES,

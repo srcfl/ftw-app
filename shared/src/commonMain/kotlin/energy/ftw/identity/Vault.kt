@@ -35,6 +35,11 @@ class VaultError(message: String, val code: String, val help: String) : Exceptio
 class Vault(private val store: KeyValueStore) {
     fun isEnrolled(): Boolean = readRecord() != null
 
+    fun clear() {
+        store.remove(K_VAULT)
+        store.remove(K_LOCAL_WRAP)
+    }
+
     fun devicePublic(): ByteArray? = readRecord()?.first
 
     fun silentWrappingKey(): WrappingKey? {
@@ -59,7 +64,7 @@ class Vault(private val store: KeyValueStore) {
                 "E_VAULT_NO_COPY",
                 "This phone has no key for that home. Scan the code on the box.",
             )
-        val secret = unseal(wrapping.key, copy.second, copy.third)
+        val secret = unseal(wrapKey(wrapping.key), copy.second, copy.third)
         return keyPairFromSecret(secret)
     }
 
@@ -76,7 +81,7 @@ class Vault(private val store: KeyValueStore) {
 
     private fun create(wrapping: WrappingKey): KeyPair {
         val pair = generateKeyPair()
-        val sealed = seal(wrapping.key, pair.secretKey)
+        val sealed = seal(wrapKey(wrapping.key), pair.secretKey)
         writeRecord(pair.publicKey, listOf(Triple(wrapping.credentialId, sealed.first, sealed.second)))
         return pair
     }
@@ -84,11 +89,22 @@ class Vault(private val store: KeyValueStore) {
     private fun wrapUnder(current: WrappingKey, next: WrappingKey) {
         val record = readRecord() ?: throw VaultError("empty vault", "E_VAULT_EMPTY", "Scan the code on the box.")
         val copy = record.second.first { it.first == current.credentialId }
-        val secret = unseal(current.key, copy.second, copy.third)
-        val sealed = seal(next.key, secret)
+        val secret = unseal(wrapKey(current.key), copy.second, copy.third)
+        val sealed = seal(wrapKey(next.key), secret)
         val copies = record.second.filter { it.first != next.credentialId } +
             Triple(next.credentialId, sealed.first, sealed.second)
         writeRecord(record.first, copies)
+    }
+
+    private fun wrapKey(key: ByteArray): ByteArray {
+        if (key.size < energy.ftw.crypto.ChaChaPoly.KEY_BYTES) {
+            throw VaultError(
+                "wrapping key too short",
+                "E_VAULT_WRAP",
+                "That passkey did not yield a key. Try Face ID again.",
+            )
+        }
+        return key.copyOf(energy.ftw.crypto.ChaChaPoly.KEY_BYTES)
     }
 
     private fun seal(key: ByteArray, secret: ByteArray): Pair<ByteArray, ByteArray> {

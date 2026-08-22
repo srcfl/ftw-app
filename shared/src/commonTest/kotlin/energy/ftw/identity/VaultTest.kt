@@ -28,4 +28,14 @@ class VaultTest {
         assertNotNull(vault.silentWrappingKey())
         assertEquals(WrappingSource.Local, vault.silentWrappingKey()!!.source)
     }
+
+    @Test
+    fun clearWipesDeviceKeyAndLocalWrap() {
+        val vault = Vault(MemoryStore())
+        vault.enroll(LocalPasskey())
+        assertTrue(vault.isEnrolled())
+        vault.clear()
+        assertTrue(!vault.isEnrolled())
+        assertEquals(null, vault.silentWrappingKey())
+    }
 }

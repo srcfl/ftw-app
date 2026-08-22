@@ -13,6 +13,7 @@
 		A10000000000000000000023 /* NowView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000013 /* NowView.swift */; };
 		A10000000000000000000024 /* QRScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000014 /* QRScanner.swift */; };
 		A10000000000000000000025 /* PasskeyHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000015 /* PasskeyHost.swift */; };
+		A10000000000000000000026 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000018 /* KeychainStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,6 +23,7 @@
 		A10000000000000000000013 /* NowView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowView.swift; sourceTree = "<group>"; };
 		A10000000000000000000014 /* QRScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScanner.swift; sourceTree = "<group>"; };
 		A10000000000000000000015 /* PasskeyHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PasskeyHost.swift; sourceTree = "<group>"; };
+		A10000000000000000000018 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
 		A10000000000000000000016 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A10000000000000000000017 /* iosApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iosApp.entitlements; sourceTree = "<group>"; };
 		A10000000000000000000081 /* FTW.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FTW.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -55,6 +57,7 @@
 				A10000000000000000000013 /* NowView.swift */,
 				A10000000000000000000014 /* QRScanner.swift */,
 				A10000000000000000000015 /* PasskeyHost.swift */,
+				A10000000000000000000018 /* KeychainStore.swift */,
 				A10000000000000000000016 /* Info.plist */,
 				A10000000000000000000017 /* iosApp.entitlements */,
 			);
@@ -166,6 +169,7 @@
 				A10000000000000000000023 /* NowView.swift in Sources */,
 				A10000000000000000000024 /* QRScanner.swift in Sources */,
 				A10000000000000000000025 /* PasskeyHost.swift in Sources */,
+				A10000000000000000000026 /* KeychainStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

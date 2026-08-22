@@ -37,6 +37,8 @@ class AndroidSockets : SocketFactory {
                     webSocket.close(code, reason)
                 }
 
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {}
+
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                     listener.onClose(1006, t.message ?: "error")
                 }

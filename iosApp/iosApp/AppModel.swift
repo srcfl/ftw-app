@@ -14,8 +14,9 @@ final class AppModel: ObservableObject {
     @Published var help: String?
     @Published var paste: String = ""
 
-    private let vault = Vault(store: MemoryStore())
-    private let sites = SiteStore(kv: MemoryStore())
+    private let vault: Vault
+    private let sites: SiteStore
+    private let readings: ReadingsCache
     private lazy var client: FtwClient = FtwClient(
         vault: vault,
         sites: sites,
@@ -25,6 +26,27 @@ final class AppModel: ObservableObject {
         build: "ios"
     )
     private var session: Session?
+    private var epoch = 0
+
+    init() {
+        let kv = KeychainStore()
+        vault = Vault(store: kv)
+        sites = SiteStore(kv: kv)
+        readings = ReadingsCache(kv: kv)
+        if let paired = sites.all().first {
+            site = paired
+            if let cached = readings.get() {
+                let nums = NowNumbersKt.nowNumbers(fields: cached.fields)
+                headline = SessionKt.headlineOf(readings: cached)
+                carrier = "cache"
+                grid = nums.grid
+                pv = nums.pv
+                battery = nums.battery
+                load = nums.load
+            }
+            connect()
+        }
+    }
 
     func pair() {
         help = nil
@@ -38,6 +60,8 @@ final class AppModel: ObservableObject {
                     self.connect()
                 }
             } catch let err as EnrollmentError {
+                await MainActor.run { self.help = err.help }
+            } catch let err as VaultError {
                 await MainActor.run { self.help = err.help }
             } catch {
                 await MainActor.run {
@@ -54,19 +78,30 @@ final class AppModel: ObservableObject {
 
     func connect() {
         guard let site else { return }
+        session?.close()
+        epoch += 1
+        let mine = epoch
         do {
             let session = try client.connect(site: site)
             self.session = session
+            if let cached = readings.get() {
+                session.restore(readings: cached)
+            }
             session.subscribe { [weak self] snap in
+                let hasFields = snap.readings.fields.count > 0
                 let nums = NowNumbersKt.nowNumbers(fields: snap.readings.fields)
                 DispatchQueue.main.async {
-                    self?.headline = snap.headline
-                    self?.carrier = String(describing: snap.carrier)
-                    self?.srcState = String(describing: snap.srcState)
-                    self?.grid = nums.grid
-                    self?.pv = nums.pv
-                    self?.battery = nums.battery
-                    self?.load = nums.load
+                    guard let self, self.epoch == mine else { return }
+                    self.headline = snap.headline
+                    self.carrier = String(describing: snap.carrier)
+                    self.srcState = String(describing: snap.srcState)
+                    if hasFields {
+                        self.grid = nums.grid
+                        self.pv = nums.pv
+                        self.battery = nums.battery
+                        self.load = nums.load
+                        self.readings.put(readings: snap.readings)
+                    }
                 }
             }
         } catch let err as ConnectError {
@@ -76,10 +111,26 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func wake() {
+        session?.wake()
+    }
+
     func forget() {
+        epoch += 1
         session?.close()
         session = nil
+        vault.clear()
+        sites.clear()
+        readings.clear()
         site = nil
+        headline = "Waiting for the first reading."
+        carrier = "none"
+        srcState = "never"
+        grid = "—"
+        pv = "—"
+        battery = "—"
+        load = "—"
         help = nil
+        paste = ""
     }
 }

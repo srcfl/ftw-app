@@ -42,7 +42,14 @@ class IosSockets : SocketFactory {
     private fun receive(task: NSURLSessionWebSocketTask, listener: SocketListener) {
         task.receiveMessageWithCompletionHandler { message, error ->
             if (error != null) {
-                listener.onClose(1006, error.localizedDescription)
+                val code = task.closeCode.toInt()
+                val reasonBytes = task.closeReason
+                val reason = if (reasonBytes != null && reasonBytes.length.toInt() > 0) {
+                    nsDataToBytes(reasonBytes).decodeToString()
+                } else {
+                    error.localizedDescription
+                }
+                listener.onClose(if (code == 0) 1006 else code, reason)
                 return@receiveMessageWithCompletionHandler
             }
             val text = message?.string
