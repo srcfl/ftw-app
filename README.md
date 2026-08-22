@@ -26,6 +26,50 @@ SwiftUI / Compose
 
 Two taps: scan the QR on the box, Face ID / biometrics, the house.
 
+## Status (2026-08-22)
+
+V1 is Pair + Now. That is on `main` as of 2026-08-22. Not a wrap of the web
+app. Not Flutter, not React Native.
+
+**In the apps today**
+
+- Scan or paste a v2 pairing QR (`https://app.ftw.energy/p#v2.…`).
+- One passkey prompt at enroll. RP ID `app.ftw.energy`. PRF salt `ftw.prf.v1.vault`.
+- Noise_IK_25519_ChaChaPoly_SHA256 to the box through `wss://relay.ftw.energy`.
+- Now shows headline plus grid / solar / battery / house from frozen field ids.
+- Vault, site and last readings live in iOS Keychain /
+  Android EncryptedSharedPreferences. Cold start paints from cache, then
+  reconnects without Face ID. Forget wipes the store.
+
+**Proven here**
+
+| Check | Result |
+|---|---|
+| `./gradlew :shared:jvmTest` | Green |
+| Live box e2e (`127.0.0.1:18080` + production relay) | `hello_ok` + snapshot, phase `streaming` |
+| iOS Simulator (iPhone 17, iOS 26.5) | Built and launched |
+| Android emulator `FTW_Phone` (API 35 ARM64) | APK installed, Pair shown twice |
+
+Passkey PRF cannot run on the JVM. Live e2e uses a local wrapping key for the
+ceremony and the real Noise / relay / box path. The Android emulator has no
+camera feed — paste the pairing link.
+
+**Not v1 (do not start these next)**
+
+Energy, History, Plan, EV, commands, escrow restore, spoken codes, LAN,
+WebRTC, push, App Store / Play listing.
+
+**Known holes**
+
+- `srcState` should follow the Now fields' `srcId` in the dict, not every
+  driver on the site.
+- Wrap key is raw PRF bytes, not the web app's HKDF. A native vault will not
+  open in the PWA, and the other way around.
+- `PasskeyHost.enroll` from Kotlin still blocks. The UIs call the async
+  ceremony and skip that path.
+- Field ids in `Explanation.kt` are still hand-written; they should come from
+  `protocol/registry.yaml`.
+
 ## Tests
 
 JDK 21.
@@ -66,6 +110,15 @@ Shared framework with
 
 Android: `./gradlew :androidApp:assembleDebug` (minSdk 28). Pair uses CameraX
 + ML Kit for the QR. Passkeys go through Credential Manager.
+
+Emulator (AVD `FTW_Phone`, API 35 ARM64 Google APIs):
+
+```bash
+export ANDROID_HOME="$HOME/Android/sdk"
+"$ANDROID_HOME/emulator/emulator" -avd FTW_Phone
+adb install -r androidApp/build/outputs/apk/debug/androidApp-debug.apk
+adb shell am start -n energy.ftw.app/.MainActivity
+```
 
 RP ID `app.ftw.energy`. PRF salt `ftw.prf.v1.vault`. Reading uses a local
 wrapping copy so Now paints without a passkey prompt.

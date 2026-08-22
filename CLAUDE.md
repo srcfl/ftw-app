@@ -4,6 +4,16 @@ Kotlin Multiplatform shared logic. SwiftUI on iOS. Jetpack Compose on Android.
 Talks to an FTW box over an encrypted session; the box is the authority and
 this app is a cached projection of it.
 
+## Current v1
+
+Pair + Now only. Shipped on `main` as of 2026-08-22. Persist vault, site and
+last readings on the phone. Cold start paints the cache, then reconnects
+without a passkey. README Status lists what was proven and what is still open.
+
+Do not add Energy / History / Plan / EV, commands, escrow, LAN, push, or store
+listing until Pair + Now is solid on both phones, including wrap-key parity
+with the web app.
+
 The protocol, the QR, the relay and the identity model are specified in
 [ftw-webapp](https://github.com/srcfl/ftw-webapp) `docs/architecture.md` and
 `docs/protocol.md`. Read those before changing anything structural.
@@ -44,8 +54,9 @@ session, vault wrap/unwrap, freshness and explanations.
 Platform UI owns the camera, the passkey ceremony, Keychain / Keystore,
 and every pixel.
 
-Inject `PasskeyHost`, `SecureStore` and `SocketFactory`. Do not call
-AuthenticationServices or Credential Manager from commonMain.
+Inject `PasskeyHost`, `KeyValueStore` and `SocketFactory`. Do not call
+AuthenticationServices or Credential Manager from commonMain. iOS uses
+Keychain. Android uses EncryptedSharedPreferences + a Keystore master key.
 
 ## Crypto
 
