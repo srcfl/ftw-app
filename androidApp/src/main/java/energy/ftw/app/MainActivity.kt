@@ -18,40 +18,38 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import energy.ftw.RELAY_URL
-import energy.ftw.carrier.JvmSockets
+import energy.ftw.carrier.AndroidSockets
 import energy.ftw.client.ConnectError
 import energy.ftw.client.FtwClient
-import energy.ftw.format.formatPowerKw
-import energy.ftw.format.FID_BATTERY_W
-import energy.ftw.format.FID_GRID_W
-import energy.ftw.format.FID_LOAD_W
-import energy.ftw.format.FID_PV_W
+import energy.ftw.format.nowNumbers
 import energy.ftw.identity.EnrollmentError
-import energy.ftw.identity.LocalPasskey
 import energy.ftw.identity.MemoryStore
 import energy.ftw.identity.PairedSite
 import energy.ftw.identity.Vault
 import energy.ftw.protocol.Session
 import energy.ftw.store.SiteStore
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val passkey = AndroidPasskey(this)
         val client = FtwClient(
             vault = Vault(MemoryStore()),
             sites = SiteStore(MemoryStore()),
-            sockets = JvmSockets(),
-            passkeys = LocalPasskey(),
+            sockets = AndroidSockets(),
+            passkeys = passkey,
             relayUrl = RELAY_URL,
             build = "android",
         )
-        setContent { FtwRoot(client) }
+        setContent { FtwRoot(client, passkey) }
     }
 }
 
@@ -60,7 +58,7 @@ private val Fg = Color(0xFFE8E8E8)
 private val Dim = Color(0xFFA0A0A0)
 
 @Composable
-private fun FtwRoot(client: FtwClient) {
+private fun FtwRoot(client: FtwClient, passkey: AndroidPasskey) {
     var site by remember { mutableStateOf<PairedSite?>(null) }
     var session by remember { mutableStateOf<Session?>(null) }
     var paste by remember { mutableStateOf("") }
@@ -71,17 +69,37 @@ private fun FtwRoot(client: FtwClient) {
     var pv by remember { mutableStateOf("—") }
     var battery by remember { mutableStateOf("—") }
     var load by remember { mutableStateOf("—") }
+    var scanning by remember { mutableStateOf(true) }
+    val scope = rememberCoroutineScope()
 
     fun bind(s: Session) {
         session = s
         s.subscribe { snap ->
             headline = snap.headline
             carrier = snap.carrier.name.lowercase()
-            val f = snap.readings.fields
-            grid = f[FID_GRID_W]?.let { formatPowerKw(it) } ?: "—"
-            pv = f[FID_PV_W]?.let { formatPowerKw(it) } ?: "—"
-            battery = f[FID_BATTERY_W]?.let { formatPowerKw(it) } ?: "—"
-            load = f[FID_LOAD_W]?.let { formatPowerKw(it) } ?: "—"
+            val n = nowNumbers(snap.readings.fields)
+            grid = n.grid
+            pv = n.pv
+            battery = n.battery
+            load = n.load
+        }
+    }
+
+    fun go(raw: String) {
+        help = null
+        scope.launch {
+            try {
+                val wrapping = passkey.enrollAsync()
+                val paired = client.pair(raw, wrapping)
+                site = paired
+                bind(client.connect(paired))
+            } catch (e: EnrollmentError) {
+                help = e.help
+            } catch (e: ConnectError) {
+                help = e.help
+            } catch (e: Exception) {
+                help = e.message ?: "Could not pair."
+            }
         }
     }
 
@@ -91,27 +109,22 @@ private fun FtwRoot(client: FtwClient) {
     ) {
         val current = site
         if (current == null) {
-            Spacer(Modifier.height(48.dp))
+            Spacer(Modifier.height(24.dp))
             Text("FTW", color = Fg, fontSize = 32.sp)
             Text("Scan the pairing code on your box.", color = Dim)
-            Text("Camera scan is on the Pair screen; paste a pairing link here.", color = Dim, fontSize = 12.sp)
+            if (scanning) {
+                QrScanner { code ->
+                    scanning = false
+                    paste = code
+                    go(code)
+                }
+            }
             OutlinedTextField(
                 value = paste,
                 onValueChange = { paste = it },
-                label = { Text("Pairing link") },
+                label = { Text("Or paste a pairing link") },
             )
-            Button(onClick = {
-                help = null
-                try {
-                    val paired = client.pair(paste)
-                    site = paired
-                    bind(client.connect(paired))
-                } catch (e: EnrollmentError) {
-                    help = e.help
-                } catch (e: ConnectError) {
-                    help = e.help
-                }
-            }) { Text("Continue") }
+            Button(onClick = { go(paste) }) { Text("Continue") }
             help?.let { Text(it, color = Color(0xFFC44)) }
         } else {
             Text(current.label, color = Fg, fontSize = 22.sp)
@@ -125,6 +138,7 @@ private fun FtwRoot(client: FtwClient) {
                 session?.close()
                 session = null
                 site = null
+                scanning = true
             }) { Text("Forget this home") }
         }
     }

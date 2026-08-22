@@ -9,6 +9,7 @@ import energy.ftw.crypto.KeyPair
 import energy.ftw.identity.PairedSite
 import energy.ftw.identity.PasskeyHost
 import energy.ftw.identity.Vault
+import energy.ftw.identity.WrappingKey
 import energy.ftw.identity.pairFromScan
 import energy.ftw.identity.pairedSiteFrom
 import energy.ftw.identity.prologueFor
@@ -28,9 +29,12 @@ class FtwClient(
     private val relayUrl: String = RELAY_URL,
     private val build: String = "native",
 ) {
-    fun pair(scanned: String): PairedSite {
+    fun pair(scanned: String): PairedSite = pair(scanned, passkeys.enroll())
+
+    fun pair(scanned: String, wrapping: WrappingKey): PairedSite {
         val enrollment = pairFromScan(scanned)
-        vault.enroll(passkeys)
+        vault.deviceKey(wrapping)
+        vault.ensureLocalCopy(wrapping)
         val site = pairedSiteFrom(enrollment)
         sites.put(site)
         return site

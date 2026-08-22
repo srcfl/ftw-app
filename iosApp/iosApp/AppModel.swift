@@ -20,7 +20,7 @@ final class AppModel: ObservableObject {
         vault: vault,
         sites: sites,
         sockets: IosSockets(),
-        passkeys: LocalPasskey(),
+        passkeys: IosPasskey(),
         relayUrl: OriginKt.RELAY_URL,
         build: "ios"
     )
@@ -28,14 +28,22 @@ final class AppModel: ObservableObject {
 
     func pair() {
         help = nil
-        do {
-            let scanned = paste
-            site = try client.pair(scanned: scanned)
-            connect()
-        } catch let err as EnrollmentError {
-            help = err.help
-        } catch {
-            help = "That code did not read cleanly. Hold the phone steady and scan it again."
+        let scanned = paste
+        Task {
+            do {
+                let wrapping = try await IosPasskey.enroll()
+                let paired = try client.pair(scanned: scanned, wrapping: wrapping)
+                await MainActor.run {
+                    self.site = paired
+                    self.connect()
+                }
+            } catch let err as EnrollmentError {
+                await MainActor.run { self.help = err.help }
+            } catch {
+                await MainActor.run {
+                    self.help = "That code did not read cleanly. Hold the phone steady and scan it again."
+                }
+            }
         }
     }
 
@@ -50,10 +58,15 @@ final class AppModel: ObservableObject {
             let session = try client.connect(site: site)
             self.session = session
             session.subscribe { [weak self] snap in
+                let nums = NowNumbersKt.nowNumbers(fields: snap.readings.fields)
                 DispatchQueue.main.async {
                     self?.headline = snap.headline
                     self?.carrier = String(describing: snap.carrier)
                     self?.srcState = String(describing: snap.srcState)
+                    self?.grid = nums.grid
+                    self?.pv = nums.pv
+                    self?.battery = nums.battery
+                    self?.load = nums.load
                 }
             }
         } catch let err as ConnectError {

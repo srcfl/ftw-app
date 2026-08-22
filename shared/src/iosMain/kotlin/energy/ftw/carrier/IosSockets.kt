@@ -13,6 +13,7 @@ import platform.Foundation.NSURLSessionWebSocketTask
 import platform.Foundation.dataWithBytes
 import platform.darwin.dispatch_async
 import platform.darwin.dispatch_get_main_queue
+import platform.posix.memcpy
 
 @OptIn(ExperimentalForeignApi::class)
 class IosSockets : SocketFactory {
@@ -48,10 +49,6 @@ class IosSockets : SocketFactory {
             val data = message?.data
             if (text != null) listener.onText(text)
             if (data != null) {
-                val bytes = ByteArray(data.length.toInt())
-                data.bytes?.let { src ->
-                    // copy via NSData
-                }
                 listener.onBinary(nsDataToBytes(data))
             }
             receive(task, listener)
@@ -62,9 +59,10 @@ class IosSockets : SocketFactory {
 @OptIn(ExperimentalForeignApi::class)
 private fun nsDataToBytes(data: NSData): ByteArray {
     val n = data.length.toInt()
+    if (n == 0) return ByteArray(0)
     val out = ByteArray(n)
-    if (n == 0) return out
-    val ptr = data.bytes ?: return out
-    kotlinx.cinterop.memcpy(out.refTo(0), ptr, n.convert())
+    out.usePinned { pinned ->
+        memcpy(pinned.addressOf(0), data.bytes, n.convert())
+    }
     return out
 }

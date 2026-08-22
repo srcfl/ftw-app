@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 rootProject.name = "ftw-app"
 
 include(":shared")
+include(":androidApp")

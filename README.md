@@ -59,14 +59,13 @@ snapshot that includes the frozen field ids.
 
 ## Native apps
 
-iOS: `iosApp/` — SwiftUI Pair (camera QR + paste) and Now. Requires Xcode 16+
-and iOS 18 for passkey PRF. Shared framework:
-`./gradlew :shared:embedAndSignAppleFrameworkForXcode` from an Xcode build
-phase.
+iOS: open `iosApp/iosApp.xcodeproj`. SwiftUI Pair (camera QR + paste) and Now.
+Xcode 16+, iOS 18 for passkey PRF. A Run Script build phase compiles the
+Shared framework with
+`./gradlew :shared:embedAndSignAppleFrameworkForXcode`.
 
-Android: `androidApp/` — Jetpack Compose Pair and Now. Requires Android SDK
-(minSdk 28). Add the module to `settings.gradle.kts` once the SDK is present
-(`include(":androidApp")`) and run `./gradlew :androidApp:assembleDebug`.
+Android: `./gradlew :androidApp:assembleDebug` (minSdk 28). Pair uses CameraX
++ ML Kit for the QR. Passkeys go through Credential Manager.
 
 RP ID `app.ftw.energy`. PRF salt `ftw.prf.v1.vault`. Reading uses a local
 wrapping copy so Now paints without a passkey prompt.
