@@ -17,8 +17,9 @@ few routine choices, honest live feedback and reliable daily charging.
 The native status below is a dated record and its verification gates still
 apply; the vision does not declare new native features shipped.
 
-Sourceful develops this app. External users submit
-[issues](https://github.com/srcfl/ftw-app/issues), not pull requests.
+Sourceful develops this app. PRs are welcome, preferably based on
+[issues](https://github.com/srcfl/ftw-app/issues). Share a short Markdown
+proposal or a focused fix with relevant test evidence.
 See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Shape
