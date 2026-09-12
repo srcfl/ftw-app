@@ -7,8 +7,10 @@ this app is a cached projection of it.
 ## Shared product direction
 
 [FTW's vision](https://github.com/srcfl/ftw/blob/master/VISION.md) governs the native client.
-Fredrik owns the direction and Sourceful develops it. External users submit
-issues, not PRs; see [CONTRIBUTING.md](CONTRIBUTING.md).
+Fredrik owns the direction and Sourceful develops it. External PRs are
+welcome, preferably based on issues. Work is agentic first: state the problem,
+scope and reproducible results. Code and short Markdown proposals follow
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 The full product aims for clear live command/outcome feedback, simple charging
 and useful notifications. Those goals do not remove the current native release
