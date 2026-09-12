@@ -11,9 +11,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalUriHandler
+import energy.ftw.SourceLicense
 import androidx.compose.runtime.Composable
 import android.os.Handler
 import android.os.Looper
@@ -199,6 +203,23 @@ private fun FtwRoot(
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         val current = site
+        val uriHandler = LocalUriHandler.current
+        var showLicense by remember { mutableStateOf(false) }
+        TextButton(onClick = { showLicense = true }) { Text("Source & licenses") }
+        if (showLicense) {
+            AlertDialog(
+                onDismissRequest = { showLicense = false },
+                title = { Text("Source & licenses") },
+                text = {
+                    Column {
+                        Text("© 2026 Sourceful Labs AB and contributors. You may copy, modify and share under the license. No warranty to the extent permitted by law.")
+                        TextButton(onClick = { uriHandler.openUri(SourceLicense.sourceUrl) }) { Text("Source") }
+                        TextButton(onClick = { uriHandler.openUri(SourceLicense.licenseUrl) }) { Text("AGPLv3 + Energyplan permission") }
+                    }
+                },
+                confirmButton = { TextButton(onClick = { showLicense = false }) { Text("Close") } },
+            )
+        }
         if (current == null) {
             Spacer(Modifier.height(24.dp))
             Text("FTW", color = Fg, fontSize = 32.sp)

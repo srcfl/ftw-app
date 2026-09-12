@@ -4,6 +4,13 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val licenseAssets = layout.buildDirectory.dir("generated/licenseAssets")
+val copyLicenseAssets by tasks.registering(Copy::class) {
+    from(rootProject.projectDir) { include("LICENSE", "NOTICE", "LICENSING.md") }
+    into(licenseAssets)
+}
+tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(copyLicenseAssets) }
+
 android {
     namespace = "energy.ftw.app"
     compileSdk = 35
@@ -14,6 +21,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
     }
+    sourceSets.getByName("main").assets.srcDir(licenseAssets)
     buildFeatures { compose = true }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

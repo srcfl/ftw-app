@@ -14,6 +14,9 @@
 		A10000000000000000000024 /* QRScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000014 /* QRScanner.swift */; };
 		A10000000000000000000025 /* PasskeyHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000015 /* PasskeyHost.swift */; };
 		A10000000000000000000026 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000018 /* KeychainStore.swift */; };
+		A10000000000000000000093 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000090 /* LICENSE */; };
+		A10000000000000000000094 /* NOTICE in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000091 /* NOTICE */; };
+		A10000000000000000000095 /* LICENSING.md in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000000000092 /* LICENSING.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,6 +30,9 @@
 		A10000000000000000000016 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A10000000000000000000017 /* iosApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iosApp.entitlements; sourceTree = "<group>"; };
 		A10000000000000000000081 /* FTW.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FTW.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000000000000000000090 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; name = "LICENSE"; path = "../LICENSE"; sourceTree = SOURCE_ROOT; };
+		A10000000000000000000091 /* NOTICE */ = {isa = PBXFileReference; lastKnownFileType = text; name = "NOTICE"; path = "../NOTICE"; sourceTree = SOURCE_ROOT; };
+		A10000000000000000000092 /* LICENSING.md */ = {isa = PBXFileReference; lastKnownFileType = text; name = "LICENSING.md"; path = "../LICENSING.md"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -131,6 +137,9 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000000000000000000093 /* LICENSE in Resources */,
+				A10000000000000000000094 /* NOTICE in Resources */,
+				A10000000000000000000095 /* LICENSING.md in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

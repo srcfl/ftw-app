@@ -148,4 +148,6 @@ wrapping copy so Now paints without a passkey prompt.
 
 ## Licence
 
-Apache-2.0. See [LICENSE](LICENSE).
+AGPL-3.0-only with the Energyplan combination permission. See
+[LICENSE](LICENSE), [LICENSING.md](LICENSING.md) and [NOTICE](NOTICE).
+Earlier Apache-licensed versions retain their earlier grants.
