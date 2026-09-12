@@ -9,6 +9,18 @@ home is the record. This app is a cached projection of it. The cloud is blind.
 Not a wrap of the [web app](https://github.com/srcfl/ftw-webapp). Same protocol,
 same QR, same relay, same RP ID (`app.ftw.energy`).
 
+## Product direction and contributions
+
+Follow [FTW's shared vision](https://github.com/srcfl/ftw/blob/master/VISION.md) and
+[roadmap](https://github.com/srcfl/ftw/blob/master/docs/roadmap.md). The target experience needs
+few routine choices, honest live feedback and reliable daily charging.
+The native status below is a dated record and its verification gates still
+apply; the vision does not declare new native features shipped.
+
+Sourceful develops this app. External users submit
+[issues](https://github.com/srcfl/ftw-app/issues), not pull requests.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Shape
 
 ```

@@ -4,6 +4,17 @@ Kotlin Multiplatform shared logic. SwiftUI on iOS. Jetpack Compose on Android.
 Talks to an FTW box over an encrypted session; the box is the authority and
 this app is a cached projection of it.
 
+## Shared product direction
+
+[FTW's vision](https://github.com/srcfl/ftw/blob/master/VISION.md) governs the native client.
+Fredrik owns the direction and Sourceful develops it. External users submit
+issues, not PRs; see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+The full product aims for clear live command/outcome feedback, simple charging
+and useful notifications. Those goals do not remove the current native release
+gates below or claim features are present on either phone. Reuse Core's
+contracts and authority as native scope expands.
+
 ## Current v1
 
 Pair + Now only. Shipped on `main` as of 2026-08-22. Persist vault, site and
@@ -23,7 +34,8 @@ The protocol, the QR, the relay and the identity model are specified in
 **Lean, snappy, just works.** Same constraint as the web app.
 
 - Nothing blocks the first frame. Paint from cache, catch up.
-- No configuration. No server to choose, no transport to pick.
+- Few required choices. Hide transport setup; expose useful household goals
+  and expert controls when their flows are implemented.
 - Failures heal themselves. A dropped connection reconnects on its own.
   There is no reconnect button.
 - Errors say what happens now, not what broke inside.
