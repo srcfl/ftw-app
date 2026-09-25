@@ -43,6 +43,8 @@ extension CBOR {
 
     public static func int(_ v: Int) -> CBOR { .int(Int64(v)) }
 
+    public static let emptyMap = CBOR.map([Entry]())
+
     /// A number as JavaScript would put it on the wire: an integer when it is
     /// one, a double otherwise. The web app sends `hz: 1` and `hz: 0.2`, and
     /// the box reads either into a float.
