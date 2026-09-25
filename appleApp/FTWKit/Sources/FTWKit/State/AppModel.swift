@@ -58,6 +58,8 @@ public final class AppModel {
     /// A pairing link that arrived from outside, shown before it is trusted.
     public var offeredLink: String?
     public private(set) var isDemo = false
+    /// The Box screen's spare-key switch for the open home. Nil in the demo.
+    public private(set) var sealedCopy: SealedCopyModel?
 
     @ObservationIgnored public let vault: Vault
     @ObservationIgnored public let sites: SiteList
@@ -118,6 +120,7 @@ public final class AppModel {
         let site = SiteModel(siteId: siteId, build: build, ua: ua, scheduler: scheduler, files: files)
         site.stepUp = { [weak self] in await self?.stepUp() ?? .unavailable }
         home = HomeModels(site: site, files: files, thisPhone: vault.deviceIDOnBox)
+        sealedCopy = SealedCopyModel(app: self, siteId: siteId)
         sites.setCurrent(siteId)
         site.start()
         recovering = false
@@ -229,6 +232,7 @@ public final class AppModel {
         let box = SimulatedBox(scheduler: scheduler)
         demoBox = box
         home = HomeModels(site: site, files: nil, thisPhone: "Qm94T3du")
+        sealedCopy = nil
         isDemo = true
         recovering = false
         offeredLink = nil
@@ -241,6 +245,7 @@ public final class AppModel {
         guard isDemo else { return }
         home?.site.destroy()
         home = nil
+        sealedCopy = nil
         demoBox = nil
         isDemo = false
         if let current = sites.current() { open(current.siteId) }
@@ -254,6 +259,7 @@ public final class AppModel {
     public func leave() {
         home?.site.destroy()
         home = nil
+        sealedCopy = nil
         vault.reset()
         sites.clear()
         files?.clear()

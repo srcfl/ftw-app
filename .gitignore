@@ -27,5 +27,8 @@ iosApp/Pods/
 keystore.properties
 
 # Swift package
-appleApp/.build/
-appleApp/.swiftpm/
+appleApp/FTWKit/.build/
+appleApp/FTWKit/.swiftpm/
+appleApp/build/
+appleApp/FTW.xcodeproj/project.xcworkspace/xcuserdata/
+appleApp/FTW.xcodeproj/xcuserdata/

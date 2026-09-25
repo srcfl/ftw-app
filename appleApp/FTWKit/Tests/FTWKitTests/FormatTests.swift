@@ -143,4 +143,58 @@ import Testing
         #expect(overlaid[F.evW] == 7400)
         #expect(overlaid[F.loadW] == 1600)
     }
+
+    @Test func theBandMatchesTheWebAppsCases() {
+        func band(_ carrier: CarrierKind, transport: CarrierKind = .none, _ src: SourceState, age: Double?, _ phase: SessionPhase, wait: Double = 0, boot: Int? = nil, noCarrier: Bool = false) -> Freshness.Band {
+            Freshness.band(carrier: carrier, transport: transport, srcState: src, ageMs: age, phase: phase, waitMs: wait, bootPct: boot, noCarrier: noCarrier)
+        }
+        // A decision about the phone is not a connection fault.
+        let ended = band(.none, .stale, age: 7_200_000, .terminated)
+        #expect(ended.message == "Access ended")
+        // No carrier at all: no promise of a retry.
+        let lost = band(.none, .stale, age: 60_000, .failed, noCarrier: true)
+        #expect(lost.message == "Can't reach your box")
+        #expect(lost.tone == .lost)
+        #expect(lost.wait == nil)
+        // A carrier healing itself says so, with its elapsed time.
+        let healing = band(.none, .stale, age: 60_000, .failed, wait: 7_000)
+        #expect(healing.message == "Reconnecting to your box")
+        #expect(healing.wait == "7s")
+        #expect(healing.age == "1 min ago")
+        // Live only for live readings.
+        let quiet = band(.relay, .stale, age: 5_000, .streaming)
+        #expect(quiet.message == "Encrypted relay connected · readings")
+        #expect(quiet.tone == .stale)
+        #expect(!quiet.message.lowercased().contains("live"))
+        #expect(band(.relay, .live, age: 0, .streaming).message == "Live via encrypted relay")
+        #expect(band(.relay, .live, age: 0, .streaming).age == nil)
+        // A starting box shows its own progress.
+        let booting = band(.none, transport: .relay, .stale, age: 5_000, .booting, boot: 40)
+        #expect(booting.message == "Your box is starting")
+        #expect(booting.wait == "40%")
+        // After a restart the box cannot place the reading: a dash, never a guess.
+        #expect(band(.cache, transport: .relay, .stale, age: nil, .handshaking).age == "—")
+        #expect(band(.cache, transport: .relay, .stale, age: nil, .handshaking).message == "Securing encrypted relay")
+    }
+
+    @Test func thePriceCardFindsTheCheapestTwoHoursAhead() {
+        let hour = 3_600_000.0
+        let day = 1_750_000_000_000.0
+        let totals: [Double] = [100, 120, 40, 30, 35, 200, -5, 90]
+        let slots = totals.enumerated().map { PriceSlot(startMs: day + Double($0.offset) * hour, durationMs: hour, spotMinor: $0.element, totalMinor: $0.element) }
+        let prices = Prices(zone: "SE3", currency: "SEK", slots: slots, stale: false)
+        let s = PriceStrip.summary(prices, nowMs: day + 1.5 * hour)
+        #expect(s.current?.totalMinor == 120)
+        // The slot already over is not ahead.
+        #expect(s.bars.count == 7)
+        #expect(s.bars.first?.current == true)
+        #expect(s.bars.first(where: { $0.minor == -5 })?.tone == .negative)
+        #expect(s.bars.first(where: { $0.minor == 200 })?.tone == .dear)
+        #expect(s.bars.first(where: { $0.minor == 30 })?.tone == .cheap)
+        // 30 then 35 beats 40 then 30: two whole hours in a row, the lowest mean.
+        #expect(s.cheapest == PriceStrip.Block(meanMinor: 32.5, startMs: day + 3 * hour, endMs: day + 5 * hour))
+        #expect(PriceStrip.text(144.4, "SEK") == "144")
+        #expect(PriceStrip.text(14.44, "SEK") == "14.4")
+        #expect(PriceStrip.text(nil, "SEK") == "—")
+    }
 }

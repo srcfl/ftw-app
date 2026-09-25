@@ -276,3 +276,56 @@ import Testing
         #expect(world.escrow.rows.count == 1)
     }
 }
+
+@MainActor
+@Suite struct SealedCopyTests {
+    @Test func theSwitchFollowsWhatTheEscrowHolds() async throws {
+        let world = ShellTests.World()
+        let app = world.app()
+        let pair = PairModel(app: app)
+        let t = Task { await pair.pair(world.pairingURL) }
+        await world.run(500)
+        await t.value
+        await world.run(200)
+        let copy = try #require(app.sealedCopy)
+        // Pairing sealed a copy in the background; the screen reads it again.
+        copy.reload()
+        #expect(copy.kept)
+        #expect(world.escrow.rows.values.first?.blob.isEmpty == false)
+
+        let off = Task { await copy.set(false) }
+        await world.run(200)
+        await off.value
+        #expect(!copy.kept)
+        #expect(copy.stage == .idle)
+        #expect(app.sites.all().first?.escrow == false)
+        #expect(world.escrow.rows.values.first?.blob.isEmpty == true)
+
+        let on = Task { await copy.set(true) }
+        await world.run(200)
+        await on.value
+        #expect(copy.kept)
+        #expect(app.sites.all().first?.escrow == true)
+        #expect(world.escrow.rows.values.first?.blob.isEmpty == false)
+    }
+
+    @Test func aDeclinedPasskeyPutsTheMarkBack() async throws {
+        let world = ShellTests.World()
+        let app = world.app()
+        let pair = PairModel(app: app)
+        let t = Task { await pair.pair(world.pairingURL) }
+        await world.run(500)
+        await t.value
+        await world.run(200)
+        let copy = try #require(app.sealedCopy)
+        copy.reload()
+        world.passkeys.cancel = true
+        let off = Task { await copy.set(false) }
+        await world.run(200)
+        await off.value
+        #expect(copy.kept)
+        #expect(copy.stage == .idle)
+        #expect(copy.problem == nil)
+        #expect(app.sites.all().first?.escrow == true)
+    }
+}

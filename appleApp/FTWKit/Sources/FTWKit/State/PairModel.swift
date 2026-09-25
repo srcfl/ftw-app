@@ -112,6 +112,12 @@ public final class PairModel {
         app.paired(known.siteId)
     }
 
+    /// A picture was read and held no pairing code.
+    public func noCodeFound() {
+        stage = .intro
+        message = "There is no FTW pairing code in that picture. Try a closer screenshot of the QR."
+    }
+
     public func tryDemo() {
         stage = .demoing
         app.startDemo()

@@ -2,7 +2,7 @@
 //
 // FTWKit: everything the native app does that is not a pixel. Pairing, the
 // passkey derivations, Noise IK, frames, the relay, the session and the
-// state each screen reads. The SwiftUI app in FTW/ is a thin layer over it.
+// state each screen reads. The SwiftUI app in ../FTW is a thin layer over it.
 //
 // It builds and tests on Linux as well as on Apple platforms, so the
 // protocol can be checked anywhere Swift runs. CryptoKit provides the

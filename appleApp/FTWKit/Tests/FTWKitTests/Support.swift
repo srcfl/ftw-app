@@ -57,6 +57,7 @@ enum RepoFiles {
         URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent() // FTWKitTests
             .deletingLastPathComponent() // Tests
+            .deletingLastPathComponent() // FTWKit
             .deletingLastPathComponent() // appleApp
             .deletingLastPathComponent() // repository
     }

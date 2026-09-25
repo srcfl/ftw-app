@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Test
-        working-directory: appleApp
+        working-directory: appleApp/FTWKit
         run: swift test
 
   apple:
@@ -33,5 +33,19 @@ jobs:
           sudo xcode-select -s "$latest"
           xcodebuild -version
       - name: Test FTWKit with CryptoKit
-        working-directory: appleApp
+        working-directory: appleApp/FTWKit
         run: swift test
+      # Unsigned builds: they prove the app compiles for both platforms.
+      # Signing, passkeys and the camera need a team and a device.
+      - name: Build the app for the iOS Simulator
+        working-directory: appleApp
+        run: >-
+          xcodebuild build -quiet -project FTW.xcodeproj -scheme FTW
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath build/ios CODE_SIGNING_ALLOWED=NO
+      - name: Build the app for macOS
+        working-directory: appleApp
+        run: >-
+          xcodebuild build -quiet -project FTW.xcodeproj -scheme FTW
+          -destination 'generic/platform=macOS'
+          -derivedDataPath build/macos CODE_SIGNING_ALLOWED=NO
