@@ -341,8 +341,10 @@ public struct HistQuery: Sendable {
         var pairs: [(String, CBOR)] = [
             ("series", .array(series.map { .text($0) })),
             ("res", .text(res.rawValue)),
-            ("fromMs", .number(fromMs)),
-            ("toMs", .number(toMs)),
+            // Whole milliseconds: the box reads these into int64 and drops a
+            // query whose times carry a fraction.
+            ("fromMs", .ms(fromMs)),
+            ("toMs", .ms(toMs)),
         ]
         if !have.isEmpty {
             pairs.append(("have", .array(have.map { .map([("tileId", .text($0.tileId)), ("etag", .text($0.etag))]) })))

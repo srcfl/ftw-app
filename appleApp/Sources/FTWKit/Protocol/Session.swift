@@ -300,7 +300,7 @@ public final class Session {
     public func prices(fromMs: Double, toMs: Double) async throws -> Prices {
         guard carrier != nil else { throw SessionError.noCarrier }
         let id = takeRequestID()
-        let frame = try Frame.encodeBulk(envelope: Envelope(t: "price.get", id: id, b: .map([("fromMs", .number(fromMs)), ("toMs", .number(toMs))])))
+        let frame = try Frame.encodeBulk(envelope: Envelope(t: "price.get", id: id, b: .map([("fromMs", .ms(fromMs)), ("toMs", .ms(toMs))])))
         return try await withCheckedThrowingContinuation { cont in
             let timer = scheduler.after(Self.priceTimeoutMs) { [weak self] in
                 guard let p = self?.pendingPrices.removeValue(forKey: id) else { return }
@@ -394,7 +394,7 @@ public final class Session {
             ("op", .text(op)),
             ("args", .map(args)),
             // Box uptime, the only clock both ends agree on.
-            ("notValidAfterMs", .number(state.uptimeMs + Self.cmdValidForMs)),
+            ("notValidAfterMs", .ms(state.uptimeMs + Self.cmdValidForMs)),
             ("expect", .map([
                 ("rev", .unsigned(state.controlRev)),
                 ("guards", .array(guards.map { .map([("fid", .int($0.fid)), ("op", .text($0.op)), ("value", .number($0.value))]) })),

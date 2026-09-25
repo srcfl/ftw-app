@@ -91,11 +91,26 @@ public final class SimulatedBox {
             if first { sendSnap() }
             restartTelemetry()
         case "plan.get": sendBulk(Envelope(t: "plan", id: env.id, b: planCBOR()))
-        case "price.get": sendBulk(Envelope(t: "price", id: env.id, b: pricesCBOR(from: body["fromMs"]?.double ?? scheduler.nowMs, to: body["toMs"]?.double ?? scheduler.nowMs + 86_400_000)))
-        case "hist.query": onHistory(env.id, body)
+        case "price.get":
+            // The box decodes times into int64 and drops a body with a
+            // fraction in one, answering nothing. So does this.
+            guard let from = Self.wholeMs(body["fromMs"]), let to = Self.wholeMs(body["toMs"]) else { return }
+            sendBulk(Envelope(t: "price", id: env.id, b: pricesCBOR(from: from, to: to)))
+        case "hist.query":
+            guard Self.wholeMs(body["fromMs"]) != nil, Self.wholeMs(body["toMs"]) != nil else { return }
+            onHistory(env.id, body)
         case "api.req": onAPI(env.id, body)
         case "cmd": onCommand(body)
         default: break
+        }
+    }
+
+    /// An integer, as Go's int64 decoding demands; a float is refused.
+    static func wholeMs(_ c: CBOR?) -> Double? {
+        switch c {
+        case .unsigned(let u)?: return Double(u)
+        case .negative(let n)?: return -1 - Double(n)
+        default: return nil
         }
     }
 

@@ -45,6 +45,10 @@ extension CBOR {
 
     public static let emptyMap = CBOR.map([Entry]())
 
+    /// A time in whole milliseconds. The box decodes every time into an
+    /// int64 and refuses a fraction, where JavaScript's clock never has one.
+    public static func ms(_ v: Double) -> CBOR { .int(Int64(v.rounded())) }
+
     /// A number as JavaScript would put it on the wire: an integer when it is
     /// one, a double otherwise. The web app sends `hz: 1` and `hz: 0.2`, and
     /// the box reads either into a float.

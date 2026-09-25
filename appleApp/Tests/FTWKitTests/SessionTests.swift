@@ -248,6 +248,17 @@ import Testing
         #expect(frame.value("load_w", at: 0) != nil)
     }
 
+    @Test func timesGoOutAsWholeMilliseconds() async throws {
+        // A real box drops a query whose times carry a fraction, and a
+        // phone's clock has one. Found against a live box.
+        let rig = Rig()
+        await rig.run(200)
+        let at = rig.scheduler.nowMs + 0.25
+        let task = Task { try await rig.session.prices(fromMs: at, toMs: at + 3_600_000.5) }
+        await rig.run(200)
+        #expect(try await task.value.slots.isEmpty == false)
+    }
+
     @Test func pricesAndThePlanAreAsked() async throws {
         let rig = Rig()
         await rig.run(200)
