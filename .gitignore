@@ -25,3 +25,7 @@ iosApp/Pods/
 # Secrets
 *.jks
 keystore.properties
+
+# Swift package
+appleApp/.build/
+appleApp/.swiftpm/
