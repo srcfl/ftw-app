@@ -1,0 +1,37 @@
+name: Apple
+
+on:
+  push:
+    branches: [main]
+    paths: ['appleApp/**', 'protocol/**', '.github/workflows/apple.yml']
+  pull_request:
+    paths: ['appleApp/**', 'protocol/**', '.github/workflows/apple.yml']
+
+concurrency:
+  group: apple-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kit-linux:
+    name: FTWKit on Linux
+    runs-on: ubuntu-latest
+    container: swift:6.1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        working-directory: appleApp
+        run: swift test
+
+  apple:
+    name: FTWKit and the app on macOS
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the newest Xcode on the runner
+        run: |
+          latest=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select -s "$latest"
+          xcodebuild -version
+      - name: Test FTWKit with CryptoKit
+        working-directory: appleApp
+        run: swift test
