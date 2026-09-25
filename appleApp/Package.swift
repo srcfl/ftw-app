@@ -18,7 +18,9 @@ let package = Package(
         .library(name: "FTWKit", targets: ["FTWKit"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/apple/swift-crypto.git", "4.0.0"..<"6.0.0"),
+        // Below 5, whose manifest needs Swift 6.2: Xcode 16 must still
+        // resolve this package even though it links it nowhere.
+        .package(url: "https://github.com/apple/swift-crypto.git", "3.0.0"..<"5.0.0"),
     ],
     targets: [
         .target(
