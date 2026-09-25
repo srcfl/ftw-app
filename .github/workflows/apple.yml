@@ -49,3 +49,17 @@ jobs:
           xcodebuild build -quiet -project FTW.xcodeproj -scheme FTW
           -destination 'generic/platform=macOS'
           -derivedDataPath build/macos CODE_SIGNING_ALLOWED=NO
+      # For whoever reviews the screens: the demo, photographed per tab in
+      # the simulator. Evidence, not a gate, so a flaky simulator does not
+      # turn the build red.
+      - name: Photograph the demo in the iOS Simulator
+        continue-on-error: true
+        working-directory: appleApp
+        run: scripts/demo-screenshots.sh build/screenshots
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-screenshots
+          path: appleApp/build/screenshots
+          if-no-files-found: ignore

@@ -14,6 +14,10 @@ struct FTWApp: App {
         let model = AppModel(store: store, files: files, passkeys: Passkeys(), build: AppInfo.build, ua: AppInfo.userAgent)
         // A paired phone paints its cached home before anything else runs.
         model.launch()
+        #if DEBUG
+        // For screenshots in CI: `-FTWDemo YES` opens the simulated home.
+        if UserDefaults.standard.bool(forKey: "FTWDemo") { model.startDemo() }
+        #endif
         _app = State(initialValue: model)
         network = NetworkWatch { [weak model] in model?.networkOnline() }
     }

@@ -21,8 +21,18 @@ struct RootView: View {
     }
 }
 
-enum HomeTab: Hashable {
+enum HomeTab: String, Hashable {
     case now, plan, history, box
+
+    /// Where a home opens. Debug builds take `-FTWTab plan` and the like, so
+    /// CI can photograph every screen of the demo.
+    static var initial: HomeTab {
+        #if DEBUG
+        return UserDefaults.standard.string(forKey: "FTWTab").flatMap(HomeTab.init(rawValue:)) ?? .now
+        #else
+        return .now
+        #endif
+    }
 }
 
 /// Which charger's sheet is open. Nil id means every charger.
@@ -34,7 +44,7 @@ struct ChargerRequest: Identifiable, Equatable {
 struct HomeView: View {
     let app: AppModel
     let home: HomeModels
-    @State private var tab: HomeTab = .now
+    @State private var tab: HomeTab = .initial
     @State private var charger: ChargerRequest?
 
     var body: some View {
