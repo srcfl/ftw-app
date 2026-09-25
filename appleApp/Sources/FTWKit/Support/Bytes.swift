@@ -43,7 +43,8 @@ extension Array where Element == UInt8 {
 }
 
 extension Data {
-    public var bytes: Bytes { Bytes(self) }
+    /// Not `bytes`: newer Foundation already has a `Data.bytes` span.
+    public var byteArray: Bytes { Bytes(self) }
 }
 
 /// Concatenate byte runs without an intermediate array per step.
