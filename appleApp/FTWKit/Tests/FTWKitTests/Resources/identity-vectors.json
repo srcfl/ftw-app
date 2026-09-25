@@ -1,0 +1,64 @@
+{
+  "note": "Generated from srcfl/ftw-webapp by the FTWKit identity vector script. Do not hand-edit.",
+  "rendezvous": {
+    "secret": "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff",
+    "handles": [
+      {
+        "epoch": 0,
+        "handle": "beed4f23fe34a00e59330db079679919"
+      },
+      {
+        "epoch": 42,
+        "handle": "446ac61f697e3fc056fee30aa17af119"
+      },
+      {
+        "epoch": 493827,
+        "handle": "678f644aee950c0bffd06f85819862db"
+      }
+    ]
+  },
+  "prf": {
+    "output": "a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf",
+    "credentialId": "Y3JlZC0x",
+    "lookupId": "yZ3HcAQb54jgUNmy5i-ncFpsg9g9fSTIGxy-k_TiszU",
+    "writeKey": "df14a14ef739adeac0cea8e5224a50476e27571b91b0e47584eefc494ce5bfc0",
+    "signedMessage": "6674772d657363726f773a76313a74657374",
+    "signature": "6ee8f87feb18e696bf053c9051ba8ba7336ffdb51cc67f2751e63542e9c2ae6f0c272be1e74611d6758ffa9a72611476009e45a54b4c47dfbff40c808520810d"
+  },
+  "recoveryBlob": {
+    "escrowVersion": 7,
+    "sealed": "022af5ddaf04748e7c57aefafd2cb96bf088426225297f2444547814a5c07dee323e74d9ddea720057c52f0ea1f1533287ff32577a05d8a4be010c6423ba946b1ef37be68f55f7e894bc1c1b76c1bdfd15bdaf91600d83b4afcf1236af305ba9861c9dab95ac3c31ef1a0f3eac34781b331e1dfed76274ad8e7dcb7c4e2aacb8ff139c893b8c3b8cfd10a0ee607256765c660610b3bb80d2c4f5c3aa7412b1dad13bd6f315f727a40089d1f047444c934c4d4c08b457e6609a26b3047529336eb0c1bfbad01f3b968d8b4c3da975eef85ab56485c64af335f98c1a9ae5f91f8432cf71a479cd39adb30757708f5d0b223f10e437606558835745c636f8f7cc1e05c4aa828be564744aef33de858d5c98a39a21744e041ca9f913e91594718cbc2293fcd1d47303f6b2b80e391d45ceeb7e7cd8553838033286079cef8036f5d10edd75b49d8bba89c36e083e78ac56a37727aa572a26d53bf0a864443f9b92a3cd1b0696421c54aaacfb2c447e03ad0233e745c9063a2bd56f3f622367b30cf0123e30786ac6dda668310e0e5d3d8f5832d6a9c5db8772bd143bb3b75de5fbe3efd2a1334f2d02e77e50e16d7749bb8480ab1de7da42f7790e801e2562a0660410f47133c87ff17ebdcf452ffb914766733e8a1daea322387d6d1af0d17cd59b35d0e352738f761feb8ef8baf78ef0f193c417f00990fbe45039fe52561e87be",
+    "deviceScalar": "5f5f5f5f5f5f5f5f6060606060606060717171717171717182828282828282f2",
+    "homes": [
+      {
+        "siteId": "deb7e3fa44c17f16",
+        "label": "Home",
+        "boxStaticKey": "97f74fb8f22ab62e60f9d725835a928ae111775f1cb013375603120c159cb807",
+        "rendezvousSecret": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      {
+        "siteId": "cabin-0001",
+        "label": "Stugan 🌲",
+        "boxStaticKey": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "rendezvousSecret": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+    ]
+  },
+  "vaultCopy": {
+    "publicKey": "97f74fb8f22ab62e60f9d725835a928ae111775f1cb013375603120c159cb807",
+    "devicePublicFromVault": "97f74fb8f22ab62e60f9d725835a928ae111775f1cb013375603120c159cb807",
+    "iv": "f5d0d835d4ad37910c35399d",
+    "ct": "24a5d928204136e3808b3e2c3ac862ea55e71b9a91ff373fb2224bfcad6e06d245aafa30e18cd8d8aacad79d9f43976083c4c85381c6f176a8fc6adb51ac6fe5",
+    "scalar": "5f5f5f5f5f5f5f5f6060606060606060717171717171717182828282828282f2"
+  },
+  "enrollment": {
+    "url": "https://app.ftw.energy/p#v2.l_dPuPIqti5g-dclg1qSiuERd18csBM3VgMSDBWcuAc.ASNFZ4mrze8BI0VniavN7w.MTkyLjE2OC4xLjIwOjgwODA.ERERERERERERERERERERERERERERERERERERERERERE",
+    "boxStaticPublic": "97f74fb8f22ab62e60f9d725835a928ae111775f1cb013375603120c159cb807",
+    "pairingCode": "0123456789abcdef0123456789abcdef",
+    "lanHint": "192.168.1.20:8080",
+    "rendezvousSecret": "1111111111111111111111111111111111111111111111111111111111111111",
+    "siteId": "deb7e3fa44c17f16",
+    "fingerprint": "DEB7E3",
+    "deviceIdOnBox": "l_dPuPIq"
+  }
+}

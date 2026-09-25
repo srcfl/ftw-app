@@ -1,6 +1,7 @@
 # FTW native app — project guide
 
-Kotlin Multiplatform shared logic. SwiftUI on iOS. Jetpack Compose on Android.
+Pure Swift on iPhone, iPad and Mac: FTWKit plus SwiftUI in `appleApp/`.
+Kotlin Multiplatform shared logic with Jetpack Compose on Android.
 Talks to an FTW box over an encrypted session; the box is the authority and
 this app is a cached projection of it.
 
@@ -17,15 +18,22 @@ and useful notifications. Those goals do not remove the current native release
 gates below or claim features are present on either phone. Reuse Core's
 contracts and authority as native scope expands.
 
-## Current v1
+## Current scope
 
-Pair + Now only. Shipped on `main` as of 2026-08-22. Persist vault, site and
-last readings on the phone. Cold start paints the cache, then reconnects
-without a passkey. README Status lists what was proven and what is still open.
+**Apple (`appleApp/`).** On 2026-09-25 Fredrik chose a pure Swift app for
+iOS and macOS that covers every screen of the web app: Pair, Now, Plan,
+History with daily energy, the charger sheet, and Box (access,
+notifications, restart, the sealed copy, sign out). It derives the wrap key
+with HKDF exactly as the web app does, so one passkey opens a home in both.
+README Status lists what is proven and what still needs a device.
 
-Do not add Energy / History / Plan / EV, commands, escrow, LAN, push, or store
-listing until Pair + Now is solid on both phones, including wrap-key parity
-with the web app.
+**Android (`androidApp/`, `shared/`).** Pair + Now, shipped on `main` as of
+2026-08-22. Do not add Energy / History / Plan / EV, commands, escrow, LAN,
+push, or store listing on Android until Pair + Now is solid there, including
+wrap-key parity with the web app.
+
+Both: persist vault, site and last readings on the phone. Cold start paints
+the cache, then reconnects without a passkey.
 
 The protocol, the QR, the relay and the identity model are specified in
 [ftw-webapp](https://github.com/srcfl/ftw-webapp) `docs/architecture.md` and
@@ -62,21 +70,24 @@ The protocol, the QR, the relay and the identity model are specified in
 
 ## Shared vs UI
 
-`shared/` owns enrollment parse, rendezvous handles, Noise IK, frames,
-session, vault wrap/unwrap, freshness and explanations.
+On Apple, `appleApp/FTWKit` owns everything that is not a pixel: enrollment
+parse, rendezvous handles, Noise IK, frames, the relay and Noise carriers,
+the session, vault wrap/unwrap, escrow, freshness, explanations and the
+state each screen reads. It builds and tests on Linux too. `appleApp/FTW`
+owns the camera, the passkey ceremony, the Keychain and every pixel. Keep
+logic out of the views: if a sentence or a rule can be tested, it belongs
+in FTWKit with a test.
 
-Platform UI owns the camera, the passkey ceremony, Keychain / Keystore,
-and every pixel.
-
-Inject `PasskeyHost`, `KeyValueStore` and `SocketFactory`. Do not call
-AuthenticationServices or Credential Manager from commonMain. iOS uses
-Keychain. Android uses EncryptedSharedPreferences + a Keystore master key.
+On Android, `shared/` owns the same logic in Kotlin. Inject `PasskeyHost`,
+`KeyValueStore` and `SocketFactory`. Do not call Credential Manager from
+commonMain. Android uses EncryptedSharedPreferences + a Keystore master key.
 
 ## Crypto
 
 Noise_IK_25519_ChaChaPoly_SHA256, Cacophony-tested, must stay byte-identical
 to the TypeScript client and the Go box. Do not swap the primitives for a
-library that has not passed `NoiseTest`.
+library that has not passed `NoiseTest` (Kotlin) or `NoiseTests` (Swift).
+FTWKit uses CryptoKit on Apple platforms and swift-crypto on Linux.
 
 ## RP ID
 
@@ -86,8 +97,13 @@ strands every passkey.
 ## Tests
 
 ```bash
-./gradlew :shared:jvmTest
+./gradlew :shared:jvmTest          # Android shared logic
+cd appleApp/FTWKit && swift test   # Apple logic, on macOS or Linux
 ```
+
+The Apple workflow also builds the app, unsigned, for the iOS Simulator and
+for macOS. Review UI changes in the simulator or on a device; reading the
+source is not enough.
 
 Green before every handoff. New protocol code needs a vector, not only a
 round-trip against itself.
