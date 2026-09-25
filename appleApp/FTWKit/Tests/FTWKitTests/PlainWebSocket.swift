@@ -144,7 +144,9 @@ final class PlainWebSocket: WebSocketConnection {
         if payload.count < 126 {
             out.append(0x80 | UInt8(payload.count))
         } else if payload.count < 65_536 {
-            out += [0x80 | 126, UInt8(payload.count >> 8), UInt8(payload.count & 0xff)]
+            out.append(0x80 | 126)
+            out.append(UInt8(payload.count >> 8))
+            out.append(UInt8(payload.count & 0xff))
         } else {
             out.append(0x80 | 127)
             for shift in stride(from: 56, through: 0, by: -8) { out.append(UInt8(truncatingIfNeeded: payload.count >> shift)) }

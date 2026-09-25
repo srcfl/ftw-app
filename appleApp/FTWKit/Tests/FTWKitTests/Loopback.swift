@@ -58,7 +58,7 @@ final class FakeRelay {
         self.endpoint = endpoint
         endpoint.toApp = { [weak self] bytes in
             guard let self, let socket = self.sockets.last(where: { !$0.closed }) else { return }
-            self.scheduler.after(self.latencyMs) { socket.deliver(bytes) }
+            _ = self.scheduler.after(self.latencyMs) { socket.deliver(bytes) }
         }
     }
 
@@ -67,7 +67,7 @@ final class FakeRelay {
             self.dialled.append(url)
             let socket = FakeSocket(relay: self, events: events)
             self.sockets.append(socket)
-            self.scheduler.after(self.latencyMs) {
+            _ = self.scheduler.after(self.latencyMs) {
                 guard !socket.closed else { return }
                 events.onOpen()
                 if self.boxOnline { events.onText("ready") }
@@ -112,7 +112,7 @@ final class FakeSocket: WebSocketConnection {
     func send(_ data: Bytes) {
         guard !closed else { return }
         sent.append(data)
-        relay.scheduler.after(relay.latencyMs) { [weak self] in
+        _ = relay.scheduler.after(relay.latencyMs) { [weak self] in
             guard let self, !self.closed else { return }
             self.relay.endpoint.receive(data)
         }

@@ -18,15 +18,8 @@ final class Passkeys: PasskeyAuthenticator {
         request.userVerificationPreference = .required
         request.excludedCredentials = descriptors(excludeCredentialIDs)
         request.prf = .inputValues(.init(saltInput1: Data(PRF.vaultSalt)))
-        let credential = try await perform(request)
-        guard let created = credential as? ASAuthorizationPlatformPublicKeyCredentialRegistration else {
-            throw UnexpectedCredential()
-        }
-        return PasskeyOutcome(
-            credentialID: Base64url.encode(created.credentialID.byteArray),
-            prfOutput: created.prf?.first.map(bytes),
-            prfEnabled: created.prf?.isSupported ?? false
-        )
+        let answer = try await perform(request)
+        return PasskeyOutcome(credentialID: Base64url.encode(answer.credentialID.byteArray), prfOutput: answer.prf?.byteArray, prfEnabled: answer.prfSupported)
     }
 
     func assert(credentialIDs: [String]) async throws -> PasskeyOutcome {
@@ -35,25 +28,15 @@ final class Passkeys: PasskeyAuthenticator {
         request.userVerificationPreference = .required
         request.allowedCredentials = descriptors(credentialIDs)
         request.prf = .inputValues(.init(saltInput1: Data(PRF.vaultSalt)))
-        let credential = try await perform(request)
-        guard let asserted = credential as? ASAuthorizationPlatformPublicKeyCredentialAssertion else {
-            throw UnexpectedCredential()
-        }
-        return PasskeyOutcome(
-            credentialID: Base64url.encode(asserted.credentialID.byteArray),
-            prfOutput: asserted.prf.map { bytes($0.first) }
-        )
+        let answer = try await perform(request)
+        return PasskeyOutcome(credentialID: Base64url.encode(answer.credentialID.byteArray), prfOutput: answer.prf?.byteArray)
     }
 
     private func descriptors(_ ids: [String]) -> [ASAuthorizationPlatformPublicKeyCredentialDescriptor] {
         ids.compactMap { try? Base64url.decode($0) }.map { ASAuthorizationPlatformPublicKeyCredentialDescriptor(credentialID: Data($0)) }
     }
 
-    private func bytes(_ key: SymmetricKey) -> Bytes {
-        key.withUnsafeBytes { Bytes($0) }
-    }
-
-    private func perform(_ request: ASAuthorizationRequest) async throws -> ASAuthorizationCredential {
+    private func perform(_ request: ASAuthorizationRequest) async throws -> CeremonyAnswer {
         // One sheet at a time; a second ask while one is up is the same ask.
         pending?.cancel()
         let ceremony = Ceremony(request)
@@ -63,14 +46,42 @@ final class Passkeys: PasskeyAuthenticator {
     }
 }
 
-/// The platform answered with a credential of the other ceremony's kind.
+/// The platform answered with a credential of a kind this app never asked for.
 private struct UnexpectedCredential: Error {}
+
+/// What a ceremony produced, copied out of the platform's credential on the
+/// main actor so only plain values cross back to the caller.
+private struct CeremonyAnswer: Sendable {
+    let credentialID: Data
+    let prf: Data?
+    /// At registration: the platform will evaluate PRF on an assertion even
+    /// when it gave no output yet.
+    let prfSupported: Bool
+
+    init(_ credential: ASAuthorizationCredential) throws {
+        if let created = credential as? ASAuthorizationPlatformPublicKeyCredentialRegistration {
+            credentialID = created.credentialID
+            prf = created.prf?.first.map(Self.data)
+            prfSupported = created.prf?.isSupported ?? false
+        } else if let asserted = credential as? ASAuthorizationPlatformPublicKeyCredentialAssertion {
+            credentialID = asserted.credentialID
+            prf = asserted.prf.map { Self.data($0.first) }
+            prfSupported = asserted.prf != nil
+        } else {
+            throw UnexpectedCredential()
+        }
+    }
+
+    private static func data(_ key: SymmetricKey) -> Data {
+        key.withUnsafeBytes { Data($0) }
+    }
+}
 
 /// One authorization controller and the continuation it answers.
 @MainActor
 private final class Ceremony: NSObject {
     private let controller: ASAuthorizationController
-    private var continuation: CheckedContinuation<ASAuthorizationCredential, Error>?
+    private var continuation: CheckedContinuation<CeremonyAnswer, Error>?
 
     init(_ request: ASAuthorizationRequest) {
         controller = ASAuthorizationController(authorizationRequests: [request])
@@ -79,7 +90,7 @@ private final class Ceremony: NSObject {
         controller.presentationContextProvider = self
     }
 
-    func run() async throws -> ASAuthorizationCredential {
+    func run() async throws -> CeremonyAnswer {
         try await withCheckedThrowingContinuation { continuation in
             self.continuation = continuation
             controller.performRequests()
@@ -90,15 +101,15 @@ private final class Ceremony: NSObject {
         controller.cancel()
     }
 
-    fileprivate func finish(_ result: Result<ASAuthorizationCredential, Error>) {
+    fileprivate func finish(_ result: Result<CeremonyAnswer, Error>) {
         continuation?.resume(with: result)
         continuation = nil
     }
 }
 
-extension Ceremony: @preconcurrency ASAuthorizationControllerDelegate {
+extension Ceremony: ASAuthorizationControllerDelegate {
     func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
-        finish(.success(authorization.credential))
+        finish(Result { try CeremonyAnswer(authorization.credential) })
     }
 
     func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
@@ -111,7 +122,7 @@ extension Ceremony: @preconcurrency ASAuthorizationControllerDelegate {
     }
 }
 
-extension Ceremony: @preconcurrency ASAuthorizationControllerPresentationContextProviding {
+extension Ceremony: ASAuthorizationControllerPresentationContextProviding {
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
         #if os(iOS)
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
