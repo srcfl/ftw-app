@@ -313,9 +313,9 @@ the PR.
   public repository.
 - **France.** Apple asks for nothing with "None". French law (Décret
   2007-663, art. 3–5) still requires a free declaration to ANSSI one month
-  before the app is offered in France. **Decide:** file it, or leave
-  France out of the first release (see [Price and
-  countries](#6-price-and-countries)).
+  before the app is offered in France. Fredrik decided on 12 October 2026
+  that France waits: the first release leaves it out, and the declaration
+  comes later ([Before launching in France](#before-launching-in-france)).
 
 ### 6. Price and countries
 
@@ -330,7 +330,9 @@ the PR.
    "ICP Filing Number Missing". (The iTunes lookup shows "Sourceful
    Energy" in the Chinese store. If Sourceful holds a filing, enter it and
    keep China.)
-4. Untick **Apple silicon Mac** and **Apple Vision Pro**. Apple publishes
+4. Remove **France** until the ANSSI declaration is filed and a month has
+   passed ([Before launching in France](#before-launching-in-france)).
+5. Untick **Apple silicon Mac** and **Apple Vision Pro**. Apple publishes
    iPhone apps there by default; M1 is iPhone only.
 
 Other countries, checked for a free 4+ utility that is not a game:
@@ -341,7 +343,7 @@ Other countries, checked for a free 4+ utility that is not a game:
 | Brazil | Tax forms | Only for developers in Brazil. |
 | Australia, Brazil, Singapore | 18+ download checks | Not for a 4+ app. |
 | Texas, Utah, Louisiana | Age assurance for new accounts (Declared Age Range API) | **Decide with counsel.** M1 has no accounts and no age-dependent content. |
-| France | ANSSI encryption declaration one month ahead (#13's reading) | **Decide:** file it, or leave France out at first. |
+| France | ANSSI encryption declaration one month ahead (#13's reading) | Left out of the first release (step 4). |
 | Russia | — | "Sourceful Energy" is not in the Russian store. **Decide** whether FTW follows. |
 
 ### 7. External TestFlight
@@ -413,6 +415,25 @@ summary says whether Xcode or altool uploaded the build.
 | The bundle version must be higher | A build number was used; run again or tag again. |
 | Agreement missing or expired | The Account Holder must accept it under Business. |
 | Xcode upload failed, then altool succeeded | Nothing to do; Apple got the build. |
+
+## Before launching in France
+
+French law asks the supplier of an encryption product to declare it to
+ANSSI, France's cybersecurity agency, one month before offering it there
+(#13's reading of Décret 2007-663; no lawyer has reviewed it). The
+declaration is free.
+
+1. Take the declaration form (Annex I of the decree) from ANSSI's [forms
+   page](https://cyber.gouv.fr/reglementation/reglementation-identite-confiance-numerique/controles-reglementaires-cryptographie/controle-moyen-de-cryptologie/controle-reglementaire-cryptographie-formulaires/).
+   [Contrôle relatif à un moyen de
+   cryptologie](https://cyber.gouv.fr/reglementation/reglementation-identite-confiance-numerique/controles-reglementaires-cryptographie/controle-moyen-de-cryptologie/)
+   explains what to send. Describe the app's cryptography as in
+   [Encryption and export](#5-encryption-and-export). ANSSI asks the
+   supplier to request a "grand public" (consumer) classification in the
+   same declaration.
+2. Send it to ANSSI as those pages describe, and keep the receipt.
+3. A month after filing: **Pricing and Availability → App Availability →
+   add France**.
 
 ## Later
 
