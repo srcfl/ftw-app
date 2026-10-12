@@ -1,15 +1,16 @@
 # Releasing the iPhone app
 
 CI tests, archives, signs and uploads. A person sets up App Store Connect
-once, then tags each release. This file lists that person's steps in order.
-Checked against Apple's pages on 12 October 2026; Apple moves menus, so
-trust the screen if it differs.
+once, then tags each release. This file lists that person's steps in order:
+first the shortest way onto your own iPhone, then what external testers
+and the App Store need. Checked against Apple's pages on 12 October 2026;
+Apple moves menus, so trust the screen if it differs.
 
 | What | Value |
 |---|---|
 | Seller | Sourceful Labs AB (reg. no. 559382-0458), Kalmar, Sweden |
 | Team ID | `L66M368PZ6` |
-| Bundle IDs | `energy.ftw.app`, `energy.ftw.app.widgets` |
+| Bundle IDs | `energy.ftw.app` (registered), `energy.ftw.app.widgets` |
 | App Group | `group.energy.ftw.app` |
 | Workflow | [`.github/workflows/ios-release.yml`](../.github/workflows/ios-release.yml) |
 | Store texts | [`store/`](store/) |
@@ -17,15 +18,19 @@ trust the screen if it differs.
 
 ## How a build travels
 
-1. A tag `ios-v1.2.3` (or **Run workflow** on the *iOS release* workflow)
-   starts the job on GitHub's `xcode-27` runner.
+1. A tag `ios-v1.2.3` starts the job on GitHub's `xcode-27` runner. The job
+   uses the workflow file in the tagged commit, so any branch that contains
+   it can be tagged. Text after a dash only tells tags apart:
+   `ios-v0.1.0-1` and `ios-v0.1.0-2` both ship version 0.1.0. Once the
+   workflow is on `main`, **Actions → iOS release → Run workflow** also
+   works; it ships `MARKETING_VERSION` from `FTW.xcconfig`.
 2. It runs `swift test`, then archives with Xcode 27.0 and the iOS 27 SDK.
-   The version comes from the tag (a manual run uses `MARKETING_VERSION` in
-   `FTW.xcconfig`); the build number is the run number, with `.2`, `.3` on a
-   re-run.
+   The build number is the run number, with `.2`, `.3` on a re-run.
 3. Xcode signs with the team through the API key and uploads with
    [`ExportOptions.plist`](ExportOptions.plist) (`app-store-connect`,
-   `upload`). The build shows in TestFlight once Apple has processed it.
+   `upload`). If that upload fails, the job exports the `.ipa` and sends it
+   with `xcrun altool --upload-package`, which Apple's "Upload builds" help
+   still lists. The build shows in TestFlight once Apple has processed it.
 
 Without the three secrets the job archives unsigned and reports
 "Upload skipped". A pull request that changes the workflow or the export
@@ -34,18 +39,164 @@ options always takes that path, so it proves the archive without a key.
 Apple has required the iOS 26 SDK for uploads since 28 April 2026 and
 requires the iOS 27 SDK from April 2027. Xcode 27 meets both.
 
-## Once, before the first upload
+## Your own iPhone, from Xcode
 
-### 1. Agreements, identifiers and links
+No App Store Connect, no key. The app is signed for development and runs
+until the profile expires.
 
-- The Account Holder accepts the latest Apple Developer Program License
-  Agreement under **Business**. Until then App Store Connect refuses new
-  apps, and the API key stops working. A free app needs no Paid Apps
-  Agreement.
-- Register the App IDs, the App Group and Associated Domains as
-  [README](../README.md#status-iphone-2026-10-12) lists under "Manual
-  steps before a phone build". Building once in Xcode, signed in to the
-  team, does this too.
+1. On the iPhone, connect it to the Mac once, then **Settings → Privacy &
+   Security → Developer Mode → On**. The iPhone restarts; confirm.
+2. In Xcode: **Settings → Accounts → (+) → Apple Account**, and sign in
+   with an Apple Account in team `L66M368PZ6`.
+3. Unlock the iPhone and tap **Trust** when it asks.
+
+The simplest way: open `appleApp/FTW.xcodeproj`, pick the iPhone above the
+editor, press **⌘R**. From the command line instead, find the iPhone's
+UDID. Run these from the repository's root:
+
+```bash
+xcrun devicectl list devices
+```
+
+Build for it. Automatic signing registers the iPhone and the widget's App
+ID in the team:
+
+```bash
+xcodebuild build -project appleApp/FTW.xcodeproj -scheme FTW -configuration Debug -destination 'platform=iOS,id=<UDID>' -derivedDataPath appleApp/build/device -allowProvisioningUpdates
+```
+
+Install and open it:
+
+```bash
+xcrun devicectl device install app --device <UDID> appleApp/build/device/Build/Products/Debug-iphoneos/FTW.app
+```
+
+```bash
+xcrun devicectl device process launch --device <UDID> energy.ftw.app
+```
+
+## Internal TestFlight, the shortest way
+
+Internal testers are people in the App Store Connect team, up to 100.
+Their builds need no Beta App Review.
+
+### 1. Accept the agreement
+
+The Account Holder accepts the latest Apple Developer Program License
+Agreement under **Business**. Until then App Store Connect refuses new
+apps, and the API key stops working. A free app needs no Paid Apps
+Agreement.
+
+### 2. Create the app
+
+**App Store Connect → Apps → (+) → New App**
+
+| Field | Enter |
+|---|---|
+| Platforms | iOS |
+| Name | `FTW` (see below) |
+| Primary Language | English (U.S.) |
+| Bundle ID | `energy.ftw.app` |
+| SKU | `energy.ftw.app` (cannot change later) |
+| User Access | Full Access |
+
+English is the primary language, so every country without its own text
+shows English. Swedish comes later, under the localization menu in App
+Information.
+
+**The name.** The iTunes Search API found no live app named exactly "FTW"
+in the Swedish or US store on 12 October 2026 (nearest: "FTW Fly", "FTW -
+Step Competition", "FTW Fitness", "FTW Trading"). The search sees only
+live apps, and Apple also holds names for apps not yet released, so the New
+App dialog gives the final answer. If "FTW" is taken, try in this order;
+none was in use:
+
+1. `FTW Energy` (Swedish page: `FTW Energi`)
+2. `FTW – Home Energy` (`FTW – Hemmets energi`)
+3. `FTW by Sourceful`
+
+The name under the icon stays "FTW" whatever the store name.
+
+### 3. Make the API key and add the secrets
+
+**Users and Access → Integrations → App Store Connect API → Team Keys →
+Generate API Key**
+
+- Name: `GitHub ftw-app release`.
+- Access: **Admin**. With an App Manager key, cloud signing fails
+  ("Cloud signing permission error"; [Apple forum
+  thread](https://developer.apple.com/forums/thread/698117)). The reason:
+  the runner has no certificate, so the export signs with a cloud-managed
+  distribution certificate. Apple's [roles
+  table](https://developer.apple.com/support/roles/) gives those to Account
+  Holder and Admin; other roles need a per-user permission, and a team key
+  cannot carry one. Role and name cannot change after creation.
+- Download the `.p8` file. Apple offers it once.
+- The Key ID is in the key's row; the Issuer ID is at the top of the page.
+
+`ASC_KEY_ID` and `ASC_ISSUER_ID` are plain text; `gh` asks for each.
+`ASC_KEY_P8` is the `.p8` file's PEM text as it is, not base64:
+
+```bash
+gh secret set ASC_KEY_ID --repo srcfl/ftw-app
+```
+
+```bash
+gh secret set ASC_ISSUER_ID --repo srcfl/ftw-app
+```
+
+```bash
+gh secret set ASC_KEY_P8 --repo srcfl/ftw-app < AuthKey_XXXXXXXXXX.p8
+```
+
+Then delete the `.p8` from your disk, or keep it in a password manager.
+
+**Safer, when there is time.** An Admin key can do much more than upload
+builds, and any branch's workflow can read a repository secret. The job
+also reads secrets from an environment `app-store`:
+
+1. **srcfl/ftw-app → Settings → Environments → New environment →
+   `app-store`.**
+2. **Deployment branches and tags → Selected branches and tags**: add
+   branch `main` and tag `ios-v*`. Optionally add yourself as a required
+   reviewer.
+3. Set the same three secrets with `--env app-store` added, then delete
+   the repository ones.
+
+### 4. Tag a build
+
+Tag a commit that contains the workflow, for example the head of the
+branch you want to test, and push the tag:
+
+```bash
+git tag ios-v0.1.0-1 && git push origin ios-v0.1.0-1
+```
+
+Follow the run under **Actions → iOS release**. Each run on a clean runner
+may create an "Apple Development" certificate marked "Created via API" for
+the archive; if **Certificates** reports a limit, revoke the old ones.
+
+### 5. Answer the encryption question, if asked
+
+If the build shows **Missing Compliance** in TestFlight, click **Manage**
+next to it and answer as in [Encryption and export](#5-encryption-and-export)
+below. The store-ready branch sets `ITSAppUsesNonExemptEncryption` in
+`FTW-Info.plist`; builds that carry it skip this.
+
+### 6. Add yourself as a tester
+
+**Apps → FTW → TestFlight → Internal Testing → (+)**: group `Sourceful`.
+Add yourself and others from the App Store Connect team, and turn on
+automatic distribution so each new build reaches the group. On the iPhone,
+install TestFlight from the App Store, signed in with the same Apple
+Account, and accept the invitation.
+
+A build expires after 90 days.
+
+## Before external testers and the App Store
+
+### 1. Links
+
 - `https://app.ftw.energy/.well-known/apple-app-site-association` must
   answer before review: passkeys and pairing links need it
   ([srcfl/ftw-webapp#77](https://github.com/srcfl/ftw-webapp/pull/77)).
@@ -62,39 +213,10 @@ requires the iOS 27 SDK from April 2027. Xcode 27 meets both.
   If `ftw.energy` stays off, replace it with `ftw.sourceful.energy` in
   `store/*/privacy-url.txt`, `support-url.txt` and `marketing-url.txt`.
 
-### 2. Create the app
+### 2. App Information
 
-**App Store Connect → Apps → (+) → New App**
-
-| Field | Enter |
-|---|---|
-| Platforms | iOS |
-| Name | `FTW` (see below) |
-| Primary Language | English (U.S.) |
-| Bundle ID | `energy.ftw.app` |
-| SKU | `energy.ftw.app` (cannot change later) |
-| User Access | Full Access |
-
-English is the primary language, so every country without its own text
-shows English. Then add **Swedish** under the localization menu in App
-Information.
-
-**The name.** The iTunes Search API found no live app named exactly "FTW"
-in the Swedish or US store on 12 October 2026 (nearest: "FTW Fly", "FTW -
-Step Competition", "FTW Fitness", "FTW Trading"). The search sees only
-live apps, and Apple also holds names for apps not yet released, so the New
-App dialog gives the final answer. If "FTW" is taken, try in this order;
-none was in use:
-
-1. `FTW Energy` (Swedish page: `FTW Energi`)
-2. `FTW – Home Energy` (`FTW – Hemmets energi`)
-3. `FTW by Sourceful`
-
-The name under the icon stays "FTW" whatever the store name.
-
-### 3. App Information
-
-**Apps → FTW → App Information** (under General), for each language:
+**Apps → FTW → App Information** (under General), for each language. Add
+**Swedish** from the localization menu first.
 
 | Field | Value |
 |---|---|
@@ -105,7 +227,7 @@ The name under the icon stays "FTW" whatever the store name.
 | Copyright | `2026 Sourceful Labs AB` |
 | Privacy Policy URL (App Privacy) | `store/<lang>/privacy-url.txt` |
 
-### 4. Trader status under the EU Digital Services Act
+### 3. Trader status under the EU Digital Services Act
 
 EU users see the trader's address, phone and email on the product page.
 Apple removes apps without trader status from the EU stores.
@@ -129,7 +251,7 @@ published today is `support@sourceful.energy` on
 [sourceful.energy/contact](https://www.sourceful.energy/contact), which
 ftw-web and FTW's SUPPORT.md link to. No phone number is published.
 
-### 5. App Privacy
+### 4. App Privacy
 
 **Apps → FTW → App Privacy → Get Started → "No, we do not collect data
 from this app" → Save → Publish.**
@@ -154,7 +276,7 @@ The privacy manifest (`PrivacyInfo.xcprivacy`) comes with the store-ready
 branch. Both answers change when FTW Cloud ships: it will hold readable
 data the user turns on.
 
-### 6. Encryption and export
+### 5. Encryption and export
 
 The store-ready branch sets `ITSAppUsesNonExemptEncryption` in
 `FTW-Info.plist`; with the key set, App Store Connect asks nothing per
@@ -171,7 +293,7 @@ French declaration.
 report to the U.S. government", and that US export law applies wherever
 the company sits.
 
-### 7. Price and countries
+### 6. Price and countries
 
 **Monetization → Pricing and Availability**
 
@@ -197,70 +319,24 @@ Other countries, checked for a free 4+ utility that is not a game:
 | Texas, Utah, Louisiana | Age assurance for new accounts (Declared Age Range API) | **Decide with counsel.** M1 has no accounts and no age-dependent content. |
 | Russia | — | "Sourceful Energy" is not in the Russian store. **Decide** whether FTW follows. |
 
-### 8. API key and GitHub secrets
+### 7. External TestFlight
 
-**Users and Access → Integrations → App Store Connect API → Team Keys →
-Generate API Key**
-
-- Name: `GitHub ftw-app release`.
-- Access: **Admin**. App Manager is not enough: Apple's roles table gives
-  cloud-managed distribution certificates to Account Holder and Admin, and
-  other roles only through a per-user setting that team keys cannot have.
-  The runner has no certificate of its own, so the export needs one from
-  the cloud. Role and name cannot change after creation.
-- Download the `.p8` file. Apple offers it once.
-- The Key ID is in the key's row; the Issuer ID is at the top of the page.
-
-Keep the secrets in a GitHub environment that only `main` and release tags
-can use, since an Admin key can do much more than upload builds:
-
-1. **srcfl/ftw-app → Settings → Environments → New environment →
-   `app-store`.**
-2. **Deployment branches and tags → Selected branches and tags**: add
-   branch `main` and tag `ios-v*`. Optionally add yourself as a required
-   reviewer.
-3. Add the secrets there:
-
-   ```bash
-   gh secret set ASC_KEY_ID --env app-store --repo srcfl/ftw-app
-   ```
-
-   ```bash
-   gh secret set ASC_ISSUER_ID --env app-store --repo srcfl/ftw-app
-   ```
-
-   ```bash
-   gh secret set ASC_KEY_P8 --env app-store --repo srcfl/ftw-app < AuthKey_XXXXXXXXXX.p8
-   ```
-
-4. Delete the `.p8` from your disk, or keep it in a password manager.
-
-Each run on a clean runner may create an "Apple Development" certificate
-marked "Created via API" for the archive. If **Certificates** reports a
-limit, revoke the old ones.
-
-### 9. TestFlight
-
-After the first upload: **Apps → FTW → TestFlight**.
+**Apps → FTW → TestFlight**
 
 1. **Additional → Test Information**, for each language:
    - Beta App Description: the first paragraph of `store/<lang>/description.txt`.
-   - Feedback Email: an inbox someone reads (see the decision in step 4).
+   - Feedback Email: an inbox someone reads (see the decision in step 3).
    - Marketing URL and Privacy Policy URL: from `store/<lang>/`.
    - Beta App Review Information: contact, "Sign-in required" off, and
      `store/review-notes.txt` as notes.
-2. **Internal Testing → (+)**: group `Sourceful`. Add App Store Connect
-   users (up to 100) and turn on automatic distribution.
-3. **External Testing → (+)**: group `Beta`. Add the build, then **Submit
-   for Review**. Apple reviews the first build; later builds of the same
-   version usually go out at once. Invite by email or turn on a public link
-   (Open to Anyone, or Filter by Criteria, with a tester limit). Up to
-   10,000 testers.
-4. For each build, **What to Test**: `store/<lang>/release-notes.txt`.
+2. **External Testing → (+)**: group `Beta`. An internal group must exist
+   first. Add the build, then **Submit for Review**. Apple reviews the
+   first build; later builds of the same version usually go out at once.
+   Invite by email or turn on a public link (Open to Anyone, or Filter by
+   Criteria, with a tester limit). Up to 10,000 testers.
+3. For each build, **What to Test**: `store/<lang>/release-notes.txt`.
 
-A build expires after 90 days.
-
-### 10. The App Store version
+### 8. The App Store version
 
 **Apps → FTW → App Store → iOS App → the version**
 
@@ -296,12 +372,13 @@ and the car view.
    ```
 
 3. Watch the *iOS release* run. When it reports the upload, the build
-   appears in TestFlight within minutes to an hour.
-4. Write What to Test, then hand the build to the groups in step 9.
+   appears in TestFlight, usually within an hour.
+4. Write What to Test, then hand the build to the groups.
 
 ## When the upload fails
 
-The run keeps Xcode's export logs as the `export-logs` artifact.
+The run keeps Xcode's export logs as the `export-logs` artifact. The
+summary says whether Xcode or altool uploaded the build.
 
 | Message | Cause |
 |---|---|
@@ -310,6 +387,7 @@ The run keeps Xcode's export logs as the `export-logs` artifact.
 | Private key not installed for an Apple Development certificate | Old API certificates; revoke them under Certificates. |
 | The bundle version must be higher | A build number was used; run again or tag again. |
 | Agreement missing or expired | The Account Holder must accept it under Business. |
+| Xcode upload failed, then altool succeeded | Nothing to do; Apple got the build. |
 
 ## Later
 
