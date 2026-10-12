@@ -17,26 +17,26 @@ struct ChargeNowLiveActivity: Widget {
             ChargeNowBanner(attributes: context.attributes, state: context.state, isStale: context.isStale)
         } dynamicIsland: { context in
             DynamicIsland {
+                // The icon and the timer either side of the camera, the
+                // words below it, where they have the whole width.
                 DynamicIslandExpandedRegion(.leading) {
-                    Label {
-                        Text(ChargeNowActivity.title)
-                    } icon: {
-                        Bolt()
-                    }
-                    .font(.headline)
-                    .padding(.leading, 4)
+                    Bolt()
+                        .font(.title2)
+                        .padding(.leading, 6)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     Elapsed(state: context.state)
                         .font(.title3.weight(.semibold))
-                        .padding(.trailing, 4)
+                        .padding(.trailing, 6)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Since(attributes: context.attributes, state: context.state)
                         Subtitle(attributes: context.attributes, state: context.state, isStale: context.isStale)
                         BackToPlan(loadpointID: context.attributes.loadpointID)
+                            .padding(.top, 8)
                     }
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, 6)
                 }
             } compactLeading: {
                 Bolt()
@@ -63,7 +63,7 @@ struct ChargeNowBanner: View {
 
     var body: some View {
         switch family {
-        case .small: small
+        case .small: ChargeNowSmall(attributes: attributes, state: state, isStale: isStale)
         default: medium
         }
     }
@@ -73,14 +73,15 @@ struct ChargeNowBanner: View {
             HStack(alignment: .center, spacing: 12) {
                 Bolt().font(.title2)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(ChargeNowActivity.since(state, zone: attributes.zone))
-                        .font(.headline)
+                    Since(attributes: attributes, state: state)
                     Subtitle(attributes: attributes, state: state, isStale: isStale)
                 }
+                // The words first; the timer takes what is left.
+                .layoutPriority(1)
                 Spacer(minLength: 8)
                 Elapsed(state: state)
                     .font(.title2.weight(.semibold))
-                    .frame(maxWidth: 110, alignment: .trailing)
+                    .frame(maxWidth: 96, alignment: .trailing)
             }
             if !dim {
                 BackToPlan(loadpointID: attributes.loadpointID)
@@ -88,9 +89,16 @@ struct ChargeNowBanner: View {
         }
         .padding(16)
     }
+}
 
-    /// Smart Stack on the watch and CarPlay: the same facts, tighter.
-    private var small: some View {
+/// Smart Stack on the watch and CarPlay: the same facts, tighter.
+struct ChargeNowSmall: View {
+    let attributes: ChargeNowAttributes
+    let state: ChargeNowActivity.State
+    let isStale: Bool
+    @Environment(\.isLuminanceReduced) private var dim
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
                 Bolt()
@@ -108,6 +116,19 @@ struct ChargeNowBanner: View {
             }
         }
         .padding(10)
+    }
+}
+
+/// "Charging now since 14:02", on one line.
+private struct Since: View {
+    let attributes: ChargeNowAttributes
+    let state: ChargeNowActivity.State
+
+    var body: some View {
+        Text(ChargeNowActivity.since(state, zone: attributes.zone))
+            .font(.headline)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
     }
 }
 

@@ -24,9 +24,3 @@ struct ChargeNowControl: ControlWidget {
         .description(LocalizedStringResource(stringLiteral: ChargeNowActivity.summary))
     }
 }
-
-/// The shared intents, listed for this extension's App Intents metadata:
-/// a control's intent must be known to the app and to the extension.
-struct FTWWidgetIntents: AppIntentsPackage {
-    static var includedPackages: [any AppIntentsPackage.Type] { [FTWSharedIntents.self] }
-}
