@@ -22,33 +22,46 @@ struct CarStatusIntent: AppIntent {
             throw IntentFailure(ChargeNowActivity.openAndRetry)
         }
         let nowMs = Date.now.timeIntervalSince1970 * 1000
-        return .result(dialog: IntentDialog(stringLiteral: answer.spoken(nowMs: nowMs)), snippetIntent: CarCardIntent())
+        return .result(dialog: IntentDialog(stringLiteral: answer.spoken(nowMs: nowMs)), snippetIntent: CarCardIntent(said: answer.headline))
     }
 }
 
 /// The card under the answer. The system runs it again after a button on
-/// it, so it shows the box's newest account.
+/// it, so it shows the box's newest account. The answer Siri gave sits
+/// above the card; the card repeats it only once it has changed.
 struct CarCardIntent: SnippetIntent {
     static let title: LocalizedStringResource = "The car"
     static let isDiscoverable = false
 
+    @Parameter(title: "Said")
+    var said: String?
+
+    init() {}
+
+    init(said: String) {
+        self.said = said
+    }
+
     @MainActor
     func perform() async throws -> some IntentResult & ShowsSnippetView {
-        .result(view: CarCard(answer: IntentRunner.shared?.currentAnswer(), nowMs: Date.now.timeIntervalSince1970 * 1000))
+        .result(view: CarCard(answer: IntentRunner.shared?.currentAnswer(), said: said, nowMs: Date.now.timeIntervalSince1970 * 1000))
     }
 }
 
 struct CarCard: View {
     let answer: CarAnswer?
+    let said: String?
     let nowMs: Double
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let answer {
-                Label {
-                    Text(answer.headline).font(.headline)
-                } icon: {
-                    Image(systemName: Self.symbol(answer.gist)).foregroundStyle(.tint)
+                if answer.headline != said {
+                    Label {
+                        Text(answer.headline).font(.headline)
+                    } icon: {
+                        Image(systemName: Self.symbol(answer.gist)).foregroundStyle(.tint)
+                    }
                 }
                 if !answer.details.isEmpty {
                     VStack(alignment: .leading, spacing: 2) {
