@@ -100,16 +100,20 @@ struct ChargeNowSmall: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
+            // The watch's card is narrow: the timer gets the top line, the
+            // words the one below it.
             HStack(spacing: 6) {
                 Bolt()
-                Text(ChargeNowActivity.title).font(.headline)
-                Spacer(minLength: 4)
-                Elapsed(state: state).font(.headline)
+                Elapsed(state: state)
+                    .font(.headline)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            Text(isStale ? ChargeNowActivity.confirmed(state, zone: attributes.zone) : ChargeNowActivity.sinceShort(state, zone: attributes.zone))
+            Text(isStale ? ChargeNowActivity.confirmed(state, zone: attributes.zone) : ChargeNowActivity.since(state, zone: attributes.zone))
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
             if !dim {
                 BackToPlan(loadpointID: attributes.loadpointID)
                     .font(.caption)
