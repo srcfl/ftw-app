@@ -23,8 +23,10 @@ remain unchanged. See [FTW's contribution guide](https://github.com/srcfl/ftw/bl
 
 ## License of contributions
 
-Contributions to this version use GNU AGPL v3 only with the Energyplan
-combination permission in [LICENSE](LICENSE), including that permission.
+Contributions to this version use GNU AGPL v3 only with both additional
+permissions in [LICENSE](LICENSE): the Energyplan combination permission and
+the app store distribution permission. By contributing, you grant both
+permissions for your contribution.
 Preserve third-party licenses and notices. Sign each commit with the DCO
 as described in [FTW's contribution guide](https://github.com/srcfl/ftw/blob/master/CONTRIBUTING.md).
 A sign-off does not assign copyright or grant commercial relicensing rights.
