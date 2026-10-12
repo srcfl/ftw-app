@@ -11,6 +11,8 @@ struct FTWWidgets: WidgetBundle {
     var body: some Widget {
         PriceWidget()
         PlanWidget()
+        ChargeNowControl()
+        ChargeNowLiveActivity()
     }
 }
 
