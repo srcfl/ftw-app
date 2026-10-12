@@ -48,10 +48,10 @@ import Testing
     /// App Review asks for the privacy policy inside the app. The pages are
     /// srcfl/ftw-web's, in English and Swedish.
     @Test func privacyAndSupportFollowTheLanguage() {
-        #expect(Origin.privacyURL(.en).absoluteString == "https://ftw.energy/privacy")
-        #expect(Origin.privacyURL(.sv).absoluteString == "https://ftw.energy/sv/privacy")
-        #expect(Origin.supportURL(.en).absoluteString == "https://ftw.energy/support")
-        #expect(Origin.supportURL(.sv).absoluteString == "https://ftw.energy/sv/support")
+        #expect(Origin.privacyURL(.en).absoluteString == "https://ftw.sourceful.energy/privacy")
+        #expect(Origin.privacyURL(.sv).absoluteString == "https://ftw.sourceful.energy/sv/privacy")
+        #expect(Origin.supportURL(.en).absoluteString == "https://ftw.sourceful.energy/support")
+        #expect(Origin.supportURL(.sv).absoluteString == "https://ftw.sourceful.energy/sv/support")
         AboutWords.$language.withValue(.sv) {
             #expect(Origin.privacyURL() == Origin.privacyURL(.sv))
         }

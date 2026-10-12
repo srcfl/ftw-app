@@ -31,6 +31,6 @@ public enum Origin {
     }
 
     private static func site(_ language: AboutWords.Language, _ page: String) -> URL {
-        URL(string: "https://ftw.energy/\(language == .sv ? "sv/" : "")\(page)")!
+        URL(string: "https://ftw.sourceful.energy/\(language == .sv ? "sv/" : "")\(page)")!
     }
 }

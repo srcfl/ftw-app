@@ -14,7 +14,7 @@ Apple moves menus, so trust the screen if it differs.
 | App Group | `group.energy.ftw.app` |
 | Workflow | [`.github/workflows/ios-release.yml`](../.github/workflows/ios-release.yml) |
 | Store texts | [`store/`](store/) |
-| Privacy and support | `https://ftw.energy/privacy`, `https://ftw.energy/support` ([srcfl/ftw-web](https://github.com/srcfl/ftw-web)) |
+| Privacy and support | `https://ftw.sourceful.energy/privacy`, `https://ftw.sourceful.energy/support` ([srcfl/ftw-web](https://github.com/srcfl/ftw-web)) |
 
 ## How a build travels
 
@@ -208,7 +208,7 @@ A build expires after 90 days.
   domains → Set up a custom domain → `ftw.energy`**. Then check:
 
   ```bash
-  curl -sI https://ftw.energy/privacy
+  curl -sI https://ftw.sourceful.energy/privacy
   ```
 
   If `ftw.energy` stays off, replace it with `ftw.sourceful.energy` in
