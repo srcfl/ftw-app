@@ -15,7 +15,8 @@ public enum Origin {
     /// The relay. One value, no setting.
     public static let relayURL = URL(string: "wss://relay.ftw.energy")!
 
-    /// Source and licence, as the AGPL asks a network client to offer them.
+    /// The repository. A fork changes this line, as LICENSING.md asks: the
+    /// links in Source & licenses must lead to the fork's own source.
+    /// `BuildSource` pins them to the build's commit.
     public static let sourceURL = URL(string: "https://github.com/srcfl/ftw-app")!
-    public static let licenseURL = URL(string: "https://github.com/srcfl/ftw-app/blob/main/LICENSE")!
 }

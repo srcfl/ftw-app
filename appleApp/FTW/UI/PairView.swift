@@ -22,6 +22,7 @@ struct PairView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 content
+                AboutLink(app: app)
             }
             .padding(20)
             .frame(maxWidth: 520, alignment: .leading)

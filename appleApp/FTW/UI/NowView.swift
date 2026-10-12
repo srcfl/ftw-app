@@ -42,6 +42,7 @@ struct NowView: View {
             home.prices.deactivate()
             home.savings.deactivate()
         }
+        AboutLink(app: app)
     }
 
     /// Paired, and not one reading has ever arrived. A hollow house would
