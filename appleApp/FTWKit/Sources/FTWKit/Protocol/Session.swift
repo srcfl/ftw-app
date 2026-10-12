@@ -133,6 +133,7 @@ public final class Session {
         var ackTimer: Cancellable
         var confirmTimer: Cancellable
         var acked = false
+        var onAck: (@MainActor () -> Void)?
     }
 
     private var pendingPrices: [UInt32: PendingSingle<Prices>] = [:]
@@ -342,8 +343,9 @@ public final class Session {
     /// Express an intent and follow it to its outcome. Three deadlines,
     /// because they are three events: no ack means it never reached the box;
     /// ack but no result means the hardware has not confirmed; a result is
-    /// what actually happened.
-    public func command(_ op: String, args: [(String, CBOR)], guards: [Guard] = []) async throws -> CmdResult {
+    /// what actually happened. `onAck` runs when the box takes the intent,
+    /// so a screen can say so before the result.
+    public func command(_ op: String, args: [(String, CBOR)], guards: [Guard] = [], onAck: (@MainActor () -> Void)? = nil) async throws -> CmdResult {
         guard let carrier else { throw SessionError.noCarrier }
         let cmdId = Self.uuidv7(nowMs: scheduler.nowMs)
         let body = CBOR.map([
@@ -372,7 +374,7 @@ public final class Session {
                 // and the screen has to be able to say so.
                 p.continuation.resume(returning: CmdResult(cmdId: cmdId, state: .unconfirmed))
             }
-            pendingCommands[cmdId] = PendingCommand(continuation: cont, ackTimer: ackTimer, confirmTimer: confirmTimer)
+            pendingCommands[cmdId] = PendingCommand(continuation: cont, ackTimer: ackTimer, confirmTimer: confirmTimer, onAck: onAck)
             carrier.send(frame)
         }
     }
@@ -442,8 +444,10 @@ public final class Session {
         case "cmd.ack":
             guard let cmdId = body["cmdId"]?.string, var p = pendingCommands[cmdId] else { return }
             p.ackTimer.cancel()
+            let first = !p.acked
             p.acked = true
             pendingCommands[cmdId] = p
+            if first { p.onAck?() }
         case "cmd.result":
             let result = CmdResult(body)
             guard let p = pendingCommands.removeValue(forKey: result.cmdId) else { return }

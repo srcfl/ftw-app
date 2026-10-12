@@ -27,6 +27,12 @@ public final class SimulatedBox {
     public var mute = false
     /// Ack commands but never report a result.
     public var neverConfirm = false
+    /// How long the box takes from ack to result: the demo waits as a
+    /// charger write does, so the receipt has a moment to show.
+    public var resultDelayMs: Double = 0
+    /// The box the demo is showing, for the demo's own controls (plug the
+    /// car in or out). Nil outside the demo.
+    public private(set) static weak var current: SimulatedBox?
     public private(set) var receivedCommands: [String] = []
     public private(set) var stepUpsSeen = 0
 
@@ -242,7 +248,14 @@ public final class SimulatedBox {
         }
         sendControl(Envelope(t: "cmd.ack", b: .map([("cmdId", .text(cmdId)), ("leaseId", .text("lease-\(cmdId.prefix(8))")), ("expiresAtMs", .number(uptimeMs + 60_000))])))
         if neverConfirm { return }
+        if resultDelayMs > 0 {
+            scheduler.after(resultDelayMs) { [weak self] in self?.act(cmdId, op, args) }
+        } else {
+            act(cmdId, op, args)
+        }
+    }
 
+    private func act(_ cmdId: String, _ op: String, _ args: CBOR) {
         switch op {
         case Contract.opSetMode:
             guard let mode = args["mode"]?.string, Self.modes.contains(where: { $0.key == mode }) else {
@@ -278,6 +291,7 @@ public final class SimulatedBox {
             }
             house.carSocFraction = max(0, min(1, args["soc"]?.double ?? house.carSocFraction))
             house.carSocSource = "inferred"
+            house.carReportedAtMs = house.carReportedAtMs.map { min($0, scheduler.nowMs - 1) }
             result(cmdId, "applied", observed: house.carSocFraction)
         case Contract.opLoadpointSurplusOnlySet:
             house.surplusOnly = args["surplus_only"]?.bool ?? false
@@ -402,14 +416,21 @@ public final class SimulatedBox {
         case ("GET", "/api/loadpoints"):
             return (200, ["enabled": true, "loadpoints": [loadpointJSON()]])
         case ("GET", "/api/mpc/plan"):
-            return (200, ["plan": ["actions": []], "meta": ["replanning": false, "outdated": false]])
+            var plan: JSON = ["actions": []]
+            if let p = house.carPlan(now) { plan = plan.setting("loadpoint_shortfall_wh", ["garage": .number(p.shortfallWh)]) }
+            return (200, ["plan": plan, "meta": ["replanning": false, "outdated": false]])
         case ("POST", "/api/loadpoints/{id}/vehicle"):
             if let wh = body?["capacity_wh"]?.number, wh >= 1_000 { house.carCapacityWh = wh }
             return (200, ["ok": true])
         case ("PUT", "/api/loadpoints/{id}/schedule"):
+            // The household clock when sent, else the UTC minute read on
+            // today's date: what Core does.
+            let today = Date(timeIntervalSince1970: now / 1000)
+            let clock = body?["time_of_day_min"]?.number.map { Int($0) }
+                ?? EVText.clockFromUTC(Int(body?["time_of_day_min_utc"]?.number ?? 300), at: today, zone: house.timeZone)
             house.schedule = (
                 body?["soc"]?.number ?? 0.8,
-                Int(body?["time_of_day_min_utc"]?.number ?? 300),
+                clock,
                 body?["recurring"]?.bool ?? false,
                 Int(body?["days"]?.number ?? 0),
                 body?["surplus_unlock_bat_soc"]?.number ?? 0
@@ -425,6 +446,11 @@ public final class SimulatedBox {
 
     func loadpointJSON() -> JSON {
         let h = house
+        let now = scheduler.nowMs
+        // A car that reports counts as the car's word for five minutes, as
+        // in Core; after that its report is shown, dated, and FTW estimates.
+        var socSource = h.carSocSource
+        if let at = h.carReportedAtMs, socSource == "vehicle", now - at > 5 * 60_000 { socSource = "inferred" }
         var lp: JSON = [
             "id": "garage",
             "driver_name": "easee",
@@ -433,7 +459,7 @@ public final class SimulatedBox {
             "capacity_source": "user",
             "soc_retention": "session",
             "current_soc": .number(h.carSocFraction),
-            "soc_source": .string(h.carSocSource),
+            "soc_source": .string(h.carPluggedIn ? socSource : ""),
             "current_power_w": .number(h.evWatts),
             "delivered_wh_session": .number(h.sessionWh),
             "min_charge_w": 4_140,
@@ -456,25 +482,50 @@ public final class SimulatedBox {
                 "stop_reason": .string(h.lastBoostStop ?? ""),
             ],
         ]
+        if let at = h.carReportedAtMs, h.carPluggedIn {
+            let age = max(0, (now - at) / 1000).rounded()
+            lp = lp.setting("vehicle_driver", "demo_car")
+            lp = lp.setting("vehicle_soc", .number(h.carSocFraction))
+            lp = lp.setting("vehicle_soc_age_s", .number(age))
+            lp = lp.setting("vehicle_stale", .bool(age > 15 * 60))
+        }
         if let manual = h.manualHoldW {
+            let since = h.manualSinceMs ?? now
+            let state: String
+            if manual == 0 {
+                state = "paused"
+            } else if h.evWatts > 100 {
+                state = "charging"
+            } else if !h.holdActing {
+                state = now - since < h.chargerRampMs / 2 ? "sent" : "accepted"
+            } else {
+                state = "not_drawing"
+            }
             lp = lp.setting("manual", [
                 "active": true,
-                "state": manual == 0 ? "paused" : (h.evWatts > 100 ? "charging" : "sent"),
+                "state": .string(state),
                 "requested_w": .number(manual),
                 "requested_a": .number((manual / 690).rounded()),
+                "started_at_ms": .number(since),
             ])
         }
         if let s = h.schedule {
             lp = lp.setting("schedule", [
-                "soc": .number(s.socFraction), "time_of_day_min_utc": .number(Double(s.minuteUTC)),
+                "soc": .number(s.socFraction),
+                // Today's UTC minute of the household clock, as Core answers.
+                "time_of_day_min_utc": .number(Double(EVText.minuteUTC(clock: s.clockMin, at: Date(timeIntervalSince1970: now / 1000), zone: h.timeZone))),
                 "recurring": .bool(s.recurring), "days": .number(Double(s.days)), "surplus_unlock_bat_soc": .number(s.surplusUnlock),
             ])
-            // The next cheap night, as one window.
-            let midnight = scheduler.nowMs - h.hourOfDay(scheduler.nowMs) * 3_600_000
-            let start = midnight + (h.hourOfDay(scheduler.nowMs) >= 5 ? 25 : 1) * 3_600_000
-            let needWh = max(0, (s.socFraction - h.carSocFraction) * h.carCapacityWh)
-            lp = lp.setting("plan_windows", needWh > 0 ? [["start_ms": .number(start), "end_ms": .number(start + needWh / 11_000 * 3_600_000), "wh": .number(needWh.rounded())]] : [])
             lp = lp.setting("target_soc", .number(s.socFraction))
+            if let deadline = h.deadlineMs(now) {
+                lp = lp.setting("target_time", .string(ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: deadline / 1000))))
+            }
+        }
+        if let p = h.carPlan(now), p.endMs > p.startMs, p.endMs > now {
+            lp = lp.setting("plan_windows", [["start_ms": .number(p.startMs.rounded()), "end_ms": .number(p.endMs.rounded()), "wh": .number(p.wh)]])
+            lp = lp.setting("plan_next_start_ms", .number(p.startMs.rounded()))
+            lp = lp.setting("plan_next_end_ms", .number(p.endMs.rounded()))
+            lp = lp.setting("plan_total_wh", .number(p.wh))
         } else {
             lp = lp.setting("plan_windows", [])
         }
@@ -572,8 +623,73 @@ public final class LoopbackCarrier: Carrier {
 
 extension SimulatedBox {
     /// The demo as `AppModel` takes it: a fresh simulated home behind a
-    /// loopback carrier.
+    /// loopback carrier, a car just plugged in, and a box and charger that
+    /// take a moment to answer, as real ones do.
     public static func loopback(_ scheduler: Scheduler) -> Carrier {
-        LoopbackCarrier(box: SimulatedBox(scheduler: scheduler), scheduler: scheduler)
+        let box = SimulatedBox(scheduler: scheduler)
+        box.resultDelayMs = 900
+        box.house.chargerRampMs = 4_000
+        #if DEBUG
+        // For screenshots: `-FTWDemoCar unplugged` and the like.
+        if let name = UserDefaults.standard.string(forKey: "FTWDemoCar"), let car = DemoCar(rawValue: name) {
+            car.apply(to: box.house, nowMs: scheduler.nowMs)
+        }
+        #endif
+        current = box
+        return LoopbackCarrier(box: box, scheduler: scheduler)
+    }
+
+    /// Plug the demo car in or out.
+    public func setCarPluggedIn(_ on: Bool) {
+        if on { house.plugIn() } else { house.unplug() }
+    }
+}
+
+/// The car situations the demo can open in, so each screen of the car view
+/// can be shown without a box.
+public enum DemoCar: String, CaseIterable, Sendable {
+    /// Plugged in, unread: FTW assumes 20 %. The default.
+    case assumed
+    case unplugged
+    /// A level someone gave FTW, charging since.
+    case estimated
+    /// A car that reports its own level, just now.
+    case car
+    /// A car that last reported 40 minutes ago.
+    case carOld
+    /// A goal the night is too short for.
+    case late
+    /// No goal yet.
+    case noGoal
+    /// Charge now running.
+    case charging
+
+    @MainActor
+    public func apply(to h: SimulatedHouse, nowMs: Double) {
+        switch self {
+        case .assumed: break
+        case .unplugged: h.unplug()
+        case .estimated:
+            h.carSocFraction = 0.46
+            h.carSocSource = "inferred"
+        case .car:
+            h.carReportedAtMs = nowMs - 40_000
+            h.carSocFraction = 0.64
+            h.carSocSource = "vehicle"
+        case .carOld:
+            h.carReportedAtMs = nowMs - 40 * 60_000
+            h.carSocFraction = 0.58
+            h.carSocSource = "vehicle"
+        case .late:
+            h.carSocFraction = 0.35
+            h.carSocSource = "inferred"
+            h.schedule = (0.8, 3 * 60, true, 0, 0)
+        case .noGoal:
+            h.schedule = nil
+        case .charging:
+            h.carSocFraction = 0.46
+            h.carSocSource = "inferred"
+            h.manualHoldW = 11_000
+        }
     }
 }

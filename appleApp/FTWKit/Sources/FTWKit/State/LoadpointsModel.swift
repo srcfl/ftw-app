@@ -2,56 +2,55 @@ import Foundation
 import FTWShared
 import Observation
 
-/// The charger sheet. Everything on it is a fact the box served; the
-/// controls express intent with an expiry, and the box decides. After any
-/// outcome the charger is read again, because the box's account is the
-/// truth to repaint from.
+/// The car view. Everything on it is a fact the box served; the controls
+/// express intent and the box decides. Each command is followed from the
+/// tap to the box's answer and stays on screen, and after any outcome the
+/// charger is read again, because the box's account is the truth to
+/// repaint from.
 @Observable
 @MainActor
 public final class LoadpointsModel: Activatable {
-    public enum Control: Sendable { case hold, boost, soc, surplus }
-    public enum Outcome: Sendable { case hold, release, pause, boost, unboost, soc, surplusOn, surplusOff }
-
-    public enum Command: Sendable {
-        case idle
-        case sending(Control)
-        case applied(Control, Outcome)
-        case unconfirmed(Control)
-        case failed(Control, String)
-
-        public var isSending: Bool { if case .sending = self { return true }; return false }
+    public enum GoalSave: Equatable, Sendable {
+        case saving
+        case saved
+        case removed
+        case failed(String)
     }
 
     public private(set) var points: [Loadpoint] = []
     public private(set) var windows: [String: [Loadpoint.Window]] = [:]
     public private(set) var planMissing = false
-    public private(set) var planPending = false
-    public private(set) var planOutdated = false
     public private(set) var loading = false
     /// Whether the box has ever answered. No answer is not an empty bay.
     public private(set) var loaded = false
     public private(set) var readAtMs: Double?
     public private(set) var error: String?
-    public private(set) var command: Command = .idle
-    public private(set) var commandLoadpointID: String?
-    /// Applied choices stay on screen until a later read confirms them.
-    public private(set) var acceptedSoc: [String: Double] = [:]
-    public private(set) var acceptedSurplus: [String: Bool] = [:]
-
-    // The sheet's drafts, held here so a reread never snaps a control from
-    // under a finger.
-    public var ampsDraft: [String: Int] = [:]
-    public var socDraft: [String: Double] = [:]
-    public var surplusDraft: [String: Bool] = [:]
+    /// The plan's shortfall per car, in battery watt-hours, read while the
+    /// car view is open. Missing means the plan has no goal for that car.
+    public private(set) var shortfallWh: [String: Double] = [:]
+    public private(set) var shortfallReadAtMs: Double?
+    /// The last level and the last charge command per charger, from the
+    /// tap to the box's answer.
+    public private(set) var levelStep: [String: EVText.Step] = [:]
+    public private(set) var holdStep: [String: EVText.Step] = [:]
+    public private(set) var goalSave: [String: GoalSave] = [:]
+    /// A level tapped and not yet answered: what the view shows meanwhile.
+    public private(set) var levelWanted: [String: Double] = [:]
+    /// Levels set from this phone, kept while the car stays plugged in, so
+    /// the view can say "you set it".
+    public private(set) var levelSet: [String: EVText.LevelSet] = [:]
 
     @ObservationIgnored private unowned let site: SiteModel
     @ObservationIgnored private let charging: ChargingWatch?
     @ObservationIgnored private var ask: LiveAsk?
+    @ObservationIgnored private var planAsk: LiveAsk?
     @ObservationIgnored private var active = 0
+    @ObservationIgnored private var planWatchers = 0
     @ObservationIgnored private var token = 0
-    @ObservationIgnored private var settle: Cancellable?
     @ObservationIgnored private var inlinePlan = false
     @ObservationIgnored private var reading: Task<Void, Error>?
+    @ObservationIgnored private var levelSending: Set<String> = []
+    @ObservationIgnored private var clearing: [String: Cancellable] = [:]
 
     public init(site: SiteModel, charging: ChargingWatch?) {
         self.site = site
@@ -74,9 +73,40 @@ public final class LoadpointsModel: Activatable {
         ask?.evaluate()
     }
 
+    /// The car view is open: read the plan's shortfall too, once a minute
+    /// and whenever the car's plan changes.
+    public func watchPlan() {
+        planWatchers += 1
+        if planAsk == nil {
+            planAsk = LiveAsk(site: site, want: { [weak self] in
+                guard let self, self.planWatchers > 0, self.site.documentVisible, self.site.hasPassthrough, self.inlinePlan else { return nil }
+                let goals = self.points.filter { $0.pluggedIn && $0.schedule != nil && !$0.planPending && !$0.planOutdated }
+                guard !goals.isEmpty else { return nil }
+                return "plan \(goals.map(Self.planKey).joined(separator: ",")) \(Int(self.site.nowMs / 60_000))"
+            }, ask: { [weak self] in try await self?.readShortfall() })
+        }
+        planAsk?.evaluate()
+    }
+
+    public func unwatchPlan() {
+        planWatchers = max(0, planWatchers - 1)
+        planAsk?.evaluate()
+    }
+
+    /// What would make a shortfall read out of date for one car.
+    static func planKey(_ lp: Loadpoint) -> String {
+        let s = lp.schedule
+        return "\(lp.id):\(lp.socPct ?? -1):\(s?.socPct ?? -1):\(s?.timeOfDayMinUTC ?? -1):\(lp.planWindows.count):\(Int(lp.planWindows.first?.fromMs ?? 0)):\(Int(lp.planTotalWh ?? 0))"
+    }
+
     /// Out of date: the read failed, the stream stopped, or it is old.
     public var stale: Bool {
         error != nil || site.session.phase != .streaming || (readAtMs.map { site.nowMs - $0 >= 15_000 } ?? false)
+    }
+
+    /// Read now rather than at the next tick.
+    public func reread() {
+        Task { try? await self.loadChargers() }
     }
 
     // MARK: Reads
@@ -95,35 +125,35 @@ public final class LoadpointsModel: Activatable {
     private func readChargers() async throws {
         token += 1
         let mine = token
-        let socChoices = acceptedSoc
-        let surplusChoices = acceptedSurplus
         loading = true
         defer { if mine == token { loading = false } }
         do {
             let wire = try await site.callBox(.get, "/api/loadpoints")
             guard mine == token else { return }
             let list = wire?["loadpoints"]?.array ?? []
+            let before = Dictionary(points.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
             points = list.map(Loadpoint.init)
+            for lp in points {
+                // A level set here belongs to one plug-in.
+                let was = before[lp.id]
+                if !lp.pluggedIn || (was.map { lp.sessionWh + 100 < $0.sessionWh } ?? false) { levelSet[lp.id] = nil }
+            }
             inlinePlan = !points.isEmpty && points.allSatisfy(\.inlinePlan)
             if inlinePlan {
-                planPending = points.contains { $0.planPending }
-                planOutdated = points.contains { $0.planOutdated }
                 windows = Dictionary(uniqueKeysWithValues: points.map { ($0.id, $0.planWindows) })
                 planMissing = false
             }
-            // A read that started before a command cannot confirm its choice.
-            acceptedSoc = acceptedSoc.filter { socChoices[$0.key] != $0.value }
-            acceptedSurplus = acceptedSurplus.filter { surplusChoices[$0.key] != $0.value }
             loaded = true
             readAtMs = site.scheduler.nowMs
             error = nil
             site.shareCars(points, fresh: true)
+            planAsk?.evaluate()
         } catch {
             guard mine == token else { return }
             if let e = error as? BoxAPIError, points.isEmpty {
                 self.error = e.help
             } else {
-                self.error = "Not up to date — your box is out of reach"
+                self.error = AppWords.text("Not up to date — your box is out of reach")
             }
             throw error
         }
@@ -138,19 +168,36 @@ public final class LoadpointsModel: Activatable {
         do {
             let wire = try await site.callBox(.get, "/api/mpc/plan")
             guard mine == token else { return }
-            planPending = wire?["meta"]?["replanning"]?.bool == true
-            planOutdated = wire?["meta"]?["outdated"]?.bool == true
+            let pending = wire?["meta"]?["replanning"]?.bool == true || wire?["meta"]?["outdated"]?.bool == true
             let actions = wire?["plan"]?["actions"]?.array ?? []
             var out = [String: [Loadpoint.Window]]()
             for lp in points {
-                out[lp.id] = planPending || planOutdated || lp.planPending || lp.planOutdated ? [] : Self.chargeWindows(actions, loadpointID: lp.id)
+                out[lp.id] = pending || lp.planPending || lp.planOutdated ? [] : Self.chargeWindows(actions, loadpointID: lp.id)
             }
             windows = out
+            takeShortfall(wire, pending: pending)
             planMissing = false
         } catch {
             guard mine == token else { return }
             planMissing = true
         }
+    }
+
+    private func readShortfall() async throws {
+        let wire = try await site.callBox(.get, "/api/mpc/plan")
+        takeShortfall(wire, pending: wire?["meta"]?["replanning"]?.bool == true || wire?["meta"]?["outdated"]?.bool == true)
+    }
+
+    /// A plan being remade says nothing about whether the car makes it.
+    private func takeShortfall(_ wire: JSON?, pending: Bool) {
+        var out = [String: Double]()
+        if !pending {
+            for (id, wh) in wire?["plan"]?["loadpoint_shortfall_wh"]?.object ?? [] {
+                if let v = wh.number, v.isFinite { out[id] = max(0, v) }
+            }
+        }
+        shortfallWh = out
+        shortfallReadAtMs = site.scheduler.nowMs
     }
 
     /// Adjacent charging slots fold into one window; a person asks when it
@@ -161,189 +208,201 @@ public final class LoadpointsModel: Activatable {
             guard let start = a["slot_start_ms"]?.number, let len = a["slot_len_min"]?.number,
                   let w = a["loadpoint_power_w"]?[loadpointID]?.number, w > 0 else { continue }
             let end = start + len * 60_000
+            let wh = w * len / 60
             if var last = out.last, start <= last.toMs {
                 last.toMs = end
                 last.peakW = max(last.peakW ?? 0, w)
+                last.energyWh = (last.energyWh ?? 0) + wh
                 out[out.count - 1] = last
             } else {
-                out.append(Loadpoint.Window(fromMs: start, toMs: end, peakW: w, energyWh: nil))
+                out.append(Loadpoint.Window(fromMs: start, toMs: end, peakW: w, energyWh: wh))
             }
         }
         return out
     }
 
-    // MARK: Commands
+    // MARK: The level
 
-    /// Charge now: a hold at a chosen current until Stop or an unplug.
-    public func chargeNow(_ lp: Loadpoint, amps: Int) async {
-        await send(Contract.opLoadpointHold, lp.id, [("id", .text(lp.id)), ("power_w", .number(EVText.watts(lp, amps: amps))), ("hold_s", .int(0)), ("phase_mode", .text(EVText.current(lp).phases == 1 ? "1p" : "3p"))], .hold, .hold, CommandText.help)
+    /// The level a person tapped. It goes to the box at once; taps made
+    /// while one is on its way are folded into the next send, so ±5 pressed
+    /// three times sends the last value, not three.
+    public func setLevel(_ lp: Loadpoint, pct: Double) async {
+        let id = lp.id
+        levelWanted[id] = min(100, max(0, pct.rounded()))
+        guard !levelSending.contains(id) else { return }
+        levelSending.insert(id)
+        defer { levelSending.remove(id) }
+        var sent: Double?
+        while let want = levelWanted[id], want != sent {
+            sent = want
+            await follow(id, .level(want), op: Contract.opLoadpointSocSet, args: [("id", .text(id)), ("soc", .number(want / 100))], into: \.levelStep, tag: "level")
+            if case .applied(let seen)? = levelStep[id]?.result {
+                levelSet[id] = EVText.LevelSet(pct: seen.map { ($0 * 100).rounded() } ?? want, atMs: site.scheduler.nowMs)
+            }
+            if levelWanted[id] == want {
+                // Settled and nothing newer: the box's own reading takes over.
+                try? await loadChargers()
+                if levelWanted[id] == want { levelWanted[id] = nil }
+            }
+        }
     }
 
-    public func pauseCharging(_ lp: Loadpoint) async {
-        await send(Contract.opLoadpointHold, lp.id, [("id", .text(lp.id)), ("power_w", .int(0)), ("hold_s", .int(0))], .hold, .pause, CommandText.help)
+    /// The level to show: a tap on its way, else where the car stands.
+    public func level(_ lp: Loadpoint) -> EVText.Level? {
+        guard var level = EVText.level(lp, answeredAtMs: readAtMs ?? site.nowMs, nowMs: site.nowMs, set: levelSet[lp.id]) else { return nil }
+        if let want = levelWanted[lp.id] {
+            level.pct = want
+            level.origin = .you
+            level.atMs = site.nowMs
+            level.setPct = nil
+        }
+        return level
+    }
+
+    // MARK: Charge now, Pause, Back to the plan
+
+    /// Charge now: the charger's full current, held until Back to the plan
+    /// or an unplug. No time limit and no level gate: the level is often a
+    /// guess, and a guess must not lock the owner out (Fredrik, 4 Sep 2026).
+    public func chargeNow(_ lp: Loadpoint) async {
+        let range = EVText.current(lp)
+        await hold(lp, .chargeNow, [("id", .text(lp.id)), ("power_w", .number(EVText.watts(lp, amps: range.maxA))), ("hold_s", .int(0)), ("phase_mode", .text(range.phases == 1 ? "1p" : "3p"))])
+    }
+
+    /// A zero hold: the charger stays off until the owner chooses.
+    public func pause(_ lp: Loadpoint) async {
+        await hold(lp, .pause, [("id", .text(lp.id)), ("power_w", .int(0)), ("hold_s", .int(0))])
     }
 
     /// Release the hold; the plan takes back over.
-    public func stopCharging(_ lp: Loadpoint) async {
-        await send(Contract.opLoadpointHold, lp.id, [("id", .text(lp.id)), ("clear", .bool(true))], .hold, .release, CommandText.help)
+    public func backToPlan(_ lp: Loadpoint) async {
+        await hold(lp, .resume, [("id", .text(lp.id)), ("clear", .bool(true))])
     }
 
-    /// Let the house battery push the car for a bounded while.
-    public func boost(_ lp: Loadpoint, reservePct: Int, durationS: Int) async {
-        await send(Contract.opLoadpointBoost, lp.id, [("id", .text(lp.id)), ("min_battery_soc_pct", .int(reservePct)), ("duration_s", .int(durationS))], .boost, .boost, CommandText.boostHelp)
+    private func hold(_ lp: Loadpoint, _ ask: EVText.Step.Ask, _ args: [(String, CBOR)]) async {
+        if let step = holdStep[lp.id], !step.settled { return }
+        await follow(lp.id, ask, op: Contract.opLoadpointHold, args: args, into: \.holdStep, tag: "hold")
+        try? await loadChargers()
+        charging?.refresh()
     }
 
-    public func stopBoost(_ lp: Loadpoint) async {
-        await send(Contract.opLoadpointBoost, lp.id, [("id", .text(lp.id)), ("cancel", .bool(true))], .boost, .unboost, CommandText.boostHelp)
-    }
-
-    /// Whole percent from the slider, a fraction to the box.
-    public func setSoc(_ lp: Loadpoint, pct: Double) async {
-        await send(Contract.opLoadpointSocSet, lp.id, [("id", .text(lp.id)), ("soc", .number(pct / 100))], .soc, .soc, CommandText.socHelp)
-    }
-
-    public func setSurplusOnly(_ lp: Loadpoint, _ on: Bool) async {
-        await send(Contract.opLoadpointSurplusOnlySet, lp.id, [("id", .text(lp.id)), ("surplus_only", .bool(on))], .surplus, on ? .surplusOn : .surplusOff, CommandText.help)
-    }
-
-    private func send(_ op: String, _ id: String, _ args: [(String, CBOR)], _ of: Control, _ did: Outcome, _ help: (CmdResult) -> String) async {
-        if command.isSending { return }
-        settle?.cancel()
-        commandLoadpointID = id
-        command = .sending(of)
+    /// One command, written into `into` at every stage: sent, received,
+    /// and what the box did or why not.
+    private func follow(_ id: String, _ ask: EVText.Step.Ask, op: String, args: [(String, CBOR)], into path: ReferenceWritableKeyPath<LoadpointsModel, [String: EVText.Step]>, tag: String) async {
+        let key = "\(tag) \(id)"
+        clearing[key]?.cancel()
+        self[keyPath: path][id] = EVText.Step(ask: ask)
+        let result: EVText.Step.Result
         do {
-            let result = try await site.command(op, args: args)
-            switch result.state {
-            case .applied:
-                command = .applied(of, did)
-                if of == .soc, let soc = args.first(where: { $0.0 == "soc" })?.1.double { acceptedSoc[id] = (soc * 100).rounded() }
-                if of == .surplus, let on = args.first(where: { $0.0 == "surplus_only" })?.1.bool { acceptedSurplus[id] = on }
-            case .unconfirmed:
-                command = .unconfirmed(of)
-            default:
-                command = .failed(of, help(result))
+            let r = try await site.core.command(op, args: args, onAck: { [weak self] in
+                guard let self, self[keyPath: path][id]?.ask == ask else { return }
+                self[keyPath: path][id]?.acked = true
+            })
+            switch r.state {
+            case .applied: result = .applied(observed: r.observedValue)
+            case .superseded: result = .superseded(observed: r.observedValue)
+            case .unconfirmed: result = .unconfirmed(note: r.errorCode == nil ? nil : EVText.refusal(r))
+            case .rejected, .expired: result = .refused(EVText.refusal(r))
             }
-        } catch let e as CommandError {
-            command = .failed(of, e.help)
+            self[keyPath: path][id]?.acked = true
         } catch {
-            command = .failed(of, "FTW did not confirm the request. Reading its current state…")
+            result = .refused(EVText.failure(error))
         }
-        if case .applied = command {
-            settle = site.scheduler.after(6_000) { [weak self] in self?.command = .idle }
+        guard self[keyPath: path][id]?.ask == ask else { return }
+        self[keyPath: path][id]?.result = result
+        // A success fades once the screen shows its effect; a refusal stays
+        // until the next tap.
+        if case .applied = result {
+            clearing[key] = site.scheduler.after(Self.doneShownMs) { [weak self] in
+                guard let self, self[keyPath: path][id]?.result == result else { return }
+                self[keyPath: path][id] = nil
+            }
         }
-        try? await loadChargers()
-        charging?.refresh()
     }
 
-    // MARK: Configure routes: schedule, vehicle
+    static let doneShownMs: Double = 20_000
 
-    /// Save a goal in one PUT, so it costs one ceremony at most.
-    public func saveSchedule(_ lp: Loadpoint, socPct: Double, hour: Int, minute: Int, recurring: Bool, days: Int, surplusUnlockPct: Double, calendar: Calendar = .current) async throws {
-        guard let minUTC = EVText.minuteUTC(hour: hour, minute: minute, calendar: calendar) else {
-            throw BoxAPIError(code: "E_BAD_TIME", help: "Choose a valid ready time.", status: nil)
-        }
-        guard !recurring || days != 0 else { throw BoxAPIError(code: "E_NO_DAYS", help: "Choose at least one day.", status: nil) }
-        guard (10...100).contains(socPct) else { throw BoxAPIError(code: "E_BAD_SOC", help: "Choose a charge target from 10 to 100 %.", status: nil) }
-        guard (0...100).contains(surplusUnlockPct) else { throw BoxAPIError(code: "E_BAD_SOC", help: "Choose a home battery level from 1 to 100 %.", status: nil) }
-        _ = try await site.callBox(.put, "/api/loadpoints/\(Self.escape(lp.id))/schedule", body: [
-            "soc": .number(socPct / 100),
-            "time_of_day_min_utc": .number(Double(minUTC)),
-            "recurring": .bool(recurring),
-            "days": .number(Double(!recurring || days == 0x7f ? 0 : days & 0x7f)),
-            "surplus_unlock_bat_soc": .number(surplusUnlockPct / 100),
-        ])
-        try? await loadChargers()
-        charging?.refresh()
-    }
+    // MARK: The goal
 
-    public func removeSchedule(_ lp: Loadpoint) async throws {
-        _ = try await site.callBox(.delete, "/api/loadpoints/\(Self.escape(lp.id))/schedule")
-        // The DELETE confirms the removal even if the reread fails.
-        if let i = points.firstIndex(where: { $0.id == lp.id }) {
-            points[i].schedule = nil
-            points[i].targetSocPct = nil
-        }
-        try? await loadChargers()
-        charging?.refresh()
-    }
-
-    /// The car's usable battery size, 1 to 300 kWh.
-    public func setCapacity(_ lp: Loadpoint, kwh: Double) async throws -> String {
-        guard kwh.isFinite, (1...300).contains(kwh) else {
-            throw BoxAPIError(code: "E_BAD_CAPACITY", help: "Enter the usable battery size from 1 to 300 kWh.", status: nil)
-        }
-        let wh = (kwh * 1000).rounded()
-        _ = try await site.callBox(.post, "/api/loadpoints/\(Self.escape(lp.id))/vehicle", body: ["capacity_wh": .number(wh)])
+    /// Save a goal in one PUT. The ready time goes as the household clock
+    /// and as today's UTC minute: a box that reads the clock takes it, an
+    /// older one reads the minute on today's date, as Core does.
+    public func saveGoal(_ lp: Loadpoint, socPct: Double, clock: Int, recurring: Bool, days: Int, zone: TimeZone) async {
+        guard (0..<1440).contains(clock) else { goalSave[lp.id] = .failed(AppWords.text("Choose a valid ready time.")); return }
+        guard (10...100).contains(socPct) else { goalSave[lp.id] = .failed(AppWords.text("Choose a charge target from 10 to 100 %.")); return }
+        guard !recurring || days & 0x7f != 0 else { goalSave[lp.id] = .failed(AppWords.text("Choose at least one day.")); return }
+        let minuteUTC = EVText.minuteUTC(clock: clock, at: Date(timeIntervalSince1970: site.nowMs / 1000), zone: zone)
+        let mask = !recurring || days & 0x7f == 0x7f ? 0 : days & 0x7f
+        goalSave[lp.id] = .saving
         do {
-            try await load()
+            _ = try await site.callBox(.put, "/api/loadpoints/\(Self.escape(lp.id))/schedule", body: [
+                "soc": .number(socPct / 100),
+                "time_of_day_min": .number(Double(clock)),
+                "time_of_day_min_utc": .number(Double(minuteUTC)),
+                "recurring": .bool(recurring),
+                "days": .number(Double(mask)),
+                "surplus_unlock_bat_soc": .number((lp.schedule?.surplusUnlockPct ?? 0) / 100),
+            ])
+            goalSave[lp.id] = .saved
+        } catch let e as BoxAPIError {
+            goalSave[lp.id] = .failed(e.help)
         } catch {
-            return "Battery size saved. Current charging status is unavailable."
+            goalSave[lp.id] = .failed(AppWords.text("That did not go through. Try again."))
         }
+        try? await loadChargers()
         charging?.refresh()
-        if let active = points.first(where: { $0.id == lp.id })?.vehicleCapacityWh, active != wh {
-            return "Saved as the usual battery size. This session uses \(EnergyFormat.short(active / 1000)) kWh."
+    }
+
+    public func removeGoal(_ lp: Loadpoint) async {
+        goalSave[lp.id] = .saving
+        do {
+            _ = try await site.callBox(.delete, "/api/loadpoints/\(Self.escape(lp.id))/schedule")
+            // The DELETE confirms the removal even if the reread fails.
+            if let i = points.firstIndex(where: { $0.id == lp.id }) {
+                points[i].schedule = nil
+                points[i].targetSocPct = nil
+            }
+            goalSave[lp.id] = .removed
+        } catch let e as BoxAPIError {
+            goalSave[lp.id] = .failed(e.help)
+        } catch {
+            goalSave[lp.id] = .failed(AppWords.text("That did not go through. Try again."))
         }
-        return "Battery size saved. The plan uses this size for its estimates."
+        try? await loadChargers()
+        charging?.refresh()
+    }
+
+    public static func goalText(_ save: GoalSave) -> String {
+        switch save {
+        case .saving: return AppWords.text("Saving the goal…")
+        case .saved: return AppWords.text("Goal saved. FTW is updating the plan.")
+        case .removed: return AppWords.text("Goal removed.")
+        case .failed(let help): return help
+        }
     }
 
     static func escape(_ id: String) -> String {
         id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed.subtracting(CharacterSet(charactersIn: "/"))) ?? id
     }
 
-    // MARK: What the sheet shows
+    // MARK: What the view shows
 
-    public func socShown(_ lp: Loadpoint) -> Double {
-        socDraft[lp.id] ?? acceptedSoc[lp.id] ?? lp.socPct ?? EVText.socDefaultPct
+    /// The household zone, from the box's hello.
+    public var zone: TimeZone { EVText.householdZone(boxTZ: site.session.box?.tz) }
+
+    public func readiness(_ lp: Loadpoint) -> EVText.Readiness? {
+        EVText.readiness(lp, level: level(lp), shortfallWh: shortfallWh[lp.id], nowMs: site.nowMs, zone: zone)
     }
 
-    public func surplusShown(_ lp: Loadpoint) -> Bool {
-        surplusDraft[lp.id] ?? acceptedSurplus[lp.id] ?? lp.surplusOnly
+    public func outcome(level lp: Loadpoint) -> EVText.Outcome? {
+        levelStep[lp.id].map { EVText.outcome($0, lp) }
     }
 
-    /// The slider's amps: the draft, else the running hold, else the ceiling.
-    public func ampsShown(_ lp: Loadpoint) -> Int {
-        let range = EVText.current(lp)
-        let held: Int? = lp.manualActive && !lp.manualRestoreUnconfirmed && !EVText.isPaused(lp) ? lp.manualChargeW.map { EVText.amps(lp, watts: $0) } : nil
-        return min(range.maxA, max(range.minA, ampsDraft[lp.id] ?? held ?? range.maxA))
+    public func outcome(hold lp: Loadpoint) -> EVText.Outcome? {
+        holdStep[lp.id].map { EVText.outcome($0, lp) }
     }
 
-    /// One sentence per thing the box did, under the control that asked.
-    public func outcomeSentence(_ did: Outcome, _ lp: Loadpoint) -> String {
-        switch did {
-        case .hold: return stale ? "Waiting for current charger status." : lp.manual != nil ? EVText.status(lp) : "FTW received your charge request. Waiting for charger status."
-        case .release: return "The plan decides when to charge."
-        case .pause: return EVText.status(lp)
-        case .boost: return "Battery boost selected. The power readings show what the house battery supplies."
-        case .unboost: return "Boost stopped — the plan decides again."
-        case .soc:
-            if let v = acceptedSoc[lp.id] { return "Charge level accepted: \(Int(v)) %. Waiting for updated charging status." }
-            let pct = Int(lp.socPct ?? socShown(lp))
-            let base = lp.socRetention == "error" ? "Charge level updated: \(pct) %. It could not be saved for a box restart." : "Charge level saved: \(pct) %."
-            let tail = lp.schedule == nil && !lp.manualActive && !lp.surplusOnly ? " Set a ready time, or choose Charge now." : planMissing ? " Charging times are not available yet." : ""
-            return base + tail
-        case .surplusOn: return acceptedSurplus[lp.id] != nil ? "Solar rule accepted. Waiting for updated charging status." : "Solar rule saved. The plan uses spare solar only."
-        case .surplusOff: return acceptedSurplus[lp.id] != nil ? "Solar rule accepted. Waiting for updated charging status." : "Solar rule saved. The plan may use grid power again."
-        }
-    }
-
-    /// The outcome line under one control, or nil.
-    public func outcome(for control: Control, _ lp: Loadpoint) -> String? {
-        guard commandLoadpointID == lp.id else {
-            if control == .soc, acceptedSoc[lp.id] != nil { return outcomeSentence(.soc, lp) }
-            if control == .surplus, acceptedSurplus[lp.id] != nil { return "Solar rule accepted. Waiting for updated charging status." }
-            return nil
-        }
-        switch command {
-        case .applied(let of, let did) where of == control && (of != .hold || did == .release):
-            return outcomeSentence(did, lp)
-        case .unconfirmed(let of) where of == control:
-            return "FTW received the request. Its result is not confirmed yet."
-        case .failed(let of, let help) where of == control:
-            return help
-        default:
-            if control == .soc, acceptedSoc[lp.id] != nil { return outcomeSentence(.soc, lp) }
-            if control == .surplus, acceptedSurplus[lp.id] != nil { return "Solar rule accepted. Waiting for updated charging status." }
-            return nil
-        }
+    public func holdSending(_ lp: Loadpoint) -> Bool {
+        holdStep[lp.id].map { !$0.settled } ?? false
     }
 }
