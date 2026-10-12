@@ -40,16 +40,16 @@ shoot() {
   mkdir -p "$out/$dir"
   xcrun simctl launch --terminate-running-process "$udid" energy.ftw.app \
     -AppleLanguages "($lang)" -AppleLocale "${dir/-/_}" "$@" >/dev/null
-  sleep 8
-  xcrun simctl io "$udid" screenshot "$out/$dir/$name.png" >/dev/null
+  sleep 12
+  xcrun simctl io "$udid" screenshot "$out/$dir/$name.png" >/dev/null 2>&1
   echo "$out/$dir/$name.png $(sips -g pixelWidth -g pixelHeight "$out/$dir/$name.png" | awk '/pixel/ {printf "%s ", $2}')"
 }
 
-# -FTWTab and -FTWDemoCar only work in a Debug build with the car view.
+# -FTWTab and -FTWDemoCar only work in a Debug build with the car view. No
+# pairing screen: in the simulator it shows a button a phone does not have.
 for pair in sv-SE:sv en-US:en; do
   dir=${pair%%:*} lang=${pair##*:}
   shoot "$dir" "$lang" 1-now -FTWDemo YES
   shoot "$dir" "$lang" 2-car -FTWDemo YES -FTWTab car
   shoot "$dir" "$lang" 3-charging -FTWDemo YES -FTWTab car -FTWDemoCar charging
-  shoot "$dir" "$lang" 4-pair
 done
