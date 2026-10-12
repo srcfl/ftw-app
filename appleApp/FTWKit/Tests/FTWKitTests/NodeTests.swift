@@ -208,6 +208,18 @@ import FTWShared
         #expect(later - reads <= 3, "the split was read \(later - reads) times in 30 s")
         home.nodes.sources.deactivate(.solar)
     }
+
+    @MainActor
+    @Test func aViewOpenedBeforeTheStreamReadsOnceItFlows() async throws {
+        let rig = DemoRig()
+        rig.app.startDemo()
+        let home = try #require(rig.app.home)
+        // Opened at launch, as `-FTWNode solar` does: nothing streams yet.
+        home.nodes.sources.activate(.solar)
+        #expect(home.nodes.sources.readAtMs == nil)
+        await rig.run(2_000)
+        #expect(home.nodes.sources.split(.solar)?.count == 2)
+    }
 }
 
 // MARK: History
