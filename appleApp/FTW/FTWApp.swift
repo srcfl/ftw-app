@@ -55,7 +55,7 @@ struct FTWApp: App {
                     PricesInBackground.inBackground = phase == .background
                     if phase == .background {
                         app.suspend()
-                        PricesInBackground.schedule(app)
+                        Task { await PricesInBackground.schedule(app) }
                     }
                 }
         }
@@ -79,10 +79,11 @@ enum PricesInBackground {
     /// so it starts in the background.
     static var inBackground = true
 
-    static func schedule(_ app: AppModel) {
+    static func schedule(_ app: AppModel) async {
         guard let site = app.site, site.siteId != nil, !app.isDemo else { return }
+        let pricesEndMs = await site.sharedPricesEndMs()
         let nowMs = Date.now.timeIntervalSince1970 * 1000
-        let at = Date(timeIntervalSince1970: PriceRefresh.next(afterMs: nowMs, pricesEndMs: site.sharedPricesEndMs) / 1000)
+        let at = Date(timeIntervalSince1970: PriceRefresh.next(afterMs: nowMs, pricesEndMs: pricesEndMs) / 1000)
         let request = BGAppRefreshTaskRequest(identifier: id)
         request.earliestBeginDate = at
         do {
@@ -96,7 +97,6 @@ enum PricesInBackground {
     }
 
     static func run(_ app: AppModel) async {
-        defer { schedule(app) }
         guard let site = app.site, site.siteId != nil, !app.isDemo else { return }
         log.info("background prices: woken")
         // A new carrier if the last one was closed, or a fresh stream.
@@ -105,6 +105,7 @@ enum PricesInBackground {
         log.info("background prices: \(prices == nil ? "nothing written" : "\(prices!.slots.count) slots written", privacy: .public)")
         // Someone may have opened the app meanwhile; their session stays.
         if inBackground { app.suspend() }
+        await schedule(app)
     }
 }
 

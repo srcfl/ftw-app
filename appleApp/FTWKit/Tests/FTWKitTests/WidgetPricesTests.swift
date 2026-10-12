@@ -42,7 +42,27 @@ import Testing
         #expect(read.carrier == .cache)
         #expect(read.record.readAtMs >= asked && read.record.readAtMs <= scheduler.nowMs)
         #expect(wakes.count == 1)
-        #expect(site.sharedPricesEndMs == written.slots.map { $0.startMs + $0.durationMs }.max())
+        #expect(await site.sharedPricesEndMs() == written.slots.map { $0.startMs + $0.durationMs }.max())
+
+        // The same prices again are neither written nor reloaded.
+        let again = Task { await site.refreshSharedPrices() }
+        await run(2_000)
+        #expect(await again.value == written)
+        #expect(wakes.count == 1)
+    }
+
+    /// A sign-out that lands while a write is on its way wins: the home is
+    /// not put back for the widgets.
+    @Test func aSignOutBeatsAWriteOnItsWay() async throws {
+        let wakes = Counter()
+        let site = site(wakes: wakes)
+        let prices = Prices(zone: "SE3", currency: "SEK", slots: [PriceSlot(startMs: 0, durationMs: 3_600_000, spotMinor: 40, totalMinor: 60)], stale: false)
+        let write = try #require(site.sharePrices(prices, fromMs: 0))
+        site.destroy()
+        shared.removeAll()
+        await write.value
+        #expect(shared.siteIDs(PriceEntry.self).isEmpty)
+        #expect(wakes.count == 0)
     }
 
     /// No stream, no write: the widgets keep what they had, and the task
@@ -55,6 +75,6 @@ import Testing
         #expect(await task.value == nil)
         #expect(shared.siteIDs(PriceEntry.self).isEmpty)
         #expect(wakes.count == 0)
-        #expect(site.sharedPricesEndMs == nil)
+        #expect(await site.sharedPricesEndMs() == nil)
     }
 }

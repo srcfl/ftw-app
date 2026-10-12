@@ -27,7 +27,7 @@ struct PriceWidgetView: View {
         switch family {
         case .systemMedium: MediumPrice(moment: moment)
         case .accessoryRectangular: RectangularPrice(moment: moment)
-        case .accessoryInline: Text(moment.inlineText)
+        case .accessoryInline: Label(moment.inlineText, systemImage: Header.symbol)
         default: SmallPrice(moment: moment)
         }
     }
@@ -40,7 +40,7 @@ struct SmallPrice: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             if let price = moment.priceText {
-                Text(PriceGlance.priceNow).font(.caption).foregroundStyle(.secondary)
+                Header(text: PriceGlance.priceNow)
                 PriceFigure(price: price, size: 38)
                 Text(moment.unitText).font(.caption2).foregroundStyle(.secondary)
                 Text(moment.includedText).font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
@@ -64,7 +64,7 @@ struct MediumPrice: View {
         if let price = moment.priceText {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(PriceGlance.priceNow).font(.caption).foregroundStyle(.secondary)
+                    Header(text: PriceGlance.priceNow)
                     PriceFigure(price: price, size: 34)
                     Text(moment.unitText).font(.caption2).foregroundStyle(.secondary)
                     Text(moment.includedText).font(.caption2).foregroundStyle(.secondary).lineLimit(2).minimumScaleFactor(0.8)
@@ -91,7 +91,8 @@ struct RectangularPrice: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if let price = moment.priceText {
-                Text("\(Text(price).font(.headline.monospacedDigit())) \(Text(moment.unitText).font(.caption))")
+                Text("\(Image(systemName: Header.symbol)) \(Text(price).font(.headline.monospacedDigit())) \(Text(moment.unitText).font(.caption))")
+                    .contentTransition(.numericText())
                     .widgetAccentable()
                 if let cheapest = moment.cheapestText {
                     Text(cheapest).font(.caption).lineLimit(1).minimumScaleFactor(0.75)
@@ -107,6 +108,23 @@ struct RectangularPrice: View {
 }
 
 // MARK: Parts
+
+/// "⚡ Pris nu": the symbol takes the accent colour, the words stay quiet.
+struct Header: View {
+    static let symbol = "bolt.fill"
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: Self.symbol)
+                .imageScale(.small)
+                .foregroundStyle(Tone.accent)
+                .widgetAccentable()
+            Text(text).foregroundStyle(.secondary)
+        }
+        .font(.caption)
+    }
+}
 
 struct PriceFigure: View {
     let price: String
@@ -132,6 +150,7 @@ struct Cheapest: View {
                 .foregroundStyle(Tone.cheap)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+                .widgetAccentable()
         }
     }
 }
@@ -152,7 +171,7 @@ struct Empty: View {
     let moment: PriceGlance.Moment
 
     var body: some View {
-        Text(PriceGlance.title).font(.caption).foregroundStyle(.secondary)
+        Header(text: PriceGlance.title)
         Spacer(minLength: 4)
         Text(moment.emptyText ?? "")
             .font(.footnote.weight(.medium))
@@ -165,8 +184,12 @@ struct Empty: View {
 
 /// The next twelve hours as bars from zero, at the resolution the box sent:
 /// green below the average ahead, red above, the current slot solid.
+///
+/// Tinted and clear home screens and StandBy at night draw in one colour, so
+/// there the current slot and the cheap ones stand out and the rest are faint.
 struct Curve: View {
     let moment: PriceGlance.Moment
+    @Environment(\.widgetRenderingMode) private var renderingMode
 
     var body: some View {
         Chart {
@@ -201,8 +224,14 @@ struct Curve: View {
             yStart: .value("Zero", 0.0),
             yEnd: .value("Price", price)
         )
-        .foregroundStyle(Tone.of(bar.tone))
-        .opacity(bar.current ? 1 : 0.55)
+        .foregroundStyle(renderingMode == .fullColor ? AnyShapeStyle(Tone.of(bar.tone)) : AnyShapeStyle(.primary))
+        .opacity(opacity(bar))
+    }
+
+    private func opacity(_ bar: PriceStrip.Bar) -> Double {
+        if bar.current { return 1 }
+        guard renderingMode != .fullColor else { return 0.55 }
+        return bar.tone == .cheap || bar.tone == .negative ? 0.8 : 0.3
     }
 
     private var start: Double { moment.curve.first?.startMs ?? moment.atMs }
@@ -238,6 +267,7 @@ enum Tone {
     static let dear = Pair(0xCC243D, 0xFF6E74)
     static let negative = Pair(0xD48500, 0xFFB000)
     static let flat = Pair(0x686862, 0x858585)
+    static let accent = Pair(0xDA7F00, 0xFFAC41)
 
     static func of(_ tone: PriceStrip.Tone) -> Pair {
         switch tone {

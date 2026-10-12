@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 
 // What the app leaves on disk for its widgets, and later for a notification
 // extension: one home's prices and its car, each with where it came from
@@ -158,14 +159,40 @@ public struct AppGroupFiles: CacheSource {
 
     /// Only the app writes. Atomic, so a widget never reads half a file.
     public func write<Value: CacheValue>(_ record: CacheRecord<Value>) throws {
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let data = try JSONEncoder().encode(record)
-        try data.write(to: url(Value.name, record.siteId), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        try Self.clears.withLock { _ in try store(record) }
+    }
+
+    /// Writes off the caller's thread. `asked` is `clearCount` when the write
+    /// was asked for: a clear since then means the home was signed out, so
+    /// the write is dropped rather than putting the home back. Returns
+    /// whether it wrote.
+    @concurrent
+    public nonisolated func write<Value: CacheValue>(_ record: CacheRecord<Value>, asked: Int) async throws -> Bool {
+        try Self.clears.withLock { counts in
+            guard counts[directory, default: 0] == asked else { return false }
+            try store(record)
+            return true
+        }
     }
 
     /// Everything, for signing out. A widget then has nothing to draw.
     public func removeAll() {
-        try? FileManager.default.removeItem(at: directory)
+        Self.clears.withLock { counts in
+            counts[directory, default: 0] += 1
+            try? FileManager.default.removeItem(at: directory)
+        }
+    }
+
+    /// How many times this process has cleared this cache. Writes and
+    /// clears take the same lock, so they land in the order they were asked
+    /// for.
+    public var clearCount: Int { Self.clears.withLock { $0[directory, default: 0] } }
+    private static let clears = Mutex<[URL: Int]>([:])
+
+    private func store<Value: CacheValue>(_ record: CacheRecord<Value>) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let data = try JSONEncoder().encode(record)
+        try data.write(to: url(Value.name, record.siteId), options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
     }
 }
 

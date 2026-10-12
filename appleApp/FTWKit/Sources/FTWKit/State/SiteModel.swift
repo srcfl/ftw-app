@@ -43,6 +43,12 @@ public final class SiteModel {
     /// What widgets read. Nil for the demo and in tests.
     @ObservationIgnored private let shared: AppGroupFiles?
     @ObservationIgnored private var lastCars: (entry: CarEntry, atMs: Double)?
+    /// The prices last left for the widgets, so the same prices again are
+    /// neither written nor reloaded.
+    @ObservationIgnored private var lastPrices: PriceEntry?
+    /// The latest write to `shared`. Each waits for the one before, so they
+    /// land in the order they were asked for.
+    @ObservationIgnored private var writing: Task<Void, Never>?
     /// Called after every write to `shared`, so the app can wake its widgets.
     @ObservationIgnored public var sharedWritten: (@MainActor () -> Void)?
     @ObservationIgnored private var attemptStartedAtMs: Double
@@ -370,17 +376,24 @@ public final class SiteModel {
     /// each of those.
     static let carRewriteMs: Double = 5 * 60_000
 
-    /// Leave today's and tomorrow's prices for the widgets.
-    func sharePrices(_ prices: Prices, fromMs: Double) {
-        guard let siteId, let shared else { return }
+    /// Leave today's and tomorrow's prices for the widgets. The same prices
+    /// again are skipped: the widgets' timeline already holds them, and a
+    /// reload would only redraw it. Returns the write, for a caller that
+    /// must not end before it lands.
+    @discardableResult
+    func sharePrices(_ prices: Prices, fromMs: Double) -> Task<Void, Never>? {
+        guard let siteId, let shared else { return nil }
+        let entry = PriceEntry(fromMs: fromMs, prices: prices)
+        guard entry != lastPrices else { return nil }
+        lastPrices = entry
         let record = CacheRecord(
             siteId: siteId,
             carrier: session.carrier,
             srcState: prices.stale ? .stale : .live,
             readAtMs: scheduler.nowMs,
-            value: PriceEntry(fromMs: fromMs, prices: prices)
+            value: entry
         )
-        write(record, to: shared)
+        return write(record, to: shared)
     }
 
     /// Leave the chargers for the widgets, as the box just described them.
@@ -405,23 +418,48 @@ public final class SiteModel {
         write(CacheRecord(siteId: siteId, carrier: session.carrier, srcState: answering ? .live : .stale, readAtMs: now, value: entry), to: shared)
     }
 
-    private func write<Value: CacheValue>(_ record: CacheRecord<Value>, to shared: AppGroupFiles) {
-        guard !destroyed else { return }
-        do {
-            try shared.write(record)
-            log.info("wrote \(Value.name, privacy: .public) for widgets, source \(record.srcState.rawValue, privacy: .public)")
-            sharedWritten?()
-        } catch {
-            // A widget showing yesterday's record with its date is better
-            // than no app; the next read tries again.
-            log.error("could not write \(Value.name, privacy: .public) for widgets: \(error.localizedDescription, privacy: .public)")
+    /// Encoding and the file write run off the main actor. A sign-out
+    /// asked for meanwhile wins: the write is dropped rather than putting
+    /// the home back (`AppGroupFiles.clearCount`).
+    @discardableResult
+    private func write<Value: CacheValue>(_ record: CacheRecord<Value>, to shared: AppGroupFiles) -> Task<Void, Never>? {
+        guard !destroyed else { return nil }
+        let asked = shared.clearCount
+        let previous = writing
+        let task = Task { [weak self] in
+            await previous?.value
+            do {
+                guard try await shared.write(record, asked: asked) else { return }
+                log.info("wrote \(Value.name, privacy: .public) for widgets, source \(record.srcState.rawValue, privacy: .public)")
+                guard let self, !self.destroyed else { return }
+                self.sharedWritten?()
+            } catch {
+                // A widget showing yesterday's record with its date is
+                // better than no app; the next read tries again.
+                log.error("could not write \(Value.name, privacy: .public) for widgets: \(error.localizedDescription, privacy: .public)")
+                if Value.self == PriceEntry.self { self?.lastPrices = nil }
+            }
         }
+        writing = task
+        return task
     }
 
     /// Where the prices the widgets hold run out. Nil when they hold none.
-    public var sharedPricesEndMs: Double? {
-        guard let siteId, let record = shared?.read(PriceEntry.self, siteId: siteId) else { return nil }
-        return record.value.prices.slots.map { $0.startMs + $0.durationMs }.max()
+    /// Read from what this process wrote, or off the main actor from disk
+    /// after a cold launch.
+    public func sharedPricesEndMs() async -> Double? {
+        if let lastPrices { return Self.end(lastPrices) }
+        guard let siteId, let shared else { return nil }
+        return await Self.readEnd(shared, siteId: siteId)
+    }
+
+    @concurrent
+    private nonisolated static func readEnd(_ shared: AppGroupFiles, siteId: String) async -> Double? {
+        shared.read(PriceEntry.self, siteId: siteId).flatMap { end($0.value) }
+    }
+
+    private nonisolated static func end(_ entry: PriceEntry) -> Double? {
+        entry.prices.slots.map { $0.startMs + $0.durationMs }.max()
     }
 
     /// The background refresh: wait for the stream, ask for today's and
@@ -445,6 +483,9 @@ public final class SiteModel {
         do {
             let wire = try await prices(fromMs: from, toMs: from + PriceModel.horizonMs)
             sharePrices(wire, fromMs: from)
+            // iOS may suspend the app once the task returns: land the write
+            // first, or the one already on its way with these prices.
+            await writing?.value
             return wire
         } catch {
             log.error("background prices: \(error.localizedDescription, privacy: .public)")
