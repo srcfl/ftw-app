@@ -238,6 +238,7 @@ file under `FTW/`, `FTWWidgets/` or a package target needs no change to
 
 ## Licence
 
-AGPL-3.0-only with the Energyplan combination permission. See
-[LICENSE](LICENSE), [LICENSING.md](LICENSING.md) and [NOTICE](NOTICE).
+AGPL-3.0-only with the Energyplan combination permission and an app store
+distribution permission. See [LICENSE](LICENSE), [LICENSING.md](LICENSING.md)
+and [NOTICE](NOTICE).
 Earlier Apache-licensed versions retain their earlier grants.

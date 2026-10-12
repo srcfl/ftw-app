@@ -1,7 +1,8 @@
 # FTW native app licensing
 
-This version uses GNU AGPL v3 only, with the narrow Energyplan combination
-permission in [LICENSE](LICENSE). [NOTICE](NOTICE) preserves prior Apache
+This version uses GNU AGPL v3 only, with two narrow additional permissions in
+[LICENSE](LICENSE): the Energyplan combination permission and the app store
+distribution permission. [NOTICE](NOTICE) preserves prior Apache
 rights and attribution. Third-party files retain their own licenses.
 
 ## Use and redistribution
@@ -61,8 +62,16 @@ build without a revision uses development repository links. An extracted
 source archive builds without Git; pass its published revision to retain the
 exact links. Forks must change these links to their own corresponding source.
 
-A store's distribution terms must allow recipients the AGPL rights. This
-license change does not establish compatibility with any app store agreement
-or grant an exception to store restrictions. Resolve conflicting terms before
-distributing through that store, using separate rights only where the rights
-holders can grant them.
+App stores attach their own terms to each copy. The app store distribution
+permission in LICENSE lets you convey FTW through a store such as the App
+Store, TestFlight or Google Play despite those terms. Offer the exact
+version's Corresponding Source outside the store, make the license and the
+source offer reachable in the app, and add no restrictions of your own.
+Recipients must be able to build that source and install it on their own
+device with the platform's standard developer tools; your signing keys and
+store accounts stay yours.
+
+The permission covers code whose rights holders granted it. Every
+contribution to this repository comes with it, as CONTRIBUTING.md says.
+Third-party code keeps its own terms, so check that each dependency allows
+store distribution before you add it.
