@@ -14,6 +14,8 @@ WIDGETS
 The price widgets show prices the app saved from a real box. The demo saves nothing, so in review a widget says "Open FTW to see prices".
 
 OTHER
+- Privacy policy: "Privacy" at the foot of Now and of the first screen, and in About.
+- No account to delete. "Remove this phone" at the foot of Now unpairs the phone.
 - Camera: used only to read the pairing QR code.
 - No sign-in, no in-app purchases, no ads, no analytics, no tracking.
 - Encryption: Noise protocol built on Apple's CryptoKit only.
