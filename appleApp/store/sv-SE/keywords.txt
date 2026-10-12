@@ -1,0 +1,1 @@
+solceller,batteri,elbil,laddning,elpris,spotpris,energi,hemenergi,elnät,kWh,widget,smarta hem

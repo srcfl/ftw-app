@@ -47,17 +47,8 @@ kotlin {
         }
     }
     jvm()
-
-    listOf(
-        iosX64(),
-        iosArm64(),
-        iosSimulatorArm64(),
-    ).forEach { target ->
-        target.binaries.framework {
-            baseName = "Shared"
-            isStatic = true
-        }
-    }
+    // iOS and macOS are pure Swift now: appleApp/ carries its own copy of
+    // this logic in FTWKit, checked against the same vectors.
 
     sourceSets {
         commonMain {

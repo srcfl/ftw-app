@@ -18,10 +18,16 @@ DerivedData/
 *.aab
 captures/
 
-# iOS
-iosApp/Pods/
+# Xcode
 *.xcworkspace/xcuserdata/
 
 # Secrets
 *.jks
 keystore.properties
+
+# Swift package
+appleApp/FTWKit/.build/
+appleApp/FTWKit/.swiftpm/
+appleApp/build/
+appleApp/FTW.xcodeproj/project.xcworkspace/xcuserdata/
+appleApp/FTW.xcodeproj/xcuserdata/

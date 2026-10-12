@@ -1,0 +1,49 @@
+import Foundation
+import FTWKit
+import Security
+
+/// The secure store: generic passwords, readable after first unlock, never
+/// synced and never migrated to another device. Cold start reads it without
+/// Face ID, which is what lets the cache paint first.
+///
+/// No access group is named, so every item lives in the app's own default
+/// group. The widget extension has a different one and can read none of it:
+/// widgets get the App Group cache and no key.
+@MainActor
+final class KeychainStore: SecureStore {
+    private let service = "energy.ftw.app"
+
+    func get(_ key: String) -> Bytes? {
+        var query = base(key)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        return data.byteArray
+    }
+
+    func put(_ key: String, _ value: Bytes) {
+        let query = base(key)
+        let update: [String: Any] = [kSecValueData as String: Data(value)]
+        let status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+        if status == errSecItemNotFound {
+            var item = query
+            item[kSecValueData as String] = Data(value)
+            item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+            SecItemAdd(item as CFDictionary, nil)
+        }
+    }
+
+    func remove(_ key: String) {
+        SecItemDelete(base(key) as CFDictionary)
+    }
+
+    private func base(_ key: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+        ]
+    }
+}

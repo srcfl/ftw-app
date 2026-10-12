@@ -1,0 +1,1 @@
+solar,battery,charging,electricity,price,spot price,home energy,HEMS,grid,kWh,widget,smart home

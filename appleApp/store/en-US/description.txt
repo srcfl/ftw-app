@@ -1,0 +1,30 @@
+See your home's energy on your iPhone, straight from the FTW box at home. Steer the car's charging and check electricity prices.
+
+FTW is open-source home energy software from Sourceful. It runs on a box in your home, reads your meters and devices, plans the battery and the car, and controls them on site. This app shows you that box. You say what you want; the box decides how.
+
+NOW
+• Is FTW in control? One line tells you, and why not when it isn't.
+• Live power between solar, battery, home, grid and car.
+• How much of today's power your home made itself.
+• The electricity price now, the cheapest two hours and the hours ahead.
+• Every reading shows its age. When the link drops, the app says so and reconnects on its own.
+
+YOUR CAR
+• The car's level, and where it came from: the car, you or FTW's estimate.
+• Correct it with 20, 40, 60 or 80 %, or by 5 % up or down.
+• Set a goal: how full and by when, once or on chosen days.
+• See whether the plan will reach it.
+• Charge now, Pause or Back to the plan. Each command shows when it was sent, when the box got it and when it was done.
+
+PRICE WIDGETS
+• The electricity price on your Home Screen, Lock Screen and in StandBy.
+• Widgets show what the app last read from your box, and how old it is.
+
+PRIVACY
+• No account and no password. Scan the pairing code your box shows and confirm with a passkey.
+• Your data stays on your box and your phone. The app reaches the box through Sourceful's relay, which carries encrypted traffic it cannot read.
+• No ads, no analytics, no tracking.
+
+WHAT YOU NEED
+• An FTW box at home with the FTW app turned on in its settings. FTW runs on a Raspberry Pi or another Linux computer. Learn more at ftw.energy.
+• No box? Try the demo, a simulated home that runs inside the app.

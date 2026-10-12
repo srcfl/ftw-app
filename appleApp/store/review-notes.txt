@@ -1,0 +1,22 @@
+FTW is the phone app for FTW, open-source home energy software that runs on a box in the user's home (a Raspberry Pi or another Linux computer). The app talks only to that box, through an end-to-end encrypted relay. There is no account and nothing to sign in to. You do not have a box, so the app has a built-in demo for you.
+
+THE DEMO
+1. Open the app. On the first screen, tap "Try the live demo".
+2. The demo runs a simulated FTW box inside the app. It needs no network and no passkey, and it saves nothing.
+3. Now shows "Is FTW in control?", live power between solar, battery, home, grid and car, and today's electricity prices.
+4. Tap the car to open the car view. Try the level buttons (20/40/60/80 % and ±5), set a goal, then tap Charge now, Pause and Back to the plan. The simulated box answers each command, and the app shows when it was sent, received and done.
+5. "Exit demo" at the top returns to the first screen.
+
+WITH A REAL BOX (needs the hardware)
+The owner opens the box's local dashboard, chooses Settings → FTW app → Show pairing code and scans the QR code with this app or the iPhone camera (links to https://app.ftw.energy/p). The app then creates a passkey for app.ftw.energy and connects through wss://relay.ftw.energy.
+
+WIDGETS
+The price widgets show prices the app saved from a real box. The demo saves nothing, so in review a widget says "Open FTW to see prices".
+
+OTHER
+- Privacy policy: "Privacy" at the foot of Now and of the first screen, and in About.
+- No account to delete. "Remove this phone" at the foot of Now unpairs the phone.
+- Camera: used only to read the pairing QR code.
+- No sign-in, no in-app purchases, no ads, no analytics, no tracking.
+- Encryption: Noise protocol built on Apple's CryptoKit only.
+- The demo stands in for the hardware, not for a login: the app has no login.

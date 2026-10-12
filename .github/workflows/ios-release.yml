@@ -1,0 +1,207 @@
+name: iOS release
+
+# Archives the iPhone app and sends it to App Store Connect, where it lands
+# in TestFlight. A tag `ios-v1.2.3` ships version 1.2.3, and so do
+# `ios-v1.2.3-1`, `ios-v1.2.3-2`: anything after a dash only tells tags
+# apart. A manual run ships the version in appleApp/FTW.xcconfig. The build
+# number is this workflow's run number. appleApp/RELEASING.md has the steps
+# around it.
+#
+# Without the three ASC_* secrets it builds an unsigned archive instead and
+# says that the upload was skipped. A pull request that changes this file or
+# the export options always takes that path, secrets or not.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['ios-v*']
+  pull_request:
+    paths: ['.github/workflows/ios-release.yml', 'appleApp/ExportOptions.plist']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Archive the iPhone app for App Store Connect
+    # GitHub's image with Xcode 27 (public preview in October 2026). The
+    # macos-26 image stops at Xcode 26.6.
+    runs-on: xcode-27
+    timeout-minutes: 60
+    # The key's secrets may live in the repository or, safer, in this
+    # environment, which only main and ios-v* tags may use (RELEASING.md).
+    # A pull request needs no key.
+    environment: ${{ github.event_name != 'pull_request' && 'app-store' || '' }}
+    env:
+      # The release, by path. Picking the newest Xcode on this image would
+      # pick a beta.
+      DEVELOPER_DIR: /Applications/Xcode_27.0.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode and the iOS SDK
+        run: |
+          xcodebuild -version
+          xcodebuild -version -sdk iphoneos SDKVersion
+
+      - name: Test FTWKit, FTWShared and FTWDemo
+        working-directory: appleApp/FTWKit
+        run: swift test
+
+      - name: Choose the version and build number
+        id: version
+        run: |
+          if [[ $GITHUB_REF_TYPE == tag && $GITHUB_REF_NAME == ios-v* ]]; then
+            version=${GITHUB_REF_NAME#ios-v}
+            version=${version%%-*}
+          else
+            version=$(sed -n 's/^MARKETING_VERSION *= *//p' appleApp/FTW.xcconfig)
+          fi
+          # What App Store Connect accepts: one to three whole numbers.
+          if ! [[ $version =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+            echo "::error::'$version' is not a version App Store Connect accepts. Tag as ios-v1.2.3."
+            exit 1
+          fi
+          # A re-run keeps the run number, and App Store Connect refuses a
+          # build number twice.
+          build=$GITHUB_RUN_NUMBER
+          if (( GITHUB_RUN_ATTEMPT > 1 )); then build=$build.$GITHUB_RUN_ATTEMPT; fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "Version $version, build $build"
+
+      # Secrets cannot appear in an `if`, so this step turns them into a
+      # yes or no. It prints nothing about them. ASC_KEY_P8 is the .p8 file's
+      # PEM text as Apple gives it; the other two are plain text.
+      - name: Check for the App Store Connect key
+        id: key
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          if [[ $GITHUB_EVENT_NAME != pull_request && -n $ASC_KEY_ID && -n $ASC_ISSUER_ID && -n $ASC_KEY_P8 ]]; then
+            key=$RUNNER_TEMP/AuthKey.p8
+            (umask 077; printf '%s\n' "$ASC_KEY_P8" > "$key")
+            echo "path=$key" >> "$GITHUB_OUTPUT"
+            echo "upload=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "upload=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Xcode signs with Sourceful's team (FTW.xcconfig) and makes what it
+      # needs through the key: a development certificate on this runner for
+      # the archive, then the App Store profiles and a cloud-managed
+      # distribution certificate for the export.
+      - name: Archive, signed
+        if: steps.key.outputs.upload == 'true'
+        working-directory: appleApp
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: >-
+          xcodebuild archive -quiet -project FTW.xcodeproj -scheme FTW
+          -configuration Release -destination 'generic/platform=iOS'
+          -archivePath "$RUNNER_TEMP/FTW.xcarchive"
+          -allowProvisioningUpdates
+          -authenticationKeyPath "${{ steps.key.outputs.path }}"
+          -authenticationKeyID "$ASC_KEY_ID"
+          -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          MARKETING_VERSION=${{ steps.version.outputs.version }}
+          CURRENT_PROJECT_VERSION=${{ steps.version.outputs.build }}
+          FTW_SOURCE_REVISION=$GITHUB_SHA
+
+      - name: Archive, unsigned (dry run)
+        if: steps.key.outputs.upload != 'true'
+        working-directory: appleApp
+        run: >-
+          xcodebuild archive -quiet -project FTW.xcodeproj -scheme FTW
+          -configuration Release -destination 'generic/platform=iOS'
+          -archivePath "$RUNNER_TEMP/FTW.xcarchive"
+          CODE_SIGNING_ALLOWED=NO
+          MARKETING_VERSION=${{ steps.version.outputs.version }}
+          CURRENT_PROJECT_VERSION=${{ steps.version.outputs.build }}
+          FTW_SOURCE_REVISION=$GITHUB_SHA
+
+      # App Store Connect refuses a widget whose version differs from its
+      # app's, so check both before sending anything.
+      - name: Check the version in the app and the widget
+        run: |
+          app=$RUNNER_TEMP/FTW.xcarchive/Products/Applications/FTW.app
+          for plist in "$app/Info.plist" "$app"/PlugIns/*.appex/Info.plist; do
+            got=$(plutil -extract CFBundleShortVersionString raw "$plist")/$(plutil -extract CFBundleVersion raw "$plist")
+            echo "$got  ${plist#$app/}  $(plutil -extract DTSDKName raw "$plist")"
+            [[ $got == ${{ steps.version.outputs.version }}/${{ steps.version.outputs.build }} ]] || { echo "::error::$plist has $got"; exit 1; }
+          done
+
+      # Xcode signs and uploads in one step. If that fails, the next step
+      # tries the other way Apple documents.
+      - name: Upload to App Store Connect
+        id: upload
+        if: steps.key.outputs.upload == 'true'
+        continue-on-error: true
+        working-directory: appleApp
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: >-
+          xcodebuild -exportArchive
+          -archivePath "$RUNNER_TEMP/FTW.xcarchive"
+          -exportOptionsPlist ExportOptions.plist
+          -exportPath "$RUNNER_TEMP/export"
+          -allowProvisioningUpdates
+          -authenticationKeyPath "${{ steps.key.outputs.path }}"
+          -authenticationKeyID "$ASC_KEY_ID"
+          -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      # Apple's "Upload builds" help still lists altool beside Xcode and
+      # Transporter. Export the signed .ipa, then send it with the same key.
+      - name: Upload with altool instead
+        id: altool
+        if: steps.upload.outcome == 'failure'
+        working-directory: appleApp
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          echo "::warning title=Xcode upload failed::Exporting an .ipa and uploading it with altool instead."
+          plutil -replace destination -string export -o "$RUNNER_TEMP/ExportOptions-ipa.plist" ExportOptions.plist
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/FTW.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions-ipa.plist" \
+            -exportPath "$RUNNER_TEMP/ipa" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "${{ steps.key.outputs.path }}" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          xcrun altool --upload-package "$RUNNER_TEMP"/ipa/*.ipa \
+            --api-key "$ASC_KEY_ID" --api-issuer "$ASC_ISSUER_ID" \
+            --p8-file-path "${{ steps.key.outputs.path }}"
+
+      - name: Report
+        run: |
+          v="${{ steps.version.outputs.version }} (${{ steps.version.outputs.build }})"
+          if [[ "${{ steps.key.outputs.upload }}" == true ]]; then
+            how=Xcode; [[ "${{ steps.altool.outcome }}" == success ]] && how=altool
+            echo "FTW $v went to App Store Connect through $how. It shows in TestFlight once Apple has processed it." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=Upload skipped::Dry run: FTW $v was archived unsigned and not sent to App Store Connect. A pull request never uploads; otherwise set ASC_KEY_ID, ASC_ISSUER_ID and ASC_KEY_P8 (appleApp/RELEASING.md)."
+            echo "**Upload skipped.** Dry run: FTW $v was archived unsigned and not sent to App Store Connect." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Remove the key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8"
+
+      # Xcode's own account of the export, for when App Store Connect says no.
+      - name: Keep the export logs
+        if: always() && steps.key.outputs.upload == 'true' && (failure() || steps.upload.outcome == 'failure')
+        uses: actions/upload-artifact@v4
+        with:
+          name: export-logs
+          path: ${{ runner.temp }}/export
+          if-no-files-found: ignore
