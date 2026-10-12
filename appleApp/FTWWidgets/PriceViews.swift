@@ -170,27 +170,59 @@ struct Curve: View {
     var body: some View {
         Chart {
             ForEach(moment.curve) { bar in
-                BarMark(
-                    xStart: .value("From", date(bar.startMs)),
-                    xEnd: .value("To", date(bar.endMs)),
-                    y: .value("Price", PriceUnits.display(bar.minor, moment.currency))
-                )
-                .foregroundStyle(Tone.of(bar.tone))
-                .opacity(bar.current ? 1 : 0.55)
+                mark(bar)
             }
             if let mean = moment.meanMinor {
                 RuleMark(y: .value("Average", PriceUnits.display(mean, moment.currency)))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 3]))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Tone.flat)
             }
         }
+        .chartXScale(domain: date(start)...date(end))
         .chartXAxis {
-            AxisMarks(values: .stride(by: .hour, count: 3)) { _ in
-                AxisValueLabel(format: .dateTime.hour(.twoDigits(amPM: .omitted)))
+            AxisMarks(values: hours) { value in
+                AxisValueLabel {
+                    if let d = value.as(Date.self) { Text(Self.hour(d)) }
+                }
             }
         }
         .chartYAxis(.hidden)
         .accessibilityHidden(true)
+    }
+
+    /// A bar from zero, as wide as the slot. A rectangle, because a bar
+    /// mark with an x interval and one y lies on its side.
+    private func mark(_ bar: PriceStrip.Bar) -> some ChartContent {
+        let price: Double = PriceUnits.display(bar.minor, moment.currency)
+        return RectangleMark(
+            xStart: .value("From", date(bar.startMs)),
+            xEnd: .value("To", date(bar.endMs)),
+            yStart: .value("Zero", 0.0),
+            yEnd: .value("Price", price)
+        )
+        .foregroundStyle(Tone.of(bar.tone))
+        .opacity(bar.current ? 1 : 0.55)
+    }
+
+    private var start: Double { moment.curve.first?.startMs ?? moment.atMs }
+    private var end: Double { moment.curve.last?.endMs ?? moment.atMs }
+
+    /// Every third whole hour, kept clear of the right edge so no label is
+    /// cut short.
+    private var hours: [Date] {
+        let hour: Double = 3_600_000
+        var t = (start / hour).rounded(.up) * hour
+        var out: [Date] = []
+        while t < end - hour {
+            if Calendar.current.component(.hour, from: date(t)) % 3 == 0 { out.append(date(t)) }
+            t += hour
+        }
+        return out
+    }
+
+    /// "02", on the 24-hour clock the rest of the widget uses.
+    private static func hour(_ d: Date) -> String {
+        String(format: "%02d", Calendar.current.component(.hour, from: d))
     }
 
     private func date(_ ms: Double) -> Date { Date(timeIntervalSince1970: ms / 1000) }
