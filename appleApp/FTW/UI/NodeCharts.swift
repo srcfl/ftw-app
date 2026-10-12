@@ -192,7 +192,7 @@ struct AheadChart: View, Equatable {
 
     var body: some View {
         let to = nowMs + PlanModel.aheadMs
-        VStack(spacing: 4) {
+        VStack(spacing: 8) {
             Chart {
                 ForEach(bars) { b in
                     RectangleMark(
@@ -254,7 +254,9 @@ struct PriceStripChart: View, Equatable {
             // The dearest hour, in the column the chart above keeps for its
             // own scale: the price's scale, and the hours line up.
             AxisMarks(position: .trailing, values: shown.map(\.minor).max().map { [PriceUnits.display($0, currency)] } ?? []) { value in
-                AxisValueLabel {
+                // Hung below its tick, inside the strip, clear of the scale
+                // of the chart above.
+                AxisValueLabel(anchor: .topLeading) {
                     if let v = value.as(Double.self) {
                         Text("\(Int(v.rounded())) \(PriceUnits.unit(currency).label)").font(.caption2).foregroundStyle(Theme.fgMuted)
                             .frame(width: axisWidth, alignment: .leading)

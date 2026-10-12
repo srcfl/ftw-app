@@ -42,17 +42,17 @@ struct NodeView: View {
     private var site: SiteModel { home.site }
 
     var body: some View {
-        FitScreen(spacing: 12) { fill in
+        FitScreen(spacing: 10) { fill in
             NodeHero(site: site, node: node, loadpoints: home.loadpoints, sources: models.sources)
             LiveSection(site: site, trace: models.live, node: node)
-                .frame(height: fill ? 92 : 120)
+                .frame(height: fill ? 84 : 120)
             Picker(L("Period"), selection: $period.animation(Theme.spring)) {
                 ForEach(Period.allCases, id: \.self) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("node.period")
             PeriodSection(site: site, node: node, period: period, models: models, prices: home.prices, loadpoints: home.loadpoints)
-                .frame(minHeight: fill ? 150 : 210, idealHeight: fill ? 150 : 210, maxHeight: fill ? .infinity : 210)
+                .frame(minHeight: fill ? 130 : 210, idealHeight: fill ? 130 : 210, maxHeight: fill ? .infinity : 210)
             if node == .car {
                 CarLink(loadpoints: home.loadpoints, zoom: zoom)
             } else {
@@ -102,12 +102,15 @@ private struct NodeHero: View {
             carLevel: car.map { ($0.pct, $0.origin == .assumed || $0.origin == .unconfirmed) },
             hasCar: !loadpoints.points.isEmpty
         ).first { $0.node == node }
+        let split = sources.split(node)
+        // A node with no level has room beside its figure for its devices.
+        let beside = reading?.levelPct == nil ? split.map { $0.map { DeviceLine($0, site.deviceFreshness($0.name)) } } : nil
         VStack(alignment: .leading, spacing: 8) {
             if let reading {
-                HeroLine(reading: reading).equatable()
+                HeroLine(reading: reading, devices: beside ?? []).equatable()
                 HeroFreshness(freshness: worst(reading.freshness, sources.devices[node] ?? []))
-                if let devices = sources.split(node) {
-                    DeviceRows(site: site, devices: devices, readAtMs: sources.readAtMs, tint: Theme.color(reading.tone))
+                if beside == nil, let split {
+                    DeviceRows(site: site, devices: split, readAtMs: sources.readAtMs, tint: Theme.color(reading.tone))
                 }
             } else {
                 Text(L("Your box sends no reading for this."))
@@ -128,8 +131,24 @@ private struct NodeHero: View {
     }
 }
 
+/// One device beside a node's figure: its name, its watts, and whether
+/// the stream says it is live.
+struct DeviceLine: Equatable, Identifiable {
+    let name: String
+    let watts: Double
+    let live: Bool
+    var id: String { name }
+
+    init(_ d: SourcesModel.Device, _ f: NodeFreshness) {
+        name = d.name
+        watts = d.watts
+        live = f.live
+    }
+}
+
 private struct HeroLine: View, Equatable {
     let reading: NodeReading
+    var devices: [DeviceLine] = []
 
     var body: some View {
         let live = reading.freshness.live
@@ -150,7 +169,22 @@ private struct HeroLine: View, Equatable {
                     .contentTransition(.opacity)
             }
             Spacer(minLength: 8)
-            if let level = reading.levelPct {
+            if !devices.isEmpty {
+                VStack(alignment: .trailing, spacing: 3) {
+                    ForEach(devices) { d in
+                        HStack(spacing: 5) {
+                            Circle().fill(d.live ? Theme.freshLive : Theme.freshStale).frame(width: 6, height: 6)
+                            Text(d.name).font(.caption).foregroundStyle(Theme.fgDim)
+                            Text(AppWords.power(d.watts))
+                                .font(Theme.number(13, weight: .semibold))
+                                .foregroundStyle(d.live ? color : Theme.fgMuted)
+                                .contentTransition(.numericText(value: d.watts))
+                        }
+                        .lineLimit(1)
+                        .accessibilityElement(children: .combine)
+                    }
+                }
+            } else if let level = reading.levelPct {
                 VStack(alignment: .trailing, spacing: 4) {
                     Text(AppWords.percent(level))
                         .font(Theme.percent(.title2, weight: .bold))

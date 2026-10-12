@@ -166,6 +166,50 @@ import FTWShared
     }
 }
 
+// MARK: Several devices behind one node
+
+@Suite struct SourcesTests {
+    @Test func twoInvertersAreTwoDevices() throws {
+        let status = try JSON(parsing: Bytes(#"""
+        {"drivers": {
+          "sungrow": {"status": "ok", "pv_w": -2400, "bat_w": -900, "bat_soc": 0.62},
+          "fronius": {"status": "ok", "pv_w": -1500},
+          "old": {"status": "offline", "pv_w": -10},
+          "easee": {"status": "ok", "ev_w": 0}
+        }}
+        """#.utf8))
+        let devices = SourcesModel.devices(status)
+        let solar = try #require(devices[.solar])
+        #expect(solar.map(\.name) == ["fronius", "sungrow"])
+        #expect(solar.map(\.watts) == [1_500, 2_400])
+        #expect(devices[.battery]?.first?.levelPct == 62)
+        #expect(devices[.battery]?.first?.shownW == -900)
+        #expect(devices[.car]?.count == 1)
+    }
+
+    @MainActor
+    @Test func theSplitIsReadWhenAViewOpensAndNotOnATimer() async throws {
+        let rig = DemoRig()
+        rig.app.startDemo()
+        let home = try #require(rig.app.home)
+        let box = try #require(rig.box)
+        await rig.run(1_500)
+        home.nodes.sources.activate(.solar)
+        await rig.run(1_000)
+        let split = try #require(home.nodes.sources.split(.solar))
+        #expect(split.map(\.name) == ["fronius", "sungrow"])
+        // One battery is no split worth showing.
+        #expect(home.nodes.sources.split(.battery) == nil)
+        // A steady total asks nothing more, however long the view is open.
+        let reads = box.receivedRequests.filter { $0 == "GET /api/status" }.count
+        #expect(reads == 1)
+        await rig.run(30_000, step: 250)
+        let later = box.receivedRequests.filter { $0 == "GET /api/status" }.count
+        #expect(later - reads <= 3, "the split was read \(later - reads) times in 30 s")
+        home.nodes.sources.deactivate(.solar)
+    }
+}
+
 // MARK: History
 
 @Suite struct HistoryGeometryTests {

@@ -68,19 +68,21 @@ public final class SourcesModel {
         guard !inFlight, site.session.phase == .streaming, site.hasPassthrough, site.documentVisible else { return }
         let now = site.nowMs
         if let at = failedAtMs, now - at < LiveAsk.retryMs { return }
-        if !force {
-            guard let at = readAtMs, now - at >= Self.minGapMs else { return }
+        // Never read yet (the view opened before the stream did): read now.
+        if !force, let at = readAtMs {
+            guard now - at >= Self.minGapMs else { return }
             let moved = watching.contains { node, n in
                 guard n > 0, let w = site.session.fields[node.fid], let before = totalsAtRead[node] else { return false }
                 return abs(w - before) > max(Self.moveW, abs(before) * Self.moveShare)
             }
             guard moved else { return }
         }
+        // Claimed before the task runs, so two checks in one turn read once.
+        inFlight = true
         Task { await read() }
     }
 
     private func read() async {
-        inFlight = true
         defer { inFlight = false }
         let fields = site.session.fields
         do {
@@ -98,7 +100,7 @@ public final class SourcesModel {
 
     /// Per-driver readings from GET /api/status, by node. Drivers the box
     /// calls offline or disabled are not devices at work.
-    static func devices(_ status: JSON?) -> [EnergyNode: [Device]] {
+    nonisolated static func devices(_ status: JSON?) -> [EnergyNode: [Device]] {
         var out = [EnergyNode: [Device]]()
         for (name, d) in (status?["drivers"]?.object ?? []).sorted(by: { $0.0 < $1.0 }) {
             let st = d["status"]?.string ?? ""
