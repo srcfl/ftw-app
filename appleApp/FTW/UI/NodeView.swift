@@ -102,12 +102,11 @@ private struct NodeHero: View {
             carLevel: car.map { ($0.pct, $0.origin == .assumed || $0.origin == .unconfirmed) },
             hasCar: !loadpoints.points.isEmpty
         ).first { $0.node == node }
-        let devices = sources.split(node)
         VStack(alignment: .leading, spacing: 8) {
             if let reading {
                 HeroLine(reading: reading).equatable()
-                HeroFreshness(freshness: worst(reading.freshness, devices))
-                if let devices {
+                HeroFreshness(freshness: worst(reading.freshness, sources.devices[node] ?? []))
+                if let devices = sources.split(node) {
                     DeviceRows(site: site, devices: devices, readAtMs: sources.readAtMs, tint: Theme.color(reading.tone))
                 }
             } else {
@@ -119,10 +118,11 @@ private struct NodeHero: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The node is only as live as its least live device.
-    private func worst(_ f: NodeFreshness, _ devices: [SourcesModel.Device]?) -> NodeFreshness {
-        guard let devices else { return f }
-        let states = devices.map { site.deviceFreshness($0.name) }
+    /// The node is only as live as its least live device. The box names one
+    /// source per field; the devices behind the node, once read, may say more.
+    private func worst(_ f: NodeFreshness, _ devices: [SourcesModel.Device]) -> NodeFreshness {
+        // A device the stream does not name says nothing either way.
+        let states = devices.filter { site.session.sources[$0.name] != nil }.map { site.deviceFreshness($0.name) }
         guard let bad = states.filter({ !$0.live }).max(by: { $0.srcState < $1.srcState }), f.live else { return f }
         return bad
     }

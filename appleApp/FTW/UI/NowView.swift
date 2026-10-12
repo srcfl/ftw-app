@@ -176,7 +176,9 @@ struct StatusRow: View, Equatable {
         }
         .animation(Theme.spring, value: answer)
         .animation(Theme.spring, value: mode)
-        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        // One row on every iPhone at every standard size; the node views
+        // and the mode sheet say the same at any size.
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
     }
 
     private var control: some View {

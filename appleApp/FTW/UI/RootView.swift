@@ -198,6 +198,7 @@ struct DemoBand: View {
         .padding(.vertical, 6)
         .background(Theme.surfaceSunken.ignoresSafeArea(edges: .top))
         .overlay(alignment: .bottom) { Theme.line.frame(height: 1) }
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        // Chrome above every screen: whole words before large letters.
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
     }
 }

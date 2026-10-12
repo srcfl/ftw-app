@@ -21,11 +21,11 @@ struct FlowDiagram: View {
                 FlowLines(lines: lines(m), moving: readings.contains { $0.node != .home && $0.flowing && $0.freshness.live })
                     .accessibilityHidden(true)
                 ForEach(readings.filter { $0.node != .home }) { r in
-                    door(r) { NodeBubble(reading: r, width: m.bubbleWidth).equatable() }
+                    door(r) { NodeBubble(reading: r, width: m.bubbleWidth, scale: m.scale).equatable() }
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: m.alignment(r.node))
                 }
                 if let home = readings.first(where: { $0.node == .home }) {
-                    door(home) { HubBubble(reading: home, diameter: m.hubDiameter).equatable() }
+                    door(home) { HubBubble(reading: home, diameter: m.hubDiameter, scale: m.scale).equatable() }
                 }
             }
             .frame(width: m.box.width, height: m.box.height)
@@ -64,16 +64,20 @@ struct FlowDiagram: View {
     }
 
     /// Sizes from the room there is. The drawing never grows taller than
-    /// a little over its width: past that the corners only drift apart.
+    /// a little over its width: past that the corners only drift apart. On
+    /// a tall phone the figures grow with it, so the room reads as size
+    /// rather than as empty space.
     struct Metrics {
         let box: CGSize
+        let scale: CGFloat
         let bubbleWidth: CGFloat
         let hubDiameter: CGFloat
 
         init(size: CGSize) {
-            box = CGSize(width: size.width, height: min(size.height, size.width * 1.25))
-            bubbleWidth = min(124, max(96, size.width * 0.3))
-            hubDiameter = min(132, max(104, min(size.width * 0.32, box.height * 0.42)))
+            box = CGSize(width: size.width, height: min(size.height, size.width * 1.2))
+            scale = min(1.25, max(1, box.height / 380))
+            bubbleWidth = min(136, max(96, size.width * 0.3)) * min(scale, 1.1)
+            hubDiameter = min(132 * scale, max(104, min(size.width * 0.34, box.height * 0.42)))
         }
 
         func alignment(_ node: EnergyNode) -> Alignment {
@@ -147,6 +151,7 @@ private struct PressStyle: ButtonStyle {
 struct NodeBubble: View, Equatable {
     let reading: NodeReading
     let width: CGFloat
+    var scale: CGFloat = 1
 
     var body: some View {
         let live = reading.freshness.live
@@ -162,7 +167,7 @@ struct NodeBubble: View, Equatable {
                     .tracking(0.6)
                     .foregroundStyle(Theme.fgDim)
             }
-            NodeValue(watts: reading.watts, size: 18)
+            NodeValue(watts: reading.watts, size: 18 * scale)
                 .foregroundStyle(reading.watts == nil ? Theme.fgMuted : color)
             Text(reading.word)
                 .font(.caption2)
@@ -175,7 +180,7 @@ struct NodeBubble: View, Equatable {
                 FreshnessTag(freshness: reading.freshness)
             }
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 8 * scale)
         .padding(.horizontal, 6)
         .frame(width: width)
         .background(RoundedRectangle(cornerRadius: 16).fill(Theme.surfaceRaised))
@@ -196,6 +201,7 @@ struct NodeBubble: View, Equatable {
 struct HubBubble: View, Equatable {
     let reading: NodeReading
     let diameter: CGFloat
+    var scale: CGFloat = 1
 
     var body: some View {
         let live = reading.freshness.live
@@ -203,7 +209,7 @@ struct HubBubble: View, Equatable {
             Image(systemName: "house.fill")
                 .font(.title3)
                 .foregroundStyle(live ? Theme.accent : Theme.fgMuted)
-            NodeValue(watts: reading.watts, size: 22)
+            NodeValue(watts: reading.watts, size: 22 * scale)
                 .foregroundStyle(Theme.fg)
             Text(EnergyNode.home.caps)
                 .font(.caption2.weight(.semibold))
