@@ -1,11 +1,17 @@
 import FTWKit
 import SwiftUI
+#if targetEnvironment(simulator)
+import PhotosUI
+#endif
 
 /// Pairing, the first thing anyone sees. Scan, then Face ID. Everything that
 /// can fail does so before the passkey prompt.
 struct PairView: View {
     let app: AppModel
     @State private var model: PairModel
+    #if targetEnvironment(simulator)
+    @State private var picture: PhotosPickerItem?
+    #endif
 
     init(app: AppModel) {
         self.app = app
@@ -126,6 +132,13 @@ struct PairView: View {
             .font(.callout)
             Hint("Next, your phone asks for Face ID or Touch ID to protect your FTW key. There is no FTW account or password. If this phone loses its key, a new Settings QR is the way back.")
             Button("Scan the pairing QR") { model.stage = .scanning }.buttonStyle(.primary)
+            #if targetEnvironment(simulator)
+            // The simulator has no camera. A screenshot of the QR in Photos
+            // takes the same path as a scan.
+            PhotosPicker("Choose a picture of the QR", selection: $picture, matching: .images)
+                .buttonStyle(.quiet)
+                .onChange(of: picture) { _, item in read(item) }
+            #endif
             DisclosureGroup("Can't see Show pairing code?") {
                 Hint("Turn on Let the FTW app connect to this box, save, and restart the box first.")
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -134,6 +147,23 @@ struct PairView: View {
         }
     }
 }
+
+#if targetEnvironment(simulator)
+extension PairView {
+    private func read(_ item: PhotosPickerItem?) {
+        guard let item else { return }
+        Task {
+            let data = try? await item.loadTransferable(type: Data.self)
+            picture = nil
+            if let link = data.flatMap(PairingImage.link(in:)) {
+                await model.pair(link)
+            } else {
+                model.noCodeFound()
+            }
+        }
+    }
+}
+#endif
 
 struct Title: View {
     let text: String

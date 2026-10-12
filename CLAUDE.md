@@ -34,8 +34,9 @@ His decisions:
 - Charge now runs with no time limit.
 
 Do not add Plan, History, Box admin, escrow, LAN, push or the store listing
-in M1. A cloud service that caches the box's state encrypted is designed
-separately; nothing in M1 may depend on it.
+in M1. FTW Cloud (an opt-in state cache, push and statistics, readable by
+Sourceful rather than end-to-end encrypted) is designed separately; nothing
+in M1 may depend on it.
 
 **Android (`androidApp/`, `shared/`).** Pair + Now, shipped on `main` as of
 2026-08-22. Do not add Energy / History / Plan / EV, commands, escrow, LAN,
@@ -96,7 +97,7 @@ On iPhone, one Swift package in `appleApp/FTWKit` holds three modules:
 - `FTWShared` holds plain `Sendable` values for the app's extensions: the
   App Group cache (`prices-<site>`, `car-<site>`), the price and freshness
   formatters, and their Swedish and English words. Nothing on the main
-  actor, no keys. A cloud copy of the box's state would be one more
+  actor, no keys. A copy from FTW Cloud would be one more
   `CacheSource` here, not a new model.
 - `FTWDemo` is the simulated box. The app links it for the demo and App
   Review; FTWKit never does.

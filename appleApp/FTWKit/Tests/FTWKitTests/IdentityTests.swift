@@ -1,3 +1,4 @@
+import CoreImage
 import Foundation
 import Testing
 @testable import FTWKit
@@ -68,6 +69,29 @@ struct IdentityVectors: Decodable {
         #expect(SiteList.fingerprint(e.boxStaticPublic) == v.enrollment.fingerprint)
         let pub = Bytes(hex: v.vaultCopy.publicKey)
         #expect(String(Base64url.encode(pub).prefix(8)) == v.enrollment.deviceIdOnBox)
+    }
+}
+
+@Suite struct PairingImageTests {
+    /// A QR as a PNG, the way a screenshot of the box's Settings page holds it.
+    func png(_ text: String) throws -> Data {
+        let filter = try #require(CIFilter(name: "CIQRCodeGenerator"))
+        filter.setValue(Data(text.utf8), forKey: "inputMessage")
+        filter.setValue("M", forKey: "inputCorrectionLevel")
+        let code = try #require(filter.outputImage).transformed(by: CGAffineTransform(scaleX: 8, y: 8))
+        // A quiet zone, as on a screen.
+        let framed = code.composited(over: CIImage(color: .white).cropped(to: code.extent.insetBy(dx: -40, dy: -40)))
+        return try #require(CIContext().pngRepresentation(of: framed, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!))
+    }
+
+    @Test func aPictureOfThePairingQRGivesTheLink() throws {
+        let url = Enrollment(boxStaticPublic: Bytes(repeating: 7, count: 32), pairingCode: Bytes(repeating: 1, count: 16), lanHint: "", rendezvousSecret: Bytes(repeating: 9, count: 32)).url()
+        #expect(PairingImage.link(in: try png(url)) == url)
+    }
+
+    @Test func anyOtherPictureGivesNothing() throws {
+        #expect(PairingImage.link(in: try png("https://example.com/p#v2.nope")) == nil)
+        #expect(PairingImage.link(in: Data("not a picture".utf8)) == nil)
     }
 }
 

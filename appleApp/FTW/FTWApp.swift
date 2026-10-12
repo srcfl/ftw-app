@@ -38,7 +38,13 @@ struct FTWApp: App {
     var body: some Scene {
         WindowGroup {
             RootView(app: app)
+                // A pairing QR scanned with the iOS camera arrives as a
+                // universal link to https://app.ftw.energy/p#…, and takes the
+                // same path as any other pairing link.
                 .onOpenURL { app.offer($0.absoluteString) }
+                .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
+                    if let url = activity.webpageURL { app.offer(url.absoluteString) }
+                }
                 .onChange(of: scenePhase, initial: true) { _, phase in
                     // Inactive is a glance at Control Center or the app
                     // switcher: slow the stream, keep the session. Only the

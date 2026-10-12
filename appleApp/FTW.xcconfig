@@ -12,8 +12,13 @@ CURRENT_PROJECT_VERSION = 1
 
 IPHONEOS_DEPLOYMENT_TARGET = 26.0
 
-// No Apple team yet. Simulator builds sign ad hoc so the entitlements, and
-// with them the App Group, travel with the app. Set DEVELOPMENT_TEAM here
-// once the team exists; device builds need it.
+// Sourceful's Apple team, for the app and the widget alike. Signing is
+// automatic: Xcode, signed in to that team, makes the profiles. Nothing for
+// signing is committed here: no certificate, profile or key.
+DEVELOPMENT_TEAM = L66M368PZ6
 CODE_SIGN_STYLE = Automatic
+
+// Simulator builds sign ad hoc and need no Apple account, for CI and for
+// anyone without one. The entitlements, and with them the App Group, still
+// travel with the app.
 CODE_SIGN_IDENTITY[sdk=iphonesimulator*] = -

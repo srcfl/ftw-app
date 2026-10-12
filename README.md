@@ -52,8 +52,10 @@ iOS 26 is the minimum. iPhone only.
 
 **In the app**
 
-- Pair: camera QR, a link from outside shown before it is trusted, and the
-  live demo against a simulated box.
+- Pair: camera QR, a link from outside shown before it is trusted (also a
+  pairing QR scanned with the iOS camera, as a universal link), and the live
+  demo against a simulated box. In the simulator, which has no camera, a
+  picture of the QR from Photos takes the same path.
 - Now: one sentence, the energy flow, the price card with the cheapest two
   hours, today's totals and the fuse. The freshness band above it keeps
   carrier and source state apart.
@@ -69,11 +71,12 @@ iOS 26 is the minimum. iPhone only.
 
 | Check | Result |
 |---|---|
-| `swift test` in `appleApp/FTWKit` (Xcode 27, Swift 6.4) | 92 tests green, 1 live test skipped |
+| `swift test` in `appleApp/FTWKit` (Xcode 27, Swift 6.4) | 94 tests green, 1 live test skipped |
 | Cross-implementation vectors from the web app and the box | Noise, frames, rendezvous handles and the vault copy match |
 | `ContractTests` against `protocol/registry.yaml` | Scopes, ops, capabilities, modes, errors, states and frozen field ids match |
 | App and widget for the iOS Simulator, signed ad hoc | Builds; both carry the App Group entitlement |
 | Demo in the iOS Simulator (iPhone 17, iOS 26.5) | Launches and streams |
+| A picture of a pairing QR, picked from Photos in that simulator | Read and paired; the home then dials the relay |
 
 **Next in M1**
 
@@ -81,13 +84,21 @@ The car view (level presets 20/40/60/80 and ±5 through `loadpoint.soc.set`,
 the goal through the schedule PUT, Charge now, Pause and Back to the plan),
 the four price widget families, then tests and screenshots.
 
-**Needs an owner decision or a device**
+**Manual steps before a phone build**
 
-- An Apple team. `DEVELOPMENT_TEAM` is unset, so nothing runs on a phone yet.
-  Set it once in `appleApp/FTW.xcconfig`.
-- An `apple-app-site-association` file on `app.ftw.energy` that names
-  `<TEAM>.energy.ftw.app` under `webcredentials` and `applinks`. Passkeys
-  need it.
+The team is `L66M368PZ6`, set once in `appleApp/FTW.xcconfig` for the app and
+the widget, with automatic signing. Nothing for signing is in the repository.
+Someone in that team still has to:
+
+- Register the App IDs `energy.ftw.app` and `energy.ftw.app.widgets`, the
+  App Group `group.energy.ftw.app` on both, and Associated Domains on the
+  app. Signing in to Xcode with the team and building for a phone does this
+  through automatic signing; the developer portal works too.
+- Publish `apple-app-site-association` on `app.ftw.energy` with
+  `L66M368PZ6.energy.ftw.app` under `webcredentials` and `/p` under
+  `applinks` (in ftw-webapp). Passkeys and the camera QR link need it.
+
+Simulator builds sign ad hoc and need no Apple account.
 
 **Not in M1 (do not start these next)**
 

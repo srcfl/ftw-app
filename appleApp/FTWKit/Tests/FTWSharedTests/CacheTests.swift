@@ -49,7 +49,7 @@ import Testing
         #expect(files.siteIDs(CarEntry.self).isEmpty)
     }
 
-    /// A second source, such as a sealed copy from a cloud mirror, feeds the
+    /// A second source, such as a copy from FTW Cloud, feeds the
     /// same records. The newest reading wins whichever source holds it.
     @Test func anotherSourceFeedsTheSameRecords() throws {
         struct Mirror: CacheSource {

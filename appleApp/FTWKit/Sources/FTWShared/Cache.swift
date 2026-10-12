@@ -45,13 +45,13 @@ public struct CacheRecord<Value: CacheValue>: Codable, Sendable, Equatable {
 public enum CacheOrigin: String, Sendable {
     /// Written by the app, from its own session with the box.
     case app
-    // A sealed copy of the box's state from a cloud mirror would be a second
-    // case here, opened by its own `CacheSource` into the same records.
+    // FTW Cloud, the opt-in state cache, would be a second case here, read by
+    // its own `CacheSource` into the same records.
 }
 
 /// Somewhere records can come from. The App Group files are the only source
-/// today. A cloud copy becomes one more source that decrypts into the same
-/// `CacheRecord`, so nothing that reads the cache has to change.
+/// today. A copy from FTW Cloud becomes one more source that reads into the
+/// same `CacheRecord`, so nothing that reads the cache has to change.
 public protocol CacheSource: Sendable {
     var origin: CacheOrigin { get }
     func read<Value: CacheValue>(_ type: Value.Type, siteId: String) -> CacheRecord<Value>?

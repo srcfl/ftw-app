@@ -124,7 +124,13 @@ extension Ceremony: ASAuthorizationControllerDelegate {
 
 extension Ceremony: ASAuthorizationControllerPresentationContextProviding {
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
-        return windows.first(where: \.isKeyWindow) ?? windows.first ?? ASPresentationAnchor()
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let windows = scenes.flatMap(\.windows)
+        if let window = windows.first(where: \.isKeyWindow) ?? windows.first { return window }
+        guard let scene = scenes.first else {
+            // A ceremony starts from a button on screen, so a scene exists.
+            preconditionFailure("passkey ceremony with no window scene")
+        }
+        return ASPresentationAnchor(windowScene: scene)
     }
 }
