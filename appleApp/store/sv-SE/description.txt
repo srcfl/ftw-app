@@ -1,0 +1,30 @@
+Se hemmets energi i din iPhone, direkt från FTW-boxen hemma. Styr bilens laddning och se elpriset.
+
+FTW är hemenergi med öppen källkod från Sourceful. Det körs på en box hemma hos dig, läser av mätare och enheter, planerar batteriet och bilen och styr dem på plats. Appen visar dig boxen. Du säger vad du vill, och boxen bestämmer hur.
+
+NU
+• Styr FTW? En rad svarar, och säger varför när svaret är nej.
+• Effekten just nu mellan sol, batteri, hem, elnät och bil.
+• Hur stor del av dagens el hemmet gjorde själv.
+• Elpriset nu, de två billigaste timmarna och timmarna framåt.
+• Varje värde visar sin ålder. Bryts kontakten säger appen det och ansluter igen av sig själv.
+
+BILEN
+• Bilens nivå, och var den kommer ifrån: bilen, du eller FTW:s uppskattning.
+• Rätta den med 20, 40, 60 eller 80 %, eller 5 % upp eller ner.
+• Sätt ett mål: hur full och till när, en gång eller vissa dagar.
+• Se om planen hinner.
+• Ladda nu, Pausa eller Tillbaka till planen. Varje kommando visar när det skickades, när boxen fick det och när det var utfört.
+
+PRISWIDGETAR
+• Elpriset på hemskärmen, låsskärmen och i Vänteläge.
+• Widgetarna visar det appen senast läste från boxen, och hur gammalt det är.
+
+INTEGRITET
+• Inget konto och inget lösenord. Skanna parkopplingskoden som boxen visar och bekräfta med en lösenordsnyckel.
+• Din data stannar i boxen och i telefonen. Appen når boxen genom Sourcefuls relä, som bär krypterad trafik det inte kan läsa.
+• Ingen reklam, ingen analys, ingen spårning.
+
+DET HÄR BEHÖVER DU
+• En FTW-box hemma med FTW-appen påslagen i boxens inställningar. FTW körs på en Raspberry Pi eller en annan Linuxdator. Läs mer på ftw.energy.
+• Ingen box? Prova demon, ett simulerat hem som körs i appen.
