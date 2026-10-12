@@ -100,15 +100,18 @@ public struct IntentFailure: Error, Equatable, CustomLocalizedStringResourceConv
 /// A Live Activity intent, because it starts one, and because the system
 /// then runs it in the app's process even when the Control lives in the
 /// widget extension. `supportedModes` keeps it in the background; iOS 27
-/// can say outright that it runs in the app.
+/// can say outright that it runs in the app. That declaration needs the
+/// iOS 27 SDK (Swift 6.4); an older Xcode, as in the PR check, leaves it out.
 public struct ChargeNowIntent: AppIntent {
     public static let title: LocalizedStringResource = "Charge now"
     public static let description = IntentDescription("Starts charging the car at once, until you go back to the plan.")
     public static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     public static let supportedModes: IntentModes = .background
 
+    #if compiler(>=6.4)
     @available(iOS 27.0, macOS 27.0, watchOS 27.0, tvOS 27.0, visionOS 27.0, *)
     public static var allowedExecutionTargets: IntentExecutionTargets { .main }
+    #endif
 
     public init() {}
 
@@ -129,8 +132,10 @@ public struct BackToPlanIntent: AppIntent {
     /// The Live Activity names its charger; Siri and Shortcuts do not.
     public static let isDiscoverable = false
 
+    #if compiler(>=6.4)
     @available(iOS 27.0, macOS 27.0, watchOS 27.0, tvOS 27.0, visionOS 27.0, *)
     public static var allowedExecutionTargets: IntentExecutionTargets { .main }
+    #endif
 
     @Parameter(title: "Charger")
     public var loadpointID: String?
@@ -156,8 +161,10 @@ public struct SetLevelIntent: AppIntent {
     public static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
     public static let supportedModes: IntentModes = .background
 
+    #if compiler(>=6.4)
     @available(iOS 27.0, macOS 27.0, watchOS 27.0, tvOS 27.0, visionOS 27.0, *)
     public static var allowedExecutionTargets: IntentExecutionTargets { .main }
+    #endif
 
     @Parameter(title: "Level")
     public var level: CarLevel

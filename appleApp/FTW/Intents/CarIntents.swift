@@ -13,8 +13,10 @@ struct CarStatusIntent: AppIntent {
     static let authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
     static let supportedModes: IntentModes = .background
 
+    #if compiler(>=6.4)
     @available(iOS 27.0, *)
     static var allowedExecutionTargets: IntentExecutionTargets { .main }
+    #endif
 
     @MainActor
     func perform() async throws -> some IntentResult & ProvidesDialog & ShowsSnippetIntent {
