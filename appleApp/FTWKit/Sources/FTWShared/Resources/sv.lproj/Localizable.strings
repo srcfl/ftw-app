@@ -46,3 +46,14 @@
 "incl. grid fee" = "inkl. nätavgift";
 "spot price only" = "endast spotpris";
 "incl. surcharges" = "inkl. påslag";
+
+/* Charge now: the Control and the Live Activity */
+"Charge now" = "Ladda nu";
+"Starts charging the car at once, until you go back to the plan." = "Börjar ladda bilen direkt, tills du går tillbaka till planen.";
+"Back to the plan" = "Tillbaka till planen";
+"No time limit" = "Ingen tidsgräns";
+"Charging now since %@" = "Laddar nu sedan %@";
+"Since %@" = "Sedan %@";
+"Last confirmed %@ · open FTW" = "Senast bekräftat %@ · öppna FTW";
+"Open FTW to charge now." = "Öppna FTW för att ladda nu.";
+"Open FTW, then try again." = "Öppna FTW och försök igen.";
