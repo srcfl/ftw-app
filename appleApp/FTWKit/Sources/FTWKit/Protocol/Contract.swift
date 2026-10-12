@@ -14,6 +14,7 @@ public enum Contract {
         "ftw.plan.read",
         "ftw.health.read",
         "ftw.assets.read",
+        "ftw.events.read",
         "ftw.dispatch.write",
         "ftw.mode.write",
         "ftw.members.read",
@@ -43,6 +44,7 @@ public enum Contract {
         "cmd.lease", "cmd.precondition", "cmd.readback",
         "der.battery", "der.ev", "der.v2x",
         "plan.dispatch", "net.webrtc", "price.spot", "api.passthrough",
+        "cloud.link",
     ]
 
     public static let capPlanDispatch = "plan.dispatch"
@@ -119,5 +121,5 @@ public enum Contract {
     }
 
     public static let sourceStates = ["live", "lagging", "stale", "down", "never"]
-    public static let carrierStates = ["webrtc", "relay", "cache", "none"]
+    public static let carrierStates = ["webrtc", "relay", "cloud", "cache", "none"]
 }

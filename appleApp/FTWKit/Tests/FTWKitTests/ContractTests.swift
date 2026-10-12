@@ -59,7 +59,7 @@ import FTWDemo
     /// FTWShared spells the same states as enums, for widgets that never
     /// link FTWKit.
     @Test func sharedStatesAreTheRegistrys() {
-        #expect([CarrierKind.webrtc, .relay, .cache, .none].map(\.rawValue) == Contract.carrierStates)
+        #expect([CarrierKind.webrtc, .relay, .cloud, .cache, .none].map(\.rawValue) == Contract.carrierStates)
         #expect([SourceState.live, .lagging, .stale, .down, .never].map(\.rawValue) == Contract.sourceStates)
         #expect(Contract.sourceStates.allSatisfy { SourceState(rawValue: $0) != nil })
         #expect(Contract.carrierStates.allSatisfy { CarrierKind(rawValue: $0) != nil })
