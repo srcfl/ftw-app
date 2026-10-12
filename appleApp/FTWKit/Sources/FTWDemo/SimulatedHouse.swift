@@ -20,7 +20,7 @@ public final class SimulatedHouse {
     public private(set) var baseLoadW: Double = 0
     public private(set) var gridW: Double = 0
 
-    public var modeKey = "planner_passive_arbitrage"
+    public var modeKey = "planner_passive_arbitrage" { didSet { planRev += 1 } }
 
     // The car. It arrives plugged in and unread, so the box assumes 20 %,
     // which is the moment the car view is for.
@@ -47,6 +47,19 @@ public final class SimulatedHouse {
     public var schedule: (socFraction: Double, clockMin: Int, recurring: Bool, days: Int, surplusUnlock: Double)? = (0.8, 7 * 60, true, 0b0011111, 0)
     public private(set) var sessionWh: Double = 0
     private var lastStepMs: Double = 0
+
+    /// What the house did before the demo began, five minutes at a time,
+    /// made up once from the same model, and what it has done since, as it
+    /// ran. Keyed by the bucket's start.
+    var pastBuckets: [Double: Bucket] = [:]
+    var liveBuckets: [Double: (sum: Bucket, ms: Double)] = [:]
+    /// When the house started running live. Earlier buckets are made up.
+    var liveSinceMs: Double?
+    /// The household's planner preferences, as Core keeps them.
+    public var safetyK: Double = 0.3 { didSet { planRev += 1 } }
+    public var batteryExport = "not_allowed" { didSet { planRev += 1 } }
+    /// Moves when anything the plan depends on changes.
+    public internal(set) var planRev: UInt64 = 1
 
     /// The cable goes in: a new session, nothing known about the car.
     public func plugIn() {
@@ -138,13 +151,24 @@ public final class SimulatedHouse {
         return (x - x.rounded(.down)) * 2 - 1
     }
 
-    /// Solar at a moment, as a PV reading (never positive).
+    /// How far the year is toward midsummer: 1 in June, 0 in December.
+    func season(_ ms: Double) -> Double {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timeZone
+        let day = Double(cal.ordinality(of: .day, in: .year, for: Date(timeIntervalSince1970: ms / 1000)) ?? 172)
+        return 0.5 + 0.5 * cos(2 * Double.pi * (day - 172) / 365)
+    }
+
+    /// Solar at a moment, as a PV reading (never positive). A Swedish roof:
+    /// long, strong days in June, short, weak ones in December.
     public func pvAt(_ ms: Double) -> Double {
         let h = hourOfDay(ms)
-        guard h > 5.5, h < 20.5 else { return 0 }
-        let sun = sin(Double.pi * (h - 5.5) / 15)
-        let cloud = 0.85 + 0.15 * wobble(ms / 60_000, 3)
-        return -(pvPeakW * max(0, sun) * max(0, sun) * cloud).rounded()
+        let s = season(ms)
+        let half = 3.5 + 4.5 * s
+        guard h > 12.5 - half, h < 12.5 + half else { return 0 }
+        let sun = sin(Double.pi * (h - 12.5 + half) / (2 * half))
+        let cloud = 0.85 + 0.15 * wobble(ms / 600_000, 3)
+        return -(pvPeakW * (0.2 + 0.8 * s) * max(0, sun) * max(0, sun) * cloud).rounded()
     }
 
     /// The house without the car.
@@ -239,6 +263,7 @@ public final class SimulatedHouse {
         socFraction = max(0, min(1, socFraction + batteryW * efficiency * dtMs / 3_600_000 / batteryCapacityWh))
 
         gridW = (load + batteryW + pvW).rounded()
+        recordLive(nowMs: nowMs, dtMs: dtMs)
 
         let h = dtMs / 3_600_000
         todayLoadWh += load * h

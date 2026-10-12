@@ -195,6 +195,6 @@ enum Clock {
     }
 }
 
-/// The app's words in the phone's language, English or Swedish
-/// (FTWKit's `AppWords`). Text built from a String is shown as given.
-func L(_ en: String) -> String { AppWords.text(en) }
+/// The app's words in the phone's language, English or Swedish (FTWKit's
+/// `NodeWords`, then `AppWords`). Text built from a String is shown as given.
+func L(_ en: String) -> String { NodeWords.text(en) }

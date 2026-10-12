@@ -12,6 +12,8 @@ public final class HomeModels {
     public let charging: ChargingWatch
     public let savings: SavingsModel
     public let loadpoints: LoadpointsModel
+    /// Live, history, plan and mode for Now's nodes.
+    public let nodes: NodeModels
 
     init(site: SiteModel) {
         self.site = site
@@ -20,6 +22,7 @@ public final class HomeModels {
         charging = ChargingWatch(site: site)
         savings = SavingsModel(site: site)
         loadpoints = LoadpointsModel(site: site, charging: charging)
+        nodes = NodeModels(site: site)
     }
 }
 

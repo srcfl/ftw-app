@@ -22,16 +22,21 @@ struct RootView: View {
     }
 }
 
-/// Where a home can go from Now. M1 has one place: the car.
+/// Where a home can go from Now: each node's own view, and the car.
 enum HomeRoute: Hashable {
     /// One charger's car; nil is the first.
     case car(String?)
+    /// Live, history, plan and mode for one node of the flow.
+    case node(EnergyNode)
 
-    /// Where a home opens. Debug builds take `-FTWTab car` and the like, so
-    /// every screen of the demo can be photographed.
+    /// Where a home opens. Debug builds take `-FTWTab car` or
+    /// `-FTWNode battery` and the like, so every screen of the demo can be
+    /// photographed.
     static var initial: [HomeRoute] {
         #if DEBUG
-        return UserDefaults.standard.string(forKey: "FTWTab") == "car" ? [.car(nil)] : []
+        let defaults = UserDefaults.standard
+        if let node = defaults.string(forKey: "FTWNode").flatMap(EnergyNode.init(rawValue:)) { return [.node(node)] }
+        return defaults.string(forKey: "FTWTab") == "car" ? [.car(nil)] : []
         #else
         return []
         #endif
@@ -42,7 +47,7 @@ struct HomeView: View {
     let app: AppModel
     let home: HomeModels
     @State private var path: [HomeRoute] = HomeRoute.initial
-    /// The car row on Now grows into the car view.
+    /// A node on Now grows into its own view, and the car into the car view.
     @Namespace private var zoom
 
     var body: some View {
@@ -53,17 +58,23 @@ struct HomeView: View {
                 Band(app: app, site: home.site)
             }
             NavigationStack(path: $path) {
-                Screen(app: app) {
-                    NowView(app: app, home: home, zoom: zoom)
-                }
-                .toolbar(.hidden, for: .navigationBar)
-                .navigationDestination(for: HomeRoute.self) { route in
-                    switch route {
-                    case .car(let id):
-                        CarView(app: app, home: home, id: id)
-                            .navigationTransition(.zoom(sourceID: id ?? CarRow.firstID, in: zoom))
+                NowView(app: app, home: home, zoom: zoom)
+                    .background(Theme.surface)
+                    .toolbar(.hidden, for: .navigationBar)
+                    .navigationDestination(for: HomeRoute.self) { route in
+                        // Each route zooms out of the view that names it as
+                        // its source: a node on Now, the car row in the car's
+                        // node view.
+                        Group {
+                            switch route {
+                            case .car(let id):
+                                CarView(app: app, home: home, id: id)
+                            case .node(let node):
+                                NodeView(app: app, home: home, node: node, zoom: zoom)
+                            }
+                        }
+                        .navigationTransition(.zoom(sourceID: route, in: zoom))
                     }
-                }
             }
         }
         // Now and the car read the chargers from one model, so a screen
@@ -84,21 +95,31 @@ private struct Band: View {
     }
 }
 
-/// One scrolling page, with pull to refresh.
-struct Screen<Content: View>: View {
-    let app: AppModel
-    @ViewBuilder var content: Content
+/// One page that fits the screen it is on. While everything fits, nothing
+/// scrolls and the parts that can grow (`fill` is true) take the room
+/// there is. Only when it cannot fit, at the largest text sizes, does the
+/// same page scroll, with each part at its own natural height.
+struct FitScreen<Content: View>: View {
+    var spacing: CGFloat = 12
+    @ViewBuilder var content: (_ fill: Bool) -> Content
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) { content }
-                .padding(16)
-                .frame(maxWidth: 640, alignment: .leading)
-                .frame(maxWidth: .infinity)
+        ViewThatFits(in: .vertical) {
+            page(fill: true)
+            ScrollView {
+                page(fill: false)
+            }
+            .scrollBounceBehavior(.basedOnSize)
         }
-        .scrollDismissesKeyboard(.interactively)
         .background(Theme.surface)
-        .refreshable { await app.refresh() }
+    }
+
+    private func page(fill: Bool) -> some View {
+        VStack(alignment: .leading, spacing: spacing) { content(fill) }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: 640, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: fill ? .infinity : nil, alignment: .top)
     }
 }
 
