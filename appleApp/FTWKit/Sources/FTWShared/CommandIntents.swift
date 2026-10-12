@@ -179,15 +179,15 @@ public struct SetLevelIntent: AppIntent {
     }
 }
 
-/// The levels Siri understands. Ten steps: a level said aloud is a rough
-/// one, and the car view has ±5 for the rest.
+/// The levels Siri understands: the car view's chips. Each one is also a
+/// tile in Shortcuts and Spotlight, so there are few; the car view has ±5
+/// for the rest.
 public enum CarLevel: Int, AppEnum, CaseIterable, Sendable {
-    case p10 = 10, p20 = 20, p30 = 30, p40 = 40, p50 = 50, p60 = 60, p70 = 70, p80 = 80, p90 = 90, p100 = 100
+    case p20 = 20, p40 = 40, p60 = 60, p80 = 80
 
     public static let typeDisplayRepresentation: TypeDisplayRepresentation = "Level"
     public static let caseDisplayRepresentations: [CarLevel: DisplayRepresentation] = [
-        .p10: "10 %", .p20: "20 %", .p30: "30 %", .p40: "40 %", .p50: "50 %",
-        .p60: "60 %", .p70: "70 %", .p80: "80 %", .p90: "90 %", .p100: "100 %",
+        .p20: "20 %", .p40: "40 %", .p60: "60 %", .p80: "80 %",
     ]
 }
 

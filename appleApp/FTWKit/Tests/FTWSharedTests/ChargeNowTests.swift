@@ -95,7 +95,8 @@ import Testing
         #expect(BackToPlanIntent(loadpointID: "garage").command == .backToPlan(loadpointID: "garage"))
         #expect(BackToPlanIntent().command == .backToPlan(loadpointID: nil))
         #expect(SetLevelIntent(level: .p40).command == .setLevel(pct: 40))
-        #expect(CarLevel.allCases.map(\.rawValue) == Array(stride(from: 10, through: 100, by: 10)))
+        // The car view's chips, and no more tiles than those.
+        #expect(CarLevel.allCases.map(\.rawValue) == [20, 40, 60, 80])
     }
 
     /// Without the app's runner nothing is sent, and the person is told to
