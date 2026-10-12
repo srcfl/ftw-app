@@ -199,7 +199,8 @@ private struct HeroFreshness: View {
     }
 }
 
-/// Each device behind a node, for a home with more than one.
+/// Each device behind a node, for a home with more than one: one line
+/// while they fit side by side, a line each when they do not.
 private struct DeviceRows: View {
     let site: SiteModel
     let devices: [SourcesModel.Device]
@@ -207,34 +208,41 @@ private struct DeviceRows: View {
     let tint: Color
 
     var body: some View {
-        VStack(spacing: 4) {
-            ForEach(devices) { d in
-                let f = site.deviceFreshness(d.name)
-                HStack(spacing: 8) {
-                    Circle().fill(f.live ? Theme.freshLive : Theme.freshStale).frame(width: 6, height: 6)
-                    Text(d.name).font(.footnote.weight(.medium)).foregroundStyle(Theme.fg)
-                    Spacer(minLength: 8)
-                    if let level = d.levelPct {
-                        Text(AppWords.percent(level)).font(Theme.percent(.footnote)).foregroundStyle(Theme.fgDim)
-                    }
-                    Text(AppWords.power(d.watts))
-                        .font(Theme.number(13, weight: .semibold))
-                        .foregroundStyle(f.live ? tint : Theme.fgMuted)
-                        .contentTransition(.numericText(value: d.watts))
-                }
-                .accessibilityElement(children: .combine)
+        VStack(alignment: .leading, spacing: 4) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) { chips }
+                VStack(alignment: .leading, spacing: 4) { chips }
             }
             if let readAtMs, site.nowMs - readAtMs > 30_000 {
                 Text(NodeWords.format("Split read at %@", AppWords.clock(readAtMs, zone: .current)))
                     .font(.caption2)
                     .foregroundStyle(Theme.fgMuted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radiusSmall))
         .animation(Theme.spring, value: devices)
+    }
+
+    @ViewBuilder private var chips: some View {
+        ForEach(devices) { d in
+            let f = site.deviceFreshness(d.name)
+            HStack(spacing: 6) {
+                Circle().fill(f.live ? Theme.freshLive : Theme.freshStale).frame(width: 6, height: 6)
+                Text(d.name).font(.footnote.weight(.medium)).foregroundStyle(Theme.fg)
+                Text(AppWords.power(d.watts))
+                    .font(Theme.number(13, weight: .semibold))
+                    .foregroundStyle(f.live ? tint : Theme.fgMuted)
+                    .contentTransition(.numericText(value: d.watts))
+                if let level = d.levelPct {
+                    Text(AppWords.percent(level)).font(Theme.percent(.footnote)).foregroundStyle(Theme.fgDim)
+                }
+            }
+            .lineLimit(1)
+            .accessibilityElement(children: .combine)
+        }
     }
 }
 
@@ -422,8 +430,9 @@ private struct PeriodSection: View {
             case .solar: return PlanText.solar(models.plan.forecastAhead(nowMs: now))
             case .home: return PlanText.home(models.plan.forecastAhead(nowMs: now))
             case .car:
-                guard let lp = loadpoints.points.first else { return L("This box has no charger.") }
-                return EVText.status(lp, zone: loadpoints.zone)
+                guard !loadpoints.points.isEmpty else { return L("This box has no charger.") }
+                let windows = loadpoints.points.flatMap { loadpoints.windows[$0.id] ?? $0.planWindows }
+                return PlanText.car(windows, nowMs: now, zone: loadpoints.zone)
             }
         }
     }

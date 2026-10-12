@@ -207,6 +207,14 @@ public enum PlanText {
         return NodeWords.format("Expects to buy %@ over the next 12 hours.", AppWords.energy(buy))
     }
 
+    /// When the car charges in the hours ahead, and how much in all.
+    public static func car(_ windows: [Loadpoint.Window], nowMs: Double, zone: TimeZone) -> String {
+        let ahead = windows.filter { $0.toMs > nowMs && $0.fromMs < nowMs + PlanModel.aheadMs }.sorted { $0.fromMs < $1.fromMs }
+        guard let first = ahead.first, let last = ahead.last else { return NodeWords.text("No charging planned in the next 12 hours.") }
+        let wh = ahead.reduce(0) { $0 + ($1.energyWh ?? ($1.peakW ?? 0) * ($1.toMs - $1.fromMs) / 3_600_000) }
+        return NodeWords.format("Charges %@–%@, %@ in all.", AppWords.clock(max(nowMs, first.fromMs), zone: zone), AppWords.clock(last.toMs, zone: zone), AppWords.energy(wh))
+    }
+
     public static func solar(_ slots: [PlanModel.Forecast]) -> String {
         guard !slots.isEmpty else { return NodeWords.text("No forecast for the hours ahead yet.") }
         let wh = slots.reduce(0) { $0 + $1.pvW * $1.durationMs / 3_600_000 }

@@ -94,6 +94,9 @@ public enum NodeWords {
         "selling pays": "det lönar sig att sälja",
         "nothing to gain": "inget att vinna",
 
+        "Charges %@–%@, %@ in all.": "Laddar %@–%@, %@ totalt.",
+        "No charging planned in the next 12 hours.": "Ingen laddning planerad de närmaste 12 timmarna.",
+
         // Price
         "Price now": "Elpris nu",
         "Prices ahead": "Priser framåt",

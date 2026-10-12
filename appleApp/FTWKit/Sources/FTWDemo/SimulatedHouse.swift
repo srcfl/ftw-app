@@ -178,7 +178,9 @@ public final class SimulatedHouse {
         if h >= 6.5 && h < 8.5 { w += 1_100 }
         if h >= 17 && h < 19.5 { w += 1_900 }
         if h >= 19.5 && h < 23 { w += 600 }
-        return (w + 120 * wobble(ms / 5_000, 1)).rounded()
+        // Appliances coming and going, smoothly, and a little noise on top.
+        let swing = 90 * sin(ms / 23_000) + 55 * sin(ms / 61_000 + 2)
+        return (w + swing + 18 * wobble(ms / 1_000, 1)).rounded()
     }
 
     /// Import price in öre per kWh, total, for the plan and the price chart.

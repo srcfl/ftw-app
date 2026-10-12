@@ -12,6 +12,10 @@ import SwiftUI
 
 private func date(_ ms: Double) -> Date { Date(timeIntervalSince1970: ms / 1000) }
 
+/// One width for every axis label, so charts stacked one above the other
+/// put the same hour at the same place.
+private let axisWidth: CGFloat = 44
+
 /// Axis labels as magnitudes: "2 kW" above the line and below it.
 private func powerAxis() -> some AxisContent {
     AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { value in
@@ -19,6 +23,7 @@ private func powerAxis() -> some AxisContent {
         AxisValueLabel {
             if let w = value.as(Double.self) {
                 Text(PowerFormat.scale(w)).font(.caption2).foregroundStyle(Theme.fgMuted)
+                    .frame(width: axisWidth, alignment: .leading)
             }
         }
     }
@@ -148,7 +153,10 @@ struct CarHoursChart: View, Equatable {
             AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { value in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(Theme.line)
                 AxisValueLabel {
-                    if let kwh = value.as(Double.self) { Text(AppWords.energy(kwh * 1000)).font(.caption2).foregroundStyle(Theme.fgMuted) }
+                    if let kwh = value.as(Double.self) {
+                        Text(kwh == 0 ? "0\u{00A0}kWh" : AppWords.energy(kwh * 1000)).font(.caption2).foregroundStyle(Theme.fgMuted)
+                            .frame(width: axisWidth, alignment: .leading)
+                    }
                 }
             }
         }
@@ -242,16 +250,16 @@ struct PriceStripChart: View, Equatable {
                 AxisValueLabel(format: .dateTime.hour(.twoDigits(amPM: .omitted))).font(.caption2).foregroundStyle(Theme.fgMuted)
             }
         }
-        .chartYAxis(.hidden)
-        .overlay(alignment: .topTrailing) {
-            // The range in words, where an axis would crowd the one above.
-            if let lo = shown.map(\.minor).min(), let hi = shown.map(\.minor).max() {
-                Text("\(AppWords.decimal(PriceStrip.text(lo, currency)))–\(AppWords.decimal(PriceStrip.text(hi, currency))) \(PriceUnits.unit(currency).perKwh)")
-                    .font(.caption2)
-                    .foregroundStyle(Theme.fgMuted)
-                    .padding(.horizontal, 4)
-                    .background(Theme.surfaceRaised.opacity(0.85), in: Capsule())
-                    .offset(y: -6)
+        .chartYAxis {
+            // The dearest hour, in the column the chart above keeps for its
+            // own scale: the price's scale, and the hours line up.
+            AxisMarks(position: .trailing, values: shown.map(\.minor).max().map { [PriceUnits.display($0, currency)] } ?? []) { value in
+                AxisValueLabel {
+                    if let v = value.as(Double.self) {
+                        Text("\(Int(v.rounded())) \(PriceUnits.unit(currency).label)").font(.caption2).foregroundStyle(Theme.fgMuted)
+                            .frame(width: axisWidth, alignment: .leading)
+                    }
+                }
             }
         }
         .accessibilityLabel(L("Prices ahead"))
