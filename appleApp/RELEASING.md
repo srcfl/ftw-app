@@ -178,10 +178,11 @@ the archive; if **Certificates** reports a limit, revoke the old ones.
 
 ### 5. Answer the encryption question, if asked
 
-If the build shows **Missing Compliance** in TestFlight, click **Manage**
-next to it and answer as in [Encryption and export](#5-encryption-and-export)
-below. The store-ready branch sets `ITSAppUsesNonExemptEncryption` in
-`FTW-Info.plist`; builds that carry it skip this.
+The store-ready branch ([#13](https://github.com/srcfl/ftw-app/pull/13))
+sets `ITSAppUsesNonExemptEncryption` to `NO`, so builds that carry it skip
+this. If a build shows **Missing Compliance** in TestFlight, click
+**Manage** next to it and choose **None of the algorithms mentioned
+above** ([Encryption and export](#5-encryption-and-export) says why).
 
 ### 6. Add yourself as a tester
 
@@ -268,30 +269,53 @@ time". In M1:
 - No analytics, ads, third-party code or tracking.
 
 One edge: when the relay fails to proxy a connection, Caddy's error log
-may still hold the client address and handle (rotated, 3 × 10 MB).
-Filtering that log too would remove the doubt; that change belongs in
-ftw-webapp.
+may still hold the client address and request URI (rotated, 3 × 10 MB).
+**Decide** before you publish the answer:
 
-The privacy manifest (`PrivacyInfo.xcprivacy`) comes with the store-ready
-branch. Both answers change when FTW Cloud ships: it will hold readable
-data the user turns on.
+- remove addresses from that log too, in ftw-webapp, so "Data Not
+  Collected" holds exactly; or
+- declare **Other Diagnostic Data**: not linked to the user, not used for
+  tracking, purpose App Functionality.
+
+The privacy pages in srcfl/ftw-web#18 already mention the log.
+
+The privacy manifests from #13 match this answer. Both the app's and the
+widget's declare no tracking, no tracking domains and no collected data.
+Required-reason APIs: file timestamps (`C617.1`) in both, since the cache
+sorts App Group files by date, and `UserDefaults` (`CA92.1`) in the app.
+
+Both answers change when FTW Cloud ships: it will hold readable data the
+user turns on.
 
 ### 5. Encryption and export
 
-The store-ready branch sets `ITSAppUsesNonExemptEncryption` in
-`FTW-Info.plist`; with the key set, App Store Connect asks nothing per
-build. Without it, answer under **App Information → App Encryption
-Documentation (+)**, or **Manage** next to a build in TestFlight.
+#13 sets `ITSAppUsesNonExemptEncryption` to `NO` in `FTW-Info.plist`, so
+App Store Connect asks nothing per build. A build without it asks under
+**App Information → App Encryption Documentation (+)**, or **Manage** next
+to the build in TestFlight; answer **None of the algorithms mentioned
+above**.
 
-What to answer: FTWKit builds Noise IK from CryptoKit alone (X25519,
-ChaCha20-Poly1305, SHA-256, HKDF). Apple's table says encryption "limited
-to that within the Apple operating system" needs no documentation, and no
-French declaration.
+Why: all cryptography runs in CryptoKit, which ships with iOS (X25519,
+ChaCha20-Poly1305, SHA-256 and HKDF, AES-GCM, Ed25519). The app implements
+no algorithm itself; Noise IK is a published protocol built on those.
+Apple's table says encryption "limited to that within the Apple operating
+system" needs no documentation. No Apple page says outright that CryptoKit
+counts; that is our reading.
 
-**Decide with counsel:** Apple notes that an app using exempt encryption
-"might alternatively be required to submit a year-end self-classification
-report to the U.S. government", and that US export law applies wherever
-the company sits.
+The rest is #13's reading, which no lawyer has reviewed; its sources are in
+the PR.
+
+- **United States.** The source is public, so the encryption is not
+  subject to the EAR (15 CFR 742.15(b) and the note to 734.3(b)(2)–(3)): no
+  email to BIS and the NSA, and no year-end report. That holds only if every
+  store build comes from a published commit. The workflow passes
+  `FTW_SOURCE_REVISION=$GITHUB_SHA`; tag only commits pushed to this
+  public repository.
+- **France.** Apple asks for nothing with "None". French law (Décret
+  2007-663, art. 3–5) still requires a free declaration to ANSSI one month
+  before the app is offered in France. Fredrik decided on 12 October 2026
+  that France waits: the first release leaves it out, and the declaration
+  comes later ([Before launching in France](#before-launching-in-france)).
 
 ### 6. Price and countries
 
@@ -306,7 +330,9 @@ the company sits.
    "ICP Filing Number Missing". (The iTunes lookup shows "Sourceful
    Energy" in the Chinese store. If Sourceful holds a filing, enter it and
    keep China.)
-4. Untick **Apple silicon Mac** and **Apple Vision Pro**. Apple publishes
+4. Remove **France** until the ANSSI declaration is filed and a month has
+   passed ([Before launching in France](#before-launching-in-france)).
+5. Untick **Apple silicon Mac** and **Apple Vision Pro**. Apple publishes
    iPhone apps there by default; M1 is iPhone only.
 
 Other countries, checked for a free 4+ utility that is not a game:
@@ -317,6 +343,7 @@ Other countries, checked for a free 4+ utility that is not a game:
 | Brazil | Tax forms | Only for developers in Brazil. |
 | Australia, Brazil, Singapore | 18+ download checks | Not for a 4+ app. |
 | Texas, Utah, Louisiana | Age assurance for new accounts (Declared Age Range API) | **Decide with counsel.** M1 has no accounts and no age-dependent content. |
+| France | ANSSI encryption declaration one month ahead (#13's reading) | Left out of the first release (step 4). |
 | Russia | — | "Sourceful Energy" is not in the Russian store. **Decide** whether FTW follows. |
 
 ### 7. External TestFlight
@@ -388,6 +415,25 @@ summary says whether Xcode or altool uploaded the build.
 | The bundle version must be higher | A build number was used; run again or tag again. |
 | Agreement missing or expired | The Account Holder must accept it under Business. |
 | Xcode upload failed, then altool succeeded | Nothing to do; Apple got the build. |
+
+## Before launching in France
+
+French law asks the supplier of an encryption product to declare it to
+ANSSI, France's cybersecurity agency, one month before offering it there
+(#13's reading of Décret 2007-663; no lawyer has reviewed it). The
+declaration is free.
+
+1. Take the declaration form (Annex I of the decree) from ANSSI's [forms
+   page](https://cyber.gouv.fr/reglementation/reglementation-identite-confiance-numerique/controles-reglementaires-cryptographie/controle-moyen-de-cryptologie/controle-reglementaire-cryptographie-formulaires/).
+   [Contrôle relatif à un moyen de
+   cryptologie](https://cyber.gouv.fr/reglementation/reglementation-identite-confiance-numerique/controles-reglementaires-cryptographie/controle-moyen-de-cryptologie/)
+   explains what to send. Describe the app's cryptography as in
+   [Encryption and export](#5-encryption-and-export). ANSSI asks the
+   supplier to request a "grand public" (consumer) classification in the
+   same declaration.
+2. Send it to ANSSI as those pages describe, and keep the receipt.
+3. A month after filing: **Pricing and Availability → App Availability →
+   add France**.
 
 ## Later
 
