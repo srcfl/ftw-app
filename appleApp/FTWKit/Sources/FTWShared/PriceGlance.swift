@@ -11,8 +11,6 @@ import Foundation
 public enum PriceGlance {
     /// How far ahead the medium widget's curve reaches.
     public static let curveMs: Double = 12 * 3_600_000
-    /// The stretch "cheapest" looks for, as on the app's price card.
-    public static let blockHours: Double = 2
 
     /// What the box's total holds besides the market price. The wire has
     /// spot and total but not the settings between them, so this is read off
@@ -65,6 +63,8 @@ public enum PriceGlance {
         public let includedText: String
         /// "Cheapest 02–04"
         public let cheapestText: String?
+        /// "cheapest 02:45": the start alone, for one short line.
+        public let cheapestStartText: String?
         /// Why there is no price: "No prices after 24:00 · open FTW".
         public let emptyText: String?
         /// "Fetched 13:05"
@@ -73,11 +73,13 @@ public enum PriceGlance {
         /// Whether the widget should go grey: no price for this moment.
         public var isEmpty: Bool { state != .price }
 
-        /// One line for the lock screen's inline slot.
+        /// One line for the lock screen's inline slot, which shares its
+        /// width with the date. Without a price it only sends the reader to
+        /// the app; the other families say when the prices ended.
         public var inlineText: String {
-            guard let priceText else { return emptyText ?? "" }
+            guard let priceText else { return GlanceWord.noPricesShort.text }
             let price = "\(priceText) \(unitLabel)"
-            return cheapestText.map { "\(price) · \($0)" } ?? price
+            return cheapestStartText.map { "\(price) · \($0)" } ?? price
         }
     }
 
@@ -85,14 +87,16 @@ public enum PriceGlance {
     /// last where the prices end.
     public static func moments(_ read: CacheRead<PriceEntry>?, nowMs: Double, calendar: Calendar = .current) -> [Moment] {
         guard let read else { return [moment(nil, atMs: nowMs, calendar: calendar)] }
+        // Sorted and read once, not once per moment.
         let slots = usable(read.value.prices)
+        let included = included(slots)
         var edges = Set<Double>()
         for s in slots {
             edges.insert(s.startMs)
             edges.insert(s.startMs + s.durationMs)
         }
         let ahead = edges.filter { $0 > nowMs }.sorted()
-        return ([nowMs] + ahead).map { moment(read, atMs: $0, calendar: calendar) }
+        return ([nowMs] + ahead).map { moment(read, slots: slots, included: included, atMs: $0, calendar: calendar) }
     }
 
     /// The widget at one moment.
@@ -101,15 +105,18 @@ public enum PriceGlance {
             return Moment(
                 atMs: t, state: .nothing, carrier: .none, srcState: .never, readAtMs: nil,
                 currency: "", current: nil, cheapest: nil, curve: [], meanMinor: nil, included: .spotOnly,
-                priceText: nil, unitText: "", unitLabel: "", includedText: "", cheapestText: nil,
+                priceText: nil, unitText: "", unitLabel: "", includedText: "", cheapestText: nil, cheapestStartText: nil,
                 emptyText: GlanceWord.openToSee.text, fetchedText: nil
             )
         }
+        let slots = usable(read.value.prices)
+        return moment(read, slots: slots, included: included(slots), atMs: t, calendar: calendar)
+    }
+
+    private static func moment(_ read: CacheRead<PriceEntry>, slots: [PriceSlot], included: Included, atMs t: Double, calendar: Calendar) -> Moment {
         let prices = read.value.prices
-        let slots = usable(prices)
         let unit = PriceUnits.unit(prices.currency)
         let current = slots.first { t >= $0.startMs && t < $0.startMs + $0.durationMs }
-        let included = included(slots)
 
         let state: State
         if current != nil {
@@ -124,8 +131,8 @@ public enum PriceGlance {
         var curve: [PriceStrip.Bar] = []
         var mean: Double?
         if current != nil {
-            let summary = PriceStrip.summary(prices, nowMs: t)
-            cheapest = PriceStrip.bestBlock(slots.filter { $0.startMs + $0.durationMs > t }, hours: blockHours, cheapest: true)
+            let summary = PriceStrip.summary(Prices(zone: prices.zone, currency: prices.currency, slots: slots, stale: prices.stale), nowMs: t)
+            cheapest = summary.cheapest
             curve = summary.bars.filter { $0.startMs < t + curveMs }
             mean = summary.meanMinor
         }
@@ -157,6 +164,7 @@ public enum PriceGlance {
             unitLabel: unit.label,
             includedText: text(included),
             cheapestText: cheapest.map { clock.cheapest($0, from: t) },
+            cheapestStartText: cheapest.map { clock.cheapestStart($0, from: t) },
             emptyText: emptyText,
             fetchedText: GlanceWord.fetched.format(clock.at(read.record.readAtMs, asEnd: false, from: t))
         )
@@ -217,9 +225,12 @@ enum GlanceWord: String, CaseIterable {
     case cheapest = "Cheapest %@"
     case cheapestNow = "Cheapest now until %@"
     case tomorrow = "tomorrow %@"
+    case cheapestStart = "cheapest %@"
+    case cheapestStartNow = "cheapest now"
     case noPricesAfter = "No prices after %@ · open FTW"
     case noPriceUntil = "No price until %@ · open FTW"
     case openToSee = "Open FTW to see prices"
+    case noPricesShort = "No prices · open FTW"
     case fetched = "Fetched %@"
     case inclGridFeeAndVAT = "incl. grid fee and VAT"
     case inclVAT = "incl. VAT"
@@ -286,11 +297,20 @@ struct Clock {
         if block.startMs <= t {
             return GlanceWord.cheapestNow.format(short(b))
         }
-        var range = "\(short(a))–\(short(b))"
+        let range = "\(short(a))–\(short(b))"
+        return GlanceWord.cheapest.format(misleads(a, from: t) ? GlanceWord.tomorrow.format(range) : range)
+    }
+
+    /// "cheapest 02:45", "cheapest now", "cheapest tomorrow 15:00".
+    func cheapestStart(_ block: PriceStrip.Block, from t: Double) -> String {
+        if block.startMs <= t { return GlanceWord.cheapestStartNow.text }
+        let a = wall(block.startMs, asEnd: false)
+        return GlanceWord.cheapestStart.format(misleads(a, from: t) ? GlanceWord.tomorrow.format(a.hm) : a.hm)
+    }
+
+    /// A time tomorrow that the clock alone would read as later today.
+    private func misleads(_ a: Wall, from t: Double) -> Bool {
         let now = wall(t, asEnd: false)
-        if a.day > now.day, (a.hour, a.minute) > (now.hour, now.minute) {
-            range = GlanceWord.tomorrow.format(range)
-        }
-        return GlanceWord.cheapest.format(range)
+        return a.day > now.day && (a.hour, a.minute) > (now.hour, now.minute)
     }
 }

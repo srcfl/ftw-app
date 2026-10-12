@@ -34,9 +34,12 @@
 "Cheapest %@" = "Billigast %@";
 "Cheapest now until %@" = "Billigast nu till %@";
 "tomorrow %@" = "i morgon %@";
+"cheapest %@" = "billigast %@";
+"cheapest now" = "billigast nu";
 "No prices after %@ · open FTW" = "Inga priser efter %@ · öppna FTW";
 "No price until %@ · open FTW" = "Inget pris förrän %@ · öppna FTW";
 "Open FTW to see prices" = "Öppna FTW för att se priser";
+"No prices · open FTW" = "Inga priser · öppna FTW";
 "Fetched %@" = "Hämtat %@";
 "incl. grid fee and VAT" = "inkl. nätavgift och moms";
 "incl. VAT" = "inkl. moms";

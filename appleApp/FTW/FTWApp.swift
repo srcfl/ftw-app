@@ -52,6 +52,7 @@ struct FTWApp: App {
                     // switcher: slow the stream, keep the session. Only the
                     // background closes it.
                     app.setVisible(phase == .active)
+                    PricesInBackground.inBackground = phase == .background
                     if phase == .background {
                         app.suspend()
                         PricesInBackground.schedule(app)
@@ -74,6 +75,9 @@ enum PricesInBackground {
     /// Listed under BGTaskSchedulerPermittedIdentifiers in FTW-Info.plist.
     static let id = "energy.ftw.app.prices"
     static let log = Logger(subsystem: "energy.ftw.app", category: "widgets")
+    /// Set from the scene phase. A cold launch for this task has no scene,
+    /// so it starts in the background.
+    static var inBackground = true
 
     static func schedule(_ app: AppModel) {
         guard let site = app.site, site.siteId != nil, !app.isDemo else { return }
@@ -100,7 +104,7 @@ enum PricesInBackground {
         let prices = await site.refreshSharedPrices()
         log.info("background prices: \(prices == nil ? "nothing written" : "\(prices!.slots.count) slots written", privacy: .public)")
         // Someone may have opened the app meanwhile; their session stays.
-        if UIApplication.shared.applicationState == .background { app.suspend() }
+        if inBackground { app.suspend() }
     }
 }
 

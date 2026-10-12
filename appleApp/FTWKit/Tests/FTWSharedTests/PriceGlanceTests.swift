@@ -81,7 +81,7 @@ import Testing
         #expect(last.cheapestText == nil)
         #expect(last.curve.isEmpty)
         #expect(last.emptyText == "No prices after 18:00 · open FTW")
-        #expect(last.inlineText == "No prices after 18:00 · open FTW")
+        #expect(last.inlineText == "No prices · open FTW")
     }
 
     /// Nothing after the end is priced: not the last hour stretched, not
@@ -162,9 +162,12 @@ import Testing
         let evening = PriceGlance.moment(r, atMs: at(12, 20), calendar: calendar)
         #expect(evening.cheapest?.startMs == at(13, 2))
         #expect(evening.cheapestText == "Cheapest 02–04")
-        #expect(evening.inlineText == "\(evening.priceText!) öre · Cheapest 02–04")
+        // The inline line shares its width with the date: the start alone.
+        #expect(evening.inlineText == "\(evening.priceText!) öre · cheapest 02:00")
         // Inside the block it is now, and says until when.
-        #expect(PriceGlance.moment(r, atMs: at(13, 2, 30), calendar: calendar).cheapestText == "Cheapest now until 04")
+        let inside = PriceGlance.moment(r, atMs: at(13, 2, 30), calendar: calendar)
+        #expect(inside.cheapestText == "Cheapest now until 04")
+        #expect(inside.cheapestStartText == "cheapest now")
     }
 
     @Test func cheapestFollowsQuarterHours() {
@@ -177,6 +180,7 @@ import Testing
     @Test func tomorrowIsNamedOnlyWhenTheClockWouldMislead() {
         let r = read(night(cheapFrom: at(13, 15), cheapTo: at(13, 17)), readAtMs: at(12, 13, 5))
         #expect(PriceGlance.moment(r, atMs: at(12, 14), calendar: calendar).cheapestText == "Cheapest tomorrow 15–17")
+        #expect(PriceGlance.moment(r, atMs: at(12, 14), calendar: calendar).cheapestStartText == "cheapest tomorrow 15:00")
         // The same block seen the next morning is today's.
         #expect(PriceGlance.moment(r, atMs: at(13, 9), calendar: calendar).cheapestText == "Cheapest 15–17")
     }

@@ -11,15 +11,15 @@ struct PriceWidgetView: View {
 
     var body: some View {
         content
-            .containerBackground(for: .widget) { background }
+            .containerBackground(for: .widget) { Rectangle().fill(background) }
     }
 
     /// Grey when there is no price for this moment. The lock screen draws
     /// its own, so the accessory families bring none.
-    private var background: Color {
+    private var background: AnyShapeStyle {
         switch family {
-        case .accessoryRectangular, .accessoryInline, .accessoryCircular: return .clear
-        default: return moment.isEmpty ? Tone.empty : Tone.surface
+        case .accessoryRectangular, .accessoryInline, .accessoryCircular: return AnyShapeStyle(.clear)
+        default: return AnyShapeStyle(moment.isEmpty ? Tone.empty : Tone.surface)
         }
     }
 
@@ -94,9 +94,9 @@ struct RectangularPrice: View {
                 Text("\(Text(price).font(.headline.monospacedDigit())) \(Text(moment.unitText).font(.caption))")
                     .widgetAccentable()
                 if let cheapest = moment.cheapestText {
-                    Text(cheapest).font(.caption)
+                    Text(cheapest).font(.caption).lineLimit(1).minimumScaleFactor(0.75)
                 }
-                Text(moment.includedText).font(.caption2).foregroundStyle(.secondary)
+                Text(moment.includedText).font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.7)
             } else {
                 Text(moment.emptyText ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(3)
             }
@@ -115,6 +115,7 @@ struct PriceFigure: View {
     var body: some View {
         Text(price)
             .font(.system(size: size, weight: .semibold, design: .rounded).monospacedDigit())
+            .contentTransition(.numericText())
             .minimumScaleFactor(0.5)
             .lineLimit(1)
             .widgetAccentable()
@@ -231,14 +232,14 @@ struct Curve: View {
 /// The app's colour roles (FTW/UI/Theme.swift, from the web app's tokens),
 /// the few a price widget needs.
 enum Tone {
-    static let surface = pair(0xFAFAF8, 0x161616)
-    static let empty = pair(0xDCDCD6, 0x2A2A2A)
-    static let cheap = pair(0x009639, 0x5FD37F)
-    static let dear = pair(0xCC243D, 0xFF6E74)
-    static let negative = pair(0xD48500, 0xFFB000)
-    static let flat = pair(0x686862, 0x858585)
+    static let surface = Pair(0xFAFAF8, 0x161616)
+    static let empty = Pair(0xDCDCD6, 0x2A2A2A)
+    static let cheap = Pair(0x009639, 0x5FD37F)
+    static let dear = Pair(0xCC243D, 0xFF6E74)
+    static let negative = Pair(0xD48500, 0xFFB000)
+    static let flat = Pair(0x686862, 0x858585)
 
-    static func of(_ tone: PriceStrip.Tone) -> Color {
+    static func of(_ tone: PriceStrip.Tone) -> Pair {
         switch tone {
         case .cheap: return cheap
         case .dear: return dear
@@ -246,14 +247,23 @@ enum Tone {
         case .negative: return negative
         }
     }
-
-    private static func pair(_ light: UInt32, _ dark: UInt32) -> Color {
-        Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(rgb: dark) : UIColor(rgb: light) })
-    }
 }
 
-private extension UIColor {
-    convenience init(rgb: UInt32) {
-        self.init(red: CGFloat((rgb >> 16) & 0xFF) / 255, green: CGFloat((rgb >> 8) & 0xFF) / 255, blue: CGFloat(rgb & 0xFF) / 255, alpha: 1)
+/// One colour for light and one for dark, picked by SwiftUI where it draws.
+struct Pair: ShapeStyle {
+    let light: Color
+    let dark: Color
+
+    init(_ light: UInt32, _ dark: UInt32) {
+        self.light = Self.color(light)
+        self.dark = Self.color(dark)
+    }
+
+    func resolve(in environment: EnvironmentValues) -> Color {
+        environment.colorScheme == .dark ? dark : light
+    }
+
+    private static func color(_ rgb: UInt32) -> Color {
+        Color(red: Double((rgb >> 16) & 0xFF) / 255, green: Double((rgb >> 8) & 0xFF) / 255, blue: Double(rgb & 0xFF) / 255)
     }
 }

@@ -4,6 +4,7 @@ import SwiftUI
 import WidgetKit
 
 private let log = Logger(subsystem: "energy.ftw.app", category: "widgets")
+private let signposter = OSSignposter(subsystem: "energy.ftw.app", category: "widgets")
 
 @main
 struct FTWWidgets: WidgetBundle {
@@ -46,9 +47,13 @@ struct PriceTimeline: TimelineProvider {
     /// The app reloads every timeline after it writes, so nothing here asks
     /// to be woken. The last entry falls where the prices end and stays.
     func getTimeline(in context: Context, completion: @escaping (Timeline<PriceWidgetEntry>) -> Void) {
+        let interval = signposter.beginInterval("price timeline")
+        let started = ContinuousClock.now
         let entries = entries(now: .now)
+        let ms = (ContinuousClock.now - started) / .milliseconds(1)
+        signposter.endInterval("price timeline", interval)
         if let last = entries.last?.moment {
-            log.info("price timeline: \(entries.count, privacy: .public) entries, last \(String(describing: last.state), privacy: .public)")
+            log.info("price timeline: \(entries.count, privacy: .public) entries in \(ms, format: .fixed(precision: 1), privacy: .public) ms, last \(String(describing: last.state), privacy: .public)")
         }
         completion(Timeline(entries: entries, policy: .never))
     }
