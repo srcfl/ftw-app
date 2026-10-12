@@ -195,7 +195,3 @@ public enum CarLevel: Int, AppEnum, CaseIterable, Sendable {
 extension ChargeNowIntent: LiveActivityIntent {}
 extension BackToPlanIntent: LiveActivityIntent {}
 #endif
-
-/// The intents above, for the app and the widget extension to list in
-/// their own `AppIntentsPackage`.
-public struct FTWSharedIntents: AppIntentsPackage {}

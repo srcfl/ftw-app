@@ -33,6 +33,13 @@ final class IntentRunner: CommandRunner {
         shared = runner
         CommandHost.install(runner)
         LoadpointsModel.sharedChargeNowHost = ChargeNowActivities()
+        #if DEBUG
+        // For screenshots: `-FTWDemo YES -FTWDemoChargeNow YES` presses
+        // Charge now the way the Control does, once the demo streams.
+        if UserDefaults.standard.bool(forKey: "FTWDemoChargeNow") {
+            Task { _ = await runner.run(.chargeNow) }
+        }
+        #endif
     }
 
     nonisolated func run(_ command: RemoteCommand) async -> RemoteOutcome {
@@ -102,9 +109,4 @@ enum DeviceLock {
             return true
         }
     }
-}
-
-/// The shared intents, listed for this app's App Intents metadata.
-struct FTWAppIntents: AppIntentsPackage {
-    static var includedPackages: [any AppIntentsPackage.Type] { [FTWSharedIntents.self] }
 }
