@@ -7,10 +7,9 @@ import SwiftUI
 ///
 /// Dots move along a line only while readings are live. A cached or quiet
 /// view holds still, because motion says power is flowing right now.
-struct FlowDiagram: View {
+struct FlowDiagram: View, Equatable {
     let readings: Flow.Readings
     let moving: Bool
-    let tap: (Flow.Role) -> Void
 
     private static let height: CGFloat = 340
 
@@ -27,18 +26,19 @@ struct FlowDiagram: View {
 
                 Hub(loadKw: readings.loadKw, selfPoweredPct: readings.selfPoweredPctToday)
                     .position(layout.hub)
-                    .onTapGesture { tap(.load) }
 
                 ForEach(readings.nodes) { node in
                     Bubble(node: node)
                         .position(layout.points[node.id] ?? layout.hub)
-                        .onTapGesture { if node.tappable { tap(node.role) } }
                 }
             }
         }
         .frame(height: Self.height)
         .frame(maxWidth: 520)
         .frame(maxWidth: .infinity)
+        // A drawing with fixed places: past this size its labels would
+        // collide, and every figure in it is also said in words elsewhere.
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
     }
 
     /// Where each node sits. Several nodes in one corner stack toward the
@@ -100,21 +100,26 @@ private struct Hub: View {
             Image(systemName: "house.fill")
                 .font(.title2)
                 .foregroundStyle(Theme.accent)
-            Text("\(Text(parts.text).font(Theme.number(22, weight: .bold)))\(Text(" \(parts.unit)").font(.caption))")
+            Text("\(Text(AppWords.decimal(parts.text)).font(Theme.number(22, weight: .bold)))\(Text(" \(parts.unit)").font(.caption))")
                 .foregroundStyle(Theme.fg)
-            Text("HOME").font(.caption2.weight(.semibold)).tracking(0.8).foregroundStyle(Theme.fgDim)
+                .contentTransition(.numericText(value: loadKw))
+                .animation(Theme.spring, value: loadKw)
+            Text(L("HOME")).font(.caption2.weight(.semibold)).tracking(0.8).foregroundStyle(Theme.fgDim)
             if let pct = selfPoweredPct {
-                Text("\(Int(pct.rounded()))% self-powered today")
+                Text(AppWords.format("%@ self-powered today", AppWords.percent(pct)))
                     .font(.caption2)
                     .foregroundStyle(Theme.fgMuted)
                     .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                    .frame(maxWidth: 92)
             }
         }
         .frame(width: 118, height: 118)
         .background(Circle().fill(Theme.surfaceElevated))
         .overlay(Circle().strokeBorder(Theme.accent.opacity(0.6), lineWidth: 2))
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("Home using \(parts.joined)")
+        .accessibilityLabel(AppWords.format("Home using %@", AppWords.power(loadKw * 1000)))
     }
 }
 
@@ -127,17 +132,19 @@ private struct Bubble: View {
         let parts = PowerFormat.parts(node.kw * 1000)
         let color = Theme.color(node.tone)
         VStack(spacing: 1) {
-            Text(node.title).font(.caption2.weight(.semibold)).tracking(0.6).foregroundStyle(Theme.fgDim)
+            Text(L(node.title)).font(.caption2.weight(.semibold)).tracking(0.6).foregroundStyle(Theme.fgDim)
             if let name = node.name {
                 Text(name).font(.caption2).foregroundStyle(Theme.fgMuted).lineLimit(1)
             }
-            Text("\(Text(parts.text).font(Theme.number(17, weight: .bold)))\(Text(" \(parts.unit)").font(.caption2))")
+            Text("\(Text(AppWords.decimal(parts.text)).font(Theme.number(17, weight: .bold)))\(Text(" \(parts.unit)").font(.caption2))")
                 .foregroundStyle(color)
+                .contentTransition(.numericText(value: node.kw))
+                .animation(Theme.spring, value: node.kw)
             if let soc = node.socPct {
                 SocBar(pct: soc)
             }
             if !node.sub.isEmpty {
-                Text(node.sub).font(.caption2).foregroundStyle(Theme.fgDim)
+                Text(L(node.sub)).font(.caption2).foregroundStyle(Theme.fgDim)
             }
             if !node.dailyParts.isEmpty {
                 HStack(spacing: 4) {
@@ -152,7 +159,6 @@ private struct Bubble: View {
         .background(RoundedRectangle(cornerRadius: 16).fill(Theme.surfaceRaised))
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(color.opacity(0.5), lineWidth: 1.5))
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(node.tappable ? .isButton : [])
     }
 }
 

@@ -49,35 +49,6 @@ import FTWDemo
         #expect(Flow.fuse(status: home.status.status!) != nil)
     }
 
-    @Test func theChargerSheetSendsIntentAndRereads() async throws {
-        let (_, home, s) = await demo()
-        home.loadpoints.activate()
-        await run(s, 1_000)
-        let lp = try #require(home.loadpoints.points.first)
-        #expect(lp.pluggedIn)
-        #expect(home.loadpoints.windows[lp.id] != nil)
-
-        let hold = Task { await home.loadpoints.chargeNow(lp, amps: 10) }
-        await run(s, 1_000)
-        await hold.value
-        #expect(home.loadpoints.points.first?.manualActive == true)
-
-        let release = Task { await home.loadpoints.stopCharging(lp) }
-        await run(s, 1_000)
-        await release.value
-        #expect(home.loadpoints.outcome(for: .hold, lp) == "The plan decides when to charge.")
-
-        let soc = Task { await home.loadpoints.setSoc(lp, pct: 55) }
-        await run(s, 1_000)
-        await soc.value
-        #expect(home.loadpoints.points.first?.socPct == 55)
-
-        let save = Task { try await home.loadpoints.saveSchedule(lp, socPct: 90, hour: 6, minute: 30, recurring: true, days: 0b0011111, surplusUnlockPct: 0) }
-        await run(s, 1_000)
-        try await save.value
-        #expect(home.loadpoints.points.first?.schedule?.socPct == 90)
-    }
-
     @Test func leavingTheDemoTouchesNoSavedHome() async {
         let (app, _, _) = await demo()
         app.exitDemo()

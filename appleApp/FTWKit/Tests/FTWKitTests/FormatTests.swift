@@ -39,26 +39,28 @@ import Testing
     }
 
     @Test func evSentencesSayOnlyWhatTheBoxSaid() throws {
-        let unplugged = Loadpoint(try JSON(parsing: Array(#"{"id":"a","plugged_in":false,"current_soc":0.5}"#.utf8)))
-        #expect(EVText.status(unplugged) == "Not plugged in")
-        #expect(unplugged.socPct == nil)
+        try AppWords.$language.withValue(.en) {
+            let unplugged = Loadpoint(try JSON(parsing: Array(#"{"id":"a","plugged_in":false,"current_soc":0.5}"#.utf8)))
+            #expect(EVText.status(unplugged) == "Not plugged in")
+            #expect(unplugged.socPct == nil)
 
-        let charging = Loadpoint(try JSON(parsing: Array(#"{"id":"a","plugged_in":true,"current_power_w":7200,"current_soc":0.41,"delivered_wh_session":3040}"#.utf8)))
-        #expect(EVText.status(charging) == "Charging at 7.2 kW")
-        #expect(charging.socPct == 41)
-        #expect(EVText.session(charging) == "3.0 kWh this session")
+            let charging = Loadpoint(try JSON(parsing: Array(#"{"id":"a","plugged_in":true,"current_power_w":7200,"current_soc":0.41,"delivered_wh_session":3040}"#.utf8)))
+            #expect(EVText.status(charging) == "Charging at 7.2\u{00A0}kW")
+            #expect(charging.socPct == 41)
+            #expect(EVText.session(charging) == "3.0\u{00A0}kWh this session")
 
-        let paused = Loadpoint(try JSON(parsing: Array(#"{"id":"a","plugged_in":true,"manual_active":true,"manual_charge_w":0,"manual":{"state":"paused"}}"#.utf8)))
-        #expect(EVText.isPaused(paused))
-        #expect(EVText.status(paused).hasPrefix("Paused by you."))
+            let paused = Loadpoint(try JSON(parsing: Array(#"{"id":"a","plugged_in":true,"manual_active":true,"manual_charge_w":0,"manual":{"state":"paused"}}"#.utf8)))
+            #expect(EVText.isPaused(paused))
+            #expect(EVText.status(paused) == "Paused by you")
 
-        let stale = Loadpoint(try JSON(parsing: Array(#"{"id":"a","plugged_in":true,"charger":{"known":true,"available":false}}"#.utf8)))
-        #expect(EVText.status(stale) == "Charger status is out of date. FTW cannot confirm whether the car is charging.")
+            let stale = Loadpoint(try JSON(parsing: Array(#"{"id":"a","plugged_in":true,"charger":{"known":true,"available":false}}"#.utf8)))
+            #expect(EVText.status(stale) == "Charger status is out of date.")
 
-        #expect(EVText.days(0) == "every day")
-        #expect(EVText.days(0b0011111) == "weekdays")
-        #expect(EVText.days(0b1100000) == "weekends")
-        #expect(EVText.days(0b0000101) == "Mon, Wed")
+            #expect(EVText.days(0) == "every day")
+            #expect(EVText.days(0b0011111) == "weekdays")
+            #expect(EVText.days(0b1100000) == "weekends")
+            #expect(EVText.days(0b0000101) == "Mon, Wed")
+        }
     }
 
     /// A level from the car is as old as the car's report. Any other level
@@ -79,17 +81,6 @@ import Testing
         // 16 A is 11 040 W, above the charger's ceiling: the ceiling wins.
         #expect(EVText.watts(capped, amps: 16) == 11_000)
         #expect(EVText.readout(capped, amps: 16) == "16 A · 11.0 kW")
-    }
-
-    @Test func scheduleClockConvertsThroughUTC() {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = TimeZone(identifier: "Europe/Stockholm")!
-        let summer = Date(timeIntervalSince1970: 1_750_000_000)
-        let utc = EVText.minuteUTC(hour: 7, minute: 0, at: summer, calendar: cal)
-        #expect(utc == 5 * 60)
-        let back = EVText.localTime(minuteUTC: 300, at: summer, calendar: cal)
-        #expect(back.hour == 7 && back.minute == 0)
-        #expect(EVText.minuteUTC(hour: 25, minute: 99, calendar: cal) == nil)
     }
 
     @Test func flowUsesMagnitudesAndDirections() {

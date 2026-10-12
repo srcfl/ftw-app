@@ -296,3 +296,51 @@ public final class SavingsModel: Activatable {
         periods = next.today.available || next.week.available ? next : nil
     }
 }
+
+/// "Is FTW in control?" in one calm line, from the stream alone: lane 0
+/// carries the box's dispatch block and each source's state, so the line
+/// needs no request and no timer. It is green only while frames arrive
+/// and the box says nothing blocks it; from a cache it is grey and dated.
+/// Core's per-device control feedback joins it when lane 0 carries it (M5).
+public enum InControl {
+    public enum Tone: Equatable, Sendable { case ok, warning, neutral, stale }
+
+    public struct Answer: Equatable, Sendable {
+        public let tone: Tone
+        public let title: String
+        public let detail: String?
+
+        public init(tone: Tone, title: String, detail: String?) {
+            self.tone = tone
+            self.title = title
+            self.detail = detail
+        }
+    }
+
+    /// - streaming: frames are arriving now over a live carrier.
+    /// - sources: the box's own account of each device it reads.
+    public static func answer(streaming: Bool, lastKnownMs: Double?, dispatchBlockedBy: [String], sources: [String: Source], zone: TimeZone = .current) -> Answer {
+        guard streaming else {
+            return Answer(tone: .stale, title: AppWords.text("Not live right now"), detail: lastKnownMs.map { AppWords.format("Last known %@.", AppWords.clock($0, zone: zone)) } ?? AppWords.text("Waiting for your box."))
+        }
+        if !dispatchBlockedBy.isEmpty {
+            return Answer(tone: .warning, title: AppWords.text("FTW is not in control right now"), detail: AppWords.text("A meter stopped reporting. Your home runs on grid power as usual."))
+        }
+        let quiet = sources.values.filter { $0.state == .stale || $0.state == .down }.sorted { $0.name < $1.name }
+        if let first = quiet.first {
+            let title = quiet.count == 1 ? AppWords.format("%@ is not reporting", noun(first.kind)) : AppWords.format("%@ devices are not reporting", String(quiet.count))
+            return Answer(tone: .warning, title: title, detail: first.name.isEmpty ? nil : first.name)
+        }
+        return Answer(tone: .ok, title: AppWords.text("Yes, FTW is in control"), detail: AppWords.text("Nothing blocks it, and every device reports."))
+    }
+
+    static func noun(_ kind: String) -> String {
+        switch kind {
+        case "meter": return AppWords.text("The meter")
+        case "inverter": return AppWords.text("The inverter")
+        case "battery": return AppWords.text("The battery")
+        case "charger", "ev": return AppWords.text("The charger")
+        default: return AppWords.text("A device")
+        }
+    }
+}

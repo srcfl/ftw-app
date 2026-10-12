@@ -22,19 +22,88 @@ public final class SimulatedHouse {
 
     public var modeKey = "planner_passive_arbitrage"
 
-    // The car.
+    // The car. It arrives plugged in and unread, so the box assumes 20 %,
+    // which is the moment the car view is for.
     public var carPluggedIn = true
-    public var carSocFraction: Double = 0.41
-    public var carSocSource = "inferred"
+    public var carSocFraction: Double = 0.2
+    public var carSocSource = "assumed"
     public var carCapacityWh: Double = 64_000
+    /// A car that reports its own level: when it last did. Nil for a car
+    /// FTW cannot read.
+    public var carReportedAtMs: Double?
     public private(set) var evW: Double = 0
-    public var manualHoldW: Double?
+    public var manualHoldW: Double? {
+        didSet { if manualHoldW != oldValue { manualSinceMs = manualHoldW == nil ? nil : lastStepMs } }
+    }
+    /// When the current hold began. The demo charger takes a few seconds to
+    /// act on it, as a real one does.
+    public private(set) var manualSinceMs: Double?
+    public var chargerRampMs: Double = 0
     public var surplusOnly = false
     public var boostUntilMs: Double?
     public var boostReserve: Double = 0.3
     public var lastBoostStop: String?
-    public var schedule: (socFraction: Double, minuteUTC: Int, recurring: Bool, days: Int, surplusUnlock: Double)? = (0.8, 5 * 60, true, 0b0011111, 0)
-    public private(set) var sessionWh: Double = 5_300
+    /// The goal on the household clock, as Core keeps it.
+    public var schedule: (socFraction: Double, clockMin: Int, recurring: Bool, days: Int, surplusUnlock: Double)? = (0.8, 7 * 60, true, 0b0011111, 0)
+    public private(set) var sessionWh: Double = 0
+    private var lastStepMs: Double = 0
+
+    /// The cable goes in: a new session, nothing known about the car.
+    public func plugIn() {
+        carPluggedIn = true
+        carSocFraction = 0.2
+        carSocSource = carReportedAtMs == nil ? "assumed" : "vehicle"
+        sessionWh = 0
+        manualHoldW = nil
+    }
+
+    /// The cable comes out. An unplug releases a hold, as in Core.
+    public func unplug() {
+        carPluggedIn = false
+        manualHoldW = nil
+        boostUntilMs = nil
+        evW = 0
+    }
+
+    /// Whether the charger has acted on the hold yet.
+    public var holdActing: Bool {
+        guard let since = manualSinceMs else { return false }
+        return lastStepMs - since >= chargerRampMs
+    }
+
+    /// The next time the goal's clock comes round on an allowed day.
+    public func deadlineMs(_ nowMs: Double) -> Double? {
+        guard let s = schedule else { return nil }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = timeZone
+        let now = Date(timeIntervalSince1970: nowMs / 1000)
+        let today = cal.startOfDay(for: now)
+        for i in 0..<15 {
+            guard let day = cal.date(byAdding: .day, value: i, to: today),
+                  let t = cal.date(bySettingHour: s.clockMin / 60, minute: s.clockMin % 60, second: 0, of: day) else { continue }
+            let iso = (cal.component(.weekday, from: day) + 5) % 7
+            if s.days != 0, s.days & (1 << iso) == 0 { continue }
+            if t > now { return t.timeIntervalSince1970 * 1000 }
+        }
+        return nil
+    }
+
+    public static let chargerW: Double = 11_000
+    public static let chargeEfficiency = 0.92
+
+    /// The plan for the car: the night's cheap hours from 01:00, as many as
+    /// the goal needs, never past the deadline. `shortfallWh` is what the
+    /// battery still lacks at the deadline, the way Core's plan says it.
+    public func carPlan(_ nowMs: Double) -> (startMs: Double, endMs: Double, wh: Double, shortfallWh: Double)? {
+        guard carPluggedIn, manualHoldW == nil, !surplusOnly, let s = schedule, let deadline = deadlineMs(nowMs) else { return nil }
+        let needWh = max(0, (s.socFraction - carSocFraction) * carCapacityWh)
+        guard needWh > 1 else { return (nowMs, nowMs, 0, 0) }
+        let night = deadline - (hourOfDay(deadline) - 1) * 3_600_000
+        let start = max(nowMs, night < deadline ? night : nowMs)
+        let hours = max(0, min((deadline - start) / 3_600_000, needWh / (Self.chargerW * Self.chargeEfficiency)))
+        let gained = hours * Self.chargerW * Self.chargeEfficiency
+        return (start, start + hours * 3_600_000, (hours * Self.chargerW).rounded(), max(0, needWh - gained).rounded())
+    }
 
     // Energy since local midnight, integrated.
     public private(set) var todayImportWh: Double = 6_100
@@ -117,24 +186,27 @@ public final class SimulatedHouse {
             boostUntilMs = nil
             lastBoostStop = "expired"
         }
+        lastStepMs = nowMs
         if !carPluggedIn || carSocFraction >= 0.999 {
             evW = 0
         } else if let hold = manualHoldW {
-            evW = hold
+            evW = holdActing ? hold : 0
         } else if boostUntilMs != nil {
             evW = 7_400
         } else if surplusOnly {
             let spare = max(0, -pvW - baseLoadW - 200)
             evW = spare >= 1_400 ? min(spare, 11_000).rounded() : 0
-        } else if let schedule, carSocFraction < schedule.socFraction, isChargeHour(nowMs) {
-            evW = 11_000
+        } else if let plan = carPlan(nowMs), nowMs >= plan.startMs, nowMs < plan.endMs {
+            evW = Self.chargerW
         } else {
             evW = 0
         }
         if evW > 0 {
             let wh = evW * dtMs / 3_600_000
             sessionWh += wh
-            carSocFraction = min(1, carSocFraction + wh * 0.92 / carCapacityWh)
+            carSocFraction = min(1, carSocFraction + wh * Self.chargeEfficiency / carCapacityWh)
+            // A car that reports keeps reporting while it charges.
+            if carReportedAtMs != nil, carSocSource == "vehicle" { carReportedAtMs = nowMs }
         }
 
         // The battery, by mode.
@@ -173,12 +245,6 @@ public final class SimulatedHouse {
         todayPVWh += -pvW * h
         if gridW > 0 { todayImportWh += gridW * h } else { todayExportWh += -gridW * h }
         if batteryW > 0 { todayChargedWh += batteryW * h } else { todayDischargedWh += -batteryW * h }
-    }
-
-    /// The cheap night hours before the ready time.
-    func isChargeHour(_ ms: Double) -> Bool {
-        let h = hourOfDay(ms)
-        return h >= 1 && h < 5
     }
 
     /// A day of the energy ledger, made up from the same model, for days

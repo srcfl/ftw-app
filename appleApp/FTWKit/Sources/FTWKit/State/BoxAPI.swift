@@ -26,7 +26,7 @@ extension SiteModel {
         do {
             return try JSON(parsing: res.body)
         } catch {
-            throw BoxAPIError(code: "E_BAD_BODY", help: "Your box sent something this app couldn't read.", status: res.status)
+            throw BoxAPIError(code: "E_BAD_BODY", help: AppWords.text("Your box sent something this app couldn't read."), status: res.status)
         }
     }
 
@@ -48,7 +48,7 @@ extension SiteModel {
         } catch {
             // No code and no status: the wire went away or the deadline
             // passed. Both heal on their own.
-            throw BoxAPIError(code: "E_NO_ANSWER", help: "Your box didn't answer. Still trying.", status: nil)
+            throw BoxAPIError(code: "E_NO_ANSWER", help: AppWords.text("Your box didn't answer. Still trying."), status: nil)
         }
     }
 
@@ -60,29 +60,29 @@ extension SiteModel {
     /// What happens now, for a refusal that never reached a handler.
     public static func refusalHelp(_ code: String, _ args: [String: CBOR] = [:]) -> String {
         switch code {
-        case "E_UNKNOWN_OP": return "Your box doesn't have that yet — it may be running older software."
+        case "E_UNKNOWN_OP": return AppWords.text("Your box doesn't have that yet — it may be running older software.")
         case "E_UNAVAILABLE":
-            return args["reason"]?.string == "busy" ? "Your box is busy with something else. This will fill in shortly." : "Your box can't answer that right now. Still trying."
-        case "E_SCOPE_DENIED": return "Only the owner of this home can change that."
-        case "E_GRANT_REVOKED": return "Your access to this home was withdrawn by its owner."
-        case "E_USE_CMD": return "That has to be done from the controls on the home screen."
-        case "E_UNSUPPORTED_MEDIA", "E_WHOLE_DOCUMENT", "E_LOCAL_ONLY": return "That one is only available on your box's own page, from home."
-        case "E_RESPONSE_TOO_LARGE": return "That's more than we can send over your connection — narrow the range."
-        case "E_NEEDS_STEP_UP": return "Your box needs more proof than this phone can give. Do it on your box."
-        default: return "That didn't work. Nothing on your box has changed."
+            return AppWords.text(args["reason"]?.string == "busy" ? "Your box is busy with something else. This will fill in shortly." : "Your box can't answer that right now. Still trying.")
+        case "E_SCOPE_DENIED": return AppWords.text("Only the owner of this home can change that.")
+        case "E_GRANT_REVOKED": return AppWords.text("Your access to this home was withdrawn by its owner.")
+        case "E_USE_CMD": return AppWords.text("That has to be done from the controls on the home screen.")
+        case "E_UNSUPPORTED_MEDIA", "E_WHOLE_DOCUMENT", "E_LOCAL_ONLY": return AppWords.text("That one is only available on your box's own page, from home.")
+        case "E_RESPONSE_TOO_LARGE": return AppWords.text("That's more than we can send over your connection — narrow the range.")
+        case "E_NEEDS_STEP_UP": return AppWords.text("Your box needs more proof than this phone can give. Do it on your box.")
+        default: return AppWords.text("That didn't work. Nothing on your box has changed.")
         }
     }
 
     /// What happens now, for a status a handler answered with.
     public static func statusHelp(_ status: Int, _ code: String?) -> String {
-        if code == "E_LAST_OWNER_PROTECTED" { return "Someone has to own this home, so the last owner cannot be removed." }
+        if code == "E_LAST_OWNER_PROTECTED" { return AppWords.text("Someone has to own this home, so the last owner cannot be removed.") }
         switch status {
-        case 404: return "That's no longer on your box."
-        case 403: return "Your box refused that from this phone."
-        case 409: return "Something changed on your box first. Nothing here was applied."
-        case 503: return "Your box can't answer that yet. Still trying."
-        case 500...: return "Something went wrong on your box. Nothing has changed."
-        default: return "Your box couldn't do that."
+        case 404: return AppWords.text("That's no longer on your box.")
+        case 403: return AppWords.text("Your box refused that from this phone.")
+        case 409: return AppWords.text("Something changed on your box first. Nothing here was applied.")
+        case 503: return AppWords.text("Your box can't answer that yet. Still trying.")
+        case 500...: return AppWords.text("Something went wrong on your box. Nothing has changed.")
+        default: return AppWords.text("Your box couldn't do that.")
         }
     }
 }
