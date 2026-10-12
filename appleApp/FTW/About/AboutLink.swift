@@ -1,23 +1,20 @@
 import FTWKit
 import SwiftUI
 
-/// The way to Source & licenses and to removing this phone, at the foot of
-/// Now and of pairing. The license asks that its text and the source offer
-/// be reachable from inside the app, and App Review asks the same of
-/// removing what the app set up.
+/// The way to Source & licenses, the privacy policy and removing this phone,
+/// at the foot of Now and of pairing. The license asks that its text and the
+/// source offer be reachable from inside the app; App Review asks the same
+/// of the privacy policy (5.1.1(i)) and of removing what the app set up.
 struct AboutLink: View {
     let app: AppModel
     @State private var open: AboutView.Start?
-    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        let stack = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 20))
         VStack(spacing: 6) {
-            stack {
-                Button(AboutWords.text("Source & licenses")) { open = .about }
-                if AboutView.canRemove(app) {
-                    Button(AboutWords.text("Remove this phone")) { open = .remove }
-                }
+            // One line while it fits, one link to a line when it does not.
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 20) { links }
+                VStack(spacing: 8) { links }
             }
             .font(.footnote.weight(.medium))
             .foregroundStyle(Theme.accent)
@@ -40,6 +37,14 @@ struct AboutLink: View {
             if let name = UserDefaults.standard.string(forKey: "FTWAbout") { open = AboutView.Start(name) }
         }
         #endif
+    }
+
+    @ViewBuilder private var links: some View {
+        Button(AboutWords.text("Source & licenses")) { open = .about }
+        Link(AboutWords.text("Privacy"), destination: Origin.privacyURL())
+        if AboutView.canRemove(app) {
+            Button(AboutWords.text("Remove this phone")) { open = .remove }
+        }
     }
 }
 

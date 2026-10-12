@@ -45,6 +45,18 @@ import Testing
         #expect(source.localNote != nil)
     }
 
+    /// App Review asks for the privacy policy inside the app. The pages are
+    /// srcfl/ftw-web's, in English and Swedish.
+    @Test func privacyAndSupportFollowTheLanguage() {
+        #expect(Origin.privacyURL(.en).absoluteString == "https://ftw.energy/privacy")
+        #expect(Origin.privacyURL(.sv).absoluteString == "https://ftw.energy/sv/privacy")
+        #expect(Origin.supportURL(.en).absoluteString == "https://ftw.energy/support")
+        #expect(Origin.supportURL(.sv).absoluteString == "https://ftw.energy/sv/support")
+        AboutWords.$language.withValue(.sv) {
+            #expect(Origin.privacyURL() == Origin.privacyURL(.sv))
+        }
+    }
+
     // MARK: The license files
 
     /// Joining lines must never change the text: every word of every file,

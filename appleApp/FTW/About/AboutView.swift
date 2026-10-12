@@ -81,6 +81,19 @@ struct AboutView: View {
                 }
 
                 Section {
+                    Link(destination: Origin.privacyURL()) {
+                        Label(AboutWords.text("Privacy policy"), systemImage: "hand.raised")
+                    }
+                    Link(destination: Origin.supportURL()) {
+                        Label(AboutWords.text("Support"), systemImage: "questionmark.circle")
+                    }
+                } header: {
+                    Text(AboutWords.text("Privacy and support"))
+                } footer: {
+                    Text(AboutWords.text("FTW collects nothing about you. Readings and commands travel encrypted between this phone and your box, and Sourceful cannot read them."))
+                }
+
+                Section {
                     ForEach(LicenseText.Document.allCases) { document in
                         NavigationLink(value: Route.document(document)) {
                             VStack(alignment: .leading, spacing: 2) {

@@ -59,6 +59,12 @@ public enum AboutWords {
         "© 2026 Sourceful Labs AB and contributors.": "© 2026 Sourceful Labs AB och bidragsgivare.",
         "There is no warranty, to the extent the law allows.": "Det finns ingen garanti, så långt lagen tillåter.",
         "This text is missing from this build.": "Texten saknas i det här bygget.",
+        "Privacy": "Integritet",
+        "Privacy policy": "Integritetspolicy",
+        "Support": "Support",
+        "Privacy and support": "Integritet och support",
+        "FTW collects nothing about you. Readings and commands travel encrypted between this phone and your box, and Sourceful cannot read them.":
+            "FTW samlar inte in något om dig. Mätvärden och kommandon går krypterade mellan telefonen och boxen, och Sourceful kan inte läsa dem.",
 
         // Removing this phone
         "This phone": "Den här telefonen",
