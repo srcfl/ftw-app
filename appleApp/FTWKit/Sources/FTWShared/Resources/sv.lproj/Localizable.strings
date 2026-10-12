@@ -26,3 +26,20 @@
 "%ld min ago" = "för %ld min sedan";
 "%ld h ago" = "för %ld h sedan";
 "%ld d ago" = "för %ld d sedan";
+
+/* Price widgets */
+"Electricity price" = "Elpris";
+"The price now and when it is cheapest next, from what FTW last fetched." = "Priset nu och när det blir billigast härnäst, från det FTW senast hämtade.";
+"Price now" = "Pris nu";
+"Cheapest %@" = "Billigast %@";
+"Cheapest now until %@" = "Billigast nu till %@";
+"tomorrow %@" = "i morgon %@";
+"No prices after %@ · open FTW" = "Inga priser efter %@ · öppna FTW";
+"No price until %@ · open FTW" = "Inget pris förrän %@ · öppna FTW";
+"Open FTW to see prices" = "Öppna FTW för att se priser";
+"Fetched %@" = "Hämtat %@";
+"incl. grid fee and VAT" = "inkl. nätavgift och moms";
+"incl. VAT" = "inkl. moms";
+"incl. grid fee" = "inkl. nätavgift";
+"spot price only" = "endast spotpris";
+"incl. surcharges" = "inkl. påslag";

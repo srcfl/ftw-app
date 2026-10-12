@@ -4,6 +4,14 @@
 <dict>
 	<key>FTWAppGroup</key>
 	<string>$(FTW_APP_GROUP)</string>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>energy.ftw.app.prices</string>
+	</array>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
 	<key>CFBundleLocalizations</key>
 	<array>
 		<string>en</string>

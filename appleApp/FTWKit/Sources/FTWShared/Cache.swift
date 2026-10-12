@@ -64,6 +64,11 @@ public struct CacheRead<Value: CacheValue>: Sendable {
     public let record: CacheRecord<Value>
     public let origin: CacheOrigin
 
+    public init(record: CacheRecord<Value>, origin: CacheOrigin) {
+        self.record = record
+        self.origin = origin
+    }
+
     public var value: Value { record.value }
     /// Always `.cache`. A file on this phone is not a connection to the box.
     public var carrier: CarrierKind { .cache }

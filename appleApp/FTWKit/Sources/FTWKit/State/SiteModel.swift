@@ -1,6 +1,9 @@
 import Foundation
 import FTWShared
 import Observation
+import os
+
+private let log = Logger(subsystem: "energy.ftw.app", category: "widgets")
 
 /// The bridge between the session and the screens.
 ///
@@ -406,10 +409,77 @@ public final class SiteModel {
         guard !destroyed else { return }
         do {
             try shared.write(record)
+            log.info("wrote \(Value.name, privacy: .public) for widgets, source \(record.srcState.rawValue, privacy: .public)")
             sharedWritten?()
         } catch {
             // A widget showing yesterday's record with its date is better
             // than no app; the next read tries again.
+            log.error("could not write \(Value.name, privacy: .public) for widgets: \(error.localizedDescription, privacy: .public)")
         }
+    }
+
+    /// Where the prices the widgets hold run out. Nil when they hold none.
+    public var sharedPricesEndMs: Double? {
+        guard let siteId, let record = shared?.read(PriceEntry.self, siteId: siteId) else { return nil }
+        return record.value.prices.slots.map { $0.startMs + $0.durationMs }.max()
+    }
+
+    /// The background refresh: wait for the stream, ask for today's and
+    /// tomorrow's prices as the price card does, and leave them for the
+    /// widgets. Returns what was written, or nil when nothing was: no
+    /// stream within `waitMs`, a box without prices, or a failed ask.
+    ///
+    /// The caller builds the carrier and closes it after.
+    @discardableResult
+    public func refreshSharedPrices(calendar: Calendar = .current, waitMs: Double = 20_000) async -> Prices? {
+        guard siteId != nil, shared != nil, !destroyed else { return nil }
+        guard await streaming(within: waitMs) else {
+            log.notice("background prices: no stream within \(Int(waitMs / 1000), privacy: .public) s")
+            return nil
+        }
+        guard session.caps.contains(Contract.capPriceSpot) else {
+            log.notice("background prices: this box offers no prices")
+            return nil
+        }
+        let from = calendar.startOfDay(for: Date(timeIntervalSince1970: nowMs / 1000)).timeIntervalSince1970 * 1000
+        do {
+            let wire = try await prices(fromMs: from, toMs: from + PriceModel.horizonMs)
+            sharePrices(wire, fromMs: from)
+            return wire
+        } catch {
+            log.error("background prices: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+    }
+
+    /// True once the session streams, false if it has not within `ms`.
+    private func streaming(within ms: Double) async -> Bool {
+        if session.phase == .streaming { return true }
+        let wait = StreamWait()
+        let ok = await withCheckedContinuation { cont in
+            wait.continuation = cont
+            wait.token = observe { [weak self, wait] in
+                if self?.session.phase == .streaming { wait.settle(true) }
+            }
+            wait.timer = scheduler.after(ms) { [wait] in wait.settle(false) }
+        }
+        if let token = wait.token { unobserve(token) }
+        return ok
+    }
+}
+
+/// One wait for the stream, settled once. The timer settles it even if the
+/// model is gone, so the background task always ends.
+@MainActor
+private final class StreamWait {
+    var continuation: CheckedContinuation<Bool, Never>?
+    var token: Int?
+    var timer: Cancellable?
+
+    func settle(_ ok: Bool) {
+        guard let cont = continuation else { return }
+        continuation = nil
+        timer?.cancel()
+        cont.resume(returning: ok)
     }
 }
