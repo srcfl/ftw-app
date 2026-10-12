@@ -12,19 +12,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  kit-linux:
-    name: FTWKit on Linux
-    runs-on: ubuntu-latest
-    container: swift:6.1
-    steps:
-      - uses: actions/checkout@v4
-      - name: Test
-        working-directory: appleApp/FTWKit
-        run: swift test
-
   apple:
-    name: FTWKit and the app on macOS
-    runs-on: macos-15
+    name: FTWKit and the iPhone app
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
       - name: Use the newest Xcode on the runner
@@ -32,26 +22,21 @@ jobs:
           latest=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
           sudo xcode-select -s "$latest"
           xcodebuild -version
-      - name: Test FTWKit with CryptoKit
+      - name: Test FTWKit, FTWShared and FTWDemo
         working-directory: appleApp/FTWKit
         run: swift test
-      # Unsigned builds: they prove the app compiles for both platforms.
-      # Signing, passkeys and the camera need a team and a device.
-      - name: Build the app for the iOS Simulator
+      # Signed ad hoc, as FTW.xcconfig sets for the simulator, so the App
+      # Group entitlement travels with the app and the widget. Device
+      # builds need a team, which the project does not have yet.
+      - name: Build the app and its widgets for the iOS Simulator
         working-directory: appleApp
         run: >-
           xcodebuild build -quiet -project FTW.xcodeproj -scheme FTW
           -destination 'generic/platform=iOS Simulator'
-          -derivedDataPath build/ios CODE_SIGNING_ALLOWED=NO
-      - name: Build the app for macOS
-        working-directory: appleApp
-        run: >-
-          xcodebuild build -quiet -project FTW.xcodeproj -scheme FTW
-          -destination 'generic/platform=macOS'
-          -derivedDataPath build/macos CODE_SIGNING_ALLOWED=NO
-      # For whoever reviews the screens: the demo, photographed per tab in
-      # the simulator. Evidence, not a gate, so a flaky simulator does not
-      # turn the build red.
+          -derivedDataPath build/ios
+      # For whoever reviews the screens: the demo, photographed in the
+      # simulator. Evidence, not a gate, so a flaky simulator does not turn
+      # the build red.
       - name: Photograph the demo in the iOS Simulator
         continue-on-error: true
         working-directory: appleApp

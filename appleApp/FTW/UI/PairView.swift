@@ -1,13 +1,11 @@
 import FTWKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// Pairing, the first thing anyone sees. Scan, then Face ID. Everything that
 /// can fail does so before the passkey prompt.
 struct PairView: View {
     let app: AppModel
     @State private var model: PairModel
-    @State private var importing = false
 
     init(app: AppModel) {
         self.app = app
@@ -24,9 +22,6 @@ struct PairView: View {
             .frame(maxWidth: .infinity)
         }
         .background(Theme.surface)
-        .fileImporter(isPresented: $importing, allowedContentTypes: [.image]) { result in
-            read(result)
-        }
     }
 
     /// A screen reached from a home says what this phone cannot do.
@@ -52,22 +47,6 @@ struct PairView: View {
             Title("Starting the demo")
             Text("Loading a simulated home.")
 
-        case .recovering:
-            Title("Checking")
-            Text("Asking your passkey what it can open.")
-            Button("Cancel") { model.cancel() }.buttonStyle(.quiet)
-
-        case .choosing:
-            Title(model.recovered.count == 1 ? "Your home is here" : "Pick a home to open")
-            Text("Your passkey opened a sealed copy. Nothing was sent to your box.")
-            ForEach(model.recovered) { home in
-                Button { model.adopt(home) } label: {
-                    Text("Open \(home.label) ") + Text(home.fingerprint).font(Theme.number(15))
-                }
-                .buttonStyle(.primary)
-            }
-            Button("Not now") { model.cancel() }.buttonStyle(.quiet)
-
         case .intro:
             if let fingerprint = model.offeredFingerprint {
                 offer(fingerprint)
@@ -84,9 +63,9 @@ struct PairView: View {
         Title(known != nil ? "Connect to a different box?" : "Connect this box?")
         Group {
             if let known {
-                Text("This link points at box ") + Text(fingerprint).font(Theme.number(16)) + Text(". Connecting it replaces \(known.label) as the home this app shows and controls. Your key for \(known.label) stays on this phone.")
+                Text("This link points at box \(Text(fingerprint).font(Theme.number(16))). Connecting it replaces \(known.label) as the home this app shows and controls. Your key for \(known.label) stays on this phone.")
             } else {
-                Text("This link points at box ") + Text(fingerprint).font(Theme.number(16)) + Text(". Only continue if you just opened Settings → FTW app and chose Show pairing code in this box's local dashboard.")
+                Text("This link points at box \(Text(fingerprint).font(Theme.number(16))). Only continue if you just opened Settings → FTW app and chose Show pairing code in this box's local dashboard.")
             }
         }
         if let message = model.message { Problem(message) }
@@ -104,11 +83,11 @@ struct PairView: View {
         } else if model.canOpen {
             Text("Your key is still on this phone. Nothing to set up again.")
         } else {
-            Text("Connect your own box, open a home saved with your passkey, or try a live simulated home first.")
+            Text(app.canDemo ? "Connect your own box, or try a live simulated home first." : "Connect your own box.")
         }
         if let message = model.message { Problem(message) }
 
-        if problem == nil, !canDismiss, !model.canOpen {
+        if problem == nil, !canDismiss, !model.canOpen, app.canDemo {
             demoOffer
         }
 
@@ -118,14 +97,6 @@ struct PairView: View {
             Hint("Use a new QR from Settings → FTW app if this key no longer works.")
         } else {
             setup
-            Button { Task { await model.recover() } } label: {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Open with your passkey").font(.body.weight(.semibold)).foregroundStyle(Theme.fg)
-                    Text("Used FTW before? Ask Face ID or Touch ID for a saved home.").font(.footnote).foregroundStyle(Theme.fgDim)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.outline)
         }
 
         if canDismiss {
@@ -137,7 +108,7 @@ struct PairView: View {
         Card {
             Kicker("Interactive demo")
             Text("See a home running").font(.title3.weight(.semibold))
-            Text("Explore live solar, battery, grid, EV charging, plans and history. The data is simulated and nothing is saved.")
+            Text("Explore live solar, battery, grid, prices and EV charging. The data is simulated and nothing is saved.")
                 .foregroundStyle(Theme.fgDim)
             Button("Try the live demo") { model.tryDemo() }.buttonStyle(.primary)
         }
@@ -153,28 +124,13 @@ struct PairView: View {
                 Text("3. Choose Show pairing code, then scan the QR here.")
             }
             .font(.callout)
-            Hint("Next, a supported device asks for Face ID or Touch ID to protect your FTW key. There is no FTW account or password. If that passkey supports recovery and the save reaches Sourceful, FTW keeps a sealed recovery copy that Sourceful cannot open. If not, pairing still works; a new Settings QR is the way back.")
+            Hint("Next, your phone asks for Face ID or Touch ID to protect your FTW key. There is no FTW account or password. If this phone loses its key, a new Settings QR is the way back.")
             Button("Scan the pairing QR") { model.stage = .scanning }.buttonStyle(.primary)
-            #if os(macOS)
-            Button("Read the QR from a picture") { importing = true }.buttonStyle(.quiet)
-            Hint("On a Mac, a screenshot of the code works as well as the camera.")
-            #endif
             DisclosureGroup("Can't see Show pairing code?") {
                 Hint("Turn on Let the FTW app connect to this box, save, and restart the box first.")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .font(.footnote)
-        }
-    }
-
-    private func read(_ result: Result<URL, Error>) {
-        guard case .success(let url) = result else { return }
-        let scoped = url.startAccessingSecurityScopedResource()
-        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-        if let code = QRImage.pairingCode(at: url) {
-            Task { await model.pair(code) }
-        } else {
-            model.noCodeFound()
         }
     }
 }

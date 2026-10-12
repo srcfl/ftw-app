@@ -124,11 +124,7 @@ extension Ceremony: ASAuthorizationControllerDelegate {
 
 extension Ceremony: ASAuthorizationControllerPresentationContextProviding {
     func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        #if os(iOS)
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
         return windows.first(where: \.isKeyWindow) ?? windows.first ?? ASPresentationAnchor()
-        #else
-        return NSApplication.shared.keyWindow ?? NSApplication.shared.windows.first ?? ASPresentationAnchor()
-        #endif
     }
 }

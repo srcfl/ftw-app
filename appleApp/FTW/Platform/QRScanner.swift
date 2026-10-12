@@ -1,5 +1,4 @@
 import AVFoundation
-import CoreImage
 import SwiftUI
 
 /// Reads a pairing QR through the camera. The first code that looks like an
@@ -7,6 +6,10 @@ import SwiftUI
 struct QRScanner: View {
     var onCode: (String) -> Void
     @State private var allowed: Bool?
+
+    static func looksLikePairing(_ text: String) -> Bool {
+        text.contains("ftw.energy") || text.contains("/p#")
+    }
 
     var body: some View {
         Group {
@@ -32,23 +35,6 @@ struct QRScanner: View {
     }
 }
 
-/// QR codes in a still picture, for a Mac reading a screenshot of the code.
-enum QRImage {
-    static func looksLikePairing(_ text: String) -> Bool {
-        text.contains("ftw.energy") || text.contains("/p#")
-    }
-
-    static func codes(in image: CIImage) -> [String] {
-        let detector = CIDetector(ofType: CIDetectorTypeQRCode, context: nil, options: [CIDetectorAccuracy: CIDetectorAccuracyHigh])
-        return (detector?.features(in: image) ?? []).compactMap { ($0 as? CIQRCodeFeature)?.messageString }
-    }
-
-    static func pairingCode(at url: URL) -> String? {
-        guard let image = CIImage(contentsOf: url) else { return nil }
-        return codes(in: image).first(where: QRImage.looksLikePairing)
-    }
-}
-
 /// The capture session, started and stopped off the main thread as
 /// AVFoundation asks. Held in a box so the closures that move it are honest
 /// about crossing threads.
@@ -60,7 +46,6 @@ private final class CaptureBox: @unchecked Sendable {
     func stop() { queue.async { self.session.stopRunning() } }
 }
 
-#if os(iOS)
 private struct CameraView: UIViewRepresentable {
     var onCode: (String) -> Void
 
@@ -112,7 +97,7 @@ private struct CameraView: UIViewRepresentable {
         }
 
         func found(_ text: String) {
-            guard !done, QRImage.looksLikePairing(text) else { return }
+            guard !done, QRScanner.looksLikePairing(text) else { return }
             done = true
             capture.stop()
             onCode(text)
@@ -127,85 +112,3 @@ extension CameraView.Coordinator: @preconcurrency AVCaptureMetadataOutputObjects
         }
     }
 }
-#else
-private struct CameraView: NSViewRepresentable {
-    var onCode: (String) -> Void
-
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        view.wantsLayer = true
-        context.coordinator.attach(view)
-        return view
-    }
-
-    func updateNSView(_ view: NSView, context: Context) {
-        context.coordinator.onCode = onCode
-    }
-
-    static func dismantleNSView(_ view: NSView, coordinator: Coordinator) {
-        coordinator.capture.stop()
-    }
-
-    func makeCoordinator() -> Coordinator { Coordinator(onCode: onCode) }
-
-    /// The Mac has no metadata output, so frames go through Core Image.
-    @MainActor
-    final class Coordinator: NSObject {
-        let capture = CaptureBox()
-        var onCode: (String) -> Void
-        private var done = false
-        private let frames = DispatchQueue(label: "energy.ftw.frames")
-        private var reader: FrameReader?
-
-        init(onCode: @escaping (String) -> Void) {
-            self.onCode = onCode
-        }
-
-        func attach(_ view: NSView) {
-            let session = capture.session
-            guard let device = AVCaptureDevice.default(for: .video),
-                  let input = try? AVCaptureDeviceInput(device: device),
-                  session.canAddInput(input) else { return }
-            session.addInput(input)
-            let output = AVCaptureVideoDataOutput()
-            output.alwaysDiscardsLateVideoFrames = true
-            guard session.canAddOutput(output) else { return }
-            session.addOutput(output)
-            let reader = FrameReader(owner: self)
-            self.reader = reader
-            output.setSampleBufferDelegate(reader, queue: frames)
-            let preview = AVCaptureVideoPreviewLayer(session: session)
-            preview.videoGravity = .resizeAspectFill
-            preview.frame = view.bounds
-            preview.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
-            view.layer?.addSublayer(preview)
-            capture.start()
-        }
-
-        func found(_ text: String) {
-            guard !done, QRImage.looksLikePairing(text) else { return }
-            done = true
-            capture.stop()
-            onCode(text)
-        }
-    }
-
-    /// Decodes on the frame queue and hands text to the main actor.
-    final class FrameReader: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
-        private weak var owner: Coordinator?
-
-        init(owner: Coordinator) {
-            self.owner = owner
-        }
-
-        func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
-            guard let pixels = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-            guard let text = QRImage.codes(in: CIImage(cvPixelBuffer: pixels)).first(where: QRImage.looksLikePairing) else { return }
-            let target = owner
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated { target?.found(text) }
-            }
-        }
-    }
-}
-#endif

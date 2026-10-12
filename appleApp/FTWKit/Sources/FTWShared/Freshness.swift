@@ -8,7 +8,7 @@ import Foundation
 /// never claims a problem it has not confirmed: connecting while the cache
 /// is on screen is normal, not a fault.
 public enum Freshness {
-    public enum Tone: Sendable { case live, stale, reaching, lost }
+    public enum Tone: Sendable { case live, stale, reaching, lost, busy }
 
     public struct Band: Equatable, Sendable {
         public let tone: Tone
@@ -28,46 +28,51 @@ public enum Freshness {
         phase: SessionPhase,
         waitMs: Double,
         bootPct: Int?,
-        noCarrier: Bool
+        noCarrier: Bool,
+        busy: Bool = false
     ) -> Band {
         let reaching = !noCarrier && [.idle, .handshaking, .subscribing, .failed, .booting].contains(phase)
         let connected = carrier == .relay || carrier == .webrtc
+        // The relay turned this phone away because the home already has as
+        // many phones watching as it serves. Not a fault, and not ours to fix.
+        let turnedAway = busy && !connected && reaching
 
-        let tone: Tone = connected ? (srcState == .live ? .live : .stale) : (reaching ? .reaching : .lost)
+        let tone: Tone = connected ? (srcState == .live ? .live : .stale) : turnedAway ? .busy : (reaching ? .reaching : .lost)
 
         let message: String
         if connected {
-            let liveWhere = carrier == .webrtc ? "Live at home" : "Live via encrypted relay"
-            let link = carrier == .webrtc ? "Home link connected" : "Encrypted relay connected"
+            let webrtc = carrier == .webrtc
             switch srcState {
-            case .live: message = liveWhere
-            case .never: message = "\(link) · no reading yet"
-            case .down: message = "\(link) · a device stopped responding"
-            default: message = "\(link) · readings"
+            case .live: message = webrtc ? Words.text("Live at home") : Words.text("Live via encrypted relay")
+            case .never: message = webrtc ? Words.text("Home link connected · no reading yet") : Words.text("Encrypted relay connected · no reading yet")
+            case .down: message = webrtc ? Words.text("Home link connected · a device stopped responding") : Words.text("Encrypted relay connected · a device stopped responding")
+            default: message = webrtc ? Words.text("Home link connected · readings") : Words.text("Encrypted relay connected · readings")
             }
         } else if phase == .terminated {
             // The box is reachable; it told this phone to leave.
-            message = "Access ended"
+            message = Words.text("Access ended")
+        } else if turnedAway {
+            message = Words.text("FTW is busy")
         } else if phase == .booting {
-            message = "Your box is starting"
+            message = Words.text("Your box is starting")
         } else if reaching {
             if phase == .failed {
-                message = "Reconnecting to your box"
+                message = Words.text("Reconnecting to your box")
             } else if phase == .subscribing {
-                message = "Waiting for live readings"
+                message = Words.text("Waiting for live readings")
             } else if phase == .handshaking, transport == .relay {
-                message = "Securing encrypted relay"
+                message = Words.text("Securing encrypted relay")
             } else if phase == .handshaking, transport == .webrtc {
-                message = "Securing home link"
+                message = Words.text("Securing home link")
             } else {
-                message = "Connecting to your box"
+                message = Words.text("Connecting to your box")
             }
         } else {
-            message = "Can't reach your box"
+            message = Words.text("Can't reach your box")
         }
 
         var wait: String?
-        if reaching {
+        if reaching, !turnedAway {
             if phase == .booting, let bootPct {
                 wait = "\(bootPct)%"
             } else {
@@ -84,21 +89,5 @@ public enum Freshness {
             }
         }
         return Band(tone: tone, message: message, wait: wait, age: age)
-    }
-}
-
-extension SiteModel {
-    /// The band for this home, read the way the web app's shell reads it.
-    public func freshness(noCarrier: Bool) -> Freshness.Band {
-        Freshness.band(
-            carrier: carrier,
-            transport: session.carrier,
-            srcState: srcState,
-            ageMs: ageMs,
-            phase: session.phase,
-            waitMs: connectionWaitMs,
-            bootPct: session.boot?.pct,
-            noCarrier: noCarrier
-        )
     }
 }

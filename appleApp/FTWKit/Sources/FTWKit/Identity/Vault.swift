@@ -154,11 +154,11 @@ public final class Vault {
     /// The local key: random, in the Keychain, no ceremony in front of it.
     public func localWrappingKey() -> WrappingKey {
         if let existing = store.get(Self.localWrapKey), existing.count == 32 {
-            return WrappingKey(credentialID: Self.localCredentialID, source: .local, key: existing, escrow: nil)
+            return WrappingKey(credentialID: Self.localCredentialID, source: .local, key: existing)
         }
         let key = randomBytes(32)
         store.put(Self.localWrapKey, key)
-        return WrappingKey(credentialID: Self.localCredentialID, source: .local, key: key, escrow: nil)
+        return WrappingKey(credentialID: Self.localCredentialID, source: .local, key: key)
     }
 
     /// The key for connecting, without a prompt, or nil when only passkey

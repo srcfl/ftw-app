@@ -21,7 +21,7 @@ struct PriceChart: View {
                 }
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 2) {
-                        (Text(PriceStrip.text(summary.current?.totalMinor, prices.currency)).font(Theme.number(28, weight: .bold)) + Text(" \(unit.perKwh)").font(.caption))
+                        Text("\(Text(PriceStrip.text(summary.current?.totalMinor, prices.currency)).font(Theme.number(28, weight: .bold)))\(Text(" \(unit.perKwh)").font(.caption))")
                         Text("\(prices.zone.isEmpty ? "—" : prices.zone) · incl. fees and VAT").font(.caption).foregroundStyle(Theme.fgMuted)
                     }
                     Spacer()

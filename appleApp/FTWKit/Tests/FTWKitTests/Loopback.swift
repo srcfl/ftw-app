@@ -1,5 +1,6 @@
 import Foundation
 @testable import FTWKit
+import FTWDemo
 
 /// The box's end of Noise, around a `SimulatedBox`: what the Go box does in
 /// front of its protocol handler.

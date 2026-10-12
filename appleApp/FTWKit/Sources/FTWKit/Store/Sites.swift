@@ -12,21 +12,18 @@ public struct StoredSite: Codable, Equatable, Sendable, Identifiable {
     /// Single use, spent in the first handshake. Kept until then.
     public var pairingCode: Data?
     public var lanHint: String?
-    /// Whether this household asked Sourceful to hold a sealed copy of it.
-    public var escrow: Bool
     public var addedAtMs: Double
     public var lastSeenAtMs: Double
 
     public var id: String { siteId }
 
-    public init(siteId: String, label: String, boxStaticKey: Data, rendezvousSecret: Data?, pairingCode: Data?, lanHint: String?, escrow: Bool, addedAtMs: Double, lastSeenAtMs: Double) {
+    public init(siteId: String, label: String, boxStaticKey: Data, rendezvousSecret: Data?, pairingCode: Data?, lanHint: String?, addedAtMs: Double, lastSeenAtMs: Double) {
         self.siteId = siteId
         self.label = label
         self.boxStaticKey = boxStaticKey
         self.rendezvousSecret = rendezvousSecret
         self.pairingCode = pairingCode
         self.lanHint = lanHint
-        self.escrow = escrow
         self.addedAtMs = addedAtMs
         self.lastSeenAtMs = lastSeenAtMs
     }

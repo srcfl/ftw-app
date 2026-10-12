@@ -18,8 +18,7 @@ DerivedData/
 *.aab
 captures/
 
-# iOS
-iosApp/Pods/
+# Xcode
 *.xcworkspace/xcuserdata/
 
 # Secrets

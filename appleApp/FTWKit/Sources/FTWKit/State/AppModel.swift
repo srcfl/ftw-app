@@ -1,4 +1,5 @@
 import Foundation
+import FTWShared
 import Observation
 
 /// Every model one home's screens read, built once per home and kept while
@@ -6,33 +7,25 @@ import Observation
 @MainActor
 public final class HomeModels {
     public let site: SiteModel
-    public let plan: PlanModel
     public let prices: PriceModel
     public let status: StatusWatch
     public let charging: ChargingWatch
     public let savings: SavingsModel
-    public let energy: EnergyModel
-    public let history: HistoryModel
     public let loadpoints: LoadpointsModel
-    public let access: AccessModel
-    public let notify: NotifyModel
-    public let restart: RestartModel
 
-    init(site: SiteModel, files: SealedFiles?, thisPhone: String?) {
+    init(site: SiteModel) {
         self.site = site
-        plan = PlanModel(site: site)
         prices = PriceModel(site: site)
         status = StatusWatch(site: site)
         charging = ChargingWatch(site: site)
         savings = SavingsModel(site: site)
-        energy = EnergyModel(site: site)
-        history = HistoryModel(site: site, tiles: TileCache(files: site.isDemo ? nil : files, siteId: site.siteId ?? "demo"))
         loadpoints = LoadpointsModel(site: site, charging: charging)
-        access = AccessModel(site: site, thisPhone: thisPhone)
-        notify = NotifyModel(site: site)
-        restart = RestartModel(site: site)
     }
 }
+
+/// Builds the carrier to a simulated home. FTWDemo supplies it; FTWKit holds
+/// no fake box of its own.
+public typealias DemoCarrier = @MainActor (Scheduler) -> Carrier
 
 /// No carrier could be built from what this phone holds. Every other
 /// failure heals itself because the carrier reconnects from inside; these
@@ -58,37 +51,43 @@ public final class AppModel {
     /// A pairing link that arrived from outside, shown before it is trusted.
     public var offeredLink: String?
     public private(set) var isDemo = false
-    /// The Box screen's spare-key switch for the open home. Nil in the demo.
-    public private(set) var sealedCopy: SealedCopyModel?
 
     @ObservationIgnored public let vault: Vault
     @ObservationIgnored public let sites: SiteList
-    @ObservationIgnored public let escrow: Escrow
     @ObservationIgnored public let pairing: Pairing
     @ObservationIgnored public let passkeys: PasskeyAuthenticator?
     @ObservationIgnored let store: SecureStore
     @ObservationIgnored let files: SealedFiles?
+    @ObservationIgnored let shared: AppGroupFiles?
+    @ObservationIgnored let sharedWritten: (@MainActor () -> Void)?
+    @ObservationIgnored let demo: DemoCarrier?
     @ObservationIgnored let scheduler: Scheduler
     @ObservationIgnored let build: String
     @ObservationIgnored let ua: String
     @ObservationIgnored let relayURL: URL
     @ObservationIgnored let makeSocket: WebSocketFactory
-    @ObservationIgnored private var demoBox: SimulatedBox?
     @ObservationIgnored private var connectGeneration = 0
+    /// `suspend` closed the session; the next look builds a new one.
+    @ObservationIgnored private var suspended = false
 
     public init(
         store: SecureStore,
         files: SealedFiles?,
+        shared: AppGroupFiles? = nil,
+        sharedWritten: (@MainActor () -> Void)? = nil,
         passkeys: PasskeyAuthenticator?,
         scheduler: Scheduler = LiveScheduler.shared,
         build: String,
         ua: String,
         relayURL: URL = Origin.relayURL,
-        escrowTransport: Escrow.Transport? = nil,
-        makeSocket: @escaping WebSocketFactory = URLSessionWebSocket.factory()
+        makeSocket: @escaping WebSocketFactory = URLSessionWebSocket.factory(),
+        demo: DemoCarrier? = nil
     ) {
         self.store = store
         self.files = files
+        self.shared = shared
+        self.sharedWritten = sharedWritten
+        self.demo = demo
         self.passkeys = passkeys
         self.scheduler = scheduler
         self.build = build
@@ -97,8 +96,7 @@ public final class AppModel {
         self.makeSocket = makeSocket
         vault = Vault(store: store)
         sites = SiteList(store: store)
-        escrow = Escrow(vault: vault, sites: sites, transport: escrowTransport)
-        pairing = Pairing(vault: vault, sites: sites, escrow: escrow, passkeys: passkeys, now: { [scheduler] in scheduler.nowMs })
+        pairing = Pairing(vault: vault, sites: sites, passkeys: passkeys, now: { [scheduler] in scheduler.nowMs })
     }
 
     public var site: SiteModel? { home?.site }
@@ -117,13 +115,14 @@ public final class AppModel {
     public func open(_ siteId: String) {
         exitDemo()
         home?.site.destroy()
-        let site = SiteModel(siteId: siteId, build: build, ua: ua, scheduler: scheduler, files: files)
+        let site = SiteModel(siteId: siteId, build: build, ua: ua, scheduler: scheduler, files: files, shared: shared)
         site.stepUp = { [weak self] in await self?.stepUp() ?? .unavailable }
-        home = HomeModels(site: site, files: files, thisPhone: vault.deviceIDOnBox)
-        sealedCopy = SealedCopyModel(app: self, siteId: siteId)
+        site.sharedWritten = sharedWritten
+        home = HomeModels(site: site)
         sites.setCurrent(siteId)
         site.start()
         recovering = false
+        suspended = false
         Task { await connect() }
     }
 
@@ -183,7 +182,7 @@ public final class AppModel {
     /// was none.
     public func refresh() async {
         if isDemo {
-            demoBox?.tick()
+            site?.refresh()
             return
         }
         if connectHelp != nil || site?.core.hasCarrier == false {
@@ -193,8 +192,27 @@ public final class AppModel {
         }
     }
 
+    /// Whether anyone is looking. Coming back from the background builds a
+    /// new carrier, because `suspend` closed the old one.
     public func setVisible(_ visible: Bool) {
-        site?.setVisible(visible)
+        guard let site else { return }
+        site.setVisible(visible)
+        if visible, suspended {
+            suspended = false
+            Task { await connect() }
+        }
+    }
+
+    /// The app went to the background: close the session and keep what is
+    /// on screen. The demo has no socket to free and keeps running.
+    public func suspend() {
+        guard let site else { return }
+        if isDemo {
+            site.setVisible(false)
+        } else {
+            site.suspend()
+            suspended = true
+        }
     }
 
     public func networkOnline() {
@@ -223,30 +241,29 @@ public final class AppModel {
 
     // MARK: The demo
 
+    /// Whether this build carries the simulated home.
+    public var canDemo: Bool { demo != nil }
+
     /// A simulated home in this process. Nothing is written and no passkey
     /// is asked for; leaving it touches no saved home.
     public func startDemo() {
+        guard let demo else { return }
         home?.site.destroy()
         let site = SiteModel(siteId: nil, build: build, ua: ua, scheduler: scheduler, files: nil, isDemo: true)
         site.ceilingW = 11_000
-        let box = SimulatedBox(scheduler: scheduler)
-        demoBox = box
-        home = HomeModels(site: site, files: nil, thisPhone: "Qm94T3du")
-        sealedCopy = nil
+        home = HomeModels(site: site)
         isDemo = true
         recovering = false
         offeredLink = nil
         connectHelp = nil
         site.start()
-        site.connect(LoopbackCarrier(box: box, scheduler: scheduler))
+        site.connect(demo(scheduler))
     }
 
     public func exitDemo() {
         guard isDemo else { return }
         home?.site.destroy()
         home = nil
-        sealedCopy = nil
-        demoBox = nil
         isDemo = false
         if let current = sites.current() { open(current.siteId) }
     }
@@ -255,14 +272,15 @@ public final class AppModel {
 
     /// Sign out on this phone: the stream stops first and the disk is
     /// cleared second, so a reading landing mid-clear cannot write the home
-    /// back. The sealed copy at Sourceful stays; removing it is its own act.
+    /// back. The widgets lose their records too.
     public func leave() {
         home?.site.destroy()
         home = nil
-        sealedCopy = nil
         vault.reset()
         sites.clear()
         files?.clear()
+        shared?.removeAll()
+        sharedWritten?()
         connectHelp = nil
         leaveFailed = false
         recovering = false

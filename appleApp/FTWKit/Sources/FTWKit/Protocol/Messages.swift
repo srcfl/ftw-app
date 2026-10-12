@@ -1,4 +1,5 @@
 import Foundation
+import FTWShared
 
 /// The message shapes. Names shared with the box come from
 /// protocol/registry.yaml, through `Contract`.
@@ -15,22 +16,6 @@ public enum Proto {
 
 public enum BoxMode: String, Sendable {
     case full, floor, booting, readonly
-}
-
-public enum SourceState: String, Sendable, Codable, Comparable {
-    case live, lagging, stale, down, never
-
-    var rank: Int {
-        switch self {
-        case .live: return 0
-        case .lagging: return 1
-        case .stale: return 2
-        case .down: return 3
-        case .never: return 4
-        }
-    }
-
-    public static func < (a: SourceState, b: SourceState) -> Bool { a.rank < b.rank }
 }
 
 public struct Source: Equatable, Sendable, Codable {
@@ -212,206 +197,26 @@ public struct Delta: Sendable {
     }
 }
 
-// MARK: - Plan and prices
+// MARK: - Prices
 
-public struct PlanSlot: Equatable, Sendable, Identifiable {
-    /// Wall clock: these are future times a person reads.
-    public var startMs: Double
-    public var durationMs: Double
-    /// Signed watts at the battery, site convention: positive charges.
-    public var batteryW: Double
-    /// Expected import at the meter; negative means expected export.
-    public var gridW: Double
-    /// Import price in minor units per kWh, nil when unknown.
-    public var priceMinor: Double?
-    /// A stable code, never prose. The app owns every word.
-    public var reason: String
-    public var id: Double { startMs }
-
-    public init(startMs: Double, durationMs: Double, batteryW: Double, gridW: Double, priceMinor: Double?, reason: String) {
-        self.startMs = startMs
-        self.durationMs = durationMs
-        self.batteryW = batteryW
-        self.gridW = gridW
-        self.priceMinor = priceMinor
-        self.reason = reason
-    }
-}
-
-public struct Plan: Equatable, Sendable {
-    public var rev: UInt64
-    public var uptimeMs: Double
-    public var slots: [PlanSlot]
-    /// The planner could not run and the box fell back. "Nothing scheduled"
-    /// and "we do not know what is scheduled" are different sentences.
-    public var stale: Bool
-    public var ceilingW: Double?
-
-    public init(rev: UInt64, uptimeMs: Double, slots: [PlanSlot], stale: Bool, ceilingW: Double?) {
-        self.rev = rev
-        self.uptimeMs = uptimeMs
-        self.slots = slots
-        self.stale = stale
-        self.ceilingW = ceilingW
-    }
-
+extension Prices {
     init(_ c: CBOR) {
-        rev = UInt64(max(0, c["rev"]?.int64 ?? 0))
-        uptimeMs = c["uptimeMs"]?.double ?? 0
-        slots = (c["slots"]?.array ?? []).compactMap { s in
-            guard let start = s["startMs"]?.double else { return nil }
-            return PlanSlot(
-                startMs: start,
-                durationMs: s["durationMs"]?.double ?? 900_000,
-                batteryW: s["batteryW"]?.double ?? 0,
-                gridW: s["gridW"]?.double ?? 0,
-                priceMinor: s["priceMinor"]?.double,
-                reason: s["reason"]?.string ?? "idle"
-            )
-        }
-        stale = c["stale"]?.bool ?? false
-        ceilingW = c["ceilingW"]?.double
+        self.init(
+            zone: c["zone"]?.string ?? "",
+            currency: c["currency"]?.string ?? "SEK",
+            slots: (c["slots"]?.array ?? []).compactMap { s in
+                guard let start = s["startMs"]?.double else { return nil }
+                return PriceSlot(
+                    startMs: start,
+                    durationMs: s["durationMs"]?.double ?? 3_600_000,
+                    spotMinor: s["spotMinor"]?.double ?? 0,
+                    totalMinor: s["totalMinor"]?.double ?? s["spotMinor"]?.double ?? 0
+                )
+            },
+            stale: c["stale"]?.bool ?? false
+        )
     }
 }
-
-public struct PriceSlot: Equatable, Sendable, Identifiable {
-    public var startMs: Double
-    public var durationMs: Double
-    /// Integer minor units per kWh. Money never crosses as a float.
-    public var spotMinor: Double
-    /// What the household pays, tariff and tax included, computed by the box.
-    public var totalMinor: Double
-    public var id: Double { startMs }
-
-    public init(startMs: Double, durationMs: Double, spotMinor: Double, totalMinor: Double) {
-        self.startMs = startMs
-        self.durationMs = durationMs
-        self.spotMinor = spotMinor
-        self.totalMinor = totalMinor
-    }
-}
-
-public struct Prices: Equatable, Sendable {
-    public var zone: String
-    public var currency: String
-    public var slots: [PriceSlot]
-    /// The answer does not cover the window asked for. Which of the three
-    /// shapes it is has to be read off the slots.
-    public var stale: Bool
-
-    public init(zone: String, currency: String, slots: [PriceSlot], stale: Bool) {
-        self.zone = zone
-        self.currency = currency
-        self.slots = slots
-        self.stale = stale
-    }
-
-    init(_ c: CBOR) {
-        zone = c["zone"]?.string ?? ""
-        currency = c["currency"]?.string ?? "SEK"
-        slots = (c["slots"]?.array ?? []).compactMap { s in
-            guard let start = s["startMs"]?.double else { return nil }
-            return PriceSlot(
-                startMs: start,
-                durationMs: s["durationMs"]?.double ?? 3_600_000,
-                spotMinor: s["spotMinor"]?.double ?? 0,
-                totalMinor: s["totalMinor"]?.double ?? s["spotMinor"]?.double ?? 0
-            )
-        }
-        stale = c["stale"]?.bool ?? false
-    }
-}
-
-// MARK: - History
-
-public enum Resolution: String, Sendable, CaseIterable {
-    case fiveMinutes = "5m"
-    case hour = "1h"
-}
-
-public struct HistQuery: Sendable {
-    public var series: [String]
-    public var res: Resolution
-    public var fromMs: Double
-    public var toMs: Double
-    public var have: [(tileId: String, etag: String)]
-    public var maxPoints: Int?
-
-    var cbor: CBOR {
-        var pairs: [(String, CBOR)] = [
-            ("series", .array(series.map { .text($0) })),
-            ("res", .text(res.rawValue)),
-            // Whole milliseconds: the box reads these into int64 and drops a
-            // query whose times carry a fraction.
-            ("fromMs", .ms(fromMs)),
-            ("toMs", .ms(toMs)),
-        ]
-        if !have.isEmpty {
-            pairs.append(("have", .array(have.map { .map([("tileId", .text($0.tileId)), ("etag", .text($0.etag))]) })))
-        }
-        if let maxPoints { pairs.append(("maxPoints", .int(maxPoints))) }
-        return .map(pairs)
-    }
-}
-
-public struct HistChunk: Sendable {
-    public var tileId: String
-    public var etag: String
-    public var res: Resolution
-    public var startMs: Double
-    public var stepMs: Double
-    public var series: [String]
-    /// Column-packed int32 little-endian, one block per series.
-    public var data: Bytes
-    /// The trailing tile is still filling; never cache it.
-    public var partial: Bool
-
-    init?(_ c: CBOR) {
-        guard let tileId = c["tileId"]?.string else { return nil }
-        self.tileId = tileId
-        etag = c["etag"]?.string ?? ""
-        res = c["res"]?.string.flatMap(Resolution.init(rawValue:)) ?? .fiveMinutes
-        startMs = c["startMs"]?.double ?? 0
-        stepMs = c["stepMs"]?.double ?? 300_000
-        series = c["series"]?.stringArray ?? []
-        data = c["data"]?.byteString ?? []
-        partial = c["partial"]?.bool ?? false
-    }
-
-    public init(tileId: String, etag: String, res: Resolution, startMs: Double, stepMs: Double, series: [String], data: Bytes, partial: Bool) {
-        self.tileId = tileId
-        self.etag = etag
-        self.res = res
-        self.startMs = startMs
-        self.stepMs = stepMs
-        self.series = series
-        self.data = data
-        self.partial = partial
-    }
-}
-
-public struct HistGap: Equatable, Sendable {
-    public var fromMs: Double
-    public var toMs: Double
-    public var reason: String
-}
-
-public struct HistEnd: Sendable {
-    /// What the box actually served, which may be coarser than asked for.
-    public var resActual: Resolution
-    public var gaps: [HistGap]
-
-    init(_ c: CBOR) {
-        resActual = c["resActual"]?.string.flatMap(Resolution.init(rawValue:)) ?? .fiveMinutes
-        gaps = (c["gaps"]?.array ?? []).compactMap { g in
-            guard let from = g["fromMs"]?.double, let to = g["toMs"]?.double else { return nil }
-            return HistGap(fromMs: from, toMs: to, reason: g["reason"]?.string ?? "no_data")
-        }
-    }
-}
-
-/// Distinct from zero, which is a real reading.
-public let missingSample = Int32.min
 
 // MARK: - The box's own API
 

@@ -1,11 +1,5 @@
 import Foundation
-
-/// How frames are reaching us. Orthogonal to `SourceState`, never merged
-/// with it: "connected, but the inverter went quiet 40 seconds ago" needs
-/// both.
-public enum CarrierKind: String, Sendable, Codable {
-    case webrtc, relay, cache, none
-}
+import FTWShared
 
 public enum CarrierStatus: Equatable, Sendable {
     case connecting
@@ -14,6 +8,14 @@ public enum CarrierStatus: Equatable, Sendable {
 
     public var isOpen: Bool {
         if case .open = self { return true }
+        return false
+    }
+
+    /// The relay turned this phone away with 4429: the home already has as
+    /// many phones watching as the relay serves, or the relay is shedding
+    /// load. Someone else is looking; nothing is broken.
+    public var isBusy: Bool {
+        if case .closed(let reason, _) = self { return reason == RelayCarrier.closeReason(RelayCarrier.closeBusy) }
         return false
     }
 

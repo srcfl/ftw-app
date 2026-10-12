@@ -231,3 +231,25 @@ extension JSON: ExpressibleByDictionaryLiteral, ExpressibleByArrayLiteral, Expre
     public init(booleanLiteral value: Bool) { self = .bool(value) }
     public init(nilLiteral: ()) { self = .null }
 }
+
+/// A JSON string literal. Only what JSON requires is escaped, which is what
+/// JavaScript's JSON.stringify does for these ASCII values.
+func jsonString(_ s: String) -> String {
+    var out = "\""
+    for scalar in s.unicodeScalars {
+        switch scalar {
+        case "\"": out += "\\\""
+        case "\\": out += "\\\\"
+        case "\n": out += "\\n"
+        case "\r": out += "\\r"
+        case "\t": out += "\\t"
+        default:
+            if scalar.value < 0x20 {
+                out += String(format: "\\u%04x", scalar.value)
+            } else {
+                out.unicodeScalars.append(scalar)
+            }
+        }
+    }
+    return out + "\""
+}

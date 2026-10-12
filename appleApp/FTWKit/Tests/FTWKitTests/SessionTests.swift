@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import FTWKit
+import FTWDemo
 
 @MainActor
 @Suite struct SessionTests {
@@ -69,7 +70,7 @@ import Testing
         let rig = Rig(requireStepUp: true)
         await rig.run(200)
         for (req, code) in [
-            (APIRequest(method: .post, path: "/api/restart"), "E_NEEDS_STEP_UP"),
+            (APIRequest(method: .delete, path: "/api/loadpoints/garage/schedule"), "E_NEEDS_STEP_UP"),
             (APIRequest(method: .post, path: "/api/mode"), "E_USE_CMD"),
             (APIRequest(method: .get, path: "/api/config"), "E_LOCAL_ONLY"),
             (APIRequest(method: .get, path: "/api/nothing/here"), "E_UNKNOWN_OP"),
@@ -84,7 +85,7 @@ import Testing
             }
         }
         // The same request with the flag goes through.
-        let task = Task { try await rig.session.api(APIRequest(method: .post, path: "/api/restart", stepUp: true)) }
+        let task = Task { try await rig.session.api(APIRequest(method: .delete, path: "/api/loadpoints/garage/schedule", stepUp: true)) }
         await rig.run(100)
         #expect(try await task.value.status == 200)
     }
@@ -99,7 +100,7 @@ import Testing
         #expect(try await b.value.status == 200)
     }
 
-    @Test func aModeCommandIsAckedAppliedAndReplans() async throws {
+    @Test func aModeCommandIsAckedAndApplied() async throws {
         let rig = Rig()
         await rig.run(200)
         let task = Task { try await rig.session.command(Contract.opSetMode, args: [("mode", .text("self_consumption"))]) }
@@ -107,8 +108,6 @@ import Testing
         let result = try await task.value
         #expect(result.state == .applied)
         #expect(result.observedValue == 3)
-        // The plan pushed unasked lands on state.
-        #expect(rig.session.state.plan != nil)
         await rig.run(1_500, step: 100)
         #expect(rig.session.state.fields[Contract.FID.mode] == 3)
     }
@@ -140,7 +139,7 @@ import Testing
         let rig = Rig()
         await rig.run(200)
         rig.box.mute = true
-        let task = Task { try await rig.session.plan() }
+        let task = Task { try await rig.session.prices(fromMs: rig.scheduler.nowMs, toMs: rig.scheduler.nowMs + 3_600_000) }
         await rig.run(50)
         rig.relay.closeCurrent(code: 1006, reason: "")
         await rig.run(20)
@@ -227,27 +226,6 @@ import Testing
         #expect(rig.session.state.phase == .streaming)
     }
 
-    @Test func historyArrivesAsTilesAndAssembles() async throws {
-        let rig = Rig()
-        await rig.run(200)
-        let to = rig.scheduler.nowMs
-        let from = to - 86_400_000
-        var chunks = [String: HistChunk]()
-        let task = Task {
-            try await rig.session.history(HistQuery(series: ["grid_w", "pv_w", "battery_w", "load_w"], res: .fiveMinutes, fromMs: from, toMs: to, have: [], maxPoints: 1500)) { chunk in
-                chunks[chunk.tileId] = chunk
-            }
-        }
-        await rig.run(300)
-        let end = try await task.value
-        #expect(end.resActual == .fiveMinutes)
-        let plan = HistoryGeometry.plan(.fiveMinutes, fromMs: from, toMs: to, maxPoints: 1500)
-        #expect(Set(chunks.keys) == Set(plan.tiles.map(\.tileId)))
-        let frame = HistoryGeometry.clip(HistoryGeometry.assemble(plan, names: ["grid_w", "pv_w", "battery_w", "load_w"], tiles: chunks), fromMs: from, toMs: to)
-        #expect(frame.points >= 287 && frame.points <= 289)
-        #expect(frame.value("load_w", at: 0) != nil)
-    }
-
     @Test func timesGoOutAsWholeMilliseconds() async throws {
         // A real box drops a query whose times carry a fraction, and a
         // phone's clock has one. Found against a live box.
@@ -259,14 +237,29 @@ import Testing
         #expect(try await task.value.slots.isEmpty == false)
     }
 
-    @Test func pricesAndThePlanAreAsked() async throws {
+    @Test func pricesAreAsked() async throws {
         let rig = Rig()
         await rig.run(200)
-        let plan = Task { try await rig.session.plan() }
         let prices = Task { try await rig.session.prices(fromMs: rig.scheduler.nowMs, toMs: rig.scheduler.nowMs + 86_400_000) }
         await rig.run(200)
-        #expect(try await plan.value.slots.count == 96)
         #expect(try await prices.value.currency == "SEK")
+    }
+
+    /// The relay serves four streams a home. A fifth phone is turned away
+    /// with 4429 before it reaches the box, and that is not a fault.
+    @Test func aFullRelayIsBusyNotBroken() async throws {
+        let rig = Rig()
+        await rig.run(200)
+        rig.relay.closeCurrent(code: RelayCarrier.closeBusy, reason: "streams")
+        await rig.run(20)
+        #expect(rig.session.state.busy)
+        #expect(rig.session.state.phase == .failed)
+        // The readings stay, and the next stream clears it.
+        #expect(!rig.session.state.fields.isEmpty)
+        rig.endpoint.dropSession()
+        await rig.run(1_000, step: 20)
+        #expect(rig.session.state.phase == .streaming)
+        #expect(!rig.session.state.busy)
     }
 
     @Test func revocationTerminatesAndSaysWhy() async throws {
@@ -298,72 +291,5 @@ import Testing
         #expect(rig.session.state.phase == .streaming)
         rig.session.restore(CachedSnapshot(siteId: "s", savedAtMs: 0, state: old))
         #expect(rig.session.state.fields[Contract.FID.gridW] != 1_234)
-    }
-}
-
-@Suite struct HistoryGeometryTests {
-    @Test func wideWindowsClampToTheHourlyStore() {
-        let now = 1_750_000_000_000.0
-        let year = HistoryGeometry.plan(.fiveMinutes, fromMs: now - 365 * 86_400_000, toMs: now, maxPoints: 1500)
-        #expect(year.res == .hour)
-        #expect(year.tiles.count * year.tiles[0].points <= 1500 * 2)
-        let day = HistoryGeometry.plan(.fiveMinutes, fromMs: now - 86_400_000, toMs: now, maxPoints: 1500)
-        #expect(day.res == .fiveMinutes)
-        #expect(day.stride == 1)
-    }
-
-    @Test func packingRoundTripsAndKeepsTheMissingMarker() {
-        let columns: [[Int32]] = [[1, -2, missingSample], [Int32.max, 0, 7]]
-        #expect(HistoryGeometry.unpack(HistoryGeometry.pack(columns), seriesCount: 2) == columns)
-    }
-
-    @Test func etagIsFNV1a() {
-        #expect(HistoryGeometry.etag([]) == "811c9dc5")
-        #expect(HistoryGeometry.etag(Array("a".utf8)) == "e40c292c")
-    }
-}
-
-@Suite struct ContractTests {
-    /// The registry is one file shared with the box and the web app. Every
-    /// name this app spells has to be the registry's.
-    @Test func namesMatchTheSharedRegistry() throws {
-        let yaml = try RepoFiles.read("protocol/registry.yaml")
-        func names(section: String, key: String) -> [String] {
-            var out = [String]()
-            var inside = false
-            for line in yaml.split(separator: "\n", omittingEmptySubsequences: false) {
-                if line.hasPrefix("\(section):") { inside = true; continue }
-                if inside, let first = line.first, !first.isWhitespace, first != "#" { break }
-                guard inside, let range = line.range(of: "\(key): ") else { continue }
-                let rest = line[range.upperBound...]
-                out.append(String(rest.prefix { $0 != "," && $0 != "}" && $0 != " " }))
-            }
-            return out
-        }
-        func list(section: String) -> [String] {
-            var out = [String]()
-            var inside = false
-            for line in yaml.split(separator: "\n", omittingEmptySubsequences: false) {
-                if line.hasPrefix("\(section):") { inside = true; continue }
-                if inside, let first = line.first, !first.isWhitespace, first != "#" { break }
-                let t = line.trimmingCharacters(in: .whitespaces)
-                if inside, t.hasPrefix("- ") { out.append(String(t.dropFirst(2))) }
-            }
-            return out
-        }
-
-        #expect(names(section: "scopes", key: "name") == Contract.scopes)
-        #expect(names(section: "ops", key: "name") == Contract.ops)
-        #expect(list(section: "capabilities") == Contract.capabilities)
-        let errors = names(section: "errors", key: "code") + names(section: "client_errors", key: "code")
-        #expect(Set(errors) == Set(Contract.retryable.keys))
-        for code in errors {
-            let line = yaml.split(separator: "\n").first { $0.contains("code: \(code),") }!
-            #expect(line.contains("retryable: \(Contract.isRetryable(code))"), "\(code)")
-        }
-        #expect(yaml.contains("source_states: [\(Contract.sourceStates.joined(separator: ", "))]"))
-        #expect(yaml.contains("carrier_states: [\(Contract.carrierStates.joined(separator: ", "))]"))
-        #expect(yaml.contains("1: { name: mode,"))
-        #expect(yaml.contains("10: { name: ev_w,"))
     }
 }

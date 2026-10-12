@@ -1,4 +1,5 @@
 import Foundation
+import FTWShared
 
 /// From a site's readings to the energy diagram's nodes: the same corners,
 /// the same colours by role and direction, the same rules as the box's own

@@ -9,9 +9,6 @@ import Testing
 ///     curl -s -X POST localhost:8080/api/app-link/pairing -d '{"role":"owner"}'
 ///     FTW_LIVE_URL='https://app.ftw.energy/p#v2...' swift test --filter LiveBox
 ///
-/// On Linux, whose Foundation has no WebSocket client, run a bridge that
-/// carries frames to the relay unchanged and set FTW_LIVE_RELAY to it.
-///
 /// The passkey ceremony cannot run here, so the device key is wrapped under
 /// the local key alone. Everything after that is the shipped path: the real
 /// socket, the rotating handle, Noise IK with the pairing code in message 1,
@@ -26,18 +23,7 @@ struct LiveBoxTests {
         let device = try vault.deviceKey(vault.localWrappingKey())
 
         let scheduler = LiveScheduler()
-        // FTW_LIVE_RELAY points at a local bridge where Foundation has no
-        // WebSocket client of its own (Linux); elsewhere the real socket.
-        let relay: RelayCarrier
-        if let bridge = ProcessInfo.processInfo.environment["FTW_LIVE_RELAY"], let bridgeURL = URL(string: bridge) {
-            #if os(Linux)
-            relay = RelayCarrier(url: bridgeURL, secret: enrollment.rendezvousSecret, scheduler: scheduler, makeSocket: PlainWebSocket.factory())
-            #else
-            relay = RelayCarrier(url: bridgeURL, secret: enrollment.rendezvousSecret, scheduler: scheduler)
-            #endif
-        } else {
-            relay = RelayCarrier(secret: enrollment.rendezvousSecret, scheduler: scheduler)
-        }
+        let relay = RelayCarrier(secret: enrollment.rendezvousSecret, scheduler: scheduler)
         let noise = NoiseCarrier(
             inner: relay,
             staticKey: device,
@@ -71,12 +57,9 @@ struct LiveBoxTests {
         print("live: /api/status grid_w \(json["grid_w"]?.number ?? .nan), \(status.body.count) bytes")
         #expect(json["grid_w"]?.number != nil)
 
-        let plan = try await session.plan()
-        print("live: plan rev \(plan.rev), \(plan.slots.count) slots, stale \(plan.stale)")
-
-        var tiles = 0
-        let end = try await session.history(HistQuery(series: ["grid_w", "pv_w", "battery_w", "load_w"], res: .fiveMinutes, fromMs: Date().timeIntervalSince1970 * 1000 - 86_400_000, toMs: Date().timeIntervalSince1970 * 1000, have: [], maxPoints: 1500)) { _ in tiles += 1 }
-        print("live: history \(tiles) tiles, served \(end.resActual.rawValue)")
+        let now = Date().timeIntervalSince1970 * 1000
+        let prices = try await session.prices(fromMs: now, toMs: now + 86_400_000)
+        print("live: prices \(prices.zone) \(prices.currency), \(prices.slots.count) slots, stale \(prices.stale)")
 
         // Reaching an actuating route through the passthrough is refused and
         // points at the command instead.

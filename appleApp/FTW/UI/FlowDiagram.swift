@@ -100,7 +100,7 @@ private struct Hub: View {
             Image(systemName: "house.fill")
                 .font(.title2)
                 .foregroundStyle(Theme.accent)
-            (Text(parts.text).font(Theme.number(22, weight: .bold)) + Text(" \(parts.unit)").font(.caption))
+            Text("\(Text(parts.text).font(Theme.number(22, weight: .bold)))\(Text(" \(parts.unit)").font(.caption))")
                 .foregroundStyle(Theme.fg)
             Text("HOME").font(.caption2.weight(.semibold)).tracking(0.8).foregroundStyle(Theme.fgDim)
             if let pct = selfPoweredPct {
@@ -131,7 +131,7 @@ private struct Bubble: View {
             if let name = node.name {
                 Text(name).font(.caption2).foregroundStyle(Theme.fgMuted).lineLimit(1)
             }
-            (Text(parts.text).font(Theme.number(17, weight: .bold)) + Text(" \(parts.unit)").font(.caption2))
+            Text("\(Text(parts.text).font(Theme.number(17, weight: .bold)))\(Text(" \(parts.unit)").font(.caption2))")
                 .foregroundStyle(color)
             if let soc = node.socPct {
                 SocBar(pct: soc)

@@ -2,13 +2,10 @@ import FTWKit
 import SwiftUI
 
 /// Now, the first screen. A glance: one sentence at the top, the house
-/// under it, then price, what happens next, today and the fuse.
+/// under it, then price, today and the fuse.
 struct NowView: View {
     let app: AppModel
     let home: HomeModels
-    let openCharger: (String?) -> Void
-    let open: (HomeTab) -> Void
-    @State private var liveRole: LiveRole?
 
     private var site: SiteModel { home.site }
 
@@ -38,17 +35,12 @@ struct NowView: View {
         .onAppear {
             home.status.activate()
             home.prices.activate()
-            home.plan.activate()
             home.savings.activate()
         }
         .onDisappear {
             home.status.deactivate()
             home.prices.deactivate()
-            home.plan.deactivate()
             home.savings.deactivate()
-        }
-        .sheet(item: $liveRole) { role in
-            LiveSheet(site: site, role: role, fields: flowFields)
         }
     }
 
@@ -102,19 +94,11 @@ struct NowView: View {
             .accessibilityAddTraits(.isHeader)
 
         // Motion claims power is flowing right now, so a cached view holds still.
-        FlowDiagram(readings: readings, moving: live) { role in
-            switch role {
-            case .ev: openCharger(nil)
-            case .grid: if live { liveRole = .grid }
-            case .pv: if live { liveRole = .pv }
-            case .battery: if live { liveRole = .battery }
-            case .load: if live { liveRole = .load }
-            }
-        }
+        FlowDiagram(readings: readings, moving: live) { _ in }
         if home.status.status != nil, !statusLive {
             Hint("Device details are out of date.\(live ? " Showing live totals." : "")")
         }
-        NowOutlook(site: site, home: home, statusLive: statusLive, open: open)
+        NowOutlook(site: site, home: home, statusLive: statusLive)
     }
 
     static func bootWords(_ phase: String) -> String {
@@ -127,12 +111,11 @@ struct NowView: View {
     }
 }
 
-/// Price, what FTW does next, today and the fuse: the rest of a glance.
+/// Price, today and the fuse: the rest of a glance.
 private struct NowOutlook: View {
     let site: SiteModel
     let home: HomeModels
     let statusLive: Bool
-    let open: (HomeTab) -> Void
 
     var body: some View {
         if let prices = home.prices.prices {
@@ -145,36 +128,11 @@ private struct NowOutlook: View {
                 }
             }
         }
-        planCard
         if let today = today {
             todayCard(today)
         }
         if let status = home.status.status, let fuse = Flow.fuse(status: status) {
             fuseCard(fuse)
-        }
-    }
-
-    private var planCard: some View {
-        let brief = PlanText.brief(home.plan.plan, nowMs: site.nowMs, mode: home.plan.actualMode, dispatchBlockedBy: site.session.dispatchBlockedBy, clock: Clock.time)
-        return Card {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Kicker("Automation")
-                    Text("What FTW does next").font(.headline)
-                }
-                Spacer()
-                Text(brief.stateLabel)
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .foregroundStyle(brief.tone == .active ? Theme.exporting : brief.tone == .warn ? Theme.generation : Theme.fgDim)
-                    .background(Theme.surfaceSunken, in: Capsule())
-            }
-            Text(brief.action).font(.body.weight(.semibold))
-            if let time = brief.time { Hint(time) }
-            if let reason = brief.reason { Hint("\(reason).") }
-            Hint(brief.constraint, tone: Theme.fgMuted)
-            Button("Open full plan →") { open(.plan) }.buttonStyle(.quiet)
         }
     }
 
@@ -216,7 +174,6 @@ private struct NowOutlook: View {
                     }
                 }
             }
-            Button("Open history →") { open(.history) }.buttonStyle(.quiet)
         }
     }
 
@@ -247,7 +204,7 @@ struct EnergyTile: View {
         let parts = EnergyFormat.parts(wh)
         VStack(alignment: .leading, spacing: 2) {
             Text(label).font(.caption).foregroundStyle(Theme.fgDim)
-            (Text(parts.text).font(Theme.number(20)) + Text(" \(parts.unit)").font(.caption))
+            Text("\(Text(parts.text).font(Theme.number(20)))\(Text(" \(parts.unit)").font(.caption))")
                 .foregroundStyle(color)
         }
     }

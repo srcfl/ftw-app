@@ -1,21 +1,34 @@
+import FTWDemo
 import FTWKit
 import SwiftUI
+import WidgetKit
 
 @main
 struct FTWApp: App {
     @State private var app: AppModel
     @Environment(\.scenePhase) private var scenePhase
     private let network: NetworkWatch
-    static let mainWindow = "main"
 
     init() {
         let store = KeychainStore()
         let files = SealedFiles(directory: SealedFiles.defaultDirectory(), store: store)
-        let model = AppModel(store: store, files: files, passkeys: Passkeys(), build: AppInfo.build, ua: AppInfo.userAgent)
+        let model = AppModel(
+            store: store,
+            files: files,
+            // What the widgets read. Nil only in a build without the App
+            // Group entitlement, and then the app works without widgets.
+            shared: AppGroupFiles.shared(),
+            sharedWritten: { WidgetCenter.shared.reloadAllTimelines() },
+            passkeys: Passkeys(),
+            build: AppInfo.build,
+            ua: AppInfo.userAgent,
+            // App Review and anyone without a box can try a simulated home.
+            demo: SimulatedBox.loopback
+        )
         // A paired phone paints its cached home before anything else runs.
         model.launch()
         #if DEBUG
-        // For screenshots in CI: `-FTWDemo YES` opens the simulated home.
+        // For screenshots: `-FTWDemo YES` opens the simulated home.
         if UserDefaults.standard.bool(forKey: "FTWDemo") { model.startDemo() }
         #endif
         _app = State(initialValue: model)
@@ -23,25 +36,17 @@ struct FTWApp: App {
     }
 
     var body: some Scene {
-        WindowGroup(id: Self.mainWindow) {
+        WindowGroup {
             RootView(app: app)
                 .onOpenURL { app.offer($0.absoluteString) }
                 .onChange(of: scenePhase, initial: true) { _, phase in
-                    app.setVisible(AppInfo.isVisible(phase))
+                    // Inactive is a glance at Control Center or the app
+                    // switcher: slow the stream, keep the session. Only the
+                    // background closes it.
+                    app.setVisible(phase == .active)
+                    if phase == .background { app.suspend() }
                 }
         }
-        #if os(macOS)
-        .defaultSize(width: 520, height: 820)
-        #endif
-
-        #if os(macOS)
-        MenuBarExtra {
-            GlanceView(app: app)
-        } label: {
-            Image(systemName: "bolt.fill")
-        }
-        .menuBarExtraStyle(.window)
-        #endif
     }
 }
 
@@ -57,21 +62,5 @@ enum AppInfo {
     /// What the box records about this app in its hello.
     static var build: String { "\(version)+\(buildNumber)" }
 
-    static var userAgent: String {
-        #if os(iOS)
-        return "FTW iOS \(version)"
-        #else
-        return "FTW macOS \(version)"
-        #endif
-    }
-
-    /// A phone in the background is not looked at. A Mac window behind
-    /// another app still is.
-    static func isVisible(_ phase: ScenePhase) -> Bool {
-        #if os(iOS)
-        return phase == .active
-        #else
-        return phase != .background
-        #endif
-    }
+    static var userAgent: String { "FTW iOS \(version)" }
 }

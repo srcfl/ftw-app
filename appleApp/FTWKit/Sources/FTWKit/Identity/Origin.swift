@@ -15,9 +15,6 @@ public enum Origin {
     /// The relay. One value, no setting.
     public static let relayURL = URL(string: "wss://relay.ftw.energy")!
 
-    /// The sealed recovery copy. Its own host, neither the relay's nor the app's.
-    public static let escrowURL = URL(string: "https://escrow.ftw.energy")!
-
     /// Source and licence, as the AGPL asks a network client to offer them.
     public static let sourceURL = URL(string: "https://github.com/srcfl/ftw-app")!
     public static let licenseURL = URL(string: "https://github.com/srcfl/ftw-app/blob/main/LICENSE")!

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Photographs every screen of the demo in an iOS Simulator, for review.
-# Needs a Debug build in build/ios, as the Apple workflow makes:
+# Boots the newest iPhone simulator, so run it where no one else is using
+# one. Needs a Debug build in build/ios, as the Apple workflow makes:
 #   xcodebuild build -project FTW.xcodeproj -scheme FTW \
 #     -destination 'generic/platform=iOS Simulator' -derivedDataPath build/ios
 set -euo pipefail
@@ -31,7 +32,5 @@ shoot() {
 }
 
 shoot pair dark
-for tab in now plan history box; do
-  shoot "$tab" dark -FTWDemo YES -FTWTab "$tab"
-done
+shoot now dark -FTWDemo YES -FTWTab now
 shoot now-light light -FTWDemo YES -FTWTab now

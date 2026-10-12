@@ -1,4 +1,5 @@
 import Foundation
+import FTWShared
 
 /// One charger as `/api/loadpoints` serves it, read tolerantly, and the
 /// sentences that describe it. No sentence claims what the box has not
@@ -44,6 +45,9 @@ public struct Loadpoint: Equatable, Sendable, Identifiable {
     public var powerW: Double
     public var socPct: Double?
     public var socSource: String
+    /// How old the car's own report of its level was when the box answered.
+    /// Sent only while the level comes from the car.
+    public var vehicleSocAgeS: Double?
     public var vehicleCapacityWh: Double?
     public var capacitySource: String
     public var socRetention: String
@@ -79,6 +83,18 @@ public struct Loadpoint: Equatable, Sendable, Identifiable {
     public var boostStopReason: String?
     public var schedule: Schedule?
 
+    /// When the level was read, on the phone's clock. A level from the car
+    /// is as old as the car's last report; any other level is the box's
+    /// account as of its answer. The box's own wall clock is never used: a
+    /// box without a clock source reads 1970.
+    public func socReadAtMs(answeredAtMs: Double) -> Double? {
+        guard socPct != nil else { return nil }
+        if socSource == "vehicle", let age = vehicleSocAgeS, age.isFinite, age >= 0 {
+            return answeredAtMs - age * 1000
+        }
+        return answeredAtMs
+    }
+
     /// A state of charge off the wire, whole percent. The box stores
     /// fractions and still reads a legacy percent; zero means unset.
     static func pct(_ v: JSON?) -> Double? {
@@ -100,6 +116,7 @@ public struct Loadpoint: Equatable, Sendable, Identifiable {
             socPct = num("current_soc_pct")
         }
         socSource = w["soc_source"]?.string ?? ""
+        vehicleSocAgeS = num("vehicle_soc_age_s")
         vehicleCapacityWh = num("vehicle_capacity_wh")
         capacitySource = w["capacity_source"]?.string ?? ""
         socRetention = w["soc_retention"]?.string ?? ""

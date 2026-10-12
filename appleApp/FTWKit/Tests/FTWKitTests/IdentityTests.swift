@@ -7,16 +7,12 @@ import Testing
 struct IdentityVectors: Decodable {
     struct Handle: Decodable { let epoch: Int64; let handle: String }
     struct Rendezvous: Decodable { let secret: String; let handles: [Handle] }
+    /// The file also holds the escrow's vectors; this app has no escrow
+    /// yet and reads only what it uses.
     struct PRFVector: Decodable {
         let output: String
         let credentialId: String
-        let lookupId: String
-        let writeKey: String
-        let signedMessage: String
-        let signature: String
     }
-    struct Home: Decodable { let siteId: String; let label: String; let boxStaticKey: String; let rendezvousSecret: String }
-    struct Blob: Decodable { let escrowVersion: UInt32; let sealed: String; let deviceScalar: String; let homes: [Home] }
     struct VaultCopy: Decodable { let publicKey: String; let iv: String; let ct: String; let scalar: String }
     struct EnrollmentVector: Decodable {
         let url: String
@@ -31,7 +27,6 @@ struct IdentityVectors: Decodable {
 
     let rendezvous: Rendezvous
     let prf: PRFVector
-    let recoveryBlob: Blob
     let vaultCopy: VaultCopy
     let enrollment: EnrollmentVector
 
@@ -52,37 +47,6 @@ struct IdentityVectors: Decodable {
         #expect(Rendezvous.epoch(nowMs: 0) == 0)
         #expect(Rendezvous.epoch(nowMs: Rendezvous.epochMs - 1) == 0)
         #expect(Rendezvous.epoch(nowMs: Rendezvous.epochMs) == 1)
-    }
-
-    @Test func passkeyDerivationsMatchTheWebApp() throws {
-        let v = try IdentityVectors.load()
-        let wrapping = PRF.wrappingKey(credentialID: v.prf.credentialId, prfOutput: Bytes(hex: v.prf.output))
-        let keys = try #require(wrapping.escrow)
-        #expect(keys.lookupID == v.prf.lookupId)
-        #expect(keys.writeKey.hex == v.prf.writeKey)
-        // The web app's signature verifies under the key derived here.
-        #expect(Primitives.ed25519Verify(publicKey: keys.writeKey, signature: Bytes(hex: v.prf.signature), message: Bytes(hex: v.prf.signedMessage)))
-        // And the signature made here verifies under the web app's key.
-        let mine = try keys.sign(Bytes(hex: v.prf.signedMessage))
-        #expect(Primitives.ed25519Verify(publicKey: Bytes(hex: v.prf.writeKey), signature: mine, message: Bytes(hex: v.prf.signedMessage)))
-    }
-
-    @Test func aRecoveryCopyTheWebAppSealedOpensHere() throws {
-        let v = try IdentityVectors.load()
-        let keys = try #require(PRF.wrappingKey(credentialID: v.prf.credentialId, prfOutput: Bytes(hex: v.prf.output)).escrow)
-        let sealed = Bytes(hex: v.recoveryBlob.sealed)
-        #expect(sealed.count == RecoveryBlob.maxBytes)
-        let contents = try RecoveryBlob.open(key: keys.sealKey, sealed, escrowVersion: v.recoveryBlob.escrowVersion)
-        #expect(contents.deviceScalar.hex == v.recoveryBlob.deviceScalar)
-        #expect(contents.homes.map(\.siteId) == v.recoveryBlob.homes.map(\.siteId))
-        #expect(contents.homes.map(\.label) == v.recoveryBlob.homes.map(\.label))
-        #expect(contents.homes.map { $0.boxStaticKey.hex } == v.recoveryBlob.homes.map(\.boxStaticKey))
-        #expect(contents.homes.map { $0.rendezvousSecret.hex } == v.recoveryBlob.homes.map(\.rendezvousSecret))
-
-        // The version is bound in: the same bytes under another number fail.
-        #expect(throws: RecoveryBlob.BlobError.self) {
-            _ = try RecoveryBlob.open(key: keys.sealKey, sealed, escrowVersion: v.recoveryBlob.escrowVersion + 1)
-        }
     }
 
     @Test func aVaultCopyTheWebAppSealedOpensUnderTheSamePasskey() throws {
@@ -155,42 +119,6 @@ struct IdentityVectors: Decodable {
     }
 }
 
-@Suite struct BoxCodeTests {
-    // Produced by the box's Go encoder, as the web app's suite pins them.
-    let vectors = [
-        ("0000000000", "0000-0000"),
-        ("ffffffffff", "ZZZZ-ZZZZ"),
-        ("0000000001", "0000-0001"),
-        ("0123456789", "04HM-ASW9"),
-        ("deadbeef42", "VTPV-XVT2"),
-        ("8f1c00a57b", "HWE0-19BV"),
-        ("1084210842", "2222-2222"),
-    ]
-
-    @Test func decodesWhatTheBoxDrew() throws {
-        for (hex, code) in vectors {
-            #expect(try BoxCode.decode(code).hex == hex, "\(code)")
-        }
-    }
-
-    @Test func foldsWhatListenersMishear() throws {
-        #expect(try BoxCode.decode("IO1L-0000").hex == "0802100000")
-        #expect(try BoxCode.decode("l0i1-oooo").hex == "0802100000")
-        for typed in ["04hm-asw9", "04HMASW9", "04 HM AS W9", " 04hm asw9 ", "04HM\tASW9"] {
-            #expect(try BoxCode.decode(typed).hex == "0123456789")
-        }
-        #expect(BoxCode.fold("04hm-asw9") == "04HMASW9")
-        #expect(BoxCode.fold("04HMASW9ZZZZ") == "04HMASW9")
-        #expect(BoxCode.group("04HMASW9") == "04HM-ASW9")
-    }
-
-    @Test func refusesWhatIsNotACode() {
-        #expect(throws: BoxCode.BoxCodeError.self) { _ = try BoxCode.decode("UUUU-UUUU") }
-        #expect(throws: BoxCode.BoxCodeError.self) { _ = try BoxCode.decode("04HM-ASW") }
-        #expect(throws: BoxCode.BoxCodeError.self) { _ = try BoxCode.decode("04HM!ASW9") }
-    }
-}
-
 @MainActor
 @Suite struct VaultTests {
     @Test func enrollingMakesAPasskeyCopyAndALocalOne() async throws {
@@ -258,93 +186,5 @@ struct IdentityVectors: Decodable {
         passkeys.cancel = false
         passkeys.fail = true
         #expect(await other.stepUp(passkeys) == .unavailable)
-    }
-}
-
-@MainActor
-@Suite struct EscrowTests {
-    func setUp() -> (Vault, SiteList, FakeEscrowService, Escrow, FakePasskeys) {
-        let store = MemoryStore()
-        let vault = Vault(store: store)
-        let sites = SiteList(store: store)
-        let service = FakeEscrowService()
-        return (vault, sites, service, Escrow(vault: vault, sites: sites, transport: service.transport), FakePasskeys())
-    }
-
-    @Test func requestsArePaddedToOneLength() throws {
-        let body = Escrow.padded([("op", .string("get")), ("id", .string("abc"))])
-        #expect(body.count == 1024)
-        let json = try JSONSerialization.jsonObject(with: Data(body)) as? [String: Any]
-        #expect(json?["op"] as? String == "get")
-    }
-
-    @Test func pairingHoldsASealedCopyAndANewPhoneGetsTheHomeBack() async throws {
-        let (vault, sites, service, escrow, passkeys) = setUp()
-        let pairing = Pairing(vault: vault, sites: sites, escrow: escrow, passkeys: passkeys, now: { 1_000 })
-        let enrollment = Enrollment(boxStaticPublic: Primitives.generateKeyPair().publicKey, pairingCode: randomBytes(16), lanHint: "", rendezvousSecret: randomBytes(32))
-        let paired = try await pairing.pair(scanned: enrollment.url())
-        #expect(await paired.sealed.value == .saved)
-        #expect(sites.get(paired.site.siteId)?.escrow == true)
-        #expect(service.rows.count == 1)
-        let devicePublic = try #require(vault.devicePublic)
-
-        // A new phone: empty storage, the same synced passkey.
-        let store2 = MemoryStore()
-        let vault2 = Vault(store: store2)
-        let sites2 = SiteList(store: store2)
-        let escrow2 = Escrow(vault: vault2, sites: sites2, transport: service.transport)
-        let found = try await escrow2.recover(passkeys)
-        #expect(found.map(\.siteId) == [paired.site.siteId])
-        #expect(found.first?.fingerprint == SiteList.fingerprint(enrollment.boxStaticPublic))
-        try escrow2.adopt(try #require(found.first), nowMs: 2_000)
-        // The same identity the box already trusts, with no pairing code.
-        #expect(vault2.devicePublic == devicePublic)
-        #expect(sites2.get(paired.site.siteId)?.pairingCode == nil)
-        #expect(sites2.get(paired.site.siteId)?.rendezvousSecret?.byteArray == enrollment.rendezvousSecret)
-        #expect(try vault2.silentWrappingKey() != nil)
-        #expect(vault2.passkeyCredentialIDs == [passkeys.credentialID])
-    }
-
-    @Test func removingEmptiesTheCopyAndKeepsTheVersionGoing() async throws {
-        let (vault, sites, service, escrow, passkeys) = setUp()
-        let pairing = Pairing(vault: vault, sites: sites, escrow: escrow, passkeys: passkeys)
-        let enrollment = Enrollment(boxStaticPublic: Primitives.generateKeyPair().publicKey, pairingCode: randomBytes(16), lanHint: "", rendezvousSecret: randomBytes(32))
-        let paired = try await pairing.pair(scanned: enrollment.url())
-        _ = await paired.sealed.value
-        #expect(await escrow.remove(passkeys) == .removed)
-        let row = try #require(service.rows.values.first)
-        #expect(row.blob.isEmpty)
-        #expect(row.version == 2)
-        // Nothing held now reads as nothing held.
-        let store2 = MemoryStore()
-        #expect(try await Escrow(vault: Vault(store: store2), sites: SiteList(store: store2), transport: service.transport).recover(passkeys).isEmpty)
-    }
-
-    @Test func noOptInCostsNoPromptAndNoRequest() async {
-        let (_, _, service, escrow, passkeys) = setUp()
-        #expect(await escrow.remove(passkeys) == .nothingToRemove)
-        #expect(passkeys.assertions.isEmpty)
-        #expect(service.requests == 0)
-    }
-
-    @Test func offlineLeavesThePairingIntactAndUnmarked() async throws {
-        let (vault, sites, service, escrow, passkeys) = setUp()
-        service.offline = true
-        let pairing = Pairing(vault: vault, sites: sites, escrow: escrow, passkeys: passkeys)
-        let enrollment = Enrollment(boxStaticPublic: Primitives.generateKeyPair().publicKey, pairingCode: randomBytes(16), lanHint: "", rendezvousSecret: randomBytes(32))
-        let paired = try await pairing.pair(scanned: enrollment.url())
-        #expect(await paired.sealed.value == .unreachable)
-        #expect(sites.get(paired.site.siteId)?.escrow == false)
-        #expect(sites.get(paired.site.siteId) != nil)
-    }
-
-    @Test func aBoxCodeArmsAKnownHomeOnly() async throws {
-        let (vault, sites, _, escrow, passkeys) = setUp()
-        let pairing = Pairing(vault: vault, sites: sites, escrow: escrow, passkeys: passkeys)
-        #expect(throws: BoxCode.BoxCodeError.self) { try pairing.redeemBoxCode(siteId: "nope", typed: "04HM-ASW9") }
-        let enrollment = Enrollment(boxStaticPublic: Primitives.generateKeyPair().publicKey, pairingCode: randomBytes(16), lanHint: "", rendezvousSecret: randomBytes(32))
-        let paired = try await pairing.pair(scanned: enrollment.url(), holdCopy: false)
-        try pairing.redeemBoxCode(siteId: paired.site.siteId, typed: "04hm asw9")
-        #expect(sites.get(paired.site.siteId)?.pairingCode?.byteArray.hex == "0123456789")
     }
 }

@@ -1,8 +1,8 @@
 import FTWKit
 import SwiftUI
 
-/// The shell: pairing when there is nothing to show, else one home in four
-/// screens. Paints from what is on the phone and never waits on the network.
+/// The shell: pairing when there is nothing to show, else one home. Paints
+/// from what is on the phone and never waits on the network.
 struct RootView: View {
     let app: AppModel
 
@@ -22,9 +22,9 @@ struct RootView: View {
 }
 
 enum HomeTab: String, Hashable {
-    case now, plan, history, box
+    case now
 
-    /// Where a home opens. Debug builds take `-FTWTab plan` and the like, so
+    /// Where a home opens. Debug builds take `-FTWTab now` and the like, so
     /// CI can photograph every screen of the demo.
     static var initial: HomeTab {
         #if DEBUG
@@ -35,17 +35,10 @@ enum HomeTab: String, Hashable {
     }
 }
 
-/// Which charger's sheet is open. Nil id means every charger.
-struct ChargerRequest: Identifiable, Equatable {
-    let loadpointID: String?
-    var id: String { loadpointID ?? "*" }
-}
-
 struct HomeView: View {
     let app: AppModel
     let home: HomeModels
     @State private var tab: HomeTab = .initial
-    @State private var charger: ChargerRequest?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,36 +47,15 @@ struct HomeView: View {
             } else {
                 FreshnessBandView(band: home.site.freshness(noCarrier: app.connectHelp != nil), frameAtMs: home.site.lastFrameAtMs)
             }
-            ChargingNotice(site: home.site, charging: home.charging) { id in
-                tab = .now
-                charger = ChargerRequest(loadpointID: id)
-            }
+            ChargingNotice(site: home.site, charging: home.charging)
+            // The car view is the next tab here.
             TabView(selection: $tab) {
                 Tab("Now", systemImage: "house", value: HomeTab.now) {
                     Screen(app: app) {
-                        NowView(app: app, home: home, openCharger: { charger = ChargerRequest(loadpointID: $0) }, open: { tab = $0 })
-                    }
-                }
-                Tab("Plan", systemImage: "calendar", value: HomeTab.plan) {
-                    Screen(app: app) { PlanView(home: home) }
-                }
-                Tab("History", systemImage: "chart.xyaxis.line", value: HomeTab.history) {
-                    Screen(app: app) { HistoryView(home: home) }
-                }
-                Tab("Box", systemImage: "shippingbox", value: HomeTab.box) {
-                    Screen(app: app) {
-                        if app.isDemo {
-                            DemoBoxView(site: home.site) { app.exitDemo() }
-                        } else {
-                            BoxView(app: app, home: home)
-                        }
+                        NowView(app: app, home: home)
                     }
                 }
             }
-            .tabViewStyle(.sidebarAdaptable)
-        }
-        .sheet(item: $charger) { request in
-            EVSheet(site: home.site, model: home.loadpoints, loadpointID: request.loadpointID)
         }
         .onAppear { home.charging.activate() }
         .onDisappear { home.charging.deactivate() }
@@ -151,6 +123,7 @@ struct FreshnessBandView: View {
         case .live: return Theme.freshLive
         case .stale: return Theme.freshStale
         case .reaching, .lost: return Theme.freshLost
+        case .busy: return Theme.freshStale
         }
     }
 }
@@ -179,12 +152,11 @@ struct DemoBand: View {
     }
 }
 
-/// A car on the cable, said once above every screen, with a way into its
-/// sheet. Only what the box said, and dated when it is out of date.
+/// A car on the cable, said once above every screen. Only what the box
+/// said, and dated when it is out of date.
 struct ChargingNotice: View {
     let site: SiteModel
     let charging: ChargingWatch
-    let open: (String) -> Void
 
     var body: some View {
         let fresh = charging.fresh && site.session.phase == .streaming
@@ -198,9 +170,6 @@ struct ChargingNotice: View {
                     Hint(plan)
                 }
                 if lp.manualSaveError { Hint(EVText.manualSaveErrorText) }
-                Button("Check charging\(lp.socSource != "vehicle" ? " and battery level" : "")") { open(lp.id) }
-                    .buttonStyle(.quiet)
-                    .font(.footnote.weight(.semibold))
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)

@@ -1,4 +1,5 @@
 import Foundation
+import FTWShared
 import Observation
 
 /// The bridge between the session and the screens.
@@ -36,6 +37,11 @@ public final class SiteModel {
     @ObservationIgnored let core: Session
     @ObservationIgnored let scheduler: Scheduler
     @ObservationIgnored private let files: SealedFiles?
+    /// What widgets read. Nil for the demo and in tests.
+    @ObservationIgnored private let shared: AppGroupFiles?
+    @ObservationIgnored private var lastCars: (entry: CarEntry, atMs: Double)?
+    /// Called after every write to `shared`, so the app can wake its widgets.
+    @ObservationIgnored public var sharedWritten: (@MainActor () -> Void)?
     @ObservationIgnored private var attemptStartedAtMs: Double
     @ObservationIgnored private var ticker: Cancellable?
     @ObservationIgnored private var resumeTimer: Cancellable?
@@ -49,10 +55,11 @@ public final class SiteModel {
     /// Runs the passkey ceremony a write needs. Injected by the shell.
     @ObservationIgnored public var stepUp: (@MainActor () async -> StepUpOutcome)?
 
-    public init(siteId: String?, build: String, ua: String, scheduler: Scheduler, files: SealedFiles?, isDemo: Bool = false) {
+    public init(siteId: String?, build: String, ua: String, scheduler: Scheduler, files: SealedFiles?, shared: AppGroupFiles? = nil, isDemo: Bool = false) {
         self.siteId = siteId
         self.scheduler = scheduler
         self.files = files
+        self.shared = isDemo ? nil : shared
         self.isDemo = isDemo
         nowMs = scheduler.nowMs
         attemptStartedAtMs = scheduler.nowMs
@@ -103,6 +110,18 @@ public final class SiteModel {
         core.onChange = nil
         core.close()
         listeners = [:]
+    }
+
+    /// The app went to the background. Write what is on screen and close the
+    /// session: iOS freezes the app within seconds anyway, and an open socket
+    /// holds one of the four streams the relay allows a home. The readings
+    /// stay, and the band dates them until a new carrier streams again.
+    public func suspend() {
+        guard !destroyed else { return }
+        persistNow()
+        core.close()
+        // After the close, so no last change of rate goes out on the wire.
+        setVisible(false)
     }
 
     /// Match the stream's cadence to whether anyone can see it.
@@ -235,6 +254,25 @@ public final class SiteModel {
 
     public var connectionWaitMs: Double { max(0, nowMs - attemptStartedAtMs) }
 
+    /// The relay turned this phone away: the home has as many phones
+    /// watching as it serves. Said as such, never as a fault.
+    public var busy: Bool { session.busy }
+
+    /// The band for this home, read the way the web app's shell reads it.
+    public func freshness(noCarrier: Bool) -> Freshness.Band {
+        Freshness.band(
+            carrier: carrier,
+            transport: session.carrier,
+            srcState: srcState,
+            ageMs: ageMs,
+            phase: session.phase,
+            waitMs: connectionWaitMs,
+            bootPct: session.boot?.pct,
+            noCarrier: noCarrier,
+            busy: busy
+        )
+    }
+
     /// The sources behind what the Now screen draws, named by the box.
     var nowSourceIDs: [String] {
         var ids = [String]()
@@ -310,12 +348,6 @@ public final class SiteModel {
 
     // MARK: Requests, through this layer
 
-    public func history(_ q: HistQuery, onChunk: @escaping @MainActor (HistChunk) -> Void) async throws -> HistEnd {
-        try await core.history(q, onChunk: onChunk)
-    }
-
-    public func plan() async throws -> Plan { try await core.plan() }
-
     public func prices(fromMs: Double, toMs: Double) async throws -> Prices {
         try await core.prices(fromMs: fromMs, toMs: toMs)
     }
@@ -326,5 +358,58 @@ public final class SiteModel {
 
     public func api(_ req: APIRequest) async throws -> APIResponse {
         try await core.api(req)
+    }
+
+    // MARK: What widgets read
+
+    /// A rewrite of the same car is skipped for this long. The charger is
+    /// read every five seconds while the app is open; a widget does not need
+    /// each of those.
+    static let carRewriteMs: Double = 5 * 60_000
+
+    /// Leave today's and tomorrow's prices for the widgets.
+    func sharePrices(_ prices: Prices, fromMs: Double) {
+        guard let siteId, let shared else { return }
+        let record = CacheRecord(
+            siteId: siteId,
+            carrier: session.carrier,
+            srcState: prices.stale ? .stale : .live,
+            readAtMs: scheduler.nowMs,
+            value: PriceEntry(fromMs: fromMs, prices: prices)
+        )
+        write(record, to: shared)
+    }
+
+    /// Leave the chargers for the widgets, as the box just described them.
+    /// `fresh` says whether the box's own reading of the charger is current.
+    func shareCars(_ points: [Loadpoint], fresh: Bool) {
+        guard let siteId, let shared else { return }
+        let now = scheduler.nowMs
+        let entry = CarEntry(cars: points.map { lp in
+            CarEntry.Car(
+                loadpointID: lp.id,
+                pluggedIn: lp.pluggedIn,
+                socPct: lp.socPct,
+                socSource: lp.socSource,
+                socReadAtMs: lp.socReadAtMs(answeredAtMs: now),
+                powerW: lp.powerW,
+                targetSocPct: lp.targetSocPct
+            )
+        })
+        if let last = lastCars, last.entry.sameReading(entry), now - last.atMs < Self.carRewriteMs { return }
+        lastCars = (entry, now)
+        let answering = fresh && points.allSatisfy { $0.charger?.available != false }
+        write(CacheRecord(siteId: siteId, carrier: session.carrier, srcState: answering ? .live : .stale, readAtMs: now, value: entry), to: shared)
+    }
+
+    private func write<Value: CacheValue>(_ record: CacheRecord<Value>, to shared: AppGroupFiles) {
+        guard !destroyed else { return }
+        do {
+            try shared.write(record)
+            sharedWritten?()
+        } catch {
+            // A widget showing yesterday's record with its date is better
+            // than no app; the next read tries again.
+        }
     }
 }

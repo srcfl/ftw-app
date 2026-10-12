@@ -1,4 +1,5 @@
 import Foundation
+import FTWShared
 import Observation
 
 /// A screen that is on screen. Models only ask the box for what someone can
@@ -171,6 +172,7 @@ public final class ChargingWatch: Activatable {
             }
             points = next
             fresh = site.documentVisible && site.session.phase == .streaming
+            site.shareCars(next, fresh: fresh)
             expiry?.cancel()
             expiry = site.scheduler.after(15_000) { [weak self] in self?.fresh = false }
         } catch {
@@ -245,6 +247,7 @@ public final class PriceModel: Activatable {
             guard mine == generation else { return }
             prices = wire
             fromMs = from
+            site.sharePrices(wire, fromMs: from)
         } catch {
             // A window already drawn stays drawn; today's prices are still
             // today's. Rethrown so the ask heals.

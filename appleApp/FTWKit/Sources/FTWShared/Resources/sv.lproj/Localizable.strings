@@ -1,0 +1,28 @@
+/* Swedish for FTWShared. The key is the English sentence. */
+
+/* Freshness band */
+"Live at home" = "Live hemma";
+"Live via encrypted relay" = "Live via krypterat relä";
+"Home link connected · no reading yet" = "Hemlänk ansluten · inget mätvärde än";
+"Home link connected · a device stopped responding" = "Hemlänk ansluten · en enhet svarar inte";
+"Home link connected · readings" = "Hemlänk ansluten · mätvärden";
+"Encrypted relay connected · no reading yet" = "Krypterat relä anslutet · inget mätvärde än";
+"Encrypted relay connected · a device stopped responding" = "Krypterat relä anslutet · en enhet svarar inte";
+"Encrypted relay connected · readings" = "Krypterat relä anslutet · mätvärden";
+"Access ended" = "Åtkomsten är avslutad";
+"FTW is busy" = "FTW är upptaget";
+"Your box is starting" = "Din box startar";
+"Reconnecting to your box" = "Ansluter till din box igen";
+"Waiting for live readings" = "Väntar på mätvärden";
+"Securing encrypted relay" = "Krypterar anslutningen";
+"Securing home link" = "Krypterar hemlänken";
+"Connecting to your box" = "Ansluter till din box";
+"Can't reach your box" = "Når inte din box";
+
+/* Age of a reading */
+"unknown" = "okänt";
+"just now" = "nyss";
+"%lds ago" = "för %ld s sedan";
+"%ld min ago" = "för %ld min sedan";
+"%ld h ago" = "för %ld h sedan";
+"%ld d ago" = "för %ld d sedan";

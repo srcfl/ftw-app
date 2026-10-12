@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import FTWKit
+import FTWDemo
 
 @MainActor
 @Suite struct DemoHomeTests {
@@ -8,7 +9,7 @@ import Testing
     /// passkey, no relay and nothing written.
     func demo() async -> (AppModel, HomeModels, ManualScheduler) {
         let scheduler = ManualScheduler()
-        let app = AppModel(store: MemoryStore(), files: nil, passkeys: nil, scheduler: scheduler, build: "test", ua: "test")
+        let app = AppModel(store: MemoryStore(), files: nil, passkeys: nil, scheduler: scheduler, build: "test", ua: "test", demo: SimulatedBox.loopback)
         app.startDemo()
         let home = app.home!
         await run(scheduler, 1_000)
@@ -36,43 +37,13 @@ import Testing
         #expect(home.site.recentField(Contract.FID.gridW).count >= 2)
     }
 
-    @Test func thePlanLoadsAndAModeChangeFollowsIt() async {
-        let (_, home, s) = await demo()
-        home.plan.activate()
-        await run(s, 500)
-        #expect(home.plan.plan?.slots.count == 96)
-        #expect(home.plan.canControl)
-        #expect(home.plan.primaryModes.map(\.key) == ["planner_passive_arbitrage", "planner_arbitrage"])
-        #expect(home.plan.actualMode == "planner_passive_arbitrage")
-        let task = Task { await home.plan.setMode("self_consumption") }
-        await run(s, 500)
-        await task.value
-        #expect(home.plan.command == .applied("self_consumption"))
-        await run(s, 1_500)
-        #expect(home.plan.actualMode == "self_consumption")
-        #expect(home.plan.inManual)
-        await run(s, PlanModel.settleMs + 100)
-        #expect(home.plan.command == .idle)
-    }
-
-    @Test func pricesEnergyHistoryAndSavingsFill() async {
+    @Test func pricesSavingsAndStatusFill() async {
         let (_, home, s) = await demo()
         home.prices.activate()
-        home.energy.activate()
-        home.history.activate()
         home.savings.activate()
         home.status.activate()
         await run(s, 3_000)
         #expect(home.prices.prices?.currency == "SEK")
-        #expect(home.energy.loaded)
-        #expect(home.energy.days.count == 7)
-        #expect(home.energy.totals.loadWh > 0)
-        home.energy.select(.month)
-        #expect(!home.energy.loaded)
-        await run(s, 1_000)
-        #expect(home.energy.days.count == 30)
-        #expect(home.history.loaded)
-        #expect((home.history.frame?.points ?? 0) > 200)
         #expect(home.savings.periods?.week.available == true)
         #expect(home.status.fresh)
         #expect(Flow.fuse(status: home.status.status!) != nil)
@@ -107,30 +78,35 @@ import Testing
         #expect(home.loadpoints.points.first?.schedule?.socPct == 90)
     }
 
-    @Test func theBoxScreenReadsTheRosterAndInvitesAViewer() async {
-        let (_, home, s) = await demo()
-        home.access.activate()
-        home.notify.activate()
-        await run(s, 1_000)
-        #expect(home.access.loaded)
-        #expect(home.access.members.first?.isThisPhone == true)
-        let invite = Task { await home.access.inviteViewer() }
-        await run(s, 500)
-        #expect(await invite.value)
-        #expect(home.access.invite?.role == Contract.roleViewer)
-        #expect(home.notify.availableKinds.count == 6)
-        let save = Task { await home.notify.save(["charging.connected": true]) }
-        await run(s, 500)
-        #expect(await save.value)
-        #expect(home.notify.rules["charging.connected"] == true)
-        #expect(home.notify.boxEnabled)
-    }
-
     @Test func leavingTheDemoTouchesNoSavedHome() async {
         let (app, _, _) = await demo()
         app.exitDemo()
         #expect(app.home == nil)
         #expect(!app.isDemo)
+    }
+
+    /// A build without FTWDemo has no simulated home to open.
+    @Test func noDemoWithoutTheDemoModule() {
+        let app = AppModel(store: MemoryStore(), files: nil, passkeys: nil, scheduler: ManualScheduler(), build: "test", ua: "test")
+        #expect(!app.canDemo)
+        app.startDemo()
+        #expect(app.home == nil)
+        #expect(!app.isDemo)
+    }
+
+    /// The demo writes nothing a widget could mistake for a home.
+    @Test func theDemoLeavesNothingForWidgets() async throws {
+        let scheduler = ManualScheduler()
+        let shared = AppGroupFiles(directory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ftw-shared-\(UUID().uuidString)"))
+        let app = AppModel(store: MemoryStore(), files: nil, shared: shared, passkeys: nil, scheduler: scheduler, build: "test", ua: "test", demo: SimulatedBox.loopback)
+        app.startDemo()
+        let home = try #require(app.home)
+        home.prices.activate()
+        home.charging.activate()
+        await run(scheduler, 7_000)
+        #expect(home.prices.prices != nil)
+        #expect(shared.siteIDs(PriceEntry.self).isEmpty)
+        #expect(shared.siteIDs(CarEntry.self).isEmpty)
     }
 }
 
@@ -144,8 +120,9 @@ import Testing
         let box: SimulatedBox
         let endpoint: NoiseBoxEndpoint
         let relay: FakeRelay
-        let escrow = FakeEscrowService()
         let passkeys = FakePasskeys()
+        let shared = AppGroupFiles(directory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ftw-shared-\(UUID().uuidString)"))
+        let widgetWakes = Counter()
 
         init() {
             files = SealedFiles(directory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ftw-test-\(UUID().uuidString)"), store: store)
@@ -155,7 +132,7 @@ import Testing
         }
 
         func app() -> AppModel {
-            AppModel(store: store, files: files, passkeys: passkeys, scheduler: scheduler, build: "test", ua: "test", relayURL: URL(string: "wss://relay.test")!, escrowTransport: escrow.transport, makeSocket: relay.factory)
+            AppModel(store: store, files: files, shared: shared, sharedWritten: { [widgetWakes] in widgetWakes.count += 1 }, passkeys: passkeys, scheduler: scheduler, build: "test", ua: "test", relayURL: URL(string: "wss://relay.test")!, makeSocket: relay.factory)
         }
 
         var pairingURL: String {
@@ -187,9 +164,6 @@ import Testing
         #expect(site.session.phase == .streaming)
         #expect(site.carrier == .relay)
         #expect(world.passkeys.registrations == 1)
-        // Held a sealed copy in the background.
-        await world.run(200)
-        #expect(world.escrow.rows.count == 1)
 
         // Long enough for the snapshot to be written.
         await world.run(SiteModel.snapshotIntervalMs + 500, step: 250)
@@ -226,22 +200,18 @@ import Testing
         #expect(PairModel(app: app).offeredFingerprint != nil)
     }
 
-    @Test func aConfigureWriteRunsTheCeremonyOnce() async throws {
+    @Test func aConfigureWriteGoesThrough() async throws {
         let world = World()
         let app = world.app()
         let pair = PairModel(app: app)
         let t = Task { await pair.pair(world.pairingURL) }
         await world.run(500)
         await t.value
-        // The simulated box refuses configure writes without the flag.
-        let strict = SimulatedBox(scheduler: world.scheduler, requireStepUp: true)
-        _ = strict
         let site = try #require(app.site)
-        let restart = RestartModel(site: site)
-        let task = Task { await restart.restart() }
+        let task = Task { try await site.callBox(.put, "/api/loadpoints/garage/schedule", body: ["soc": .number(0.7), "time_of_day_min_utc": 300, "recurring": true, "days": 0, "surplus_unlock_bat_soc": 0]) }
         await world.run(300)
-        await task.value
-        #expect(restart.error == nil)
+        _ = try await task.value
+        #expect(world.box.house.schedule?.socFraction == 0.7)
     }
 
     @Test func noKeyIsSaidPlainlyAndNothingRetries() async throws {
@@ -272,60 +242,78 @@ import Testing
         #expect(!app.vault.isEnrolled)
         #expect(app.sites.all().isEmpty)
         #expect(world.store.keys.isEmpty)
-        // The sealed copy stays: removing it is its own act.
-        #expect(world.escrow.rows.count == 1)
+        // The widgets lose their records and are told.
+        #expect(world.shared.siteIDs(PriceEntry.self).isEmpty)
+        #expect(world.widgetWakes.count > 0)
+    }
+
+    /// iOS freezes a backgrounded app within seconds. The session closes
+    /// first, freeing one of the relay's four streams, and a new one opens
+    /// on return without a passkey.
+    @Test func theBackgroundClosesTheSessionAndTheForegroundReopensIt() async throws {
+        let world = World()
+        let app = world.app()
+        let pair = PairModel(app: app)
+        let t = Task { await pair.pair(world.pairingURL) }
+        await world.run(500)
+        await t.value
+        let site = try #require(app.site)
+        #expect(site.session.phase == .streaming)
+
+        app.setVisible(false)
+        app.suspend()
+        await world.run(100)
+        #expect(!site.core.hasCarrier)
+        #expect(world.relay.current == nil)
+        #expect(site.carrier == .none)
+        // What was on screen stays, dated.
+        #expect(site.session.fields[Contract.FID.gridW] != nil)
+        #expect(!site.isLive)
+
+        app.setVisible(true)
+        await world.run(1_000)
+        #expect(site.session.phase == .streaming)
+        #expect(site.isLive || site.srcState == .live)
+        #expect(world.relay.dialled.count == 2)
+        #expect(world.passkeys.assertions.isEmpty)
+    }
+
+    /// Widgets read what the app leaves in the App Group, never the relay.
+    @Test func widgetsGetThePricesAndTheCar() async throws {
+        let world = World()
+        let app = world.app()
+        let pair = PairModel(app: app)
+        let t = Task { await pair.pair(world.pairingURL) }
+        await world.run(500)
+        await t.value
+        let home = try #require(app.home)
+        let siteId = try #require(home.site.siteId)
+        home.prices.activate()
+        home.charging.activate()
+        await world.run(6_000, step: 100)
+
+        let reader = CacheReader(sources: [world.shared])
+        #expect(reader.latestSiteID(PriceEntry.self) == siteId)
+        let prices = try #require(reader.read(PriceEntry.self, siteId: siteId))
+        #expect(prices.value.prices.currency == "SEK")
+        #expect(!prices.value.prices.slots.isEmpty)
+        // It arrived over the relay, and reads back as the cache.
+        #expect(prices.record.carrier == .relay)
+        #expect(prices.carrier == .cache)
+        let car = try #require(reader.read(CarEntry.self, siteId: siteId)?.value.cars.first)
+        #expect(car.loadpointID == "garage")
+        #expect(car.socSource == world.box.house.carSocSource)
+        #expect(car.socReadAtMs != nil)
+        #expect(world.widgetWakes.count >= 2)
+
+        // The same car five seconds later is not written again.
+        let wakes = world.widgetWakes.count
+        await world.run(6_000, step: 100)
+        #expect(world.widgetWakes.count == wakes)
     }
 }
 
 @MainActor
-@Suite struct SealedCopyTests {
-    @Test func theSwitchFollowsWhatTheEscrowHolds() async throws {
-        let world = ShellTests.World()
-        let app = world.app()
-        let pair = PairModel(app: app)
-        let t = Task { await pair.pair(world.pairingURL) }
-        await world.run(500)
-        await t.value
-        await world.run(200)
-        let copy = try #require(app.sealedCopy)
-        // Pairing sealed a copy in the background; the screen reads it again.
-        copy.reload()
-        #expect(copy.kept)
-        #expect(world.escrow.rows.values.first?.blob.isEmpty == false)
-
-        let off = Task { await copy.set(false) }
-        await world.run(200)
-        await off.value
-        #expect(!copy.kept)
-        #expect(copy.stage == .idle)
-        #expect(app.sites.all().first?.escrow == false)
-        #expect(world.escrow.rows.values.first?.blob.isEmpty == true)
-
-        let on = Task { await copy.set(true) }
-        await world.run(200)
-        await on.value
-        #expect(copy.kept)
-        #expect(app.sites.all().first?.escrow == true)
-        #expect(world.escrow.rows.values.first?.blob.isEmpty == false)
-    }
-
-    @Test func aDeclinedPasskeyPutsTheMarkBack() async throws {
-        let world = ShellTests.World()
-        let app = world.app()
-        let pair = PairModel(app: app)
-        let t = Task { await pair.pair(world.pairingURL) }
-        await world.run(500)
-        await t.value
-        await world.run(200)
-        let copy = try #require(app.sealedCopy)
-        copy.reload()
-        world.passkeys.cancel = true
-        let off = Task { await copy.set(false) }
-        await world.run(200)
-        await off.value
-        #expect(copy.kept)
-        #expect(copy.stage == .idle)
-        #expect(copy.problem == nil)
-        #expect(app.sites.all().first?.escrow == true)
-    }
+final class Counter {
+    var count = 0
 }

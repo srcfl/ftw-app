@@ -7,7 +7,7 @@ import Observation
 @MainActor
 public final class PairModel {
     public enum Stage: Equatable, Sendable {
-        case intro, scanning, pairing, recovering, choosing, demoing
+        case intro, scanning, pairing, demoing
     }
 
     public var stage: Stage = .intro
@@ -16,7 +16,6 @@ public final class PairModel {
     /// The box a link points at, by the same six characters the Box screen
     /// names a paired box by.
     public private(set) var offeredFingerprint: String?
-    public private(set) var recovered: [Escrow.Recovered] = []
     /// This phone already holds a key and a home: something local went
     /// missing, not a stranger arriving.
     public private(set) var known: StoredSite?
@@ -44,8 +43,8 @@ public final class PairModel {
         stage = .pairing
         message = nil
         do {
-            let result = try await app.pairing.pair(scanned: raw)
-            app.paired(result.site.siteId)
+            let site = try await app.pairing.pair(scanned: raw)
+            app.paired(site.siteId)
         } catch is PasskeyCancelled {
             // A dismissed sheet is not a fault and gets no error voice.
             stage = .intro
@@ -69,53 +68,9 @@ public final class PairModel {
         offeredFingerprint = nil
     }
 
-    /// Ask the passkey what Sourceful is holding. Costs a prompt, so it is a
-    /// button and never a check on arrival.
-    public func recover() async {
-        stage = .recovering
-        message = nil
-        do {
-            recovered = try await app.escrow.recover(app.passkeys)
-            if recovered.isEmpty {
-                stage = .intro
-                message = "Nothing was saved for this passkey. Open Settings → FTW app in your box dashboard and scan a new pairing code instead."
-                return
-            }
-            stage = .choosing
-        } catch is PasskeyCancelled {
-            stage = .intro
-        } catch let e as HelpfulError {
-            stage = .intro
-            message = e.help
-        } catch {
-            stage = .intro
-            message = "That didn't work. Open Settings → FTW app in your box dashboard and scan a new pairing code instead."
-        }
-    }
-
-    public func adopt(_ home: Escrow.Recovered) {
-        stage = .pairing
-        do {
-            let id = try app.escrow.adopt(home, nowMs: app.scheduler.nowMs)
-            app.paired(id)
-        } catch let e as HelpfulError {
-            stage = .intro
-            message = e.help
-        } catch {
-            stage = .intro
-            message = "That didn't work. Try scanning the code instead."
-        }
-    }
-
     public func openKnown() {
         guard let known else { return }
         app.paired(known.siteId)
-    }
-
-    /// A picture was read and held no pairing code.
-    public func noCodeFound() {
-        stage = .intro
-        message = "There is no FTW pairing code in that picture. Try a closer screenshot of the QR."
     }
 
     public func tryDemo() {

@@ -1,4 +1,5 @@
 import Foundation
+import FTWShared
 import Observation
 
 /// The charger sheet. Everything on it is a fact the box served; the
@@ -116,6 +117,7 @@ public final class LoadpointsModel: Activatable {
             loaded = true
             readAtMs = site.scheduler.nowMs
             error = nil
+            site.shareCars(points, fresh: true)
         } catch {
             guard mine == token else { return }
             if let e = error as? BoxAPIError, points.isEmpty {

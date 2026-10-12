@@ -67,15 +67,15 @@ public enum PowerFormat {
     /// How old a reading is, coarse on purpose: a number ticking up every
     /// second draws the eye to the staleness rather than the reading.
     public static func age(_ ms: Double?) -> String {
-        guard let ms, ms.isFinite, ms >= 0 else { return "unknown" }
+        guard let ms, ms.isFinite, ms >= 0 else { return Words.text("unknown") }
         let s = Int(ms / 1000)
-        if s < 5 { return "just now" }
-        if s < 60 { return "\(s)s ago" }
+        if s < 5 { return Words.text("just now") }
+        if s < 60 { return Words.format("%lds ago", s) }
         let m = s / 60
-        if m < 60 { return "\(m) min ago" }
+        if m < 60 { return Words.format("%ld min ago", m) }
         let h = m / 60
-        if h < 24 { return "\(h) h ago" }
-        return "\(h / 24) d ago"
+        if h < 24 { return Words.format("%ld h ago", h) }
+        return Words.format("%ld d ago", h / 24)
     }
 
     /// JavaScript's toFixed, which rounds half away from zero on the

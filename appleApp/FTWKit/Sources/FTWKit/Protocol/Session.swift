@@ -1,4 +1,5 @@
 import Foundation
+import FTWShared
 
 /// The session: handshake, subscription and the field register.
 ///
@@ -7,10 +8,6 @@ import Foundation
 ///
 /// Freshness is two facts, never one: `carrier`, how frames are reaching us,
 /// and `sources`, whether the box's own devices are answering.
-public enum SessionPhase: String, Sendable {
-    case idle, handshaking, subscribing, streaming, booting, terminated, failed
-}
-
 public struct SessionState: Sendable {
     public var phase: SessionPhase = .idle
     public var carrier: CarrierKind = .none
@@ -41,9 +38,9 @@ public struct SessionState: Sendable {
     public var terminated: TerminateReason?
     /// The box says this app is too old for everything.
     public var needsUpdate = false
-    /// What the box intends to do. The box pushes a fresh one unasked after
-    /// a mode change, so it lives here rather than only as an answer.
-    public var plan: Plan?
+    /// The relay turned this phone away: the home already has as many
+    /// phones watching as it serves. Someone else is looking; nothing broke.
+    public var busy = false
     /// The last delta could not carry every changed field. Not a fault.
     public var truncated = false
     /// Every mode the box accepts, in its order. Field 1 indexes this list.
@@ -89,11 +86,7 @@ public struct CommandError: Error, Equatable, HelpfulError {
 
 @MainActor
 public final class Session {
-    /// History over a relay can be dozens of bulk frames; the point is that
-    /// the request always settles, not that it fails fast.
-    public static let historyTimeoutMs: Double = 20_000
     public static let apiTimeoutMs: Double = 20_000
-    public static let planTimeoutMs: Double = 8_000
     public static let priceTimeoutMs: Double = 8_000
     /// A box that is starting refuses a subscription and does not announce
     /// when it is ready, so the session asks again on its own.
@@ -122,12 +115,6 @@ public final class Session {
     private var nextRequestID: UInt32 = 1
     private var bootRetry: Cancellable?
 
-    private struct PendingHistory {
-        var onChunk: @MainActor (HistChunk) -> Void
-        var continuation: CheckedContinuation<HistEnd, Error>
-        var timer: Cancellable?
-    }
-
     private struct PendingSingle<T> {
         var continuation: CheckedContinuation<T, Error>
         var timer: Cancellable?
@@ -148,8 +135,6 @@ public final class Session {
         var acked = false
     }
 
-    private var pendingHistory: [UInt32: PendingHistory] = [:]
-    private var pendingPlan: [UInt32: PendingSingle<Plan>] = [:]
     private var pendingPrices: [UInt32: PendingSingle<Prices>] = [:]
     private var pendingAPI: [UInt32: PendingAPI] = [:]
     private var pendingCommands: [String: PendingCommand] = [:]
@@ -222,6 +207,7 @@ public final class Session {
         var s = state
         s.phase = .idle
         s.carrier = .none
+        s.busy = false
         state = s
     }
 
@@ -264,35 +250,6 @@ public final class Session {
         // u32, and wrapping is harmless: a request that old has settled.
         nextRequestID = nextRequestID == UInt32.max ? 1 : nextRequestID + 1
         return id
-    }
-
-    /// A history window. Chunks arrive as they land; the call returns on
-    /// `hist.end`. Bulk lane: a query carrying a `have` list varies in length.
-    public func history(_ query: HistQuery, onChunk: @escaping @MainActor (HistChunk) -> Void) async throws -> HistEnd {
-        guard carrier != nil else { throw SessionError.noCarrier }
-        let id = takeRequestID()
-        let frame = try Frame.encodeBulk(envelope: Envelope(t: "hist.query", id: id, b: query.cbor))
-        // Registered before the frame leaves, so an answer can never arrive
-        // for a request nobody is holding.
-        return try await withCheckedThrowingContinuation { cont in
-            pendingHistory[id] = PendingHistory(onChunk: onChunk, continuation: cont, timer: nil)
-            armHistory(id)
-            carrier?.send(frame)
-        }
-    }
-
-    public func plan() async throws -> Plan {
-        guard carrier != nil else { throw SessionError.noCarrier }
-        let id = takeRequestID()
-        let frame = try Frame.encodeBulk(envelope: Envelope(t: "plan.get", id: id))
-        return try await withCheckedThrowingContinuation { cont in
-            let timer = scheduler.after(Self.planTimeoutMs) { [weak self] in
-                guard let p = self?.pendingPlan.removeValue(forKey: id) else { return }
-                p.continuation.resume(throwing: SessionError.timedOut("plan"))
-            }
-            pendingPlan[id] = PendingSingle(continuation: cont, timer: timer)
-            carrier?.send(frame)
-        }
     }
 
     /// Prices across a window. Wall clock, unlike every age: prices are
@@ -440,6 +397,7 @@ public final class Session {
             var s = state
             s.phase = .handshaking
             s.carrier = kind
+            s.busy = false
             state = s
             sendHello()
         case .closed:
@@ -448,6 +406,7 @@ public final class Session {
             var s = state
             s.phase = .failed
             s.carrier = .none
+            s.busy = status.isBusy
             state = s
             bootRetry?.cancel()
             // The ordinary way a carrier goes away: it reconnects inside
@@ -473,24 +432,6 @@ public final class Session {
             var s = state
             s.uptimeMs = body["uptimeMs"]?.double ?? s.uptimeMs
             state = s
-        case "hist.chunk":
-            guard let id = env.id, let chunk = HistChunk(body), let pending = pendingHistory[id] else { return }
-            // A window still arriving is not a window gone quiet.
-            armHistory(id)
-            pending.onChunk(chunk)
-        case "hist.end":
-            guard let id = env.id, let pending = pendingHistory.removeValue(forKey: id) else { return }
-            pending.timer?.cancel()
-            pending.continuation.resume(returning: HistEnd(body))
-        case "plan":
-            let plan = Plan(body)
-            var s = state
-            s.plan = plan
-            state = s
-            if let id = env.id, let pending = pendingPlan.removeValue(forKey: id) {
-                pending.timer?.cancel()
-                pending.continuation.resume(returning: plan)
-            }
         case "price":
             guard let id = env.id, let pending = pendingPrices.removeValue(forKey: id) else { return }
             pending.timer?.cancel()
@@ -631,16 +572,6 @@ public final class Session {
     /// window the box could not serve never makes the whole app look broken.
     private func onError(_ b: ErrorMsg, id: UInt32?) {
         if let id {
-            if let p = pendingHistory.removeValue(forKey: id) {
-                p.timer?.cancel()
-                p.continuation.resume(throwing: BoxRefusal(detail: b))
-                return
-            }
-            if let p = pendingPlan.removeValue(forKey: id) {
-                p.timer?.cancel()
-                p.continuation.resume(throwing: BoxRefusal(detail: b))
-                return
-            }
             if let p = pendingPrices.removeValue(forKey: id) {
                 p.timer?.cancel()
                 p.continuation.resume(throwing: BoxRefusal(detail: b))
@@ -682,17 +613,6 @@ public final class Session {
 
     // MARK: Deadlines
 
-    /// The deadline measures silence, not total time: every chunk re-arms it.
-    private func armHistory(_ id: UInt32) {
-        guard var p = pendingHistory[id] else { return }
-        p.timer?.cancel()
-        p.timer = scheduler.after(Self.historyTimeoutMs) { [weak self] in
-            guard let p = self?.pendingHistory.removeValue(forKey: id) else { return }
-            p.continuation.resume(throwing: SessionError.timedOut("history"))
-        }
-        pendingHistory[id] = p
-    }
-
     private func armAPI(_ id: UInt32) {
         guard var p = pendingAPI[id] else { return }
         p.timer?.cancel()
@@ -718,10 +638,6 @@ public final class Session {
     /// means it did not reach the box; acked means it may well have run.
     private func settlePending() {
         apiGeneration += 1
-        for (_, p) in pendingHistory { p.timer?.cancel(); p.continuation.resume(throwing: SessionError.carrierClosed) }
-        pendingHistory = [:]
-        for (_, p) in pendingPlan { p.timer?.cancel(); p.continuation.resume(throwing: SessionError.carrierClosed) }
-        pendingPlan = [:]
         for (_, p) in pendingPrices { p.timer?.cancel(); p.continuation.resume(throwing: SessionError.carrierClosed) }
         pendingPrices = [:]
         for (_, p) in pendingAPI { p.timer?.cancel(); p.continuation.resume(throwing: SessionError.carrierClosed) }

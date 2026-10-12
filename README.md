@@ -2,9 +2,10 @@
 
 Your home's energy, on the phone.
 
-Native iOS (SwiftUI) and Android (Jetpack Compose). Shared logic is Kotlin
-Multiplatform: pairing, passkeys, Noise, the relay, the session. The box at
-home is the record. This app is a cached projection of it. The cloud is blind.
+Two native apps. The iPhone app is pure Swift in `appleApp/`. The Android app
+is Jetpack Compose on Kotlin Multiplatform (`shared/`, `androidApp/`). Both
+carry pairing, passkeys, Noise, the relay and the session. The box at home is
+the record. This app is a cached projection of it. The cloud is blind.
 
 Not a wrap of the [web app](https://github.com/srcfl/ftw-webapp). Same protocol,
 same QR, same relay, same RP ID (`app.ftw.energy`).
@@ -25,33 +26,88 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Shape
 
 ```
-SwiftUI / Compose
-        │
-        ▼
-   shared (KMP)  — enrollment, vault, Noise IK, frames, session, relay
-        │
-        ▼
-  wss://relay.ftw.energy   (encrypted)
-        │
-        ▼
-     FTW box
+ iPhone (appleApp/)                         Android
+ SwiftUI app ── widgets                     Compose
+     │            │                            │
+     ▼            ▼                            ▼
+ FTWKit ──► FTWShared ◄── App Group      shared (KMP)
+ session,     cache records,             enrollment, vault,
+ Noise, vault formatters                 Noise IK, frames,
+     │                                   session, relay
+     └──────────────────┬──────────────────────┘
+                        ▼
+          wss://relay.ftw.energy   (encrypted)
+                        │
+                        ▼
+                     FTW box
 ```
 
 Two taps: scan the QR on the box, Face ID / biometrics, the house.
 
-## Status (2026-08-22)
+## Status: iPhone (2026-10-12)
+
+M1 is pairing, a lean Now, a car view and price widgets. This is its
+foundation, taken from the Swift draft in #5 and cut down to that scope.
+iOS 26 is the minimum. iPhone only.
+
+**In the app**
+
+- Pair: camera QR, a link from outside shown before it is trusted, and the
+  live demo against a simulated box.
+- Now: one sentence, the energy flow, the price card with the cheapest two
+  hours, today's totals and the fuse. The freshness band above it keeps
+  carrier and source state apart.
+- A price widget that reads the App Group cache and nothing else.
+- The app writes `prices-<site>` and `car-<site>` into the App Group after
+  each read, with where each reading came from and when.
+- The session closes when the app goes to the background and opens again
+  on return, without a passkey.
+- A relay that turns the phone away with 4429 shows "FTW is busy" ("FTW är
+  upptaget") instead of an error.
+
+**Proven**
+
+| Check | Result |
+|---|---|
+| `swift test` in `appleApp/FTWKit` (Xcode 27, Swift 6.4) | 92 tests green, 1 live test skipped |
+| Cross-implementation vectors from the web app and the box | Noise, frames, rendezvous handles and the vault copy match |
+| `ContractTests` against `protocol/registry.yaml` | Scopes, ops, capabilities, modes, errors, states and frozen field ids match |
+| App and widget for the iOS Simulator, signed ad hoc | Builds; both carry the App Group entitlement |
+| Demo in the iOS Simulator (iPhone 17, iOS 26.5) | Launches and streams |
+
+**Next in M1**
+
+The car view (level presets 20/40/60/80 and ±5 through `loadpoint.soc.set`,
+the goal through the schedule PUT, Charge now, Pause and Back to the plan),
+the four price widget families, then tests and screenshots.
+
+**Needs an owner decision or a device**
+
+- An Apple team. `DEVELOPMENT_TEAM` is unset, so nothing runs on a phone yet.
+  Set it once in `appleApp/FTW.xcconfig`.
+- An `apple-app-site-association` file on `app.ftw.energy` that names
+  `<TEAM>.energy.ftw.app` under `webcredentials` and `applinks`. Passkeys
+  need it.
+
+**Not in M1 (do not start these next)**
+
+Plan, History, Box admin, escrow and recovery, spoken box codes, macOS,
+LAN, WebRTC, push and the store listing.
+
+## Status: Android (2026-08-22)
 
 V1 is Pair + Now. That is on `main` as of 2026-08-22. Not a wrap of the web
-app. Not Flutter, not React Native.
+app. Not Flutter, not React Native. Android's KMP core stays as it is until
+Android is back in scope.
 
-**In the apps today**
+**In the app today**
 
 - Scan or paste a v2 pairing QR (`https://app.ftw.energy/p#v2.…`).
 - One passkey prompt at enroll. RP ID `app.ftw.energy`. PRF salt `ftw.prf.v1.vault`.
 - Noise_IK_25519_ChaChaPoly_SHA256 to the box through `wss://relay.ftw.energy`.
 - Now shows headline plus grid / solar / battery / house from frozen field ids.
-- Vault, site and last readings live in iOS Keychain /
-  Android EncryptedSharedPreferences. Cold start paints from cache, then
+- Vault, site and last readings live in Android
+  EncryptedSharedPreferences. Cold start paints from cache, then
   reconnects without Face ID. Forget wipes the store.
 
 **Proven here**
@@ -60,24 +116,24 @@ app. Not Flutter, not React Native.
 |---|---|
 | `./gradlew :shared:jvmTest` | Green |
 | Live box e2e (`127.0.0.1:18080` + production relay) | `hello_ok` + snapshot, phase `streaming` |
-| iOS Simulator (iPhone 17, iOS 26.5) | Built and launched |
 | Android emulator `FTW_Phone` (API 35 ARM64) | APK installed, Pair shown twice |
 
 Passkey PRF cannot run on the JVM. Live e2e uses a local wrapping key for the
 ceremony and the real Noise / relay / box path. The Android emulator has no
 camera feed — paste the pairing link.
 
-**Not v1 (do not start these next)**
+**Not v1 on Android (do not start these next)**
 
 Energy, History, Plan, EV, commands, escrow restore, spoken codes, LAN,
-WebRTC, push, App Store / Play listing.
+WebRTC, push, Play listing.
 
 **Known holes**
 
 - `srcState` should follow the Now fields' `srcId` in the dict, not every
   driver on the site.
-- Wrap key is raw PRF bytes, not the web app's HKDF. A native vault will not
-  open in the PWA, and the other way around.
+- Wrap key is raw PRF bytes, not the web app's HKDF. An Android vault will
+  not open in the PWA, and the other way around. The iPhone app uses the
+  web app's HKDF.
 - `PasskeyHost.enroll` from Kotlin still blocks. The UIs call the async
   ceremony and skip that path.
 - Field ids in `Explanation.kt` are still hand-written; they should come from
@@ -85,14 +141,20 @@ WebRTC, push, App Store / Play listing.
 
 ## Tests
 
-JDK 21.
+iPhone, on a Mac with Xcode 27:
+
+```bash
+cd appleApp/FTWKit && swift test
+```
+
+Android, JDK 21:
 
 ```bash
 export JAVA_HOME="$(brew --prefix openjdk@21)/libexec/openjdk.jdk/Contents/Home"
 ./gradlew :shared:jvmTest
 ```
 
-That suite covers enrollment URLs, Cacophony Noise IK, hello/sub CBOR matching
+The Android suite covers enrollment URLs, Cacophony Noise IK, hello/sub CBOR matching
 the box's interop hex, 512-byte lane 0 frames, the vault, and a session that
 turns hello_ok + snap into Now state.
 
@@ -116,10 +178,18 @@ snapshot that includes the frozen field ids.
 
 ## Native apps
 
-iOS: open `iosApp/iosApp.xcodeproj`. SwiftUI Pair (camera QR + paste) and Now.
-Xcode 16+, iOS 18 for passkey PRF. A Run Script build phase compiles the
-Shared framework with
-`./gradlew :shared:embedAndSignAppleFrameworkForXcode`.
+iPhone: open `appleApp/FTW.xcodeproj` in Xcode 27 and run the FTW scheme on
+a simulator. The demo on the pairing screen runs without a box, a passkey or
+a network; `-FTWDemo YES` opens it at launch in a debug build. From the
+command line:
+
+```bash
+cd appleApp
+xcodebuild build -project FTW.xcodeproj -scheme FTW -destination 'generic/platform=iOS Simulator'
+```
+
+Simulator builds sign ad hoc (`FTW.xcconfig`), so the App Group entitlement
+travels with the app and its widget.
 
 Android: `./gradlew :androidApp:assembleDebug` (minSdk 28). Pair uses CameraX
 + ML Kit for the QR. Passkeys go through Credential Manager.
@@ -140,11 +210,20 @@ wrapping copy so Now paints without a passkey prompt.
 
 | Path | What |
 |---|---|
-| `shared/` | KMP: identity, crypto, protocol, relay, session |
+| `appleApp/FTWKit/Sources/FTWKit` | Swift: identity, crypto, protocol, relay, session, screen state. The app alone links it. |
+| `appleApp/FTWKit/Sources/FTWShared` | `Sendable` values for the app and its extensions: the App Group cache and the price and freshness formatters |
+| `appleApp/FTWKit/Sources/FTWDemo` | The simulated box, for the demo, App Review and previews |
+| `appleApp/FTW/` | SwiftUI for iPhone, Keychain, passkeys, camera |
+| `appleApp/FTWWidgets/` | WidgetKit extension. Reads the cache; no key, no relay. |
+| `appleApp/FTW.xcconfig` | Settings app and widget share: the App Group, versions, signing |
+| `shared/` | KMP for Android: identity, crypto, protocol, relay, session |
 | `androidApp/` | Compose UI |
-| `iosApp/` | SwiftUI UI |
 | `protocol/registry.yaml` | Names shared with the box |
-| `scripts/e2e-ftw.sh` | Live box e2e |
+| `scripts/e2e-ftw.sh` | Live box e2e (Android shared logic) |
+
+The Xcode project uses folders that Xcode keeps in step with the disk. A new
+file under `FTW/`, `FTWWidgets/` or a package target needs no change to
+`project.pbxproj`; only a new target does.
 
 ## Licence
 

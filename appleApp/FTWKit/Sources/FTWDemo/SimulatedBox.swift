@@ -1,4 +1,5 @@
 import Foundation
+import FTWKit
 
 /// A box that lives in this process: the other end of the protocol, for the
 /// demo and for the tests. It speaks frames exactly as a box does, holds a
@@ -21,7 +22,6 @@ public final class SimulatedBox {
     private var seq: UInt64 = 0
     private var controlRev: UInt64 = 1
     private var lastSent: [Int: Double] = [:]
-    private var planRev: UInt64 = 1
     public var booting = false
     /// Silence instead of answers, to test the app's deadlines.
     public var mute = false
@@ -30,16 +30,7 @@ public final class SimulatedBox {
     public private(set) var receivedCommands: [String] = []
     public private(set) var stepUpsSeen = 0
 
-    // Box-side records the Box screen reads.
-    var devices: [(id: String, role: String, addedAtMs: Double, lastSeenMs: Double)] = []
-    var notifyEnabled = false
-    var notifyRules: [(type: String, enabled: Bool)] = [
-        ("charging.connected", false), ("charging.session_complete", false), ("charging.interrupted", false),
-        ("update.installed", false), ("driver.offline", false), ("fuse.over_limit", false),
-    ]
-    var sentPushes: [(title: String, atMs: Double)] = []
-
-    public static let modes: [ModeInfo] = [
+    public nonisolated static let modes: [ModeInfo] = [
         ModeInfo(key: "planner_passive_arbitrage", label: "Passive arbitrage", tooltip: "Charge from the cheapest available source (PV when sunny, grid during cheap hours). Never exports from battery.", tier: "primary"),
         ModeInfo(key: "planner_arbitrage", label: "Active arbitrage", tooltip: "Full price arbitrage — charge cheap, discharge into expensive hours (battery may export to grid).", tier: "primary"),
         ModeInfo(key: "idle", label: "Stop batteries", tooltip: "Hold every battery at 0 W for as long as this mode is on.", tier: "advanced"),
@@ -49,13 +40,19 @@ public final class SimulatedBox {
         ModeInfo(key: "planner_self", label: "Planner (self)", tooltip: "Forecast-driven self-consumption.", tier: "hidden"),
     ]
 
+    /// What a box with a meter, an inverter, a battery and a charger
+    /// offers. Registry names only; `ContractTests` checks.
+    public nonisolated static let caps = [
+        "status.core", "status.drivers", "history.5m", "history.1h", "history.etag", "cmd.lease",
+        "cmd.readback", "der.battery", "der.ev", "plan.dispatch", "price.spot", "api.passthrough",
+    ]
+
     public init(scheduler: Scheduler, house: SimulatedHouse = SimulatedHouse(), requireStepUp: Bool = false, uptimeAtStartMs: Double = 3_600_000) {
         self.scheduler = scheduler
         self.house = house
         self.requireStepUp = requireStepUp
         bootedAtMs = scheduler.nowMs - uptimeAtStartMs
         house.step(nowMs: scheduler.nowMs, dtMs: 1_000)
-        devices = [("Qm94T3du", Contract.roleOwner, scheduler.nowMs - 40 * 86_400_000, scheduler.nowMs - 3 * 3_600_000)]
     }
 
     var uptimeMs: Double { scheduler.nowMs - bootedAtMs }
@@ -69,11 +66,6 @@ public final class SimulatedBox {
         telemetry?.cancel()
         telemetry = nil
         send = nil
-    }
-
-    /// Register a phone, as a pairing on the box would.
-    public func enroll(deviceID: String, role: String) {
-        devices.insert((deviceID, role, scheduler.nowMs, scheduler.nowMs), at: 0)
     }
 
     // MARK: Frames in
@@ -90,15 +82,11 @@ public final class SimulatedBox {
             subscription = Subscription(bucket: body["bucket"]?.int ?? 512, hz: body["hz"]?.double ?? 1)
             if first { sendSnap() }
             restartTelemetry()
-        case "plan.get": sendBulk(Envelope(t: "plan", id: env.id, b: planCBOR()))
         case "price.get":
             // The box decodes times into int64 and drops a body with a
             // fraction in one, answering nothing. So does this.
             guard let from = Self.wholeMs(body["fromMs"]), let to = Self.wholeMs(body["toMs"]) else { return }
             sendBulk(Envelope(t: "price", id: env.id, b: pricesCBOR(from: from, to: to)))
-        case "hist.query":
-            guard Self.wholeMs(body["fromMs"]) != nil, Self.wholeMs(body["toMs"]) != nil else { return }
-            onHistory(env.id, body)
         case "api.req": onAPI(env.id, body)
         case "cmd": onCommand(body)
         default: break
@@ -121,7 +109,7 @@ public final class SimulatedBox {
             ("mode", .text(booting ? "booting" : "full")),
             ("box", .map([("id", .text("demo-box")), ("build", .text("0.131.0-demo")), ("tz", .text(house.timeZone.identifier))])),
             ("clock", .map([("source", .text("ntp")), ("syncedAtMs", .number(scheduler.nowMs - 60_000)), ("uptimeMs", .number(uptimeMs))])),
-            ("caps", .array(["status.core", "status.drivers", "history.5m", "history.1h", "history.etag", "cmd.lease", "cmd.readback", "der.battery", "der.ev", "plan.dispatch", "price.spot", "api.passthrough"].map { .text($0) })),
+            ("caps", .array(Self.caps.map { .text($0) })),
             ("capsHash", .text("demo")),
             ("modes", .array(Self.modes.map { .map([("key", .text($0.key)), ("label", .text($0.label)), ("tooltip", .text($0.tooltip)), ("tier", .text($0.tier))]) })),
             ("role", .text(Contract.roleOwner)),
@@ -223,46 +211,7 @@ public final class SimulatedBox {
         }
     }
 
-    // MARK: Plan and prices
-
-    func planSlots() -> [PlanSlot] {
-        let slotMs: Double = 900_000
-        let start = (scheduler.nowMs / slotMs).rounded(.down) * slotMs
-        return (0..<96).map { i in
-            let t = start + Double(i) * slotMs
-            let price = house.priceAt(t)
-            let pv = house.pvAt(t)
-            let load = house.baseLoadAt(t)
-            var battery = 0.0
-            var reason = "idle"
-            if -pv > load + 300 {
-                battery = min(house.batteryMaxW, -pv - load).rounded(); reason = "solar_surplus"
-            } else if price < 45 {
-                battery = house.modeKey == "planner_self" ? 0 : 3_000; reason = battery > 0 ? "cheap_import" : "idle"
-            } else if price > 110 {
-                battery = -min(house.batteryMaxW, load).rounded(); reason = "expensive_import"
-            } else if price > 80 {
-                reason = "reserve_held"
-            }
-            return PlanSlot(startMs: t, durationMs: slotMs, batteryW: battery, gridW: load + battery + pv, priceMinor: price, reason: reason)
-        }
-    }
-
-    func planCBOR() -> CBOR {
-        .map([
-            ("rev", .unsigned(planRev)),
-            ("uptimeMs", .number(uptimeMs)),
-            ("slots", .array(planSlots().map { s in
-                .map([
-                    ("startMs", .number(s.startMs)), ("durationMs", .number(s.durationMs)),
-                    ("batteryW", .number(s.batteryW)), ("gridW", .number(s.gridW)),
-                    ("priceMinor", s.priceMinor.map { CBOR.number($0) } ?? .null), ("reason", .text(s.reason)),
-                ])
-            })),
-            ("stale", .bool(false)),
-            ("ceilingW", .int(11_000)),
-        ])
-    }
+    // MARK: Prices
 
     func pricesCBOR(from: Double, to: Double) -> CBOR {
         let slotMs: Double = 3_600_000
@@ -278,49 +227,6 @@ public final class SimulatedBox {
             t += slotMs
         }
         return .map([("zone", .text("SE3")), ("currency", .text("SEK")), ("slots", .array(slots)), ("stale", .bool(end < to))])
-    }
-
-    // MARK: History
-
-    private func onHistory(_ id: UInt32?, _ body: CBOR) {
-        let series = body["series"]?.stringArray ?? []
-        let res = body["res"]?.string.flatMap(Resolution.init(rawValue:)) ?? .fiveMinutes
-        let from = body["fromMs"]?.double ?? scheduler.nowMs - 86_400_000
-        let to = body["toMs"]?.double ?? scheduler.nowMs
-        let maxPoints = body["maxPoints"]?.int ?? 2000
-        var have = [String: String]()
-        for h in body["have"]?.array ?? [] {
-            if let t = h["tileId"]?.string, let e = h["etag"]?.string { have[t] = e }
-        }
-        let plan = HistoryGeometry.plan(res, fromMs: from, toMs: to, maxPoints: maxPoints)
-        for tile in plan.tiles {
-            let partial = tile.startMs + HistoryGeometry.spec(plan.res).tileSpanMs > scheduler.nowMs
-            let columns: [[Int32]] = series.map { name in
-                (0..<tile.points).map { i in
-                    let t = tile.startMs + Double(i) * plan.stepMs
-                    if t > scheduler.nowMs { return missingSample }
-                    let pv = house.pvAt(t)
-                    let load = house.baseLoadAt(t)
-                    let battery = max(-5_000, min(5_000, -(load + pv)))
-                    switch name {
-                    case "pv_w": return Int32(pv)
-                    case "load_w": return Int32(load)
-                    case "battery_w": return Int32(battery)
-                    case "grid_w": return Int32(load + battery + pv)
-                    default: return missingSample
-                    }
-                }
-            }
-            let data = HistoryGeometry.pack(columns)
-            let etag = HistoryGeometry.etag(data)
-            if !partial, have[tile.tileId] == etag { continue }
-            sendBulk(Envelope(t: "hist.chunk", id: id, b: .map([
-                ("tileId", .text(tile.tileId)), ("etag", .text(etag)), ("res", .text(plan.res.rawValue)),
-                ("startMs", .number(tile.startMs)), ("stepMs", .number(plan.stepMs)),
-                ("series", .array(series.map { .text($0) })), ("data", .bytes(data)), ("partial", .bool(partial)),
-            ])))
-        }
-        sendBulk(Envelope(t: "hist.end", id: id, b: .map([("resActual", .text(plan.res.rawValue)), ("gaps", .array([]))])))
     }
 
     // MARK: Commands
@@ -345,10 +251,7 @@ public final class SimulatedBox {
             }
             house.modeKey = mode
             controlRev += 1
-            planRev += 1
             result(cmdId, "applied", observed: Double(Self.modes.firstIndex { $0.key == mode } ?? 0))
-            // A plan pushed unasked after a mode change, as the box does.
-            sendBulk(Envelope(t: "plan", b: planCBOR()))
         case Contract.opLoadpointHold:
             if args["clear"]?.bool == true {
                 house.manualHoldW = nil
@@ -400,9 +303,6 @@ public final class SimulatedBox {
         ("GET", "/api/status", .read, nil),
         ("GET", "/api/energy/daily", .read, nil),
         ("GET", "/api/savings/daily", .read, nil),
-        ("GET", "/api/app-link/devices", .read, nil),
-        ("POST", "/api/app-link/pairing", .configure, nil),
-        ("DELETE", "/api/app-link/devices/{id}", .configure, nil),
         ("GET", "/api/loadpoints", .read, nil),
         ("GET", "/api/mpc/plan", .read, nil),
         ("POST", "/api/loadpoints/{id}/vehicle", .configure, nil),
@@ -410,12 +310,6 @@ public final class SimulatedBox {
         ("DELETE", "/api/loadpoints/{id}/schedule", .configure, nil),
         ("POST", "/api/loadpoints/{id}/soc", .actuate, Contract.opLoadpointSocSet),
         ("POST", "/api/mode", .actuate, Contract.opSetMode),
-        ("GET", "/api/notifications/vapid", .read, nil),
-        ("GET", "/api/notifications/history", .read, nil),
-        ("GET", "/api/notifications/rules", .read, nil),
-        ("PUT", "/api/notifications/rules", .configure, nil),
-        ("POST", "/api/notifications/test", .configure, nil),
-        ("POST", "/api/restart", .configure, nil),
         ("GET", "/api/config", .local, nil),
         ("GET", "/api/support/dump", .local, nil),
     ]
@@ -524,44 +418,9 @@ public final class SimulatedBox {
         case ("DELETE", "/api/loadpoints/{id}/schedule"):
             house.schedule = nil
             return (200, ["ok": true])
-        case ("GET", "/api/app-link/devices"):
-            return (200, ["devices": .array(devices.map { ["id": .string($0.id), "role": .string($0.role), "added_at_ms": .number($0.addedAtMs), "last_seen_ms": .number($0.lastSeenMs)] })])
-        case ("POST", "/api/app-link/pairing"):
-            let role = body?["role"]?.string ?? ""
-            guard role == Contract.roleViewer || role == Contract.roleOwner else { return (400, ["code": "E_BAD_ROLE"]) }
-            let invite = Enrollment(boxStaticPublic: Bytes(repeating: 7, count: 32), pairingCode: randomBytes(16), lanHint: "", rendezvousSecret: randomBytes(32))
-            return (200, ["url": .string(invite.url()), "role": .string(role), "expires_at_ms": .number(now + 600_000)])
-        case ("DELETE", "/api/app-link/devices/{id}"):
-            guard let itemID, devices.contains(where: { $0.id == itemID }) else { return (404, [:]) }
-            let owners = devices.filter { $0.role == Contract.roleOwner }
-            if owners.count == 1, owners.first?.id == itemID { return (409, ["code": "E_LAST_OWNER_PROTECTED"]) }
-            devices.removeAll { $0.id == itemID }
-            return (200, ["ok": true])
-        case ("GET", "/api/notifications/vapid"):
-            return (200, ["public_key": "BDemoKeyNotForSending"])
-        case ("GET", "/api/notifications/history"):
-            return (200, ["events": .array(sentPushes.reversed().map { ["title": .string($0.title), "at_ms": .number($0.atMs)] })])
-        case ("GET", "/api/notifications/rules"):
-            return (200, rulesJSON())
-        case ("PUT", "/api/notifications/rules"):
-            notifyEnabled = body?["enabled"]?.bool ?? notifyEnabled
-            for rule in body?["events"]?.array ?? [] {
-                guard let type = rule["type"]?.string, let i = notifyRules.firstIndex(where: { $0.type == type }) else { continue }
-                notifyRules[i].enabled = rule["enabled"]?.bool ?? false
-            }
-            return (200, rulesJSON())
-        case ("POST", "/api/notifications/test"):
-            sentPushes.append(("Test from your FTW box", now))
-            return (200, ["ok": true])
-        case ("POST", "/api/restart"):
-            return (200, ["status": "restarting"])
         default:
             return (404, [:])
         }
-    }
-
-    private func rulesJSON() -> JSON {
-        ["enabled": .bool(notifyEnabled), "events": .array(notifyRules.map { ["type": .string($0.type), "enabled": .bool($0.enabled), "threshold": 0] })]
     }
 
     func loadpointJSON() -> JSON {
@@ -698,12 +557,23 @@ public final class LoopbackCarrier: Carrier {
         }
     }
 
-    public func wake() {}
+    /// Pull to refresh in the demo: the house moves on a second.
+    public func wake() {
+        box.tick()
+    }
 
     public func close(reason: String) {
         if closed { return }
         closed = true
         box.stop()
         status = .closed(reason: reason, retryable: false)
+    }
+}
+
+extension SimulatedBox {
+    /// The demo as `AppModel` takes it: a fresh simulated home behind a
+    /// loopback carrier.
+    public static func loopback(_ scheduler: Scheduler) -> Carrier {
+        LoopbackCarrier(box: SimulatedBox(scheduler: scheduler), scheduler: scheduler)
     }
 }

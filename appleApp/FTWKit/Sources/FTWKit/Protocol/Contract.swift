@@ -51,13 +51,28 @@ public enum Contract {
     public static let capAPIPassthrough = "api.passthrough"
 
     public static let opSetMode = "site.mode.set"
+    public static let opPlannerPrefsSet = "planner.prefs.set"
     public static let opBatteryHold = "battery.hold"
     public static let opLoadpointHold = "loadpoint.hold"
     public static let opLoadpointBoost = "loadpoint.boost"
     public static let opLoadpointSocSet = "loadpoint.soc.set"
     public static let opLoadpointSurplusOnlySet = "loadpoint.surplus_only.set"
 
-    public static let ops = [opSetMode, opBatteryHold, opLoadpointHold, opLoadpointBoost, opLoadpointSocSet, opLoadpointSurplusOnlySet]
+    public static let ops = [opSetMode, opPlannerPrefsSet, opBatteryHold, opLoadpointHold, opLoadpointBoost, opLoadpointSocSet, opLoadpointSurplusOnlySet]
+
+    /// The box's dispatch modes and where each is drawn. The box sends its
+    /// own catalogue and is the authority on what exists; this copy is for
+    /// validating and wording, never for deciding.
+    public static let modes: [(key: String, tier: String)] = [
+        ("planner_passive_arbitrage", "primary"),
+        ("planner_arbitrage", "primary"),
+        ("idle", "advanced"),
+        ("self_consumption", "advanced"),
+        ("peak_shaving", "advanced"),
+        ("charge", "advanced"),
+        ("planner_self", "hidden"),
+        ("planner_cheap", "hidden"),
+    ]
 
     /// Field ids frozen permanently as of v1.
     public enum FID {

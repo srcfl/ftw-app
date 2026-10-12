@@ -48,29 +48,15 @@ enum Theme {
     }
 
     private static func pair(_ light: UInt32, _ dark: UInt32) -> Color {
-        #if os(iOS)
         return Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(rgb: dark) : UIColor(rgb: light) })
-        #else
-        return Color(NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? NSColor(rgb: dark) : NSColor(rgb: light)
-        })
-        #endif
     }
 }
 
-#if os(iOS)
 private extension UIColor {
     convenience init(rgb: UInt32) {
         self.init(red: CGFloat((rgb >> 16) & 0xFF) / 255, green: CGFloat((rgb >> 8) & 0xFF) / 255, blue: CGFloat(rgb & 0xFF) / 255, alpha: 1)
     }
 }
-#else
-private extension NSColor {
-    convenience init(rgb: UInt32) {
-        self.init(srgbRed: CGFloat((rgb >> 16) & 0xFF) / 255, green: CGFloat((rgb >> 8) & 0xFF) / 255, blue: CGFloat(rgb & 0xFF) / 255, alpha: 1)
-    }
-}
-#endif
 
 /// A raised card, the web app's `.card`.
 struct Card<Content: View>: View {

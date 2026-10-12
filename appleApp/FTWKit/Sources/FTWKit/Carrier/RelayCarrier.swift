@@ -1,4 +1,5 @@
 import Foundation
+import FTWShared
 
 /// A WebSocket to Sourceful's blind relay, wrapped so nothing above it ever
 /// learns the network went away. There is no reconnect button in this app
@@ -15,10 +16,10 @@ import Foundation
 /// relay says the box is back: an hour offline costs one connection.
 @MainActor
 public final class RelayCarrier: Carrier {
-    public static let closeBadJoin = 4400
-    public static let closeEpoch = 4409
-    public static let closeRotated = 4410
-    public static let closeBusy = 4429
+    public nonisolated static let closeBadJoin = 4400
+    public nonisolated static let closeEpoch = 4409
+    public nonisolated static let closeRotated = 4410
+    public nonisolated static let closeBusy = 4429
     static let ctrlReady = "ready"
     static let ctrlGone = "gone"
 
@@ -224,7 +225,7 @@ public final class RelayCarrier: Carrier {
         }
     }
 
-    static func closeReason(_ code: Int) -> String {
+    nonisolated static func closeReason(_ code: Int) -> String {
         switch code {
         case closeEpoch, closeRotated: return "rendezvous rotated"
         case closeBusy: return "relay is busy"

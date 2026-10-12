@@ -7,13 +7,9 @@
 		<string>webcredentials:app.ftw.energy</string>
 		<string>applinks:app.ftw.energy</string>
 	</array>
-	<key>com.apple.security.app-sandbox</key>
-	<true/>
-	<key>com.apple.security.device.camera</key>
-	<true/>
-	<key>com.apple.security.files.user-selected.read-only</key>
-	<true/>
-	<key>com.apple.security.network.client</key>
-	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>$(FTW_APP_GROUP)</string>
+	</array>
 </dict>
 </plist>
