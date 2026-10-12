@@ -1,0 +1,65 @@
+name: Apple
+
+on:
+  push:
+    branches: [main]
+    paths: ['appleApp/**', 'protocol/**', '.github/workflows/apple.yml']
+  pull_request:
+    paths: ['appleApp/**', 'protocol/**', '.github/workflows/apple.yml']
+
+concurrency:
+  group: apple-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kit-linux:
+    name: FTWKit on Linux
+    runs-on: ubuntu-latest
+    container: swift:6.1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        working-directory: appleApp/FTWKit
+        run: swift test
+
+  apple:
+    name: FTWKit and the app on macOS
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the newest Xcode on the runner
+        run: |
+          latest=$(ls -d /Applications/Xcode_*.app | sort -V | tail -1)
+          sudo xcode-select -s "$latest"
+          xcodebuild -version
+      - name: Test FTWKit with CryptoKit
+        working-directory: appleApp/FTWKit
+        run: swift test
+      # Unsigned builds: they prove the app compiles for both platforms.
+      # Signing, passkeys and the camera need a team and a device.
+      - name: Build the app for the iOS Simulator
+        working-directory: appleApp
+        run: >-
+          xcodebuild build -quiet -project FTW.xcodeproj -scheme FTW
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath build/ios CODE_SIGNING_ALLOWED=NO
+      - name: Build the app for macOS
+        working-directory: appleApp
+        run: >-
+          xcodebuild build -quiet -project FTW.xcodeproj -scheme FTW
+          -destination 'generic/platform=macOS'
+          -derivedDataPath build/macos CODE_SIGNING_ALLOWED=NO
+      # For whoever reviews the screens: the demo, photographed per tab in
+      # the simulator. Evidence, not a gate, so a flaky simulator does not
+      # turn the build red.
+      - name: Photograph the demo in the iOS Simulator
+        continue-on-error: true
+        working-directory: appleApp
+        run: scripts/demo-screenshots.sh build/screenshots
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: demo-screenshots
+          path: appleApp/build/screenshots
+          if-no-files-found: ignore
