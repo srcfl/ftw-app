@@ -72,6 +72,7 @@ import Testing
         #expect(!opening.text.contains("\n"))
         #expect(blocks.contains { $0.kind == .heading(2) && $0.text == "0. Definitions." })
         #expect(blocks.contains { $0.kind == .heading(1) && $0.text == "TERMS AND CONDITIONS" })
+        #expect(blocks.contains { $0.kind == .heading(1) && $0.text == "GNU AFFERO GENERAL PUBLIC LICENSE\nVersion 3, 19 November 2007" })
         #expect(blocks.contains { $0.kind == .rule })
         // Both of the license's own permissions are there.
         #expect(blocks.contains { $0.text.contains("FTW app store distribution permission") } || blocks.contains { $0.text.contains("Energyplan") })

@@ -43,6 +43,16 @@ struct RemovePhoneView: View {
 
             Section {
                 Button(AboutWords.text("Remove from this phone"), role: .destructive) { confirming = true }
+                    // On the button, so the question points at what asked it.
+                    .confirmationDialog(AboutWords.text("Remove this phone?"), isPresented: $confirming, titleVisibility: .visible) {
+                        Button(AboutWords.text("Remove"), role: .destructive) {
+                            close()
+                            app.leave()
+                        }
+                        Button(AboutWords.text("Cancel"), role: .cancel) {}
+                    } message: {
+                        Text(AboutWords.text("FTW forgets your home on this phone. To come back, scan a new pairing QR from your box."))
+                    }
             } header: {
                 Text(AboutWords.text("On this phone"))
             } footer: {
@@ -53,14 +63,5 @@ struct RemovePhoneView: View {
         .background(Theme.surface)
         .navigationTitle(AboutWords.text("Remove this phone"))
         .navigationBarTitleDisplayMode(.inline)
-        .confirmationDialog(AboutWords.text("Remove this phone?"), isPresented: $confirming, titleVisibility: .visible) {
-            Button(AboutWords.text("Remove"), role: .destructive) {
-                close()
-                app.leave()
-            }
-            Button(AboutWords.text("Cancel"), role: .cancel) {}
-        } message: {
-            Text(AboutWords.text("FTW forgets your home on this phone. To come back, scan a new pairing QR from your box."))
-        }
     }
 }

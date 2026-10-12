@@ -29,6 +29,8 @@ struct AboutView: View {
     let app: AppModel
     @State private var path: [Route]
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @ScaledMetric(relativeTo: .title2) private var markSize: CGFloat = 52
     private let source = BuildSource.bundled
 
     init(app: AppModel, start: Start = .about) {
@@ -109,8 +111,9 @@ struct AboutView: View {
             .navigationTitle(AboutWords.text("Source & licenses"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
+                ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .close) { dismiss() }
+                        .tint(nil)
                 }
             }
             .navigationDestination(for: Route.self) { route in
@@ -128,12 +131,13 @@ struct AboutView: View {
     /// The notices the AGPL asks an interactive program to show: who holds
     /// the copyright, that there is no warranty, and where the license is.
     private var header: some View {
-        HStack(alignment: .top, spacing: 14) {
+        let stack = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: 12)) : AnyLayout(HStackLayout(alignment: .top, spacing: 14))
+        return stack {
             Image(systemName: "bolt.fill")
                 .font(.title2)
                 .foregroundStyle(Theme.accent)
-                .frame(width: 52, height: 52)
-                .background(Color(white: 0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .frame(width: markSize, height: markSize)
+                .background(Color(white: 0.05), in: RoundedRectangle(cornerRadius: markSize * 0.23, style: .continuous))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text("FTW").font(.title2.weight(.bold))

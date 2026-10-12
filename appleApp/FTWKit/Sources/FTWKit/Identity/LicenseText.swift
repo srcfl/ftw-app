@@ -62,6 +62,14 @@ public enum LicenseText {
                 add(.heading(level), paragraph[0].trimmingCharacters(in: .whitespaces))
                 return
             }
+            // A title block: lines set in the middle of the page, or a
+            // name in capitals over a short line, such as the license's
+            // name over its version.
+            let titled = paragraph.count == 2 && plainHeading(paragraph[0]) == 1 && paragraph[1].trimmingCharacters(in: .whitespaces).count <= 40
+            if !markdown, paragraph.count > 1, titled || paragraph.allSatisfy(isCentred) {
+                add(.heading(1), paragraph.map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: "\n"))
+                return
+            }
             add(.paragraph, join(paragraph, width: width))
         }
 
@@ -129,6 +137,10 @@ public enum LicenseText {
         return (min(hashes, 2), String(line.dropFirst(hashes + 1)))
     }
 
+    static func isCentred(_ line: String) -> Bool {
+        line.prefix(while: { $0 == " " }).count >= 8 && line.trimmingCharacters(in: .whitespaces).count <= 60
+    }
+
     /// In plain text a title is a line on its own: set in capitals, centred
     /// with spaces, or a numbered section such as "0. Definitions."
     static func plainHeading(_ line: String) -> Int? {
@@ -136,7 +148,7 @@ public enum LicenseText {
         guard trimmed.count <= 60 else { return nil }
         let letters = trimmed.filter(\.isLetter)
         if !letters.isEmpty, letters == letters.uppercased(), letters.count >= 4 { return 1 }
-        if line.prefix(while: { $0 == " " }).count >= 8 { return 1 }
+        if isCentred(line) { return 1 }
         if trimmed.range(of: #"^[0-9]{1,2}\. [A-Z][^.]*\.$"#, options: .regularExpression) != nil { return 2 }
         return nil
     }
