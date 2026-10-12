@@ -297,84 +297,50 @@ public final class SavingsModel: Activatable {
     }
 }
 
-/// "Is FTW in control?" in one calm line. Core owns every verdict: the
-/// stream's dispatch block and each device's control feedback with its
-/// severity. This only picks words, and never says yes from readings that
-/// are not live: a cache shows when it was last known, in grey.
+/// "Is FTW in control?" in one calm line, from the stream alone: lane 0
+/// carries the box's dispatch block and each source's state, so the line
+/// needs no request and no timer. It is green only while frames arrive
+/// and the box says nothing blocks it; from a cache it is grey and dated.
+/// Core's per-device control feedback joins it when lane 0 carries it (M5).
 public enum InControl {
-    public enum Tone: Equatable, Sendable { case ok, warning, alarm, neutral, stale }
+    public enum Tone: Equatable, Sendable { case ok, warning, neutral, stale }
 
     public struct Answer: Equatable, Sendable {
         public let tone: Tone
         public let title: String
         public let detail: String?
+
+        public init(tone: Tone, title: String, detail: String?) {
+            self.tone = tone
+            self.title = title
+            self.detail = detail
+        }
     }
 
-    /// - live: the stream is streaming, not the cache, every source live.
-    /// - status: GET /api/status, nil until it has answered.
-    /// - statusFresh: that answer is current.
-    public static func answer(live: Bool, lastKnownMs: Double?, dispatchBlockedBy: [String], status: JSON?, statusFresh: Bool, zone: TimeZone = .current) -> Answer {
-        guard live else {
+    /// - streaming: frames are arriving now over a live carrier.
+    /// - sources: the box's own account of each device it reads.
+    public static func answer(streaming: Bool, lastKnownMs: Double?, dispatchBlockedBy: [String], sources: [String: Source], zone: TimeZone = .current) -> Answer {
+        guard streaming else {
             return Answer(tone: .stale, title: AppWords.text("Not live right now"), detail: lastKnownMs.map { AppWords.format("Last known %@.", AppWords.clock($0, zone: zone)) } ?? AppWords.text("Waiting for your box."))
         }
         if !dispatchBlockedBy.isEmpty {
             return Answer(tone: .warning, title: AppWords.text("FTW is not in control right now"), detail: AppWords.text("A meter stopped reporting. Your home runs on grid power as usual."))
         }
-        guard let status, statusFresh else {
-            return Answer(tone: .neutral, title: AppWords.text("Checking…"), detail: AppWords.text("Asking your box how its devices respond."))
+        let quiet = sources.values.filter { $0.state == .stale || $0.state == .down }.sorted { $0.name < $1.name }
+        if let first = quiet.first {
+            let title = quiet.count == 1 ? AppWords.format("%@ is not reporting", noun(first.kind)) : AppWords.format("%@ devices are not reporting", String(quiet.count))
+            return Answer(tone: .warning, title: title, detail: first.name.isEmpty ? nil : first.name)
         }
-        guard let rows = status["control_feedback"]?.array else {
-            // A box from before control feedback: live and not blocked is
-            // all it says, so that is all this says.
-            return Answer(tone: .neutral, title: AppWords.text("Connected and live"), detail: AppWords.text("This box does not report whether devices follow it."))
-        }
-        let valid = rows.filter { $0["driver"]?.string != nil && $0["status"]?.string != nil }
-        let alarms = valid.filter { $0["severity"]?.string == "alarm" }
-        let warnings = valid.filter { $0["severity"]?.string == "warning" }
-        if let first = alarms.first {
-            let title = alarms.count == 1 ? AppWords.format("%@ needs attention now", noun(first)) : AppWords.format("%@ devices need attention now", String(alarms.count))
-            return Answer(tone: .alarm, title: title, detail: reasonTitle(first))
-        }
-        if let first = warnings.first {
-            let title = warnings.count == 1 ? AppWords.format("%@ needs a look", noun(first)) : AppWords.format("%@ devices need a look", String(warnings.count))
-            return Answer(tone: .warning, title: title, detail: reasonTitle(first))
-        }
-        if !valid.contains(where: { $0["status"]?.string != "not_controlled" }) {
-            return Answer(tone: .neutral, title: AppWords.text("FTW controls no device right now"), detail: nil)
-        }
-        return Answer(tone: .ok, title: AppWords.text("Yes, FTW is in control"), detail: AppWords.text("Every device follows FTW."))
+        return Answer(tone: .ok, title: AppWords.text("Yes, FTW is in control"), detail: AppWords.text("Nothing blocks it, and every device reports."))
     }
 
-    static func noun(_ row: JSON) -> String {
-        switch row["kind"]?.string {
+    static func noun(_ kind: String) -> String {
+        switch kind {
+        case "meter": return AppWords.text("The meter")
+        case "inverter": return AppWords.text("The inverter")
         case "battery": return AppWords.text("The battery")
-        case "ev", "v2x_charger": return AppWords.text("The charger")
-        case "pv": return AppWords.text("The solar inverter")
+        case "charger", "ev": return AppWords.text("The charger")
         default: return AppWords.text("A device")
         }
-    }
-
-    /// Core's reason titles, the box page's words (web/control-feedback.js).
-    static let reasonTitles: [String: String] = [
-        "waiting_response": "Adjusting", "no_command": "No command yet", "not_connected": "No car connected",
-        "no_plan_budget": "Waiting for the plan", "pv_surplus_pause": "Waiting for spare solar", "wake_kick": "Starting the charger",
-        "vehicle_complete": "Car is full", "vehicle_limit_completion": "Car reached its limit", "vehicle_not_requesting": "Car not taking power",
-        "battery_full": "Battery full", "battery_nearly_full": "Battery nearly full", "battery_nearly_empty": "Battery nearly empty",
-        "core_limit": "Limited by FTW", "fuse_limit": "Limited by the main fuse", "fuse_cooldown": "Waiting after a fuse limit",
-        "charger_limit": "Limited by FTW's charger setting", "device_limit": "Charger limit", "offered_current_lower": "Charger offers less current",
-        "device_fault": "Device fault", "telemetry_stale": "No fresh readings", "readings_lost": "Lost control",
-        "command_failed": "Commands failing", "command_unconfirmed": "Command not confirmed", "default_failed": "Cannot hand back control",
-        "response_unknown": "No power reading", "observe_only": "Monitoring only", "disabled": "Disabled", "device_control": "Own control",
-        "site_meter_stale": "Paused for safety", "site_phase_currents_stale": "Paused for safety",
-    ]
-
-    static let statusTitles: [String: String] = [
-        "following": "Following FTW", "waiting": "Waiting", "limited": "Limited", "not_following": "Not following",
-        "no_contact": "No contact", "not_controlled": "Not controlled by FTW",
-    ]
-
-    static func reasonTitle(_ row: JSON) -> String {
-        let title = reasonTitles[row["reason"]?.string ?? ""] ?? statusTitles[row["status"]?.string ?? ""] ?? "Checking"
-        return AppWords.text(title)
     }
 }

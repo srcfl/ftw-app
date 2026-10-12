@@ -7,6 +7,11 @@ import Observation
 /// tap to the box's answer and stays on screen, and after any outcome the
 /// charger is read again, because the box's account is the truth to
 /// repaint from.
+///
+/// No timer asks the box. The chargers are read when a screen that shows
+/// them appears, after a command, when the stream says the car started or
+/// stopped drawing power, and when the stream comes back. Until the box
+/// streams charger state (M5), that is all.
 @Observable
 @MainActor
 public final class LoadpointsModel: Activatable {
@@ -39,6 +44,9 @@ public final class LoadpointsModel: Activatable {
     /// Levels set from this phone, kept while the car stays plugged in, so
     /// the view can say "you set it".
     public private(set) var levelSet: [String: EVText.LevelSet] = [:]
+    /// What is on screen came from the phone's own cache, not the box. True
+    /// from a cold start until the first read.
+    public private(set) var fromCache = false
 
     @ObservationIgnored private unowned let site: SiteModel
     @ObservationIgnored private let charging: ChargingWatch?
@@ -51,21 +59,53 @@ public final class LoadpointsModel: Activatable {
     @ObservationIgnored private var reading: Task<Void, Error>?
     @ObservationIgnored private var levelSending: Set<String> = []
     @ObservationIgnored private var clearing: [String: Cancellable] = [:]
+    /// Bumped by each appearance and by `reread`: a new reason to ask.
+    @ObservationIgnored private var visits = 0
 
-    public init(site: SiteModel, charging: ChargingWatch?) {
+    /// `cache` is what the app left for its widgets; a cold start paints the
+    /// car from it before the box has answered. Nil in the demo and tests.
+    public init(site: SiteModel, charging: ChargingWatch?, cache: CacheReader? = CacheReader.shared()) {
         self.site = site
         self.charging = charging
+        if let siteId = site.siteId, let read = cache?.read(CarEntry.self, siteId: siteId) {
+            points = read.value.cars.map { Self.loadpoint($0, readAtMs: read.record.readAtMs) }
+            readAtMs = read.record.readAtMs
+            fromCache = true
+        }
+    }
+
+    /// A charger as the cache kept it: enough for the level, its source and
+    /// age, the cable and the power. The goal and the plan wait for the box.
+    static func loadpoint(_ car: CarEntry.Car, readAtMs: Double) -> Loadpoint {
+        var w: [(String, JSON)] = [
+            ("id", .string(car.loadpointID)),
+            ("plugged_in", .bool(car.pluggedIn)),
+            ("soc_source", .string(car.socSource)),
+            ("current_power_w", .number(car.powerW)),
+        ]
+        if let pct = car.socPct { w.append(("current_soc", .number(pct / 100))) }
+        if let pct = car.targetSocPct { w.append(("target_soc", .number(pct / 100))) }
+        if car.socSource == "vehicle", let at = car.socReadAtMs { w.append(("vehicle_soc_age_s", .number(max(0, readAtMs - at) / 1000))) }
+        return Loadpoint(.object(w))
     }
 
     public func activate() {
         active += 1
+        visits += 1
         if ask == nil {
             ask = LiveAsk(site: site, want: { [weak self] in
                 guard let self, self.active > 0, self.site.documentVisible, self.site.hasPassthrough else { return nil }
-                return "loadpoints \(Int(self.site.nowMs / 5_000))"
+                return "loadpoints \(self.visits) \(self.drawing)"
             }, ask: { [weak self] in try await self?.load() })
         }
         ask?.evaluate()
+    }
+
+    /// Whether the stream says a car is drawing power. A change is a reason
+    /// to read the chargers; nothing else on lane 0 is.
+    var drawing: String {
+        guard let w = site.session.fields[Contract.FID.evW] else { return "-" }
+        return w >= 100 ? "on" : "off"
     }
 
     public func deactivate() {
@@ -82,7 +122,7 @@ public final class LoadpointsModel: Activatable {
                 guard let self, self.planWatchers > 0, self.site.documentVisible, self.site.hasPassthrough, self.inlinePlan else { return nil }
                 let goals = self.points.filter { $0.pluggedIn && $0.schedule != nil && !$0.planPending && !$0.planOutdated }
                 guard !goals.isEmpty else { return nil }
-                return "plan \(goals.map(Self.planKey).joined(separator: ",")) \(Int(self.site.nowMs / 60_000))"
+                return "plan \(goals.map(Self.planKey).joined(separator: ","))"
             }, ask: { [weak self] in try await self?.readShortfall() })
         }
         planAsk?.evaluate()
@@ -99,14 +139,17 @@ public final class LoadpointsModel: Activatable {
         return "\(lp.id):\(lp.socPct ?? -1):\(s?.socPct ?? -1):\(s?.timeOfDayMinUTC ?? -1):\(lp.planWindows.count):\(Int(lp.planWindows.first?.fromMs ?? 0)):\(Int(lp.planTotalWh ?? 0))"
     }
 
-    /// Out of date: the read failed, the stream stopped, or it is old.
+    /// Out of date: from the cache, the read failed, or the stream stopped.
+    /// An answer is not out of date for being minutes old: the stream would
+    /// have said if the car started or stopped drawing.
     public var stale: Bool {
-        error != nil || site.session.phase != .streaming || (readAtMs.map { site.nowMs - $0 >= 15_000 } ?? false)
+        fromCache || error != nil || site.session.phase != .streaming
     }
 
-    /// Read now rather than at the next tick.
+    /// Ask again now: pull to refresh, or the demo's cable.
     public func reread() {
-        Task { try? await self.loadChargers() }
+        visits += 1
+        ask?.evaluate()
     }
 
     // MARK: Reads
@@ -144,6 +187,7 @@ public final class LoadpointsModel: Activatable {
                 planMissing = false
             }
             loaded = true
+            fromCache = false
             readAtMs = site.scheduler.nowMs
             error = nil
             site.shareCars(points, fresh: true)
@@ -247,16 +291,22 @@ public final class LoadpointsModel: Activatable {
         }
     }
 
-    /// The level to show: a tap on its way, else where the car stands.
+    /// The level to show: the box's account. A tap on its way shows as the
+    /// chosen chip and the receipt, never as the level: only the box's
+    /// answer moves the number. Between its answer and the next read, the
+    /// level it confirmed is the newest fact.
     public func level(_ lp: Loadpoint) -> EVText.Level? {
-        guard var level = EVText.level(lp, answeredAtMs: readAtMs ?? site.nowMs, nowMs: site.nowMs, set: levelSet[lp.id]) else { return nil }
-        if let want = levelWanted[lp.id] {
-            level.pct = want
-            level.origin = .you
-            level.atMs = site.nowMs
-            level.setPct = nil
+        let set = levelSet[lp.id]
+        guard var level = EVText.level(lp, answeredAtMs: readAtMs ?? site.nowMs, nowMs: site.nowMs, set: set) else { return nil }
+        if let set, (readAtMs ?? 0) < set.atMs {
+            level = EVText.Level(pct: set.pct, origin: .you, atMs: set.atMs, setPct: nil)
         }
         return level
+    }
+
+    /// The chip to show as chosen: the tap on its way, else the level.
+    public func chosenLevel(_ lp: Loadpoint) -> Double? {
+        levelWanted[lp.id] ?? level(lp)?.pct
     }
 
     // MARK: Charge now, Pause, Back to the plan

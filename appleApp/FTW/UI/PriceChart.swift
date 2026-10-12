@@ -5,7 +5,7 @@ import SwiftUI
 /// Prices ahead, as bars from zero. Compact on Now: the price this moment
 /// and the cheapest two hours. Full on Plan: every slot of today and
 /// tomorrow with the moment marked.
-struct PriceChart: View {
+struct PriceChart: View, Equatable {
     let prices: Prices
     let nowMs: Double
     var compact = false

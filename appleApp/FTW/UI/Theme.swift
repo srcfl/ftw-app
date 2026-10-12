@@ -3,24 +3,25 @@ import SwiftUI
 
 /// The web app's design roles (src/styles/tokens.css), light and dark, so the
 /// native app and the box's own page look like one product. Views read
-/// roles, never raw colours.
+/// roles, never raw colours. The values live in `Theme.xcassets`, one colour
+/// set per role with its dark variant, so the system switches them.
 enum Theme {
-    static let surface = pair(0xF4F4F2, 0x0D0D0D)
-    static let surfaceSunken = pair(0xECECE8, 0x101010)
-    static let surfaceRaised = pair(0xFAFAF8, 0x161616)
-    static let surfaceElevated = pair(0xFFFFFF, 0x1E1E1E)
-    static let line = pair(0xCECEC7, 0x2A2A2A)
-    static let fg = pair(0x191919, 0xE8E8E8)
-    static let fgDim = pair(0x4F4F4B, 0xA0A0A0)
-    static let fgMuted = pair(0x686862, 0x858585)
-    static let onAccent = pair(0x0A0A0A, 0x0A0A0A)
+    static let surface = Color("ftw.surface")
+    static let surfaceSunken = Color("ftw.surfaceSunken")
+    static let surfaceRaised = Color("ftw.surfaceRaised")
+    static let surfaceElevated = Color("ftw.surfaceElevated")
+    static let line = Color("ftw.line")
+    static let fg = Color("ftw.fg")
+    static let fgDim = Color("ftw.fgDim")
+    static let fgMuted = Color("ftw.fgMuted")
+    static let onAccent = Color("ftw.onAccent")
 
-    static let accent = pair(0xDA7F00, 0xFFAC41)
-    static let importing = pair(0xCC243D, 0xFF6E74)
-    static let exporting = pair(0x009639, 0x5FD37F)
-    static let generation = pair(0xD48500, 0xFFB000)
-    static let storage = pair(0x008FA8, 0x13DCF6)
-    static let mobility = pair(0x7F5BB6, 0xCCA8FF)
+    static let accent = Color("ftw.accent")
+    static let importing = Color("ftw.importing")
+    static let exporting = Color("ftw.exporting")
+    static let generation = Color("ftw.generation")
+    static let storage = Color("ftw.storage")
+    static let mobility = Color("ftw.mobility")
 
     static let freshLive = exporting
     static let freshStale = generation
@@ -53,15 +54,8 @@ enum Theme {
         .system(style, weight: weight).monospacedDigit()
     }
 
-    private static func pair(_ light: UInt32, _ dark: UInt32) -> Color {
-        return Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(rgb: dark) : UIColor(rgb: light) })
-    }
-}
-
-private extension UIColor {
-    convenience init(rgb: UInt32) {
-        self.init(red: CGFloat((rgb >> 16) & 0xFF) / 255, green: CGFloat((rgb >> 8) & 0xFF) / 255, blue: CGFloat(rgb & 0xFF) / 255, alpha: 1)
-    }
+    /// One spring for everything that moves, so the app moves as one thing.
+    static let spring = Animation.spring(duration: 0.35, bounce: 0.15)
 }
 
 /// A raised card, the web app's `.card`.

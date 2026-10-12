@@ -7,10 +7,9 @@ import SwiftUI
 ///
 /// Dots move along a line only while readings are live. A cached or quiet
 /// view holds still, because motion says power is flowing right now.
-struct FlowDiagram: View {
+struct FlowDiagram: View, Equatable {
     let readings: Flow.Readings
     let moving: Bool
-    let tap: (Flow.Role) -> Void
 
     private static let height: CGFloat = 340
 
@@ -27,12 +26,10 @@ struct FlowDiagram: View {
 
                 Hub(loadKw: readings.loadKw, selfPoweredPct: readings.selfPoweredPctToday)
                     .position(layout.hub)
-                    .onTapGesture { tap(.load) }
 
                 ForEach(readings.nodes) { node in
                     Bubble(node: node)
                         .position(layout.points[node.id] ?? layout.hub)
-                        .onTapGesture { if node.tappable { tap(node.role) } }
                 }
             }
         }
@@ -105,6 +102,8 @@ private struct Hub: View {
                 .foregroundStyle(Theme.accent)
             Text("\(Text(AppWords.decimal(parts.text)).font(Theme.number(22, weight: .bold)))\(Text(" \(parts.unit)").font(.caption))")
                 .foregroundStyle(Theme.fg)
+                .contentTransition(.numericText(value: loadKw))
+                .animation(Theme.spring, value: loadKw)
             Text(L("HOME")).font(.caption2.weight(.semibold)).tracking(0.8).foregroundStyle(Theme.fgDim)
             if let pct = selfPoweredPct {
                 Text(AppWords.format("%@ self-powered today", AppWords.percent(pct)))
@@ -139,6 +138,8 @@ private struct Bubble: View {
             }
             Text("\(Text(AppWords.decimal(parts.text)).font(Theme.number(17, weight: .bold)))\(Text(" \(parts.unit)").font(.caption2))")
                 .foregroundStyle(color)
+                .contentTransition(.numericText(value: node.kw))
+                .animation(Theme.spring, value: node.kw)
             if let soc = node.socPct {
                 SocBar(pct: soc)
             }
@@ -158,7 +159,6 @@ private struct Bubble: View {
         .background(RoundedRectangle(cornerRadius: 16).fill(Theme.surfaceRaised))
         .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(color.opacity(0.5), lineWidth: 1.5))
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(node.tappable ? .isButton : [])
     }
 }
 

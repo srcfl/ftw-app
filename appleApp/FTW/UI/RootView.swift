@@ -18,6 +18,7 @@ struct RootView: View {
         }
         .background(Theme.surface.ignoresSafeArea())
         .tint(Theme.accent)
+        .onAppear { LaunchClock.mark("first frame") }
     }
 }
 
@@ -41,30 +42,45 @@ struct HomeView: View {
     let app: AppModel
     let home: HomeModels
     @State private var path: [HomeRoute] = HomeRoute.initial
+    /// The car row on Now grows into the car view.
+    @Namespace private var zoom
 
     var body: some View {
         VStack(spacing: 0) {
             if app.isDemo {
                 DemoBand(site: home.site) { app.exitDemo() }
             } else {
-                FreshnessBandView(band: home.site.freshness(noCarrier: app.connectHelp != nil), frameAtMs: home.site.lastFrameAtMs)
+                Band(app: app, site: home.site)
             }
             NavigationStack(path: $path) {
                 Screen(app: app) {
-                    NowView(app: app, home: home) { path.append(.car($0)) }
+                    NowView(app: app, home: home, zoom: zoom)
                 }
                 .toolbar(.hidden, for: .navigationBar)
                 .navigationDestination(for: HomeRoute.self) { route in
                     switch route {
-                    case .car(let id): CarView(app: app, home: home, id: id)
+                    case .car(let id):
+                        CarView(app: app, home: home, id: id)
+                            .navigationTransition(.zoom(sourceID: id ?? CarRow.firstID, in: zoom))
                     }
                 }
             }
         }
-        // Now and the car read the chargers from one model, so the box is
-        // asked once every five seconds, not twice.
+        // Now and the car read the chargers from one model, so a screen
+        // appearing asks the box once.
         .onAppear { home.loadpoints.activate() }
         .onDisappear { home.loadpoints.deactivate() }
+    }
+}
+
+/// The freshness band, in its own view so a frame redraws the band and not
+/// the screen under it.
+private struct Band: View {
+    let app: AppModel
+    let site: SiteModel
+
+    var body: some View {
+        FreshnessBandView(band: site.freshness(noCarrier: app.connectHelp != nil), frameAtMs: site.lastFrameAtMs)
     }
 }
 

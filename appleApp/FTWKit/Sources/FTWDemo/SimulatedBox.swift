@@ -30,10 +30,18 @@ public final class SimulatedBox {
     /// How long the box takes from ack to result: the demo waits as a
     /// charger write does, so the receipt has a moment to show.
     public var resultDelayMs: Double = 0
+    /// A Core with srcfl/ftw#1586 reads and sends the ready time as
+    /// `time_of_day_min` on the household clock. Off, it is a Core that
+    /// knows only `time_of_day_min_utc`.
+    public var readsHouseholdClock = true
+    /// The last schedule body the app sent, as sent.
+    public private(set) var lastScheduleBody: JSON?
     /// The box the demo is showing, for the demo's own controls (plug the
     /// car in or out). Nil outside the demo.
     public private(set) static weak var current: SimulatedBox?
     public private(set) var receivedCommands: [String] = []
+    /// Every API request, as "METHOD /path", so a test can count reads.
+    public private(set) var receivedRequests: [String] = []
     public private(set) var stepUpsSeen = 0
 
     public nonisolated static let modes: [ModeInfo] = [
@@ -350,6 +358,7 @@ public final class SimulatedBox {
         var query = [String: String]()
         for e in body["query"]?.entries ?? [] { if let k = e.key.string, let v = e.value.string { query[k] = v } }
         let requestBody = body["body"]?.byteString.flatMap { try? JSON(parsing: $0) }
+        receivedRequests.append("\(method) \(path)")
 
         guard path.hasPrefix("/api/"), let route = Self.match(method, path) else {
             refuse(id, "E_UNKNOWN_OP", [])
@@ -393,14 +402,6 @@ public final class SimulatedBox {
                     "easee": ["status": "ok", "ev_w": .number(house.evWatts)],
                 ],
                 "fuse": ["max_amps": .number(house.fuseAmps), "phases": 3, "voltage": 230],
-                // Core's answer to "Are we in control?", one row per device.
-                "control_feedback": [
-                    ["driver": "sungrow", "kind": "battery", "mode": "plan", "status": "following", "reason": "plan", "severity": "info", "evidence": "measured", "readings_fresh": true, "actual_w": .number(house.batteryW)],
-                    ["driver": "easee", "kind": "ev", "mode": house.manualHoldW == nil ? "plan" : "manual",
-                     "status": house.evWatts > 100 || !house.carPluggedIn ? "following" : "waiting",
-                     "reason": .string(!house.carPluggedIn ? "not_connected" : house.manualHoldW != nil ? "manual_hold" : house.evWatts > 100 ? "plan" : "no_plan_budget"),
-                     "severity": "info", "evidence": "measured", "readings_fresh": true, "actual_w": .number(house.evWatts)],
-                ],
                 "phase_amps": .array((0..<3).map { .number(((perPhase + Double($0) * 90) / 230 * 10).rounded() / 10) }),
                 "phase_powers": .array((0..<3).map { .number((perPhase + Double($0) * 90).rounded()) }),
             ])
@@ -433,9 +434,10 @@ public final class SimulatedBox {
         case ("PUT", "/api/loadpoints/{id}/schedule"):
             // The household clock when sent, else the UTC minute read on
             // today's date: what Core does.
+            lastScheduleBody = body
             let today = Date(timeIntervalSince1970: now / 1000)
-            let clock = body?["time_of_day_min"]?.number.map { Int($0) }
-                ?? EVText.clockFromUTC(Int(body?["time_of_day_min_utc"]?.number ?? 300), at: today, zone: house.timeZone)
+            let fromUTC = EVText.clockFromUTC(Int(body?["time_of_day_min_utc"]?.number ?? 300), at: today, zone: house.timeZone)
+            let clock = readsHouseholdClock ? body?["time_of_day_min"]?.number.map { Int($0) } ?? fromUTC : fromUTC
             house.schedule = (
                 body?["soc"]?.number ?? 0.8,
                 clock,
@@ -518,12 +520,14 @@ public final class SimulatedBox {
             ])
         }
         if let s = h.schedule {
-            lp = lp.setting("schedule", [
+            var schedule: JSON = [
                 "soc": .number(s.socFraction),
                 // Today's UTC minute of the household clock, as Core answers.
                 "time_of_day_min_utc": .number(Double(EVText.minuteUTC(clock: s.clockMin, at: Date(timeIntervalSince1970: now / 1000), zone: h.timeZone))),
                 "recurring": .bool(s.recurring), "days": .number(Double(s.days)), "surplus_unlock_bat_soc": .number(s.surplusUnlock),
-            ])
+            ]
+            if readsHouseholdClock { schedule = schedule.setting("time_of_day_min", .number(Double(s.clockMin))) }
+            lp = lp.setting("schedule", schedule)
             lp = lp.setting("target_soc", .number(s.socFraction))
             if let deadline = h.deadlineMs(now) {
                 lp = lp.setting("target_time", .string(ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: deadline / 1000))))

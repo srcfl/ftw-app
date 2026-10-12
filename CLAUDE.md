@@ -64,6 +64,43 @@ The protocol, the QR, the relay and the identity model are specified in
 - Errors say what happens now, not what broke inside.
 - Least code that does the whole job.
 
+## Feel and speed
+
+Fredrik's bar for the iPhone app (2026-10-12): modern, very fast, truly
+native, and smooth enough to impress.
+
+- **First frame from the cache.** No network wait and no spinner before
+  it. While nothing is known, show the shape of the screen
+  (`.redacted(reason: .placeholder)`), not a spinner. `LaunchClock` logs
+  the time from process start to the first frame and the first content;
+  quote the numbers in any PR that touches launch.
+- **The handshake runs beside the first frame, never ahead of it.**
+- **No timer loops.** Lane 0 drives Now. Until the box streams charger
+  state (M5, or FTW Cloud C3), the chargers are read when a screen that
+  shows them appears, after a command, and when the stream says the car
+  started or stopped drawing. The plan's shortfall is read when the car
+  view opens and when the car's plan changes.
+- **A frame redraws what moved.** Small views that read only what they
+  show, value inputs, and `Equatable` with `.equatable()` where a frame
+  would otherwise redraw a whole section. A clock on screen ticks by the
+  minute unless the second matters.
+- **Modern Swift.** Swift 6 strict concurrency, `@Observable`,
+  async/await and structured concurrency. No Combine, no GCD, no
+  `ObservableObject`, and no UIKit except the camera. Colours live in
+  asset catalogs, not `UIColor`.
+- **iOS 26's design.** System components (`List`, `Form`,
+  `NavigationStack`, system button styles), so Liquid Glass appears where
+  the system puts it. SF Symbols with symbol effects.
+- **Feel.** Numbers change with `.contentTransition(.numericText())`.
+  Motion uses one spring, `Theme.spring`. The car row on Now zooms into
+  the car view (`navigationTransition(.zoom)`). `.sensoryFeedback` marks
+  commands and their outcomes.
+- **A command answers at once.** Tap, haptic and "Sent" in under 100 ms,
+  then the box's receipt (`cmd.ack`), then the outcome (`cmd.result`).
+  Show the intent at once; never show a result the box has not confirmed.
+- **The largest text size and dark mode** look as good as the default.
+  Review all three in the simulator.
+
 ## Non-negotiable invariants
 
 - **Never fake live.** Every reading carries its age.

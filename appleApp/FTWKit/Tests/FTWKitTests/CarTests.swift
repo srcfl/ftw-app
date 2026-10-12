@@ -270,36 +270,36 @@ import FTWDemo
 
     // MARK: Is FTW in control?
 
-    @Test func inControlIsNeverGreenFromACache() throws {
-        try AppWords.$language.withValue(.en) {
-            let following = try JSON(parsing: Array(#"{"control_feedback":[{"driver":"easee","kind":"ev","status":"following","reason":"plan","severity":"info"}]}"#.utf8))
-            let ok = InControl.answer(live: true, lastKnownMs: nil, dispatchBlockedBy: [], status: following, statusFresh: true)
+    static func source(_ kind: String, _ name: String, _ state: String) -> Source {
+        Source(.map([("kind", .text(kind)), ("name", .text(name)), ("lastOkMs", .int(0)), ("staleAfterMs", .int(10_000)), ("state", .text(state))]))!
+    }
+
+    @Test func inControlComesFromTheStreamAndIsNeverGreenFromACache() {
+        AppWords.$language.withValue(.en) {
+            let live = ["meter": Self.source("meter", "sdm630", "live"), "inverter": Self.source("inverter", "sungrow", "live")]
+            let ok = InControl.answer(streaming: true, lastKnownMs: nil, dispatchBlockedBy: [], sources: live)
             #expect(ok.tone == .ok)
             #expect(ok.title == "Yes, FTW is in control")
 
-            // The same verdict from a cache, or from an old status read, is
-            // not a yes.
-            let cached = InControl.answer(live: false, lastKnownMs: Self.t, dispatchBlockedBy: [], status: following, statusFresh: true, zone: Self.utc)
+            // The same facts from a cache, or from a stream gone quiet, are not a yes.
+            let cached = InControl.answer(streaming: false, lastKnownMs: Self.t, dispatchBlockedBy: [], sources: live, zone: Self.utc)
             #expect(cached.tone == .stale)
+            #expect(cached.title == "Not live right now")
             #expect(cached.detail == "Last known 10:00.")
-            #expect(InControl.answer(live: true, lastKnownMs: nil, dispatchBlockedBy: [], status: following, statusFresh: false).tone == .neutral)
 
-            #expect(InControl.answer(live: true, lastKnownMs: nil, dispatchBlockedBy: ["meter"], status: following, statusFresh: true).tone == .warning)
-            let old = try JSON(parsing: Array(#"{"grid_w":100}"#.utf8))
-            #expect(InControl.answer(live: true, lastKnownMs: nil, dispatchBlockedBy: [], status: old, statusFresh: true).title == "Connected and live")
+            #expect(InControl.answer(streaming: true, lastKnownMs: nil, dispatchBlockedBy: ["meter"], sources: live).tone == .warning)
 
-            let alarm = try JSON(parsing: Array(#"{"control_feedback":[{"driver":"easee","kind":"ev","status":"no_contact","reason":"telemetry_stale","severity":"alarm"},{"driver":"sungrow","kind":"battery","status":"following","reason":"plan","severity":"info"}]}"#.utf8))
-            let a = InControl.answer(live: true, lastKnownMs: nil, dispatchBlockedBy: [], status: alarm, statusFresh: true)
-            #expect(a.tone == .alarm)
-            #expect(a.title == "The charger needs attention now")
-            #expect(a.detail == "No fresh readings")
-
-            let warnings = try JSON(parsing: Array(#"{"control_feedback":[{"driver":"easee","kind":"ev","status":"limited","reason":"fuse_limit","severity":"warning"},{"driver":"sungrow","kind":"battery","status":"limited","reason":"battery_full","severity":"warning"}]}"#.utf8))
-            #expect(InControl.answer(live: true, lastKnownMs: nil, dispatchBlockedBy: [], status: warnings, statusFresh: true).title == "2 devices need a look")
+            var quiet = live
+            quiet["inverter"] = Self.source("inverter", "sungrow", "down")
+            let one = InControl.answer(streaming: true, lastKnownMs: nil, dispatchBlockedBy: [], sources: quiet)
+            #expect(one.tone == .warning)
+            #expect(one.title == "The inverter is not reporting")
+            #expect(one.detail == "sungrow")
+            quiet["meter"] = Self.source("meter", "sdm630", "stale")
+            #expect(InControl.answer(streaming: true, lastKnownMs: nil, dispatchBlockedBy: [], sources: quiet).title == "2 devices are not reporting")
         }
-        try AppWords.$language.withValue(.sv) {
-            let following = try JSON(parsing: Array(#"{"control_feedback":[{"driver":"easee","kind":"ev","status":"following","reason":"plan","severity":"info"}]}"#.utf8))
-            #expect(InControl.answer(live: true, lastKnownMs: nil, dispatchBlockedBy: [], status: following, statusFresh: true).title == "Ja, FTW styr")
+        AppWords.$language.withValue(.sv) {
+            #expect(InControl.answer(streaming: true, lastKnownMs: nil, dispatchBlockedBy: [], sources: [:]).title == "Ja, FTW styr")
             #expect(AppWords.text("Is FTW in control?") == "Styr FTW?")
         }
     }
@@ -311,11 +311,12 @@ import FTWDemo
 @Suite struct CarFlowTests {
     @MainActor
     final class Rig {
-        let scheduler = ManualScheduler(nowMs: CarTextTests.t)
+        let scheduler: ManualScheduler
         var box: SimulatedBox?
         var app: AppModel!
 
-        init() {
+        init(nowMs: Double = CarTextTests.t) {
+            scheduler = ManualScheduler(nowMs: nowMs)
             app = AppModel(store: MemoryStore(), files: nil, passkeys: nil, scheduler: scheduler, build: "test", ua: "test", demo: { [unowned self] s in
                 let box = SimulatedBox(scheduler: s, house: SimulatedHouse(timeZone: CarTextTests.stockholm))
                 box.resultDelayMs = 900
@@ -354,7 +355,11 @@ import FTWDemo
             let level = Task { await home.loadpoints.setLevel(car, pct: 40) }
             await rig.run(100)
             #expect(home.loadpoints.levelStep[car.id] == EVText.Step(ask: .level(40)))
-            #expect(home.loadpoints.level(car)?.pct == 40)
+            // The tap shows as the chosen chip, never as the level: only the
+            // box's answer moves the number.
+            #expect(home.loadpoints.chosenLevel(car) == 40)
+            #expect(home.loadpoints.level(car)?.pct == 20)
+            #expect(home.loadpoints.level(car)?.origin == .assumed)
             await rig.run(300)
             #expect(home.loadpoints.levelStep[car.id]?.acked == true)
             #expect(home.loadpoints.levelStep[car.id]?.result == nil)
@@ -461,17 +466,119 @@ import FTWDemo
         }
     }
 
-    /// The demo answers "Is FTW in control?" as Core does: from live
-    /// control feedback, and only while the stream is live.
+    /// The demo answers "Is FTW in control?" from the stream alone.
     @Test func theDemoSaysFTWIsInControl() async throws {
         let rig = Rig()
         rig.app.startDemo()
         let home = try #require(rig.app.home)
-        home.status.activate()
         await rig.run(3_000)
         let site = home.site
-        let answer = InControl.answer(live: site.isLive, lastKnownMs: site.lastFrameAtMs, dispatchBlockedBy: site.session.dispatchBlockedBy, status: home.status.status, statusFresh: home.status.fresh)
+        let answer = InControl.answer(streaming: site.isLive, lastKnownMs: site.lastFrameAtMs, dispatchBlockedBy: site.session.dispatchBlockedBy, sources: site.session.sources)
         #expect(answer.tone == .ok)
+        // No request was needed for it.
+        #expect(try #require(rig.box).receivedRequests.isEmpty)
+    }
+
+    /// No timer reads the chargers. A screen appearing does, a command
+    /// does, and the stream saying the car started drawing does.
+    @Test func theChargersAreReadOnEventsNotOnATimer() async throws {
+        let rig = Rig()
+        rig.app.startDemo()
+        let home = try #require(rig.app.home)
+        let box = try #require(rig.box)
+        func reads() -> Int { box.receivedRequests.filter { $0 == "GET /api/loadpoints" }.count }
+        home.loadpoints.activate()
+        await rig.run(1_000)
+        #expect(reads() == 1)
+        await rig.run(60_000, step: 500)
+        #expect(reads() == 1)
+
+        // A second screen appearing is a reason to look again.
+        home.loadpoints.activate()
+        await rig.run(1_000)
+        #expect(reads() == 2)
+        home.loadpoints.deactivate()
+
+        // Charge now: one read after the box's answer, one when the stream
+        // shows the car drawing power.
+        let car = try #require(home.loadpoints.points.first)
+        let charge = Task { await home.loadpoints.chargeNow(car) }
+        await rig.run(2_000)
+        await charge.value
+        #expect(reads() == 3)
+        #expect(home.loadpoints.points.first?.powerW == 0)
+        await rig.run(5_000, step: 250)
+        #expect(reads() == 4)
+        #expect(home.loadpoints.points.first?.powerW == 11_000)
+        await rig.run(60_000, step: 500)
+        #expect(reads() == 4)
+
+        // The plan's shortfall: read when the car view opens and when the
+        // car's plan changes, not once a minute.
+        let back = Task { await home.loadpoints.backToPlan(car) }
+        await rig.run(3_000)
+        await back.value
+        func plans() -> Int { box.receivedRequests.filter { $0 == "GET /api/mpc/plan" }.count }
+        home.loadpoints.watchPlan()
+        await rig.run(1_000)
+        #expect(plans() == 1)
+        await rig.run(180_000, step: 1_000)
+        #expect(plans() == 1)
+    }
+
+    /// A cold start paints the car the app last saw, from the cache it
+    /// writes for its widgets, dated and marked as not live.
+    @Test func aColdStartPaintsTheCarFromTheCache() throws {
+        let dir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ftw-car-\(UUID().uuidString)")
+        let shared = AppGroupFiles(directory: dir)
+        let readAt = CarTextTests.t - 600_000
+        let car = CarEntry.Car(loadpointID: "garage", pluggedIn: true, socPct: 64, socSource: "vehicle", socReadAtMs: readAt - 120_000, powerW: 0, targetSocPct: 80)
+        try shared.write(CacheRecord(siteId: "site-1", carrier: .relay, srcState: .live, readAtMs: readAt, value: CarEntry(cars: [car])))
+        let scheduler = ManualScheduler(nowMs: CarTextTests.t)
+        let site = SiteModel(siteId: "site-1", build: "test", ua: "test", scheduler: scheduler, files: nil)
+        let model = LoadpointsModel(site: site, charging: nil, cache: CacheReader(sources: [shared]))
+        let lp = try #require(model.points.first)
+        #expect(model.fromCache)
+        #expect(model.stale)
+        #expect(model.readAtMs == readAt)
+        #expect(lp.pluggedIn)
+        #expect(lp.targetSocPct == 80)
+        let level = try #require(model.level(lp))
+        #expect(level.pct == 64)
+        // The car's report was two minutes old when cached, ten minutes ago.
+        #expect(level.origin == .carEarlier)
+        #expect(level.atMs == readAt - 120_000)
+        // Another home's cache paints nothing.
+        let other = SiteModel(siteId: "site-2", build: "test", ua: "test", scheduler: scheduler, files: nil)
+        #expect(LoadpointsModel(site: other, charging: nil, cache: CacheReader(sources: [shared])).points.isEmpty)
+    }
+
+    /// A save sends the household clock and today's UTC minute, built from
+    /// nothing read. A Core with srcfl/ftw#1586 takes the clock; an older
+    /// one reads the minute on today's date. Either way 07:00 is kept.
+    @Test func aGoalSavesBothClocksAndEitherCoreKeepsTheTime() async throws {
+        for (day, utc) in [(24, 300), (26, 360)] {
+            for household in [true, false] {
+                let rig = Rig(nowMs: CarTextTests.noon(day).timeIntervalSince1970 * 1000)
+                rig.app.startDemo()
+                let home = try #require(rig.app.home)
+                let box = try #require(rig.box)
+                box.readsHouseholdClock = household
+                home.loadpoints.activate()
+                await rig.run(1_500)
+                let car = try #require(home.loadpoints.points.first)
+                await home.loadpoints.saveGoalAndWait(car, rig, socPct: 80, clock: 7 * 60, recurring: true, days: 0b0011111)
+                let body = try #require(box.lastScheduleBody)
+                #expect(body["time_of_day_min"]?.number == 420)
+                #expect(body["time_of_day_min_utc"]?.number == Double(utc))
+                #expect(box.house.schedule?.clockMin == 420)
+                // Read back: the clock when the box sends it, the minute otherwise.
+                let back = try #require(home.loadpoints.points.first?.schedule)
+                #expect(back.clockMin == (household ? 420 : nil))
+                #expect(back.timeOfDayMinUTC == utc)
+                #expect(EVText.goalClock(back, at: CarTextTests.noon(day), zone: home.loadpoints.zone) == 420)
+            }
+        }
     }
 
     /// Every demo situation opens, so each screen can be shown without a box.
