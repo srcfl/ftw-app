@@ -21,16 +21,18 @@ struct RootView: View {
     }
 }
 
-enum HomeTab: String, Hashable {
-    case now
+/// Where a home can go from Now. M1 has one place: the car.
+enum HomeRoute: Hashable {
+    /// One charger's car; nil is the first.
+    case car(String?)
 
-    /// Where a home opens. Debug builds take `-FTWTab now` and the like, so
-    /// CI can photograph every screen of the demo.
-    static var initial: HomeTab {
+    /// Where a home opens. Debug builds take `-FTWTab car` and the like, so
+    /// every screen of the demo can be photographed.
+    static var initial: [HomeRoute] {
         #if DEBUG
-        return UserDefaults.standard.string(forKey: "FTWTab").flatMap(HomeTab.init(rawValue:)) ?? .now
+        return UserDefaults.standard.string(forKey: "FTWTab") == "car" ? [.car(nil)] : []
         #else
-        return .now
+        return []
         #endif
     }
 }
@@ -38,7 +40,7 @@ enum HomeTab: String, Hashable {
 struct HomeView: View {
     let app: AppModel
     let home: HomeModels
-    @State private var tab: HomeTab = .initial
+    @State private var path: [HomeRoute] = HomeRoute.initial
 
     var body: some View {
         VStack(spacing: 0) {
@@ -47,23 +49,27 @@ struct HomeView: View {
             } else {
                 FreshnessBandView(band: home.site.freshness(noCarrier: app.connectHelp != nil), frameAtMs: home.site.lastFrameAtMs)
             }
-            ChargingNotice(site: home.site, charging: home.charging)
-            // The car view is the next tab here.
-            TabView(selection: $tab) {
-                Tab("Now", systemImage: "house", value: HomeTab.now) {
-                    Screen(app: app) {
-                        NowView(app: app, home: home)
+            NavigationStack(path: $path) {
+                Screen(app: app) {
+                    NowView(app: app, home: home) { path.append(.car($0)) }
+                }
+                .toolbar(.hidden, for: .navigationBar)
+                .navigationDestination(for: HomeRoute.self) { route in
+                    switch route {
+                    case .car(let id): CarView(app: app, home: home, id: id)
                     }
                 }
             }
         }
-        .onAppear { home.charging.activate() }
-        .onDisappear { home.charging.deactivate() }
+        // Now and the car read the chargers from one model, so the box is
+        // asked once every five seconds, not twice.
+        .onAppear { home.loadpoints.activate() }
+        .onDisappear { home.loadpoints.deactivate() }
     }
 }
 
-/// One tab's scrolling page, with pull to refresh.
-private struct Screen<Content: View>: View {
+/// One scrolling page, with pull to refresh.
+struct Screen<Content: View>: View {
     let app: AppModel
     @ViewBuilder var content: Content
 
@@ -116,6 +122,9 @@ struct FreshnessBandView: View {
         .background(Theme.surfaceSunken.ignoresSafeArea(edges: .top))
         .overlay(alignment: .bottom) { Theme.line.frame(height: 1) }
         .accessibilityElement(children: .combine)
+        // One line of chrome above every screen: it must not crowd out the
+        // screen at the largest text sizes.
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 
     private var color: Color {
@@ -138,45 +147,20 @@ struct DemoBand: View {
             Circle()
                 .fill(site.session.phase == .streaming ? Theme.accent : Theme.fgMuted)
                 .frame(width: 8, height: 8)
-            Text(site.session.phase == .streaming ? "Live demo · simulated home" : "Starting the demo")
+            Text(L(site.session.phase == .streaming ? "Live demo · simulated home" : "Starting the demo"))
                 .font(.footnote.weight(.medium))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
             Spacer()
-            Button("Exit demo", action: exit)
+            Button(L("Exit demo"), action: exit)
                 .font(.footnote.weight(.semibold))
+                .lineLimit(1)
                 .buttonStyle(.quiet)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 6)
         .background(Theme.surfaceSunken.ignoresSafeArea(edges: .top))
         .overlay(alignment: .bottom) { Theme.line.frame(height: 1) }
-    }
-}
-
-/// A car on the cable, said once above every screen. Only what the box
-/// said, and dated when it is out of date.
-struct ChargingNotice: View {
-    let site: SiteModel
-    let charging: ChargingWatch
-
-    var body: some View {
-        let fresh = charging.fresh && site.session.phase == .streaming
-        ForEach(site.heardFromBox ? charging.points.filter(\.pluggedIn) : []) { lp in
-            let current = fresh && lp.charger?.available != false
-            VStack(alignment: .leading, spacing: 4) {
-                Text(current ? "Car connected" : "Car status is out of date")
-                    .font(.subheadline.weight(.semibold))
-                Hint(current ? EVText.status(lp, canControl: site.canConfigure) : "Waiting for current charger status. The last reading cannot confirm charging.", tone: Theme.fg)
-                if current, let plan = EVText.plan(lp, nowMs: site.nowMs, canControl: site.canConfigure) {
-                    Hint(plan)
-                }
-                if lp.manualSaveError { Hint(EVText.manualSaveErrorText) }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.surfaceRaised)
-            .overlay(alignment: .leading) { Theme.mobility.frame(width: 3) }
-            .overlay(alignment: .bottom) { Theme.line.frame(height: 1) }
-        }
+        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
 }

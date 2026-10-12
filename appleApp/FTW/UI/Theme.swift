@@ -47,6 +47,12 @@ enum Theme {
         .system(size: size, weight: weight, design: .monospaced)
     }
 
+    /// A percentage: even digits, and a % that reads as a sign, not a
+    /// fixed-width glyph.
+    static func percent(_ style: Font.TextStyle, weight: Font.Weight = .semibold) -> Font {
+        .system(style, weight: weight).monospacedDigit()
+    }
+
     private static func pair(_ light: UInt32, _ dark: UInt32) -> Color {
         return Color(UIColor { $0.userInterfaceStyle == .dark ? UIColor(rgb: dark) : UIColor(rgb: light) })
     }
@@ -106,6 +112,7 @@ struct Hint: View {
 struct FTWButtonStyle: ButtonStyle {
     enum Kind { case primary, quiet, outline, danger }
     var kind: Kind
+    var wide = false
     @Environment(\.isEnabled) private var enabled
 
     func makeBody(configuration: Configuration) -> some View {
@@ -113,7 +120,7 @@ struct FTWButtonStyle: ButtonStyle {
             .font(.body.weight(kind == .quiet ? .regular : .semibold))
             .padding(.vertical, kind == .quiet ? 6 : 11)
             .padding(.horizontal, kind == .quiet ? 4 : 16)
-            .frame(maxWidth: kind == .primary || kind == .danger ? .infinity : nil)
+            .frame(maxWidth: wide || kind == .primary || kind == .danger ? .infinity : nil)
             .foregroundStyle(foreground)
             .background(background, in: RoundedRectangle(cornerRadius: Theme.radiusSmall))
             .overlay {
@@ -148,6 +155,8 @@ extension ButtonStyle where Self == FTWButtonStyle {
     static var quiet: FTWButtonStyle { FTWButtonStyle(kind: .quiet) }
     static var outline: FTWButtonStyle { FTWButtonStyle(kind: .outline) }
     static var danger: FTWButtonStyle { FTWButtonStyle(kind: .danger) }
+    /// The second choice beside a primary one, as wide as it.
+    static var secondary: FTWButtonStyle { FTWButtonStyle(kind: .outline, wide: true) }
 }
 
 /// A pressed-button choice between a few options, the web app's range picker.
@@ -191,3 +200,7 @@ enum Clock {
         Date(timeIntervalSince1970: ms / 1000).formatted(date: .long, time: .omitted)
     }
 }
+
+/// The app's words in the phone's language, English or Swedish
+/// (FTWKit's `AppWords`). Text built from a String is shown as given.
+func L(_ en: String) -> String { AppWords.text(en) }

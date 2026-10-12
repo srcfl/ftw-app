@@ -19,6 +19,16 @@ public struct Loadpoint: Equatable, Sendable, Identifiable {
         public var days: Int
         /// The goal is the car's own limit rather than a percentage.
         public var finishAtVehicleLimit: Bool
+
+        public init(socPct: Double, timeOfDayMinUTC: Int, clockMin: Int?, surplusUnlockPct: Double, recurring: Bool, days: Int, finishAtVehicleLimit: Bool) {
+            self.socPct = socPct
+            self.timeOfDayMinUTC = timeOfDayMinUTC
+            self.clockMin = clockMin
+            self.surplusUnlockPct = surplusUnlockPct
+            self.recurring = recurring
+            self.days = days
+            self.finishAtVehicleLimit = finishAtVehicleLimit
+        }
     }
 
     public struct Manual: Equatable, Sendable {
@@ -347,6 +357,7 @@ public enum AppWords {
         "FTW's estimate from energy delivered": "FTW:s uppskattning från laddad energi",
         "FTW assumes %@. Nobody has told it the real level.": "FTW antar %@. Ingen har angett den riktiga nivån.",
         "FTW assumes": "FTW antar",
+        "Nobody has told FTW the car's level yet. Choose it below.": "Ingen har angett bilens nivå än. Välj den nedan.",
         "from the car": "från bilen",
         "reported %@": "rapporterad %@",
         "you set": "du angav",
@@ -369,6 +380,12 @@ public enum AppWords {
         "Remove goal": "Ta bort målet",
         "Charge to": "Ladda till",
         "Repeat": "Upprepa",
+        "Weekdays": "Vardagar",
+        "Every day": "Varje dag",
+        "Weekends": "Helger",
+        "Once": "En gång",
+        "This box has no charger.": "Boxen har ingen laddare.",
+        "Set %@": "Ange %@",
         "Saving the goal…": "Sparar målet…",
         "Goal saved. FTW is updating the plan.": "Målet är sparat. FTW räknar om planen.",
         "Goal removed.": "Målet är borttaget.",

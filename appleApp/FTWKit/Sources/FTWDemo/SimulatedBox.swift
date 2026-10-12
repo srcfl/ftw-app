@@ -393,6 +393,14 @@ public final class SimulatedBox {
                     "easee": ["status": "ok", "ev_w": .number(house.evWatts)],
                 ],
                 "fuse": ["max_amps": .number(house.fuseAmps), "phases": 3, "voltage": 230],
+                // Core's answer to "Are we in control?", one row per device.
+                "control_feedback": [
+                    ["driver": "sungrow", "kind": "battery", "mode": "plan", "status": "following", "reason": "plan", "severity": "info", "evidence": "measured", "readings_fresh": true, "actual_w": .number(house.batteryW)],
+                    ["driver": "easee", "kind": "ev", "mode": house.manualHoldW == nil ? "plan" : "manual",
+                     "status": house.evWatts > 100 || !house.carPluggedIn ? "following" : "waiting",
+                     "reason": .string(!house.carPluggedIn ? "not_connected" : house.manualHoldW != nil ? "manual_hold" : house.evWatts > 100 ? "plan" : "no_plan_budget"),
+                     "severity": "info", "evidence": "measured", "readings_fresh": true, "actual_w": .number(house.evWatts)],
+                ],
                 "phase_amps": .array((0..<3).map { .number(((perPhase + Double($0) * 90) / 230 * 10).rounded() / 10) }),
                 "phase_powers": .array((0..<3).map { .number((perPhase + Double($0) * 90).rounded()) }),
             ])
@@ -576,6 +584,11 @@ public final class LoopbackCarrier: Carrier {
     private var closed = false
     private var onFrame: @MainActor (Bytes) -> Void = { _ in }
     private var onStatus: @MainActor (CarrierStatus) -> Void = { _ in }
+    // Frames in flight, oldest first. A real socket keeps order; timers
+    // with the same delay need not fire in order, so each timer delivers
+    // the oldest frame rather than its own.
+    private var toApp: [Bytes] = []
+    private var toBox: [Bytes] = []
 
     public init(box: SimulatedBox, scheduler: Scheduler, latencyMs: Double = 120) {
         self.box = box
@@ -583,9 +596,10 @@ public final class LoopbackCarrier: Carrier {
         self.latencyMs = latencyMs
         box.send = { [weak self] frame in
             guard let self else { return }
+            self.toApp.append(frame)
             self.scheduler.after(self.latencyMs) { [weak self] in
-                guard let self, !self.closed else { return }
-                self.onFrame(frame)
+                guard let self, !self.closed, !self.toApp.isEmpty else { return }
+                self.onFrame(self.toApp.removeFirst())
             }
         }
         scheduler.after(latencyMs) { [weak self] in
@@ -602,9 +616,10 @@ public final class LoopbackCarrier: Carrier {
 
     public func send(_ frame: Bytes) {
         guard status.isOpen, !closed else { return }
+        toBox.append(frame)
         scheduler.after(latencyMs) { [weak self] in
-            guard let self, !self.closed else { return }
-            self.box.receive(frame)
+            guard let self, !self.closed, !self.toBox.isEmpty else { return }
+            self.box.receive(self.toBox.removeFirst())
         }
     }
 

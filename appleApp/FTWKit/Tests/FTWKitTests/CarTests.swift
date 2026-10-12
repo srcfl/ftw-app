@@ -461,6 +461,19 @@ import FTWDemo
         }
     }
 
+    /// The demo answers "Is FTW in control?" as Core does: from live
+    /// control feedback, and only while the stream is live.
+    @Test func theDemoSaysFTWIsInControl() async throws {
+        let rig = Rig()
+        rig.app.startDemo()
+        let home = try #require(rig.app.home)
+        home.status.activate()
+        await rig.run(3_000)
+        let site = home.site
+        let answer = InControl.answer(live: site.isLive, lastKnownMs: site.lastFrameAtMs, dispatchBlockedBy: site.session.dispatchBlockedBy, status: home.status.status, statusFresh: home.status.fresh)
+        #expect(answer.tone == .ok)
+    }
+
     /// Every demo situation opens, so each screen can be shown without a box.
     @Test func everyDemoCarOpens() async throws {
         for situation in DemoCar.allCases {
@@ -490,5 +503,45 @@ extension LoadpointsModel {
         let task = Task { await saveGoal(lp, socPct: socPct, clock: clock, recurring: recurring, days: days, zone: zone) }
         await rig.run(1_500)
         await task.value
+    }
+}
+
+/// Timers that fire in the reverse of the order they were set, as the live
+/// scheduler's sleeping tasks may.
+@MainActor
+final class ReversingScheduler: Scheduler {
+    var nowMs: Double = 0
+    private var due: [@MainActor () -> Void] = []
+
+    func after(_ ms: Double, _ action: @escaping @MainActor () -> Void) -> Cancellable {
+        due.append(action)
+        return Cancellable()
+    }
+
+    func random() -> Double { 0.5 }
+
+    func fireAll() {
+        let now = due
+        due = []
+        for action in now.reversed() { action() }
+    }
+}
+
+@MainActor
+@Suite struct LoopbackTests {
+    /// The demo's answers arrive in the order the box sent them, whatever
+    /// order the timers fire in. Out of order, a chunk before its head read
+    /// as "your box didn't answer".
+    @Test func framesArriveInTheOrderTheyWereSent() {
+        let scheduler = ReversingScheduler()
+        let box = SimulatedBox(scheduler: ManualScheduler())
+        let carrier = LoopbackCarrier(box: box, scheduler: scheduler)
+        var got: [Bytes] = []
+        carrier.setHandlers(onFrame: { got.append($0) }, onStatus: { _ in })
+        scheduler.fireAll()
+        let sent: [Bytes] = [[1], [2], [3]]
+        for f in sent { box.send?(f) }
+        scheduler.fireAll()
+        #expect(got == sent)
     }
 }

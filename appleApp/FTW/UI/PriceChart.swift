@@ -16,38 +16,38 @@ struct PriceChart: View {
         VStack(alignment: .leading, spacing: 10) {
             if compact {
                 VStack(alignment: .leading, spacing: 2) {
-                    Kicker("Market now")
-                    Text("Electricity price").font(.headline)
+                    Kicker(L("Market now"))
+                    Text(L("Electricity price")).font(.headline)
                 }
                 HStack(alignment: .firstTextBaseline) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(Text(PriceStrip.text(summary.current?.totalMinor, prices.currency)).font(Theme.number(28, weight: .bold)))\(Text(" \(unit.perKwh)").font(.caption))")
-                        Text("\(prices.zone.isEmpty ? "—" : prices.zone) · incl. fees and VAT").font(.caption).foregroundStyle(Theme.fgMuted)
+                        Text("\(prices.zone.isEmpty ? "—" : prices.zone) · \(L("incl. fees and VAT"))").font(.caption).foregroundStyle(Theme.fgMuted)
                     }
                     Spacer()
                     VStack(alignment: .trailing, spacing: 2) {
-                        Text("Cheapest 2 h").font(.caption).foregroundStyle(Theme.fgDim)
+                        Text(L("Cheapest 2 h")).font(.caption).foregroundStyle(Theme.fgDim)
                         if let block = summary.cheapest {
                             Text("\(PriceStrip.text(block.meanMinor, prices.currency)) \(unit.label)").font(Theme.number(15)).foregroundStyle(Theme.exporting)
-                            Text("\(Clock.time(block.startMs))–\(Clock.time(block.endMs))").font(.caption).foregroundStyle(Theme.fgDim)
+                            Text("\(AppWords.clock(block.startMs, zone: .current))–\(AppWords.clock(block.endMs, zone: .current))").font(.caption).foregroundStyle(Theme.fgDim)
                         } else {
-                            Text("No 2 h window published").font(.caption).foregroundStyle(Theme.fgDim)
+                            Text(L("No 2 h window published")).font(.caption).foregroundStyle(Theme.fgDim)
                         }
                     }
                 }
                 .accessibilityElement(children: .combine)
                 if summary.bars.isEmpty {
-                    Hint("No prices published ahead yet.")
+                    Hint(L("No prices published ahead yet."))
                 } else {
                     strip(summary, unit: unit)
                         .frame(height: 64)
                     if let mean = summary.meanMinor {
-                        Hint("Dotted line: average ahead, \(PriceStrip.text(mean, prices.currency)) \(unit.label)", tone: Theme.fgMuted)
+                        Hint(AppWords.format("Dotted line: average ahead, %@", "\(PriceStrip.text(mean, prices.currency)) \(unit.label)"), tone: Theme.fgMuted)
                     }
                 }
             } else {
                 HStack {
-                    Text("Price to import").font(.headline)
+                    Text(L("Price to import")).font(.headline)
                     Spacer()
                     Text(unit.perKwh).font(.caption).foregroundStyle(Theme.fgMuted)
                 }
@@ -95,7 +95,7 @@ struct PriceChart: View {
                 .foregroundStyle(Theme.accent)
                 .lineStyle(StrokeStyle(lineWidth: 1))
                 .annotation(position: .top, alignment: .leading) {
-                    Text("now").font(Theme.number(10)).foregroundStyle(Theme.accent)
+                    Text(L("now")).font(Theme.number(10)).foregroundStyle(Theme.accent)
                 }
         }
         .chartXAxis {
