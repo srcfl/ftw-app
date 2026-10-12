@@ -15,7 +15,22 @@ public enum Origin {
     /// The relay. One value, no setting.
     public static let relayURL = URL(string: "wss://relay.ftw.energy")!
 
-    /// Source and licence, as the AGPL asks a network client to offer them.
+    /// The repository. A fork changes this line, as LICENSING.md asks: the
+    /// links in Source & licenses must lead to the fork's own source.
+    /// `BuildSource` pins them to the build's commit.
     public static let sourceURL = URL(string: "https://github.com/srcfl/ftw-app")!
-    public static let licenseURL = URL(string: "https://github.com/srcfl/ftw-app/blob/main/LICENSE")!
+
+    /// The privacy policy, which App Review asks to be easy to find in the
+    /// app, and the support page beside it. Swedish where the app speaks it.
+    public static func privacyURL(_ language: AboutWords.Language = AboutWords.language) -> URL {
+        site(language, "privacy")
+    }
+
+    public static func supportURL(_ language: AboutWords.Language = AboutWords.language) -> URL {
+        site(language, "support")
+    }
+
+    private static func site(_ language: AboutWords.Language, _ page: String) -> URL {
+        URL(string: "https://ftw.energy/\(language == .sv ? "sv/" : "")\(page)")!
+    }
 }

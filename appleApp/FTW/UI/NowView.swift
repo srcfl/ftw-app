@@ -54,6 +54,7 @@ private struct NowBody: View {
                 nothingYet
             }
         }
+        AboutLink(app: app)
     }
 
     /// Paired, and not one reading has ever arrived. A hollow house would

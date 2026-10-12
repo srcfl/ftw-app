@@ -10,6 +10,9 @@
 		F7A000000000000000000014 /* FTWKit in Frameworks */ = {isa = PBXBuildFile; productRef = F7A000000000000000000016 /* FTWKit */; };
 		F7A000000000000000000030 /* FTWDemo in Frameworks */ = {isa = PBXBuildFile; productRef = F7A000000000000000000031 /* FTWDemo */; };
 		F7A000000000000000000032 /* FTWShared in Frameworks */ = {isa = PBXBuildFile; productRef = F7A000000000000000000033 /* FTWShared */; };
+		F7A000000000000000000064 /* LICENSE in Copy the license texts */ = {isa = PBXBuildFile; fileRef = F7A000000000000000000060 /* LICENSE */; };
+		F7A000000000000000000065 /* NOTICE in Copy the license texts */ = {isa = PBXBuildFile; fileRef = F7A000000000000000000061 /* NOTICE */; };
+		F7A000000000000000000066 /* LICENSING.md in Copy the license texts */ = {isa = PBXBuildFile; fileRef = F7A000000000000000000062 /* LICENSING.md */; };
 		F7A000000000000000000034 /* FTWWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F7A000000000000000000040 /* FTWWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -35,6 +38,19 @@
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F7A000000000000000000067 /* Copy the license texts */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = Licenses;
+			dstSubfolderSpec = 7;
+			files = (
+				F7A000000000000000000064 /* LICENSE in Copy the license texts */,
+				F7A000000000000000000065 /* NOTICE in Copy the license texts */,
+				F7A000000000000000000066 /* LICENSING.md in Copy the license texts */,
+			);
+			name = "Copy the license texts";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
@@ -44,6 +60,9 @@
 		F7A000000000000000000008 /* FTW.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = FTW.xcconfig; sourceTree = "<group>"; };
 		F7A000000000000000000009 /* FTW-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "FTW-Info.plist"; sourceTree = "<group>"; };
 		F7A00000000000000000000A /* FTWWidgets-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "FTWWidgets-Info.plist"; sourceTree = "<group>"; };
+		F7A000000000000000000060 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; name = LICENSE; path = ../LICENSE; sourceTree = SOURCE_ROOT; };
+		F7A000000000000000000061 /* NOTICE */ = {isa = PBXFileReference; lastKnownFileType = text; name = NOTICE; path = ../NOTICE; sourceTree = SOURCE_ROOT; };
+		F7A000000000000000000062 /* LICENSING.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = LICENSING.md; path = ../LICENSING.md; sourceTree = SOURCE_ROOT; };
 		F7A000000000000000000040 /* FTWWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FTWWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -91,8 +110,19 @@
 				F7A000000000000000000009 /* FTW-Info.plist */,
 				F7A000000000000000000007 /* FTWWidgets.entitlements */,
 				F7A00000000000000000000A /* FTWWidgets-Info.plist */,
+				F7A000000000000000000063 /* License texts */,
 				F7A000000000000000000004 /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		F7A000000000000000000063 /* License texts */ = {
+			isa = PBXGroup;
+			children = (
+				F7A000000000000000000060 /* LICENSE */,
+				F7A000000000000000000061 /* NOTICE */,
+				F7A000000000000000000062 /* LICENSING.md */,
+			);
+			name = "License texts";
 			sourceTree = "<group>";
 		};
 		F7A000000000000000000004 /* Products */ = {
@@ -114,6 +144,8 @@
 				F7A000000000000000000011 /* Sources */,
 				F7A000000000000000000012 /* Frameworks */,
 				F7A000000000000000000013 /* Resources */,
+				F7A000000000000000000067 /* Copy the license texts */,
+				F7A000000000000000000068 /* Record the source revision */,
 				F7A000000000000000000036 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
@@ -214,6 +246,30 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		F7A000000000000000000068 /* Record the source revision */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Record the source revision";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(TARGET_BUILD_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/Licenses/REVISION",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "# The commit Source & licenses links to. CI passes FTW_SOURCE_REVISION\n# (GITHUB_SHA). Otherwise git says. A tree with changes, or no git at all,\n# is a local build, and the screen says so.\nset -eu\nout=\"$SCRIPT_OUTPUT_FILE_0\"\nmkdir -p \"$(dirname \"$out\")\"\nrev=\"${FTW_SOURCE_REVISION:-}\"\nif [ -n \"$rev\" ]; then\n  if [ ${#rev} -ne 40 ] || [ -n \"$(printf '%s' \"$rev\" | tr -d '0-9a-f')\" ]; then\n    echo \"error: FTW_SOURCE_REVISION must be a full 40-character commit, not '$rev'\"\n    exit 1\n  fi\nelif head=$(git -C \"$SRCROOT\" rev-parse --verify HEAD 2>/dev/null) &&\n  changes=$(git -C \"$SRCROOT\" --no-optional-locks status --porcelain 2>/dev/null); then\n  rev=\"$head\"\n  if [ -n \"$changes\" ]; then rev=\"$head-dirty\"; fi\nfi\nprintf '%s' \"$rev\" > \"$out\"\necho \"Source revision: ${rev:-unknown}\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		F7A000000000000000000011 /* Sources */ = {
