@@ -295,14 +295,11 @@ public enum AppWords {
 
     /// "07:00" in a zone, the 24-hour clock both languages use for FTW.
     public static func clock(_ ms: Double, zone: TimeZone) -> String {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = zone
-        let c = cal.dateComponents([.hour, .minute], from: Date(timeIntervalSince1970: ms / 1000))
-        return String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0)
+        ZoneClock.of(zone).label(ms)
     }
 
     public static func clock(minute: Int) -> String {
-        String(format: "%02d:%02d", (minute / 60) % 24, minute % 60)
+        ZoneClock.label(minute: minute)
     }
 
     /// "today 07:00", "tomorrow 07:00", "Tue 07:00", else "12 Oct 07:00".

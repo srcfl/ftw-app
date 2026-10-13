@@ -190,12 +190,7 @@ public enum ChargeNowActivity {
         ChargeNowWord.confirmed.format(clock(state.confirmedAtMs, zone: zone))
     }
 
-    static func clock(_ ms: Double, zone: TimeZone) -> String {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = zone
-        let c = cal.dateComponents([.hour, .minute], from: Date(timeIntervalSince1970: ms / 1000))
-        return String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0)
-    }
+    static func clock(_ ms: Double, zone: TimeZone) -> String { ZoneClock.of(zone).label(ms) }
 }
 
 /// What the Charge now Control shows, from the car record the app left in

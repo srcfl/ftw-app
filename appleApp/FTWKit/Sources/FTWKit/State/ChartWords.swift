@@ -35,10 +35,7 @@ public enum Readouts {
     public static func span(_ a: Double, _ b: Double) -> String { "\(clock(a))–\(clock(b))" }
 
     /// "14:35:12", for the live curve's seconds.
-    public static func seconds(_ ms: Double) -> String {
-        let c = Calendar.current.dateComponents([.hour, .minute, .second], from: Date(timeIntervalSince1970: ms / 1000))
-        return String(format: "%02d:%02d:%02d", c.hour ?? 0, c.minute ?? 0, c.second ?? 0)
-    }
+    public static func seconds(_ ms: Double) -> String { ZoneClock.of(.current).seconds(ms) }
 
     /// A step of history: its power and which way, and the energy since the
     /// chart's start up to the end of the step.
