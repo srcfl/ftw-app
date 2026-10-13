@@ -91,15 +91,54 @@ native, and smooth enough to impress.
 - **iOS 26's design.** System components (`List`, `Form`,
   `NavigationStack`, system button styles), so Liquid Glass appears where
   the system puts it. SF Symbols with symbol effects.
-- **Feel.** Numbers change with `.contentTransition(.numericText())`.
-  Motion uses one spring, `Theme.spring`. The car row on Now zooms into
-  the car view (`navigationTransition(.zoom)`). `.sensoryFeedback` marks
-  commands and their outcomes.
-- **A command answers at once.** Tap, haptic and "Sent" in under 100 ms,
-  then the box's receipt (`cmd.ack`), then the outcome (`cmd.result`).
-  Show the intent at once; never show a result the box has not confirmed.
+- **Feel.** Data glides in and never jumps. Numbers change with
+  `.contentTransition(.numericText(value:))`, new points animate in, and
+  everything that moves uses one spring, `Theme.spring`. The car row on
+  Now zooms into the car view (`navigationTransition(.zoom)`).
+- **The flow moves at the display's rate** while Now is on screen in an
+  active app. Under Reduce Motion it stops and a still arrow shows the
+  direction; in Low Power Mode it drops to 20 fps. The live curve glides
+  over each second, except under Reduce Motion or in Low Power Mode.
+- **No layout jumps.** Reserve room for receipts, labels and pending
+  marks, so a row never moves under the finger. Freshness and state
+  changes cross-fade, and a transition can be interrupted.
+- **Gaps in a time series.** Points sit on a fixed grid, each with a
+  stable identity. A gap being fetched shows as a faint band, "fetching…"
+  and a dashed estimate, never as a value. When the data comes it
+  replaces the estimate and grows into shape (spring response 0.55,
+  damping 0.72, 6–10 ms stagger per point). A gap the box confirms as
+  empty stays a visible break. Lines use `.monotone`, so they invent no
+  peaks. Under Reduce Motion the data shows at once. Animate only what
+  changed, and compute the points once per change.
+- **Every chart takes a finger.** The point under it is marked, and the
+  line under the chart says what was there. Two fingers give the span.
+- **Haptics are sparse.** `.selection` per slot while scrubbing, at most
+  about 25 a second. `.impact(weight: .light)` at now, the edges of the
+  cheapest window, the day's high and low, the car's goal and the ends of
+  a range. Nothing on data updates.
+- **A command answers at once.** Tap and "Sent" in under 100 ms, then the
+  box's receipt (`cmd.ack`), then the outcome (`cmd.result`). The outcome
+  alone plays a haptic, once: `.success`, `.warning` or `.error`. Show the
+  intent at once; never show a result the box has not confirmed.
 - **The largest text size and dark mode** look as good as the default.
   Review all three in the simulator.
+- **Evidence for feel work:** a screen recording, and an Animation Hitches
+  measurement from a device.
+
+## Design references
+
+Borrow patterns from the best iOS apps, never their graphics or brands.
+
+| Pattern | From | Where in FTW |
+|---|---|---|
+| Scrub a chart: the header gives way to the value under the finger, and comes back on release | Stocks | Every chart: price, node history, ahead |
+| Hourly strip with a now marker and a soft band for a range | Weather | Price chart, plan lanes |
+| Bars and rings that fill with a spring; one colour per metric | Fitness | Battery and car levels, one colour pair per node |
+| Big state, three fixed controls, receipt under them | Tesla, Rivian | The car view's Plan · Charge now · Pause bar |
+| A plain "what happens next" timeline with times | Flighty | Plan card, plan view, plan widget |
+| Price as a line coloured by level, with the cheap window marked | Tibber, Octopus | Price chart |
+| Calm lists, one prominent action, a quiet second one | Things, Apple Home | Pairing, mode sheet |
+| Liquid Glass only where the system puts it (bars, sheets, buttons) | iOS 26 | Toolbars, sheets, glass buttons; no custom glass panels |
 
 ## Non-negotiable invariants
 
