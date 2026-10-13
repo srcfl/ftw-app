@@ -392,7 +392,10 @@ private struct NodeList: View {
         let color = live ? Theme.color(r.tone) : Theme.fgMuted
         return VStack(alignment: .leading, spacing: 2) {
             Label {
+                // One word on one line: smaller before it breaks.
                 Text(r.node.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.fgDim)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
             } icon: {
                 Image(systemName: NodeLook.symbol(r.node, levelPct: r.levelPct, flowing: r.flowing)).foregroundStyle(color)
             }
