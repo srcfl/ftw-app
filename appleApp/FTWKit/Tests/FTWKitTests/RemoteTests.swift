@@ -335,11 +335,12 @@ final class RecordingCarrier: Carrier {
     var kind: CarrierKind { inner.kind }
     var status: CarrierStatus { inner.status }
 
-    func send(_ frame: Bytes) {
+    @discardableResult
+    func send(_ frame: Bytes) -> Bool {
         if let d = try? Frame.decode(frame), d.envelope.t == "cmd", let b = d.envelope.b {
             commands.append(Command(op: b["op"]?.string ?? "", args: b["args"] ?? CBOR.emptyMap, notValidAfterMs: b["notValidAfterMs"]?.double, uptimeMs: uptimeMs))
         }
-        inner.send(frame)
+        return inner.send(frame)
     }
 
     func setHandlers(onFrame: @escaping @MainActor (Bytes) -> Void, onStatus: @escaping @MainActor (CarrierStatus) -> Void) {
