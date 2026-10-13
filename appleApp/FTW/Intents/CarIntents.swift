@@ -9,7 +9,7 @@ import SwiftUI
 /// asks for the unlocked phone like every other command.
 struct CarStatusIntent: AppIntent {
     static let title: LocalizedStringResource = "Is the car ready?"
-    static let description = IntentDescription("Says whether the car will be ready in time, from what your box says now. A locked iPhone gives the gist only.")
+    static let description = IntentDescription("Says whether the car will be ready in time, from what your box says now. A locked phone gives the gist only.")
     static let authenticationPolicy: IntentAuthenticationPolicy = .alwaysAllowed
     static let supportedModes: IntentModes = .background
 
