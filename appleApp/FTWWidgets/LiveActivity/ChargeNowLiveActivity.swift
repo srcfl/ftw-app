@@ -136,7 +136,7 @@ private struct Headline: View {
         Text(face.headline)
             .font(.headline)
             .foregroundStyle(face.dimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
-            .lineLimit(1)
+            .lineLimit(face.dimmed ? 2 : 1)
             .minimumScaleFactor(0.8)
     }
 }
@@ -150,6 +150,7 @@ private struct Subtitle: View {
             .font(.subheadline)
             .foregroundStyle(.secondary)
             .lineLimit(1)
+            .minimumScaleFactor(0.8)
     }
 }
 
@@ -163,8 +164,9 @@ private struct Elapsed: View {
             .monospacedDigit()
             .multilineTextAlignment(.trailing)
             .foregroundStyle(face.dimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(Tone.accent))
-            // A stopped timer is a fixed figure: it keeps its width beside
-            // the longer stale headline.
+            .lineLimit(1)
+            // Plain text has its own width; the stale headline beside it
+            // wraps instead of squeezing the time.
             .fixedSize(horizontal: isStopped, vertical: false)
     }
 
@@ -173,12 +175,15 @@ private struct Elapsed: View {
         return false
     }
 
+    /// A stopped timer is plain text: a paused timer text still asks for
+    /// the width of a running one, which pushes everything else out.
     private var timer: Text {
         switch face.timer {
         case .running(let from):
             return Text(timerInterval: from...Date.distantFuture, countsDown: false)
         case .stopped(let from, let at):
-            return Text(timerInterval: from...max(from, at), pauseTime: at, countsDown: false)
+            let seconds = max(0, at.timeIntervalSince(from))
+            return Text(Duration.seconds(seconds).formatted(.time(pattern: seconds >= 3600 ? .hourMinuteSecond : .minuteSecond)))
         }
     }
 }
