@@ -51,17 +51,19 @@ struct PlanCard: View, Equatable {
     }
 }
 
-/// The hours ahead as lanes over the prices: the car's charging on top,
-/// the battery below it (charging one colour, giving power another), the
-/// cheapest hours as a mark along the bottom, and the prices as faint bars
-/// behind them all.
+/// The hours ahead as lanes: the car's charging on top, the battery under
+/// it (charging one colour, giving power another), the cheapest hours as a
+/// thin mark, and the prices as a low strip along the bottom. The price is
+/// the ground the plan stands on, not the subject.
 struct PlanLanes: View, Equatable {
     let moment: PlanGlance.Moment
     var compact = false
 
-    private static let car = 0.62...0.94
-    private static let battery = 0.2...0.52
-    private static let cheap = 0.0...0.08
+    private static let car = 0.68...0.96
+    private static let battery = 0.34...0.62
+    private static let cheap = 0.23...0.27
+    static let priceFloor = 0.03
+    static let priceRise = 0.15
 
     var body: some View {
         let from = moment.atMs
@@ -74,10 +76,10 @@ struct PlanLanes: View, Equatable {
                     xStart: .value("From", date(max(from, bar.startMs))),
                     xEnd: .value("To", date(min(to, bar.endMs))),
                     yStart: .value("Bottom", 0),
-                    yEnd: .value("Price", max(0.04, bar.minor / top))
+                    yEnd: .value("Price", Self.priceFloor + Self.priceRise * max(0, bar.minor) / top)
                 )
                 .foregroundStyle(grey ? Theme.fgMuted : PriceBars.color(bar.tone))
-                .opacity(0.16)
+                .opacity(0.4)
             }
             ForEach(moment.events) { e in
                 let lane = Self.lane(e.kind)

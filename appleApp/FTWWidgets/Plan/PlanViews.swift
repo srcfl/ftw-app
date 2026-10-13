@@ -80,8 +80,8 @@ struct MediumPlan: View {
             .accessibilityElement(children: .combine)
             VStack(alignment: .leading, spacing: 4) {
                 WidgetLanes(moment: moment)
-                if moment.next != nil {
-                    Text(moment.summary)
+                if let later = moment.laterText {
+                    Text(later)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -196,8 +196,9 @@ struct Age: View {
     }
 }
 
-/// The next twelve hours as lanes over faint prices: the car on top, the
-/// battery under it, the cheapest hours along the bottom. On tinted and
+/// The next twelve hours as lanes: the car on top, the battery under it,
+/// the cheapest hours as a thin mark, and the prices as a low strip along
+/// the bottom. On tinted and
 /// clear home screens it draws in one colour, the lanes solid and the
 /// prices faint.
 struct WidgetLanes: View {
@@ -215,10 +216,10 @@ struct WidgetLanes: View {
                     xStart: .value("From", date(max(from, bar.startMs))),
                     xEnd: .value("To", date(min(to, bar.endMs))),
                     yStart: .value("Bottom", 0.0),
-                    yEnd: .value("Price", max(0.04, bar.minor / top))
+                    yEnd: .value("Price", Self.priceFloor + Self.priceRise * max(0, bar.minor) / top)
                 )
                 .foregroundStyle(full && !moment.isGrey ? AnyShapeStyle(Tone.of(bar.tone)) : AnyShapeStyle(.primary))
-                .opacity(0.16)
+                .opacity(0.4)
             }
             ForEach(moment.events) { e in
                 let lane = Self.lane(e.kind)
@@ -246,11 +247,14 @@ struct WidgetLanes: View {
         .accessibilityHidden(true)
     }
 
+    static let priceFloor = 0.03
+    static let priceRise = 0.15
+
     static func lane(_ kind: PlanGlance.Kind) -> ClosedRange<Double> {
         switch kind {
-        case .car: return 0.62...0.94
-        case .charge, .discharge: return 0.2...0.52
-        case .cheap: return 0.0...0.08
+        case .car: return 0.68...0.96
+        case .charge, .discharge: return 0.34...0.62
+        case .cheap: return 0.23...0.27
         }
     }
 

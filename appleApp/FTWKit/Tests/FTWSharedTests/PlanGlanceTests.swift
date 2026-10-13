@@ -86,7 +86,14 @@ import Testing
         #expect(now.nextWhat == "Battery gives power")
         #expect(now.nextUntil == "until 21:15")
         #expect(now.cheapText == "cheapest 02–04")
+        // Beside the next thing, what comes after it.
+        #expect(now.laterText == "22:00–23:30 battery charges · 01:00–04:45 car charges to 80\u{00A0}% · cheapest 02–04")
         #expect(now.ageText == nil)
+
+        // Half a minute before it starts is now: a screen marks the minute.
+        let almost = PlanGlance.live(night(), nowMs: at(12, 20) - 30_000, calendar: calendar)
+        #expect(almost.nextWhen == "Now")
+        #expect(almost.summary.hasPrefix("now–21:15"))
 
         // Later, the next thing has not begun: its clock, not "now".
         let later = PlanGlance.live(night(), nowMs: at(12, 23, 45), calendar: calendar)

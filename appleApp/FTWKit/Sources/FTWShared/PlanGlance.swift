@@ -78,6 +78,9 @@ public enum PlanGlance {
     static let idleW: Double = 100
     /// A cheapest block worth naming is this much below the average ahead.
     static let cheapShare = 0.85
+    /// A screen marks the minute, and the box starts its plan at the second
+    /// it made it: something starting within the minute is happening now.
+    static let graceMs: Double = 60_000
 
     public enum Kind: String, Equatable, Sendable {
         case car, charge, discharge, cheap
@@ -181,6 +184,9 @@ public enum PlanGlance {
         public let nextUntil: String?
         /// "cheapest 02–04", when the hours ahead have a cheap stretch.
         public let cheapText: String?
+        /// What comes after `next`, in the summary's words. Nil when nothing
+        /// does.
+        public let laterText: String?
         /// "Planned 14:05", or "Plan from 14:05 · open FTW" once old.
         public let ageText: String?
 
@@ -204,7 +210,7 @@ public enum PlanGlance {
     public static func moment(_ read: CacheRead<PlanEntry>?, atMs t: Double, calendar: Calendar = .current) -> Moment {
         guard let read else {
             return Moment(atMs: t, state: .nothing, readAtMs: nil, events: [], backdrop: [], currency: "", summary: PlanWord.openToSee.text,
-                          next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, ageText: nil)
+                          next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil)
         }
         let old = t - read.record.readAtMs >= staleAfterMs
         let state: State = read.value.boxStale || read.srcState == .stale ? .boxStale : (old ? .old : .plan)
@@ -253,10 +259,14 @@ public enum PlanGlance {
             currency: entry.currency,
             summary: summary,
             next: next,
-            nextWhen: next.map { $0.startMs <= t ? PlanWord.now.text : ahead($0.startMs, asEnd: false, from: t, clock: clock) },
+            nextWhen: next.map { $0.startMs <= t + graceMs ? PlanWord.now.text : ahead($0.startMs, asEnd: false, from: t, clock: clock) },
             nextWhat: next.map(what),
             nextUntil: next.map { PlanWord.until.format(ahead($0.endMs, asEnd: true, from: t, clock: clock)) },
             cheapText: state == .nothing ? nil : list.first { $0.kind == .cheap }.map { PlanWord.cheapest.format(range($0, from: t, clock: clock, ongoingIsNow: state == .plan)) },
+            laterText: next.flatMap { n in
+                let rest = list.filter { $0 != n }
+                return rest.isEmpty ? nil : line(rest, from: t, clock: clock, ongoingIsNow: true)
+            },
             ageText: age
         )
     }
@@ -294,12 +304,16 @@ public enum PlanGlance {
         let b = clock.wall(e.endMs, asEnd: true)
         let whole = a.minute == 0 && b.minute == 0
         func short(_ w: Clock.Wall) -> String { whole ? String(format: "%02d", w.hour) : w.hm }
-        let start = e.startMs <= t && ongoingIsNow ? PlanWord.nowLower.text : short(a)
+        let start = e.startMs <= t + graceMs && ongoingIsNow ? PlanWord.nowLower.text : short(a)
         let text = "\(start)–\(short(b))"
         let now = clock.wall(t, asEnd: false)
         guard e.startMs > t, a.day > now.day, (a.hour, a.minute) > (now.hour, now.minute) else { return text }
         return GlanceWord.tomorrow.format(text)
     }
+
+    /// Whether `e` is under way at `t`, give or take the minute a screen
+    /// marks.
+    public static func started(_ e: Event, at t: Double) -> Bool { e.startMs <= t + graceMs }
 
     /// "01:00", or "tomorrow 15:00" where the clock alone would read as
     /// later today.

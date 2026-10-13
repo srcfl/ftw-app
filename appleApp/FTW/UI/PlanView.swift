@@ -57,7 +57,7 @@ private struct PlanBody: View {
         VStack(alignment: .leading, spacing: 6) {
             PlanLanes(moment: moment)
                 .equatable()
-                .frame(minHeight: fill ? 96 : 140, idealHeight: fill ? 96 : 140, maxHeight: fill ? 220 : 140)
+                .frame(minHeight: fill ? 84 : 140, idealHeight: fill ? 84 : 140, maxHeight: fill ? 200 : 140)
             Legend(kinds: Set(moment.events.map(\.kind)))
         }
         .padding(.vertical, 10)
@@ -89,11 +89,12 @@ private struct Legend: View {
         .foregroundStyle(Theme.fgDim)
     }
 
+    /// Only what the lanes hold, in short words: the rows below say the rest.
     @ViewBuilder private var items: some View {
-        item(.car, L("Car"))
-        item(.charge, L("Battery charges"))
-        item(.discharge, L("Battery gives power"))
-        item(.cheap, L("Cheapest"))
+        if kinds.contains(.car) { item(.car, L("Car")) }
+        if kinds.contains(.charge) { item(.charge, L("charging")) }
+        if kinds.contains(.discharge) { item(.discharge, L("discharging")) }
+        if kinds.contains(.cheap) { item(.cheap, L("Cheapest")) }
     }
 
     private func item(_ kind: PlanGlance.Kind, _ text: String) -> some View {
@@ -101,7 +102,6 @@ private struct Legend: View {
             RoundedRectangle(cornerRadius: 2).fill(PlanLanes.color(kind)).frame(width: 10, height: 6)
             Text(text).lineLimit(1)
         }
-        .opacity(kinds.contains(kind) ? 1 : 0.4)
     }
 }
 
@@ -113,7 +113,7 @@ private struct Events: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            let shown = Array(moment.events.prefix(5))
+            let shown = Array(moment.events.prefix(4))
             if shown.isEmpty {
                 Text(moment.summary)
                     .font(.footnote)
@@ -153,7 +153,8 @@ private struct Events: View {
                     Text(why)
                         .font(.footnote)
                         .foregroundStyle(Theme.fgDim)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                 }
             }
             Spacer(minLength: 8)
@@ -168,7 +169,7 @@ private struct Events: View {
 
     /// "22:15–00:00", "now–04:47".
     private func range(_ e: PlanGlance.Event) -> String {
-        let start = e.startMs <= moment.atMs ? L("now") : AppWords.clock(e.startMs, zone: .current)
+        let start = PlanGlance.started(e, at: moment.atMs) ? L("now") : AppWords.clock(e.startMs, zone: .current)
         return "\(start)–\(AppWords.clock(e.endMs, zone: .current))"
     }
 
