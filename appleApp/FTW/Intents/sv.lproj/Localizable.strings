@@ -1,0 +1,22 @@
+/* Swedish for the App Intents: their titles, descriptions and parameters,
+   as Siri, Spotlight and the Shortcuts app show them. The key is the English. */
+
+"Charge now" = "Ladda nu";
+"Starts charging the car at once, until you go back to the plan." = "Börjar ladda bilen direkt, tills du går tillbaka till planen.";
+"Back to the plan" = "Tillbaka till planen";
+"Ends Charge now or Pause. FTW decides when to charge again." = "Avslutar Ladda nu eller Pausa. FTW bestämmer igen när bilen laddar.";
+"Charger" = "Laddare";
+"Set the car's level" = "Ange bilens nivå";
+"Tells FTW how full the car's battery is, when FTW cannot read it from the car." = "Säger till FTW hur fullt bilens batteri är, när FTW inte kan läsa av det från bilen.";
+"Level" = "Nivå";
+"The car is at ${level}" = "Bilen är på ${level}";
+"Is the car ready?" = "Är bilen klar?";
+"Says whether the car will be ready in time, from what your box says now. A locked iPhone gives the gist only." = "Säger om bilen blir klar i tid, utifrån vad din box säger nu. En låst iPhone svarar utan detaljer.";
+"The car" = "Bilen";
+"Car's level" = "Bilens nivå";
+"Said" = "Sagt";
+
+/* A push from FTW Cloud, as Apple shows it if the notification extension
+   does not run. The extension writes every other line itself. */
+"push.title" = "Något hände hemma";
+"push.generic" = "Öppna FTW för att se vad.";

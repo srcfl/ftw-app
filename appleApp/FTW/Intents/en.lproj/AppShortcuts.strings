@@ -1,0 +1,8 @@
+/* Siri phrases in English, as written in FTWShortcuts. */
+
+"Charge now with ${applicationName}" = "Charge now with ${applicationName}";
+"Start charging the car with ${applicationName}" = "Start charging the car with ${applicationName}";
+"Is the car ready in ${applicationName}" = "Is the car ready in ${applicationName}";
+"Ask ${applicationName} if the car is ready" = "Ask ${applicationName} if the car is ready";
+"Tell ${applicationName} the car is at ${level}" = "Tell ${applicationName} the car is at ${level}";
+"Set the car's level in ${applicationName}" = "Set the car's level in ${applicationName}";

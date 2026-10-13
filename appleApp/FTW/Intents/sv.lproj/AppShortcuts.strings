@@ -1,0 +1,8 @@
+/* Siri phrases in Swedish. ${applicationName} is FTW. */
+
+"Charge now with ${applicationName}" = "Ladda nu med ${applicationName}";
+"Start charging the car with ${applicationName}" = "Börja ladda bilen med ${applicationName}";
+"Is the car ready in ${applicationName}" = "Är bilen klar i ${applicationName}";
+"Ask ${applicationName} if the car is ready" = "Fråga ${applicationName} om bilen är klar";
+"Tell ${applicationName} the car is at ${level}" = "Säg till ${applicationName} att bilen är på ${level}";
+"Set the car's level in ${applicationName}" = "Ange bilens nivå i ${applicationName}";
