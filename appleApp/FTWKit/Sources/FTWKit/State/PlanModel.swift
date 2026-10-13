@@ -15,7 +15,7 @@ import Observation
 public final class PlanModel {
     /// One slot of the planner's forecast: what it expects the sun to make
     /// and the home to use.
-    public struct Forecast: Equatable, Sendable, Identifiable {
+    public struct Forecast: Equatable, Sendable, Identifiable, Codable {
         public let startMs: Double
         public let durationMs: Double
         /// Watts the sun is expected to make, never negative.
@@ -30,10 +30,20 @@ public final class PlanModel {
     nonisolated static let followMs: Double = 3_000
     nonisolated static let followTries = 6
 
-    public private(set) var forecast: [Forecast] = []
+    /// The plan on screen: the box's latest word, or the plan an earlier
+    /// launch kept, dated, until the box answers. The same plan again
+    /// changes nothing.
+    public private(set) var stamped: Stamped<Plan>?
+    public private(set) var forecastStamp: Stamped<[Forecast]>?
+    /// Whether the box has answered for the forecast in this session. Until
+    /// then an empty forecast is unknown, not empty.
     public private(set) var forecastLoaded = false
+    /// Whether the box has answered `plan.get` in this session. Until then
+    /// no plan is unknown, never "no plan".
     public private(set) var loaded = false
-    /// When the box last answered `plan.get`.
+    /// When the box last sent its plan: an answer to `plan.get`, which
+    /// confirms the plan on screen even when it is the same, or a plan it
+    /// pushed.
     public private(set) var receivedAtMs: Double?
     public private(set) var problem: String?
 
@@ -44,12 +54,39 @@ public final class PlanModel {
     @ObservationIgnored private var forecastActive = 0
     @ObservationIgnored private var want = 0
     @ObservationIgnored private var following: Cancellable?
+    /// The plan on the session as last taken, so a pushed one is taken once.
+    @ObservationIgnored private var sessionPlan: Plan?
+    /// Runs each time the box has sent its plan, the same or a new one, so
+    /// the widget's record is dated by it.
+    @ObservationIgnored var received: (@MainActor () -> Void)?
 
     public init(site: SiteModel) {
         self.site = site
+        stamped = site.kept?.plan?.cached
+        forecastStamp = site.kept?.forecast?.cached
+        site.keep { [weak self] home in
+            home.plan = self?.stamped
+            home.forecast = self?.forecastStamp
+        }
+        // A plan also arrives unasked, right after a command.
+        site.observe { [weak self] in self?.sync() }
     }
 
-    public var plan: Plan? { site.session.plan }
+    public var plan: Plan? { stamped?.value }
+    public var forecast: [Forecast] { forecastStamp?.value ?? [] }
+
+    /// Take the session's plan when the box sent a new one.
+    func sync() {
+        guard let p = site.session.plan, p != sessionPlan else { return }
+        sessionPlan = p
+        receivedAtMs = site.nowMs
+        take(p)
+        received?()
+    }
+
+    private func take(_ p: Plan) {
+        if let next = Stamped.taking(Stamped(p, asOfMs: site.nowMs, origin: .relay), over: stamped) { stamped = next }
+    }
 
     public func activate(forecast: Bool = false) {
         active += 1
@@ -80,10 +117,13 @@ public final class PlanModel {
 
     func load() async throws {
         do {
-            _ = try await site.core.plan()
+            let p = try await site.core.plan()
+            sessionPlan = p
             receivedAtMs = site.nowMs
-            loaded = true
-            problem = nil
+            take(p)
+            received?()
+            if !loaded { loaded = true }
+            if problem != nil { problem = nil }
         } catch {
             // The plan on screen stays; what happens now is that the app
             // asks again on its own, so that is what it says.
@@ -94,8 +134,9 @@ public final class PlanModel {
 
     func loadForecast() async throws {
         let wire = try await site.callBox(.get, "/api/mpc/plan")
-        forecast = Self.forecast(wire?["plan"]?["actions"]?.array ?? [])
-        forecastLoaded = true
+        let next = Stamped(Self.forecast(wire?["plan"]?["actions"]?.array ?? []), asOfMs: site.nowMs, origin: .relay)
+        if let taken = Stamped.taking(next, over: forecastStamp) { forecastStamp = taken }
+        if !forecastLoaded { forecastLoaded = true }
     }
 
     static func forecast(_ actions: [JSON]) -> [Forecast] {

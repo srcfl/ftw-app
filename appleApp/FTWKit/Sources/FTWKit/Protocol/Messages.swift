@@ -58,7 +58,7 @@ public struct FieldDef: Equatable, Sendable, Codable {
     }
 }
 
-public struct ModeInfo: Equatable, Sendable, Identifiable {
+public struct ModeInfo: Equatable, Sendable, Identifiable, Codable {
     public var key: String
     public var label: String
     public var tooltip: String
@@ -80,7 +80,7 @@ public struct BootProgress: Equatable, Sendable {
     public var etaMs: Double?
 }
 
-public struct BoxInfo: Equatable, Sendable {
+public struct BoxInfo: Equatable, Sendable, Codable {
     public var id: String
     public var build: String
     public var tz: String

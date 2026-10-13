@@ -176,28 +176,33 @@ public final class Session {
 
     // MARK: Lifecycle
 
-    /// Seed state from the cache before any carrier exists. The readings
-    /// were true when captured and the band says how long ago; carrier stays
-    /// `cache`, which is a carrier and not a failure.
+    /// Seed state from the cache before any carrier exists, in one change.
+    /// The readings were true when captured and the band says how long ago;
+    /// carrier stays `cache`, which is a carrier and not a failure.
+    ///
+    /// `hello` is what the box said at hello on an earlier launch: its caps,
+    /// its modes, the box and this phone's role, so the mode label and the
+    /// household's clock are there in the first frame. `heardFromBox` stays
+    /// false, so none of it unlocks a control, and hello replaces it all.
     ///
     /// The cache read races the connect. Landing mid-handshake, only the
     /// data paints: the phase, carrier and clock belong to the connection.
-    public func restore(_ snapshot: CachedSnapshot) {
-        switch state.phase {
-        case .streaming:
-            return
-        case .handshaking, .subscribing, .booting:
-            if !state.fields.isEmpty { return }
-            var s = state
-            snapshot.apply(to: &s, includeClock: false)
-            state = s
-        default:
-            var s = state
-            snapshot.apply(to: &s, includeClock: true)
-            s.phase = .idle
-            s.carrier = .cache
-            state = s
+    public func restore(_ snapshot: CachedSnapshot?, hello: HomeCache.Hello? = nil) {
+        var s = state
+        if let hello, !s.heardFromBox { hello.apply(to: &s) }
+        if let snapshot {
+            switch s.phase {
+            case .streaming:
+                break
+            case .handshaking, .subscribing, .booting:
+                if s.fields.isEmpty { snapshot.apply(to: &s, includeClock: false) }
+            default:
+                snapshot.apply(to: &s, includeClock: true)
+                s.phase = .idle
+                s.carrier = .cache
+            }
         }
+        state = s
     }
 
     /// Attach a carrier and start the handshake. Replaces any current one.

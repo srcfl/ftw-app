@@ -169,6 +169,9 @@ public enum PlanGlance {
         case old
         /// The box itself could not plan.
         case boxStale
+        /// The box has not answered yet and this phone kept no plan: the
+        /// shape of the card, and no sentence about a plan that may exist.
+        case waiting
     }
 
     public struct Moment: Equatable, Sendable {
@@ -201,6 +204,8 @@ public enum PlanGlance {
         public let timeZone: TimeZone
 
         public var isGrey: Bool { state != .plan }
+        /// Waiting with nothing to say yet: the line is drawn as its shape.
+        public var placeholder: Bool { state == .waiting && summary == PlanWord.reading.text }
     }
 
     /// The widget's timeline: one moment now, one at every start and end
@@ -234,7 +239,23 @@ public enum PlanGlance {
         moment(entry, state: entry.boxStale ? .boxStale : .plan, readAtMs: nil, atMs: nowMs, calendar: calendar ?? .household(entry.timeZone))
     }
 
-    private static func moment(_ entry: PlanEntry, state: State, readAtMs: Double?, atMs t: Double, calendar: Calendar) -> Moment {
+    /// A plan this phone kept from an earlier launch, inside the app until
+    /// the box answers: dated "Planned 14:05", and grey once old.
+    public static func kept(_ entry: PlanEntry, readAtMs: Double, nowMs: Double, calendar: Calendar? = nil) -> Moment {
+        let state: State = entry.boxStale ? .boxStale : (nowMs - readAtMs >= staleAfterMs ? .old : .plan)
+        return moment(entry, state: state, readAtMs: readAtMs, atMs: nowMs, calendar: calendar ?? .household(entry.timeZone), inApp: true)
+    }
+
+    /// Before the box's first answer, with no plan kept. `note` says what
+    /// happens instead, when something does.
+    public static func waiting(_ entry: PlanEntry, nowMs: Double, note: String? = nil, calendar: Calendar? = nil) -> Moment {
+        let m = moment(entry, state: .waiting, readAtMs: nil, atMs: nowMs, calendar: calendar ?? .household(entry.timeZone))
+        guard let note else { return m }
+        return Moment(atMs: m.atMs, state: m.state, readAtMs: nil, events: m.events, backdrop: m.backdrop, currency: m.currency, summary: note,
+                      next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, timeZone: m.timeZone)
+    }
+
+    private static func moment(_ entry: PlanEntry, state: State, readAtMs: Double?, atMs t: Double, calendar: Calendar, inApp: Bool = false) -> Moment {
         let clock = Clock(calendar: calendar)
         let list = events(entry, fromMs: t, toMs: t + horizonMs)
         let actions = list.filter { $0.kind != .cheap }
@@ -243,7 +264,8 @@ public enum PlanGlance {
 
         var age: String?
         if let readAtMs {
-            age = state == .old ? PlanWord.planFrom.format(clock.at(readAtMs, asEnd: false, from: t)) : PlanWord.planned.format(clock.at(readAtMs, asEnd: false, from: t))
+            // Only a widget sends the reader to the app for a newer plan.
+            age = state == .old && !inApp ? PlanWord.planFrom.format(clock.at(readAtMs, asEnd: false, from: t)) : PlanWord.planned.format(clock.at(readAtMs, asEnd: false, from: t))
         }
 
         let summary: String
@@ -252,6 +274,8 @@ public enum PlanGlance {
             summary = PlanWord.openToSee.text
         case .boxStale:
             summary = PlanWord.boxStale.text
+        case .waiting:
+            summary = PlanWord.reading.text
         case .plan, .old:
             if entry.battery == nil, entry.charges.isEmpty {
                 summary = PlanWord.noPlanYet.text
@@ -274,7 +298,7 @@ public enum PlanGlance {
             nextWhen: next.map { $0.startMs <= t + graceMs ? PlanWord.now.text : ahead($0.startMs, asEnd: false, from: t, clock: clock) },
             nextWhat: next.map(what),
             nextUntil: next.map { PlanWord.until.format(ahead($0.endMs, asEnd: true, from: t, clock: clock)) },
-            cheapText: state == .nothing ? nil : list.first { $0.kind == .cheap }.map { PlanWord.cheapest.format(range($0, from: t, clock: clock, ongoingIsNow: state == .plan)) },
+            cheapText: state == .nothing || state == .waiting ? nil : list.first { $0.kind == .cheap }.map { PlanWord.cheapest.format(range($0, from: t, clock: clock, ongoingIsNow: state == .plan)) },
             laterText: next.flatMap { n in
                 let rest = list.filter { $0 != n }
                 return rest.isEmpty ? nil : line(rest, from: t, clock: clock, ongoingIsNow: true, actions: 1)
@@ -362,6 +386,7 @@ enum PlanWord: String, CaseIterable {
     case summary = "What FTW plans to do over the next hours, and when power is cheapest."
     case openToSee = "Open FTW to see the plan"
     case noPlanYet = "No plan from your box yet"
+    case reading = "Reading the plan from your box…"
     case boxStale = "Your box couldn't plan ahead · it runs on safe defaults"
     case nothingPlanned = "Nothing planned for 12 hours"
     case carChargesTo = "%@ car charges to %@"

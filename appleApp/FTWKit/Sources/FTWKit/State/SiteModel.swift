@@ -38,6 +38,10 @@ public final class SiteModel {
     public private(set) var session = SessionState()
     /// Wall clock the cached view was captured. Nil when live.
     public private(set) var cachedAtMs: Double?
+    /// The box's uptime when the cached view was captured. Its sources'
+    /// ages count against this until the box streams: hello names the
+    /// uptime now, which is not the clock those readings were taken on.
+    @ObservationIgnored private var cachedUptimeMs: Double?
     public private(set) var lastFrameAtMs: Double?
     public private(set) var documentVisible = true
     /// The clock screens read for ages. It moves with every reading, and
@@ -87,6 +91,18 @@ public final class SiteModel {
     /// The last snapshot written, without its time, so the same home is not
     /// written twice.
     @ObservationIgnored private var lastSnapshot: CachedSnapshot?
+    /// What the last launch kept of this home beside its readings, read
+    /// once when the model is made, so every model of the home opens on it.
+    public let kept: HomeCache?
+    /// Each model's part of the home file, filled in at every write.
+    @ObservationIgnored private var keepers: [@MainActor (inout HomeCache) -> Void] = []
+    /// The home file as last read or written, so the same home is not
+    /// written twice.
+    @ObservationIgnored private var lastHome: HomeCache?
+    /// FTW Cloud's price window and chargers as last accepted, for the
+    /// models that show them. Each change comes with a `notify`.
+    @ObservationIgnored public private(set) var cloudPrices: Stamped<PriceEntry>?
+    @ObservationIgnored public private(set) var cloudCars: Stamped<[CarEntry.Car]>?
     @ObservationIgnored private var destroyed = false
     /// The box session's own state, as the last frame left it.
     @ObservationIgnored private var relay = SessionState()
@@ -164,6 +180,9 @@ public final class SiteModel {
         nowMs = scheduler.nowMs
         minuteMs = (scheduler.nowMs / 60_000).rounded(.down) * 60_000
         attemptStartedAtMs = scheduler.nowMs
+        let home = siteId.flatMap { id in files?.readJSON(HomeCache.self, "home-\(id)") }
+        kept = home.flatMap { $0.version == HomeCache.version && $0.siteId == siteId ? $0 : nil }
+        lastHome = kept?.asRead
         core = Session(build: build, ua: ua, scheduler: scheduler)
         core.onChange = { [weak self] s in self?.onSession(s) }
     }
@@ -175,11 +194,13 @@ public final class SiteModel {
     public func start() {
         startedAtMs = scheduler.nowMs
         beginLiveSpan("cold start to live")
-        if let siteId, let cached = files?.readJSON(CachedSnapshot.self, "snapshot-\(siteId)"), cached.siteId == siteId {
-            core.restore(cached)
+        let cached = siteId.flatMap { id in files?.readJSON(CachedSnapshot.self, "snapshot-\(id)") }.flatMap { $0.siteId == siteId ? $0 : nil }
+        if let cached {
             cachedAtMs = cached.savedAtMs
+            cachedUptimeMs = cached.uptimeMs
             lastSnapshot = cached.timeless
         }
+        if cached != nil || kept?.hello != nil { core.restore(cached, hello: kept?.hello) }
         if let siteId, let kept = files?.readJSON(CloudCache.self, "cloud-\(siteId)") {
             adoptCloud(kept.identity, offset: kept.offset)
         }
@@ -474,6 +495,7 @@ public final class SiteModel {
             files.writeJSON("cloud-\(siteId)", CloudCache(identity: identity, offset: ruleU), wait: wait)
             shareCloudHome()
         }
+        writeHome(siteId: siteId, files: files, wait: wait)
         guard session.phase == .streaming || !session.fields.isEmpty, cachedAtMs == nil else { return }
         // The cloud's ages move with the clock; take them as of now.
         let state = source == .cloud ? composed() : session
@@ -482,6 +504,23 @@ public final class SiteModel {
         lastSnapshot = snapshot.timeless
         lastSnapshotMs = scheduler.nowMs
         files.writeJSON("snapshot-\(siteId)", snapshot, wait: wait)
+    }
+
+    /// A model's part of the home file: `fill` adds it at every write.
+    public func keep(_ fill: @escaping @MainActor (inout HomeCache) -> Void) {
+        keepers.append(fill)
+    }
+
+    /// Write the home file when it says something new. Hello is the box's
+    /// own once it has spoken, else what the last launch kept.
+    private func writeHome(siteId: String, files: SealedFiles, wait: Bool) {
+        var home = HomeCache(siteId: siteId)
+        home.hello = relay.heardFromBox ? HomeCache.Hello(relay) : kept?.hello
+        for fill in keepers { fill(&home) }
+        let read = home.asRead
+        guard read != lastHome, read != HomeCache(siteId: siteId) else { return }
+        lastHome = read
+        files.writeJSON("home-\(siteId)", home, wait: wait)
     }
 
     // MARK: Time to live
@@ -632,7 +671,7 @@ public final class SiteModel {
             if carrier == .cache, let at = cachedAtMs { return max(age, nowMs - at) }
             return age
         }
-        let r = shown.relay
+        let r = asCached(shown.relay)
         let ages = nowSourceIDs.compactMap { id -> Double? in
             guard let src = r.sources[id] else { return nil }
             let age = r.uptimeMs - src.lastOkMs
@@ -644,6 +683,15 @@ public final class SiteModel {
         }
         guard let oldest = ages.max() else { return nil }
         return oldest + sinceLastFrameMs
+    }
+
+    /// The state with its clock as the cache left it, while what is on
+    /// screen is the cache.
+    func asCached(_ s: SessionState) -> SessionState {
+        guard carrier == .cache, let cachedUptimeMs else { return s }
+        var c = s
+        c.uptimeMs = cachedUptimeMs
+        return c
     }
 
     /// Live is three claims at once: streaming, not the cache, and every
@@ -1090,8 +1138,8 @@ extension SiteModel {
         guard var view = cloudView, (try? view.accept(env, arrivalMs: Int64(at))) != nil else { return false }
         cloudView = view
         switch env.t {
-        case CloudWire.msgLP: shareCloudCars()
-        case CloudWire.msgPrices: shareCloudPrices()
+        case CloudWire.msgLP: takeCloudCars(at)
+        case CloudWire.msgPrices: takeCloudPrices(at)
         default: break
         }
         return true
@@ -1193,12 +1241,13 @@ extension SiteModel {
         return Double(max(0, oldest) + t)
     }
 
-    /// The cars as the cloud's lp has them, for the widgets.
-    private func shareCloudCars() {
+    /// The cars as the cloud's lp has them, for the car's models and the
+    /// widgets, dated when the box sent them.
+    private func takeCloudCars(_ at: Double) {
         guard let view = cloudView, let lp = view.lp, let identity = cloudIdentity else { return }
         let now = scheduler.nowMs
         let g = view.grade(nowMs: Int64(now))
-        let entry = CarEntry(cars: lp.loadpoints.map { l in
+        let cars = lp.loadpoints.map { l in
             CarEntry.Car(
                 loadpointID: identity.loadpoints[l.id] ?? l.id,
                 pluggedIn: l.plugged,
@@ -1208,13 +1257,15 @@ extension SiteModel {
                 powerW: Double(l.powerW),
                 targetSocPct: l.targetPermille.map { (Double($0) / 10).rounded() }
             )
-        })
-        shareCarEntry(entry, answering: lp.loadpoints.allSatisfy { g.loadpoints[$0.id] == .live }, via: .cloud)
+        }
+        cloudCars = Stamped(cars, asOfMs: view.sentMs(lp.header, arrivalMs: Int64(at)).map(Double.init) ?? at, origin: .cloud)
+        shareCarEntry(CarEntry(cars: cars), answering: lp.loadpoints.allSatisfy { g.loadpoints[$0.id] == .live }, via: .cloud)
     }
 
-    /// The cloud's price window, for the widgets, in the box session's shape.
-    private func shareCloudPrices() {
-        guard let p = cloudView?.prices, p.slotMs > 0 else { return }
+    /// The cloud's price window in the box session's shape, for the price
+    /// model and the widgets.
+    private func takeCloudPrices(_ at: Double) {
+        guard let view = cloudView, let p = view.prices, p.slotMs > 0 else { return }
         var slots = [PriceSlot]()
         for i in p.spotMinor.indices {
             guard let spot = p.spotMinor[i], i < p.totalMinor.count, let total = p.totalMinor[i] else { continue }
@@ -1222,7 +1273,10 @@ extension SiteModel {
                                    spotMinor: Double(spot), totalMinor: Double(total)))
         }
         guard !slots.isEmpty else { return }
-        sharePrices(Prices(zone: p.zone, currency: p.currency, slots: slots, stale: false), fromMs: Double(p.t0Ms), via: .cloud)
+        let prices = Prices(zone: p.zone, currency: p.currency, slots: slots, stale: false)
+        cloudPrices = Stamped(PriceEntry(fromMs: Double(p.t0Ms), prices: prices, timeZone: session.box?.tz),
+                              asOfMs: view.sentMs(p.header, arrivalMs: Int64(at)).map(Double.init) ?? at, origin: .cloud)
+        sharePrices(prices, fromMs: Double(p.t0Ms), via: .cloud)
     }
 }
 
