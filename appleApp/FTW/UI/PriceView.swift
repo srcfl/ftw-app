@@ -146,8 +146,7 @@ struct PriceChart: View, Equatable {
             )
         }
         .chartScrub(selected: $selected, range: $range, slot: { d in
-            let ms = d.timeIntervalSince1970 * 1000
-            return bars.first { $0.startMs <= ms && ms < $0.endMs }?.startMs
+            SlotLookup.clamped(bars, at: d.timeIntervalSince1970 * 1000, start: \.startMs).map { bars[$0].startMs }
         }, landmark: { slot in landmarks.contains(slot) })
         .onChange(of: selected) { _, _ in report() }
         .onChange(of: range) { _, _ in report() }
