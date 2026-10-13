@@ -415,6 +415,8 @@ summary says whether Xcode or altool uploaded the build.
 | The bundle version must be higher | A build number was used; run again or tag again. |
 | Agreement missing or expired | The Account Holder must accept it under Business. |
 | Xcode upload failed, then altool succeeded | Nothing to do; Apple got the build. |
+| The upload succeeded but no build appears in TestFlight | Apple refused it after upload. `GET /v1/apps/{id}/buildUploads` gives the reason. |
+| ITMS-90626 Invalid Siri Support | An App Intent's title or description names Apple's products, such as "iPhone". Say "phone" instead. |
 
 ## Before launching in France
 
