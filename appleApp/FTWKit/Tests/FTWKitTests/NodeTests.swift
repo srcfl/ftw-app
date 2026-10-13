@@ -441,6 +441,25 @@ import FTWShared
             #expect(both?.what.hasPrefix("↑ \(AppWords.energy(2_500)) ↓ \(AppWords.energy(0)) · average") == true)
         }
     }
+
+    /// The price under a finger is never missing while the finger is down:
+    /// the audit found the marker vanished at the right edge and in gaps.
+    @Test func aPriceUnderTheFingerHoldsAtTheEdgesAndInAGap() {
+        AppWords.$language.withValue(.en) {
+            let q = 900_000.0
+            // 00:00, 00:15, then a gap, then 00:45.
+            let prices = [ChartPrice(startMs: 0, endMs: q, minor: 50.5), ChartPrice(startMs: q, endMs: 2 * q, minor: 70.5), ChartPrice(startMs: 3 * q, endMs: 4 * q, minor: 90.5)]
+            func what(_ ms: Double) -> String? { Readouts.price(prices, currency: "SEK", plan: nil, at: ms)?.what }
+            #expect(what(10) == "50.5 öre/kWh")
+            #expect(what(-q) == "50.5 öre/kWh")
+            // The gap reads as the step the line draws there.
+            #expect(what(2.5 * q) == "70.5 öre/kWh")
+            // The right edge and past it stay on the last slot.
+            #expect(what(4 * q) == "90.5 öre/kWh")
+            #expect(what(9 * q) == "90.5 öre/kWh")
+            #expect(Readouts.price([], currency: "SEK", plan: nil, at: 0) == nil)
+        }
+    }
 }
 
 @Suite struct HistoryWireTests {

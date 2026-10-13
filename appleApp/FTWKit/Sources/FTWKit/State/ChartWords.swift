@@ -121,9 +121,12 @@ public enum Readouts {
         return ChartReadout(when: span(h.startMs, h.startMs + h.lenMs), what: h.wh > 0 ? NodeWords.format("charged %@", AppWords.energy(h.wh)) : NodeWords.text("not charging"))
     }
 
-    /// A price slot: the price, and what the plan does then.
+    /// A price slot: the price, and what the plan does then. Past either
+    /// edge it is the edge's slot, and in a gap the slot before it, as the
+    /// stepped line draws it.
     public static func price(_ prices: [ChartPrice], currency: String, plan: PlanEntry?, at ms: Double) -> ChartReadout? {
-        guard let slot = prices.first(where: { $0.startMs <= ms && ms < $0.endMs }) else { return nil }
+        guard let i = SlotLookup.clamped(prices, at: ms, start: \.startMs) else { return nil }
+        let slot = prices[i]
         var parts = [price(slot.minor, currency)]
         if let plan {
             let doing = PlanGlance.events(plan, fromMs: slot.startMs, toMs: slot.endMs).filter { $0.kind != .cheap }

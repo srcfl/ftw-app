@@ -109,11 +109,15 @@ struct PriceLineChart: View {
                     .foregroundStyle(palette.now)
                     .symbolSize(36)
             }
-            if let selected, let v = value(at: selected.timeIntervalSince1970 * 1000) {
-                RuleMark(x: .value("Selected", selected))
+            // While a finger is down there is always a slot under it: past
+            // either edge the marker stays at that edge, and in a gap it
+            // sits on the step the line draws there.
+            if let selected, let i = SlotLookup.clamped(points, at: selected.timeIntervalSince1970 * 1000, start: \.startMs) {
+                let at = date(min(max(selected.timeIntervalSince1970 * 1000, start), end))
+                RuleMark(x: .value("Selected", at))
                     .foregroundStyle(palette.quiet.opacity(0.7))
                     .lineStyle(StrokeStyle(lineWidth: 1))
-                PointMark(x: .value("Selected", selected), y: .value("Price", v))
+                PointMark(x: .value("Selected", at), y: .value("Price", points[i].value))
                     .foregroundStyle(palette.now)
                     .symbolSize(64)
             }
