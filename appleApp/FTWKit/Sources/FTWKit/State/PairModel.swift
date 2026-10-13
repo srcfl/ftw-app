@@ -29,7 +29,7 @@ public final class PairModel {
             do {
                 offeredFingerprint = SiteList.fingerprint(try Enrollment.parse(scanned: link).boxStaticPublic)
             } catch {
-                message = "That link is not an FTW pairing code."
+                message = NodeWords.text("That link is not an FTW pairing code.")
             }
         }
     }
@@ -53,7 +53,7 @@ public final class PairModel {
             message = e.help
         } catch {
             stage = .intro
-            message = "That didn't work. Try scanning again."
+            message = NodeWords.text("That didn't work. Try scanning again.")
         }
     }
 
@@ -76,7 +76,7 @@ public final class PairModel {
     /// A picture was read and held no pairing code.
     public func noCodeFound() {
         stage = .intro
-        message = "There is no FTW pairing code in that picture. Try a closer screenshot of the QR."
+        message = NodeWords.text("There is no FTW pairing code in that picture. Try a closer screenshot of the QR.")
     }
 
     public func tryDemo() {

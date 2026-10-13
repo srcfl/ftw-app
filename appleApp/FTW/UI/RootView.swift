@@ -22,16 +22,30 @@ struct RootView: View {
     }
 }
 
-/// Where a home can go from Now. M1 has one place: the car.
+/// Where a home can go from Now: each node's own view, and the car.
 enum HomeRoute: Hashable {
     /// One charger's car; nil is the first.
     case car(String?)
+    /// Live, history, plan and mode for one node of the flow.
+    case node(EnergyNode)
+    /// The plan ahead, from Now's plan card.
+    case plan
+    /// The price ahead, from the plan.
+    case price
 
-    /// Where a home opens. Debug builds take `-FTWTab car` and the like, so
-    /// every screen of the demo can be photographed.
+    /// Where a home opens. Debug builds take `-FTWTab car` or
+    /// `-FTWNode battery` and the like, so every screen of the demo can be
+    /// photographed.
     static var initial: [HomeRoute] {
         #if DEBUG
-        return UserDefaults.standard.string(forKey: "FTWTab") == "car" ? [.car(nil)] : []
+        let defaults = UserDefaults.standard
+        if let node = defaults.string(forKey: "FTWNode").flatMap(EnergyNode.init(rawValue:)) { return [.node(node)] }
+        switch defaults.string(forKey: "FTWTab") {
+        case "car": return [.car(nil)]
+        case "plan": return [.plan]
+        case "price": return [.plan, .price]
+        default: return []
+        }
         #else
         return []
         #endif
@@ -42,29 +56,43 @@ struct HomeView: View {
     let app: AppModel
     let home: HomeModels
     @State private var path: [HomeRoute] = HomeRoute.initial
-    /// The car row on Now grows into the car view.
+    /// A node on Now grows into its own view, and the car into the car view.
     @Namespace private var zoom
 
     var body: some View {
-        VStack(spacing: 0) {
-            if app.isDemo {
-                DemoBand(site: home.site) { app.exitDemo() }
-            } else {
-                Band(app: app, site: home.site)
-            }
-            NavigationStack(path: $path) {
-                Screen(app: app) {
-                    NowView(app: app, home: home, zoom: zoom)
-                }
-                .toolbar(.hidden, for: .navigationBar)
-                .navigationDestination(for: HomeRoute.self) { route in
-                    switch route {
-                    case .car(let id):
-                        CarView(app: app, home: home, id: id)
-                            .navigationTransition(.zoom(sourceID: id ?? CarRow.firstID, in: zoom))
+        NavigationStack(path: $path) {
+            NowView(app: app, home: home, zoom: zoom)
+                .background(Theme.surface)
+                .navigationTitle(L("Now"))
+                .navigationBarTitleDisplayMode(.inline)
+                .freshness(app: app, site: home.site)
+                .toolbar {
+                    if app.isDemo {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button(L("Exit demo")) { app.exitDemo() }
+                                .accessibilityIdentifier("demo.exit")
+                        }
                     }
                 }
-            }
+                .navigationDestination(for: HomeRoute.self) { route in
+                    // Each route zooms out of the view that names it as
+                    // its source: a node on Now, the car row in the car's
+                    // node view.
+                    Group {
+                        switch route {
+                        case .car(let id):
+                            CarView(app: app, home: home, id: id)
+                        case .node(let node):
+                            NodeView(app: app, home: home, node: node, zoom: zoom)
+                        case .plan:
+                            PlanView(app: app, home: home)
+                        case .price:
+                            PriceView(home: home)
+                        }
+                    }
+                    .freshness(app: app, site: home.site)
+                    .navigationTransition(.zoom(sourceID: route, in: zoom))
+                }
         }
         // Now and the car read the chargers from one model, so a screen
         // appearing asks the box once.
@@ -73,78 +101,121 @@ struct HomeView: View {
     }
 }
 
-/// The freshness band, in its own view so a frame redraws the band and not
-/// the screen under it.
-private struct Band: View {
+extension View {
+    /// Freshness under every screen's title, in the system's own bar, so it
+    /// never scrolls away and needs no band of its own.
+    func freshness(app: AppModel, site: SiteModel) -> some View {
+        modifier(FreshnessSubtitle(app: app, site: site))
+    }
+}
+
+private struct FreshnessSubtitle: ViewModifier {
     let app: AppModel
     let site: SiteModel
 
-    var body: some View {
-        FreshnessBandView(band: site.freshness(noCarrier: app.connectHelp != nil), frameAtMs: site.lastFrameAtMs)
-    }
-}
-
-/// One scrolling page, with pull to refresh.
-struct Screen<Content: View>: View {
-    let app: AppModel
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) { content }
-                .padding(16)
-                .frame(maxWidth: 640, alignment: .leading)
-                .frame(maxWidth: .infinity)
+    func body(content: Content) -> some View {
+        content.toolbar {
+            ToolbarItem(placement: .subtitle) {
+                FreshnessLine(app: app, site: site)
+            }
         }
-        .scrollDismissesKeyboard(.interactively)
-        .background(Theme.surface)
-        .refreshable { await app.refresh() }
     }
 }
 
-/// The one place freshness is said. Above every screen, never scrolled away.
-struct FreshnessBandView: View {
-    let band: Freshness.Band
-    let frameAtMs: Double?
+/// "● Live via encrypted relay · 2 s", or the demo's own line, in its own
+/// view so a frame redraws this line and not the screen under it. A change
+/// of state cross-fades; the dot beats with each frame unless Reduce Motion
+/// is on.
+struct FreshnessLine: View {
+    let app: AppModel
+    let site: SiteModel
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 8) {
+        let line = self.line
+        HStack(spacing: 5) {
             Circle()
-                .fill(color)
-                .frame(width: 8, height: 8)
-                .phaseAnimator([false, true], trigger: frameAtMs) { dot, beat in
-                    dot.scaleEffect(band.tone == .live && beat ? 1.5 : 1)
+                .fill(line.color)
+                .frame(width: 7, height: 7)
+                .phaseAnimator([false, true], trigger: site.lastFrameAtMs) { dot, beat in
+                    dot.scaleEffect(line.beats && beat && !reduceMotion ? 1.4 : 1)
                 } animation: { _ in .easeOut(duration: 0.3) }
-            Text(band.message)
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(Theme.fg)
+            Text(line.message)
+                .contentTransition(.opacity)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
-            Spacer(minLength: 4)
-            if let wait = band.wait {
-                Text(wait)
-                    .font(Theme.number(12, weight: .regular))
-                    .foregroundStyle(Theme.fgMuted)
-                    .accessibilityHidden(true)
-            }
-            if let age = band.age {
-                Text(age)
-                    .font(Theme.number(12, weight: .regular))
-                    .foregroundStyle(age == "—" ? Theme.fgMuted : Theme.fgDim)
+            if let tail = line.tail {
+                Text(tail)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .lineLimit(1)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
-        .background(Theme.surfaceSunken.ignoresSafeArea(edges: .top))
-        .overlay(alignment: .bottom) { Theme.line.frame(height: 1) }
+        .font(.footnote)
+        .foregroundStyle(Theme.fgDim)
+        .animation(Theme.spring, value: line)
         .accessibilityElement(children: .combine)
-        // One line of chrome above every screen: it must not crowd out the
-        // screen at the largest text sizes.
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .accessibilityIdentifier("freshness")
+        // Chrome: whole words before large letters.
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 
-    private var color: Color {
-        switch band.tone {
+    struct Line: Equatable {
+        var color: Color
+        var message: String
+        var tail: String?
+        var beats: Bool
+    }
+
+    private var line: Line {
+        if app.isDemo {
+            let streaming = site.session.phase == .streaming
+            return Line(color: streaming ? Theme.accentFill : Theme.fgMuted, message: L(streaming ? "Live demo · simulated home" : "Starting the demo"), tail: nil, beats: streaming)
+        }
+        let band = site.freshness(noCarrier: app.connectHelp != nil)
+        let age = band.age.flatMap { $0 == "—" ? nil : $0 }
+        // No network on the phone at all: say that, and how old the last
+        // reading is, rather than count seconds toward a box out of reach.
+        if !NetworkState.shared.online, band.tone != .live {
+            return Line(color: Theme.freshLost, message: L("This phone is offline"), tail: age.map { "· \($0)" }, beats: false)
+        }
+        let tail = [band.wait, age].compactMap { $0 }.joined(separator: " · ")
+        return Line(color: FreshnessTone.color(band.tone), message: band.message, tail: tail.isEmpty ? nil : "· \(tail)", beats: band.tone == .live)
+    }
+}
+
+/// One page that fits the screen it is on. While everything fits, nothing
+/// scrolls and the parts that can grow (`fill` is true) take the room
+/// there is. Only when it cannot fit, at the largest text sizes, does the
+/// same page scroll, with each part at its own natural height.
+struct FitScreen<Content: View>: View {
+    var spacing: CGFloat = 12
+    @ViewBuilder var content: (_ fill: Bool) -> Content
+
+    var body: some View {
+        ViewThatFits(in: .vertical) {
+            page(fill: true)
+            ScrollView {
+                page(fill: false)
+            }
+            .scrollBounceBehavior(.basedOnSize)
+        }
+        .background(Theme.surface)
+    }
+
+    private func page(fill: Bool) -> some View {
+        VStack(alignment: .leading, spacing: spacing) { content(fill) }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: 640, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: fill ? .infinity : nil, alignment: .top)
+    }
+}
+
+/// Freshness's colours, one per tone.
+enum FreshnessTone {
+    static func color(_ tone: Freshness.Tone) -> Color {
+        switch tone {
         case .live: return Theme.freshLive
         case .stale: return Theme.freshStale
         case .reaching, .lost: return Theme.freshLost
@@ -153,30 +224,22 @@ struct FreshnessBandView: View {
     }
 }
 
-/// The demo says it is a demo, everywhere, and offers the way out.
-struct DemoBand: View {
-    let site: SiteModel
-    let exit: () -> Void
+/// Holds a part of a fixed page at `cap` while the page has to fit the
+/// screen, and lets it grow freely at the accessibility sizes, where the
+/// page scrolls instead.
+struct FitCap: ViewModifier {
+    let cap: DynamicTypeSize
+    @Environment(\.dynamicTypeSize) private var size
 
-    var body: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(site.session.phase == .streaming ? Theme.accent : Theme.fgMuted)
-                .frame(width: 8, height: 8)
-            Text(L(site.session.phase == .streaming ? "Live demo · simulated home" : "Starting the demo"))
-                .font(.footnote.weight(.medium))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            Spacer()
-            Button(L("Exit demo"), action: exit)
-                .font(.footnote.weight(.semibold))
-                .lineLimit(1)
-                .buttonStyle(.quiet)
+    func body(content: Content) -> some View {
+        if size.isAccessibilitySize {
+            content
+        } else {
+            content.dynamicTypeSize(...cap)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 6)
-        .background(Theme.surfaceSunken.ignoresSafeArea(edges: .top))
-        .overlay(alignment: .bottom) { Theme.line.frame(height: 1) }
-        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
     }
+}
+
+extension View {
+    func fitCap(_ cap: DynamicTypeSize) -> some View { modifier(FitCap(cap: cap)) }
 }

@@ -3,88 +3,103 @@ import FTWShared
 import SwiftUI
 import WidgetKit
 
-/// "Charging now since 14:02", with a timer from then and Back to the plan.
-/// On the Lock Screen and in the Dynamic Island, and through `.small` on a
-/// paired Apple Watch's Smart Stack and in CarPlay.
+/// Charge now outside the app, in the manner of the best travel apps: one
+/// line that says what is happening now, a large time in even digits, and a
+/// band of three steps (sent, received, on). On the Lock Screen and in the
+/// Dynamic Island, and through `.small` on a paired Apple Watch's Smart
+/// Stack and in CarPlay.
 ///
-/// Static words and a timer only. The phone starts this when the box
-/// confirms Charge now and ends it when the box confirms Back to the plan;
-/// in between nothing reads the charger, so nothing here claims power or a
-/// level. After the stale date it says when the box last confirmed it.
+/// It names the state the box confirmed, not power: the hold can be on
+/// while the car draws nothing. Past the stale date it says when the box
+/// last confirmed it, the time stops there, and everything dims. Every
+/// state has the same layout, so a change fades in place: the island keeps
+/// its size and nothing jumps.
 struct ChargeNowLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: ChargeNowAttributes.self) { context in
-            ChargeNowBanner(attributes: context.attributes, state: context.state, isStale: context.isStale)
+            ChargeNowBanner(attributes: context.attributes, face: Self.face(context))
         } dynamicIsland: { context in
-            DynamicIsland {
-                // The icon and the timer either side of the camera, the
-                // words below it, where they have the whole width.
+            let face = Self.face(context)
+            return DynamicIsland {
+                // Expanded, three things: the time, what is happening, and
+                // how far it has come.
                 DynamicIslandExpandedRegion(.leading) {
-                    Bolt()
+                    Bolt(face: face)
                         .font(.title2)
                         .padding(.leading, 6)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Elapsed(state: context.state)
-                        .font(.title3.weight(.semibold))
+                    Elapsed(face: face)
+                        .font(.system(.title, design: .rounded, weight: .semibold))
                         .padding(.trailing, 6)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Since(attributes: context.attributes, state: context.state)
-                        Subtitle(attributes: context.attributes, state: context.state, isStale: context.isStale)
-                        BackToPlan(loadpointID: context.attributes.loadpointID)
-                            .padding(.top, 8)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Headline(face: face)
+                        StepBand(face: face)
+                            .padding(.vertical, 2)
+                        BackToPlan(attributes: context.attributes, face: face)
+                            .padding(.top, 4)
                     }
                     .padding(.horizontal, 6)
                 }
             } compactLeading: {
-                Bolt()
+                Bolt(face: face)
             } compactTrailing: {
-                Elapsed(state: context.state)
-                    .frame(maxWidth: 58)
+                // One thing, at one width in every state.
+                Elapsed(face: face)
+                    .frame(width: 56, alignment: .trailing)
             } minimal: {
-                Bolt()
+                Bolt(face: face)
             }
             // The island is always dark.
-            .keylineTint(Tone.accent.dark)
+            .keylineTint(face.dimmed ? Color.secondary : Tone.accent.dark)
         }
         .supplementalActivityFamilies([.small])
+    }
+
+    static func face(_ context: ActivityViewContext<ChargeNowAttributes>) -> ChargeNowActivity.Face {
+        ChargeNowActivity.face(context.state, stale: context.isStale, zone: context.attributes.zone)
     }
 }
 
 /// The Lock Screen's banner, and the watch's and CarPlay's smaller one.
 struct ChargeNowBanner: View {
     let attributes: ChargeNowAttributes
-    let state: ChargeNowActivity.State
-    let isStale: Bool
+    let face: ChargeNowActivity.Face
     @Environment(\.activityFamily) private var family
     @Environment(\.isLuminanceReduced) private var dim
 
     var body: some View {
         switch family {
-        case .small: ChargeNowSmall(attributes: attributes, state: state, isStale: isStale)
+        case .small: ChargeNowSmall(attributes: attributes, face: face)
         default: medium
         }
     }
 
     private var medium: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 12) {
-                Bolt().font(.title2)
+                Bolt(face: face).font(.title2)
                 VStack(alignment: .leading, spacing: 2) {
-                    Since(attributes: attributes, state: state)
-                    Subtitle(attributes: attributes, state: state, isStale: isStale)
+                    // The card's height is capped: what is happening keeps
+                    // its lines before the line under it.
+                    Headline(face: face).layoutPriority(1)
+                    Subtitle(face: face)
                 }
-                // The words first; the timer takes what is left.
+                // The words first; the time takes what is left.
                 .layoutPriority(1)
                 Spacer(minLength: 8)
-                Elapsed(state: state)
-                    .font(.title2.weight(.semibold))
-                    .frame(maxWidth: 96, alignment: .trailing)
+                // A stopped time is smaller, so the stale words fit beside
+                // it on a narrow phone.
+                Elapsed(face: face)
+                    .font(.system(face.dimmed ? .title2 : .largeTitle, design: .rounded, weight: .semibold))
+                    .minimumScaleFactor(0.6)
+                    .frame(maxWidth: 120, alignment: .trailing)
             }
+            StepBand(face: face)
             if !dim {
-                BackToPlan(loadpointID: attributes.loadpointID)
+                BackToPlan(attributes: attributes, face: face)
             }
         }
         .padding(16)
@@ -94,28 +109,29 @@ struct ChargeNowBanner: View {
 /// Smart Stack on the watch and CarPlay: the same facts, tighter.
 struct ChargeNowSmall: View {
     let attributes: ChargeNowAttributes
-    let state: ChargeNowActivity.State
-    let isStale: Bool
+    let face: ChargeNowActivity.Face
     @Environment(\.isLuminanceReduced) private var dim
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            // The watch's card is narrow: the timer gets the top line, the
+            // The watch's card is narrow: the time gets the top line, the
             // words the one below it.
             HStack(spacing: 6) {
-                Bolt()
-                Elapsed(state: state)
-                    .font(.headline)
+                Bolt(face: face)
+                Elapsed(face: face)
+                    .font(.system(.headline, design: .rounded))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            Text(isStale ? ChargeNowActivity.confirmed(state, zone: attributes.zone) : ChargeNowActivity.since(state, zone: attributes.zone))
+            Text(face.headline)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
                 .minimumScaleFactor(0.85)
+                .contentTransition(.interpolate)
+            StepBand(face: face)
             if !dim {
-                BackToPlan(loadpointID: attributes.loadpointID)
+                BackToPlan(attributes: attributes, face: face)
                     .font(.caption)
             }
         }
@@ -123,65 +139,122 @@ struct ChargeNowSmall: View {
     }
 }
 
-/// "Charging now since 14:02", on one line.
-private struct Since: View {
-    let attributes: ChargeNowAttributes
-    let state: ChargeNowActivity.State
+/// What is happening now, in one line: "Charge now on since 14:02",
+/// "Sending Charge now…", or, stale, "Last confirmed 14:17 · open FTW".
+private struct Headline: View {
+    let face: ChargeNowActivity.Face
 
     var body: some View {
-        Text(ChargeNowActivity.since(state, zone: attributes.zone))
+        Text(face.headline)
             .font(.headline)
-            .lineLimit(1)
+            .foregroundStyle(face.dimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+            .lineLimit(face.dimmed ? 2 : 1)
             .minimumScaleFactor(0.8)
+            .contentTransition(.interpolate)
     }
 }
 
-/// "No time limit", or, once stale, when the box last confirmed it.
+/// "No time limit", what it waits for, or, stale, that it may have changed.
 private struct Subtitle: View {
-    let attributes: ChargeNowAttributes
-    let state: ChargeNowActivity.State
-    let isStale: Bool
+    let face: ChargeNowActivity.Face
 
     var body: some View {
-        Text(isStale ? ChargeNowActivity.confirmed(state, zone: attributes.zone) : ChargeNowActivity.noTimeLimit)
+        Text(face.subtitle)
             .font(.subheadline)
             .foregroundStyle(.secondary)
             .lineLimit(1)
+            .minimumScaleFactor(0.8)
+            .contentTransition(.interpolate)
     }
 }
 
-/// Time since the box confirmed Charge now, counting up on its own.
+/// Time since the box confirmed Charge now: an ellipsis while the command
+/// is on its way, counting once it is on, stopped at the last confirmation
+/// once stale.
 private struct Elapsed: View {
-    let state: ChargeNowActivity.State
+    let face: ChargeNowActivity.Face
 
     var body: some View {
-        Text(timerInterval: state.startedAt...Date.distantFuture, countsDown: false)
+        timer
             .monospacedDigit()
             .multilineTextAlignment(.trailing)
-            .foregroundStyle(Tone.accent)
+            .foregroundStyle(face.dimmed || face.timer == .waiting ? AnyShapeStyle(.secondary) : AnyShapeStyle(Tone.accent))
+            .lineLimit(1)
+            .contentTransition(.numericText(countsDown: false))
+            // Plain text has its own width; the stale headline beside it
+            // wraps instead of squeezing the time.
+            .fixedSize(horizontal: isStatic, vertical: false)
+    }
+
+    private var isStatic: Bool {
+        if case .running = face.timer { return false }
+        return true
+    }
+
+    /// A stopped timer is plain text: a paused timer text still asks for
+    /// the width of a running one, which pushes everything else out.
+    private var timer: Text {
+        switch face.timer {
+        case .waiting:
+            return Text("…")
+        case .running(let from):
+            return Text(timerInterval: from...Date.distantFuture, countsDown: false)
+        case .stopped(let from, let at):
+            let seconds = max(0, at.timeIntervalSince(from))
+            return Text(Duration.seconds(seconds).formatted(.time(pattern: seconds >= 3600 ? .hourMinuteSecond : .minuteSecond)))
+        }
     }
 }
 
+/// The three steps of Charge now, filled as the box answers: sent,
+/// received, on. Dimmed with the rest once stale.
+private struct StepBand: View {
+    let face: ChargeNowActivity.Face
+
+    var body: some View {
+        HStack(spacing: 4) {
+            ForEach(0..<3, id: \.self) { step in
+                Capsule()
+                    .fill(fill(step))
+                    .frame(height: 5)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func fill(_ step: Int) -> AnyShapeStyle {
+        guard step < face.steps else { return AnyShapeStyle(.quaternary) }
+        return face.dimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(Tone.accent)
+    }
+}
+
+/// The car with a bolt: filled while Charge now is on or on its way, an
+/// outline once stale. The change is the symbol's own.
 private struct Bolt: View {
+    let face: ChargeNowActivity.Face
     @Environment(\.isLuminanceReduced) private var dim
 
     var body: some View {
-        Image(systemName: "bolt.car.fill")
-            .foregroundStyle(dim ? AnyShapeStyle(.secondary) : AnyShapeStyle(Tone.accent))
+        Image(systemName: face.dimmed ? "bolt.car" : "bolt.car.fill")
+            .foregroundStyle(dim || face.dimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(Tone.accent))
+            .contentTransition(.symbolEffect(.replace))
     }
 }
 
-/// The one command here. It asks for the unlocked phone and runs in the
-/// app, which ends this Live Activity when the box confirms.
+/// The one command here. It names its home, asks for the unlocked phone and
+/// runs in the app, which ends this Live Activity when the box confirms.
+/// It keeps its place while Charge now is on its way, quieter.
 private struct BackToPlan: View {
-    let loadpointID: String
+    let attributes: ChargeNowAttributes
+    let face: ChargeNowActivity.Face
 
     var body: some View {
-        Button(intent: BackToPlanIntent(loadpointID: loadpointID)) {
+        Button(intent: BackToPlanIntent(loadpointID: attributes.loadpointID, home: attributes.home)) {
             Label(ChargeNowActivity.backToPlan, systemImage: "calendar")
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
         .tint(Tone.accent)
+        .opacity(face.steps < 3 ? 0.5 : 1)
     }
 }

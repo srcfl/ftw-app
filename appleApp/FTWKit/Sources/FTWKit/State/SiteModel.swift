@@ -409,13 +409,21 @@ public final class SiteModel {
                 socSource: lp.socSource,
                 socReadAtMs: lp.socReadAtMs(answeredAtMs: now),
                 powerW: lp.powerW,
-                targetSocPct: lp.targetSocPct
+                targetSocPct: lp.targetSocPct,
+                holding: LoadpointsModel.holding(lp)
             )
         })
         if let last = lastCars, last.entry.sameReading(entry), now - last.atMs < Self.carRewriteMs { return }
         lastCars = (entry, now)
         let answering = fresh && points.allSatisfy { $0.charger?.available != false }
         write(CacheRecord(siteId: siteId, carrier: session.carrier, srcState: answering ? .live : .stale, readAtMs: now, value: entry), to: shared)
+    }
+
+    /// Leave the plan for the plan widget. `sentAtMs` is when the box sent
+    /// it, which is what the widget dates it by.
+    func sharePlan(_ entry: PlanEntry, sentAtMs: Double) {
+        guard let siteId, let shared else { return }
+        write(CacheRecord(siteId: siteId, carrier: session.carrier, srcState: entry.boxStale ? .stale : .live, readAtMs: sentAtMs, value: entry), to: shared)
     }
 
     /// Encoding and the file write run off the main actor. A sign-out
@@ -442,6 +450,12 @@ public final class SiteModel {
         }
         writing = task
         return task
+    }
+
+    /// Wait for every write asked for so far to land, so whatever reads
+    /// the App Group next (the Control) reads the newest record.
+    public func flushShared() async {
+        await writing?.value
     }
 
     /// Where the prices the widgets hold run out. Nil when they hold none.

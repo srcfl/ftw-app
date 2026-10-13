@@ -182,80 +182,33 @@ struct Empty: View {
     }
 }
 
-/// The next twelve hours as bars from zero, at the resolution the box sent:
-/// green below the average ahead, red above, the current slot solid.
+/// The next twelve hours as the app draws them (`PriceLineChart`, shared
+/// with the app): one stepped line coloured by level, now as a rule and a
+/// dot, the cheapest hours as a soft band, the average as a faint rule.
 ///
-/// Tinted and clear home screens and StandBy at night draw in one colour, so
-/// there the current slot and the cheap ones stand out and the rest are faint.
+/// Tinted and clear home screens and StandBy at night draw in one colour,
+/// so there the line is one colour and the band carries the cheap hours.
 struct Curve: View {
     let moment: PriceGlance.Moment
     @Environment(\.widgetRenderingMode) private var renderingMode
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        Chart {
-            ForEach(moment.curve) { bar in
-                mark(bar)
-            }
-            if let mean = moment.meanMinor {
-                RuleMark(y: .value("Average", PriceUnits.display(mean, moment.currency)))
-                    .lineStyle(StrokeStyle(lineWidth: 1, dash: [2, 3]))
-                    .foregroundStyle(Tone.flat)
-            }
-        }
-        .chartXScale(domain: date(start)...date(end))
-        .chartXAxis {
-            AxisMarks(values: hours) { value in
-                AxisValueLabel {
-                    if let d = value.as(Date.self) { Text(Self.hour(d)) }
-                }
-            }
-        }
-        .chartYAxis(.hidden)
+        PriceLineChart(
+            points: moment.curve.map { PricePoint(startMs: $0.startMs, endMs: $0.endMs, value: PriceUnits.display($0.minor, moment.currency)) },
+            nowMs: moment.atMs,
+            mean: moment.meanMinor.map { PriceUnits.display($0, moment.currency) },
+            cheapest: moment.cheapest.map { $0.startMs...$0.endMs },
+            cheapestLabel: nil,
+            meanLabel: nil,
+            palette: Tone.palette(colorScheme),
+            zone: moment.timeZone,
+            labelEveryHours: 3,
+            monochrome: renderingMode != .fullColor
+        )
+        .widgetAccentable()
         .accessibilityHidden(true)
     }
-
-    /// A bar from zero, as wide as the slot. A rectangle, because a bar
-    /// mark with an x interval and one y lies on its side.
-    private func mark(_ bar: PriceStrip.Bar) -> some ChartContent {
-        let price: Double = PriceUnits.display(bar.minor, moment.currency)
-        return RectangleMark(
-            xStart: .value("From", date(bar.startMs)),
-            xEnd: .value("To", date(bar.endMs)),
-            yStart: .value("Zero", 0.0),
-            yEnd: .value("Price", price)
-        )
-        .foregroundStyle(renderingMode == .fullColor ? AnyShapeStyle(Tone.of(bar.tone)) : AnyShapeStyle(.primary))
-        .opacity(opacity(bar))
-    }
-
-    private func opacity(_ bar: PriceStrip.Bar) -> Double {
-        if bar.current { return 1 }
-        guard renderingMode != .fullColor else { return 0.55 }
-        return bar.tone == .cheap || bar.tone == .negative ? 0.8 : 0.3
-    }
-
-    private var start: Double { moment.curve.first?.startMs ?? moment.atMs }
-    private var end: Double { moment.curve.last?.endMs ?? moment.atMs }
-
-    /// Every third whole hour, kept clear of the right edge so no label is
-    /// cut short.
-    private var hours: [Date] {
-        let hour: Double = 3_600_000
-        var t = (start / hour).rounded(.up) * hour
-        var out: [Date] = []
-        while t < end - hour {
-            if Calendar.current.component(.hour, from: date(t)) % 3 == 0 { out.append(date(t)) }
-            t += hour
-        }
-        return out
-    }
-
-    /// "02", on the 24-hour clock the rest of the widget uses.
-    private static func hour(_ d: Date) -> String {
-        String(format: "%02d", Calendar.current.component(.hour, from: d))
-    }
-
-    private func date(_ ms: Double) -> Date { Date(timeIntervalSince1970: ms / 1000) }
 }
 
 /// The app's colour roles (FTW/UI/Theme.swift, from the web app's tokens),
@@ -267,7 +220,17 @@ enum Tone {
     static let dear = Pair(0xCC243D, 0xFF6E74)
     static let negative = Pair(0xD48500, 0xFFB000)
     static let flat = Pair(0x686862, 0x858585)
-    static let accent = Pair(0xDA7F00, 0xFFAC41)
+    /// Text and glyphs: the app's darker accent in light, so it reads on
+    /// the widget's surface.
+    static let accent = Pair(0x9C5800, 0xFFAC41)
+    /// Fills and lines: the brand orange.
+    static let accentFill = Pair(0xDA7F00, 0xFFAC41)
+
+    /// The price chart's colours, for the scheme the widget draws in.
+    static func palette(_ scheme: ColorScheme) -> PriceChartPalette {
+        func pick(_ p: Pair) -> Color { scheme == .dark ? p.dark : p.light }
+        return PriceChartPalette(cheap: pick(cheap), flat: pick(flat), dear: pick(dear), now: pick(accentFill), quiet: pick(flat), labelBackground: pick(surface))
+    }
 
     static func of(_ tone: PriceStrip.Tone) -> Pair {
         switch tone {
