@@ -569,11 +569,13 @@ public final class LoadpointsModel: Activatable {
     /// take 20 of them.
     public static let remoteStreamWaitMs: Double = 10_000
 
-    /// A command from a Control, Siri or the Live Activity. The caller has
-    /// opened the session; this waits for the stream, reads the chargers,
-    /// sends the command exactly as the car view would, and says how it
-    /// ended. The Live Activity moves as it does for a tap in the car view.
-    public func perform(_ command: RemoteCommand, waitMs: Double = LoadpointsModel.remoteStreamWaitMs) async -> RemoteOutcome {
+    /// A command from a Control, Siri, the Live Activity or a notification.
+    /// The caller has opened the session; this waits for the stream, reads
+    /// the chargers, sends the command exactly as the car view would, and
+    /// says how it ended. The Live Activity moves as it does for a tap in
+    /// the car view. A notification names its charger in `loadpointID`;
+    /// the others let the box's account pick one.
+    public func perform(_ command: RemoteCommand, loadpointID: String? = nil, waitMs: Double = LoadpointsModel.remoteStreamWaitMs) async -> RemoteOutcome {
         // A Live Activity's button names its home. One from another home,
         // or from the demo, never reaches this one: its card closes instead.
         if case .backToPlan(let id, let home?) = command, home != activityHome {
@@ -596,7 +598,9 @@ public final class LoadpointsModel: Activatable {
         } catch {
             return RemoteOutcome(.failed, self.error ?? EVText.failure(error))
         }
-        guard let lp = Self.target(command, in: points) else {
+        // A charger named and not found is not swapped for another.
+        let named = loadpointID.flatMap { id in points.first { $0.id == id } }
+        guard let lp = loadpointID == nil ? Self.target(command, in: points) : named else {
             return RemoteOutcome(.failed, Self.say("FTW has no charger to control."))
         }
         // Charge now with no car would hold a charger that has nothing to

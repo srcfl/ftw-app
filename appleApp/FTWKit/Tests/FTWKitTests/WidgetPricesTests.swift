@@ -39,6 +39,9 @@ import Testing
 
         let read = try #require(CacheReader(sources: [shared]).read(PriceEntry.self, siteId: "home"))
         #expect(read.value.prices == written)
+        // The widget reads the clock the way the home does.
+        #expect(read.value.timeZone != nil)
+        #expect(read.value.timeZone == site.session.box?.tz)
         #expect(read.carrier == .cache)
         #expect(read.record.readAtMs >= asked && read.record.readAtMs <= scheduler.nowMs)
         #expect(wakes.count == 1)

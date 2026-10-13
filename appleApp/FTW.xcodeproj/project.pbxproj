@@ -14,6 +14,8 @@
 		F7A000000000000000000065 /* NOTICE in Copy the license texts */ = {isa = PBXBuildFile; fileRef = F7A000000000000000000061 /* NOTICE */; };
 		F7A000000000000000000066 /* LICENSING.md in Copy the license texts */ = {isa = PBXBuildFile; fileRef = F7A000000000000000000062 /* LICENSING.md */; };
 		F7A000000000000000000034 /* FTWWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F7A000000000000000000040 /* FTWWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F7A000000000000000000070 /* FTWShared in Frameworks */ = {isa = PBXBuildFile; productRef = F7A000000000000000000071 /* FTWShared */; };
+		F7A000000000000000000072 /* FTWNotify.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F7A000000000000000000074 /* FTWNotify.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -31,6 +33,13 @@
 			remoteGlobalIDString = F7A000000000000000000010;
 			remoteInfo = FTW;
 		};
+		F7A000000000000000000073 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F7A000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F7A000000000000000000078;
+			remoteInfo = FTWNotify;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -41,6 +50,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				F7A000000000000000000034 /* FTWWidgets.appex in Embed Foundation Extensions */,
+				F7A000000000000000000072 /* FTWNotify.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -72,6 +82,9 @@
 		F7A000000000000000000062 /* LICENSING.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = LICENSING.md; path = ../LICENSING.md; sourceTree = SOURCE_ROOT; };
 		F7A000000000000000000040 /* FTWWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FTWWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F7A000000000000000000100 /* FTWUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FTWUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F7A000000000000000000074 /* FTWNotify.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FTWNotify.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		F7A000000000000000000075 /* FTWNotify.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FTWNotify.entitlements; sourceTree = "<group>"; };
+		F7A000000000000000000076 /* FTWNotify-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "FTWNotify-Info.plist"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -93,6 +106,11 @@
 		F7A000000000000000000110 /* FTWCharts */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = FTWCharts;
+			sourceTree = "<group>";
+		};
+		F7A000000000000000000077 /* FTWNotify */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = FTWNotify;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -122,6 +140,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F7A00000000000000000007A /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F7A000000000000000000070 /* FTWShared in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -132,11 +158,14 @@
 				F7A000000000000000000041 /* FTWWidgets */,
 				F7A000000000000000000101 /* FTWUITests */,
 				F7A000000000000000000110 /* FTWCharts */,
+				F7A000000000000000000077 /* FTWNotify */,
 				F7A000000000000000000008 /* FTW.xcconfig */,
 				F7A000000000000000000006 /* FTW.entitlements */,
 				F7A000000000000000000009 /* FTW-Info.plist */,
 				F7A000000000000000000007 /* FTWWidgets.entitlements */,
 				F7A00000000000000000000A /* FTWWidgets-Info.plist */,
+				F7A000000000000000000075 /* FTWNotify.entitlements */,
+				F7A000000000000000000076 /* FTWNotify-Info.plist */,
 				F7A000000000000000000063 /* License texts */,
 				F7A000000000000000000004 /* Products */,
 			);
@@ -158,6 +187,7 @@
 				F7A000000000000000000005 /* FTW.app */,
 				F7A000000000000000000040 /* FTWWidgets.appex */,
 				F7A000000000000000000100 /* FTWUITests.xctest */,
+				F7A000000000000000000074 /* FTWNotify.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -180,6 +210,7 @@
 			);
 			dependencies = (
 				F7A000000000000000000037 /* PBXTargetDependency */,
+				F7A00000000000000000007C /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				F7A000000000000000000003 /* FTW */,
@@ -239,6 +270,29 @@
 			productReference = F7A000000000000000000100 /* FTWUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		F7A000000000000000000078 /* FTWNotify */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F7A00000000000000000007F /* Build configuration list for PBXNativeTarget "FTWNotify" */;
+			buildPhases = (
+				F7A000000000000000000079 /* Sources */,
+				F7A00000000000000000007A /* Frameworks */,
+				F7A00000000000000000007B /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				F7A000000000000000000077 /* FTWNotify */,
+			);
+			name = FTWNotify;
+			packageProductDependencies = (
+				F7A000000000000000000071 /* FTWShared */,
+			);
+			productName = FTWNotify;
+			productReference = F7A000000000000000000074 /* FTWNotify.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -258,6 +312,9 @@
 					F7A000000000000000000102 = {
 						CreatedOnToolsVersion = 27.0;
 						TestTargetID = F7A000000000000000000010;
+					};
+					F7A000000000000000000078 = {
+						CreatedOnToolsVersion = 27.0;
 					};
 				};
 			};
@@ -282,6 +339,7 @@
 				F7A000000000000000000010 /* FTW */,
 				F7A000000000000000000050 /* FTWWidgets */,
 				F7A000000000000000000102 /* FTWUITests */,
+				F7A000000000000000000078 /* FTWNotify */,
 			);
 		};
 /* End PBXProject section */
@@ -302,6 +360,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		F7A000000000000000000105 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F7A00000000000000000007B /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -356,6 +421,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F7A000000000000000000079 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -368,6 +440,11 @@
 			isa = PBXTargetDependency;
 			target = F7A000000000000000000010 /* FTW */;
 			targetProxy = F7A000000000000000000106 /* PBXContainerItemProxy */;
+		};
+		F7A00000000000000000007C /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F7A000000000000000000078 /* FTWNotify */;
+			targetProxy = F7A000000000000000000073 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -567,6 +644,52 @@
 			};
 			name = Release;
 		};
+		F7A00000000000000000007D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = FTWNotify.entitlements;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "FTWNotify-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = FTW;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = energy.ftw.app.notify;
+				PRODUCT_NAME = FTWNotify;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		F7A00000000000000000007E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = FTWNotify.entitlements;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "FTWNotify-Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = FTW;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = energy.ftw.app.notify;
+				PRODUCT_NAME = FTWNotify;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -606,6 +729,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		F7A00000000000000000007F /* Build configuration list for PBXNativeTarget "FTWNotify" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F7A00000000000000000007D /* Debug */,
+				F7A00000000000000000007E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -627,6 +759,11 @@
 			productName = FTWDemo;
 		};
 		F7A000000000000000000033 /* FTWShared */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F7A000000000000000000015 /* XCLocalSwiftPackageReference "FTWKit" */;
+			productName = FTWShared;
+		};
+		F7A000000000000000000071 /* FTWShared */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = F7A000000000000000000015 /* XCLocalSwiftPackageReference "FTWKit" */;
 			productName = FTWShared;

@@ -35,7 +35,11 @@ public enum CarrierStatus: Equatable, Sendable {
 public protocol Carrier: AnyObject {
     var kind: CarrierKind { get }
     var status: CarrierStatus { get }
-    func send(_ frame: Bytes)
+    /// Whether the frame went out. A carrier that is not open drops it and
+    /// says so, so a command can fail at once instead of waiting out a
+    /// deadline for an answer that cannot come.
+    @discardableResult
+    func send(_ frame: Bytes) -> Bool
     /// Replaces the handlers. One owner at a time: the carrier stack is
     /// built as a chain, each layer owning the one below it.
     func setHandlers(onFrame: @escaping @MainActor (Bytes) -> Void, onStatus: @escaping @MainActor (CarrierStatus) -> Void)

@@ -9,9 +9,24 @@ import Foundation
 /// which is this phone's identity. Clearing the store is signing out.
 @MainActor
 public protocol SecureStore: AnyObject {
+    /// The value, or nil when it is absent or could not be read.
     func get(_ key: String) -> Bytes?
+    /// The value, nil only when it is absent, and an error when the store
+    /// could not answer, as before the first unlock. Anything that would
+    /// create a value on nil must use this: a store that cannot answer does
+    /// not mean the value is gone.
+    func read(_ key: String) throws -> Bytes?
     func put(_ key: String, _ value: Bytes)
     func remove(_ key: String)
+}
+
+/// The store could not answer, so nothing may be written on its word.
+public struct SecureStoreUnavailable: Error, Equatable {
+    public let status: Int32
+
+    public init(status: Int32) {
+        self.status = status
+    }
 }
 
 @MainActor
@@ -28,6 +43,9 @@ public final class MemoryStore: SecureStore {
 }
 
 extension SecureStore {
+    /// A store that cannot fail to answer, such as `MemoryStore`.
+    public func read(_ key: String) throws -> Bytes? { get(key) }
+
     func getJSON<T: Decodable>(_ type: T.Type, _ key: String) -> T? {
         guard let raw = get(key) else { return nil }
         return try? JSONDecoder().decode(T.self, from: Data(raw))

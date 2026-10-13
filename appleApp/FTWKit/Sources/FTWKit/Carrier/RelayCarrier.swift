@@ -68,9 +68,11 @@ public final class RelayCarrier: Carrier {
         self.onStatus = onStatus
     }
 
-    public func send(_ frame: Bytes) {
-        guard status.isOpen, let socket else { return }
+    @discardableResult
+    public func send(_ frame: Bytes) -> Bool {
+        guard status.isOpen, let socket else { return false }
         socket.send(frame)
+        return true
     }
 
     /// Drop an apparently live socket and dial now, after a foreground wake.

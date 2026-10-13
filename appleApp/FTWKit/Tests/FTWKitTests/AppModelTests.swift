@@ -185,6 +185,44 @@ import FTWDemo
         #expect(world.box.house.schedule?.socFraction == 0.7)
     }
 
+    /// Closing the passkey sheet at start is not a lost key: the screen says
+    /// so and offers to try again, instead of sending the person to pair.
+    @Test func aCancelledUnlockIsNotALostKey() async throws {
+        let world = World()
+        let app = world.app()
+        let pair = PairModel(app: app)
+        let t = Task { await pair.pair(world.pairingURL) }
+        await world.run(500)
+        await t.value
+        // A device enrolled before the local copy existed asks once more.
+        try? app.vault.removeCredential(Vault.localCredentialID)
+        #expect(try app.vault.silentWrappingKey() == nil)
+        world.passkeys.cancel = true
+        let again = world.app()
+        again.launch()
+        await world.run(100)
+        #expect(again.connectHelp == "Unlocking was cancelled. Try again to open your home.")
+    }
+
+    /// Every help text a connect can show has Swedish. Read from the
+    /// source, so a new one cannot slip through.
+    @Test func everyConnectHelpHasSwedish() throws {
+        let pattern = #/AppWords\.text\("((?:[^"\\]|\\.)*)"\)/#
+        var seen = 0
+        for file in ["appleApp/FTWKit/Sources/FTWKit/State/AppModel.swift", "appleApp/FTWKit/Sources/FTWKit/Identity/Vault.swift"] {
+            for match in try RepoFiles.read(file).matches(of: pattern) {
+                let english = String(match.1).replacingOccurrences(of: "\\\"", with: "\"")
+                seen += 1
+                #expect(AppWords.sv[english] != nil, "no Swedish for \"\(english)\" in \(file)")
+            }
+        }
+        #expect(seen >= 7)
+        #expect(AppWords.sv[Vault.lockedHelp] != nil)
+        AppWords.$language.withValue(.sv) {
+            #expect(AppWords.text(Vault.lockedHelp).hasPrefix("Enheten kan inte längre"))
+        }
+    }
+
     @Test func noKeyIsSaidPlainlyAndNothingRetries() async throws {
         let world = World()
         let app = world.app()

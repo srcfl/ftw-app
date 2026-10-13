@@ -9,6 +9,9 @@ import WidgetKit
 struct FTWApp: App {
     @State private var app: AppModel
     @Environment(\.scenePhase) private var scenePhase
+    /// Only for what SwiftUI has no door for: the push token, and buttons
+    /// on a notification. It starts after `init`, so the runner is there.
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     private let network: NetworkWatch
 
     init() {
@@ -35,6 +38,9 @@ struct FTWApp: App {
         #if DEBUG
         // For screenshots: `-FTWDemo YES` opens the simulated home.
         if UserDefaults.standard.bool(forKey: "FTWDemo") { model.startDemo() }
+        // For end-to-end tests: `-FTWPairLink <url>` offers a pairing link
+        // as a scanned QR would, where the simulator has no camera.
+        if let link = UserDefaults.standard.string(forKey: "FTWPairLink") { model.offer(link) }
         #endif
         _app = State(initialValue: model)
         network = NetworkWatch { [weak model] in model?.networkOnline() }

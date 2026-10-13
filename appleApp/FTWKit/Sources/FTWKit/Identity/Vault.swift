@@ -106,7 +106,7 @@ public final class Vault {
         let pair = try Primitives.keyPair(fromSecret: scalar)
         let existing = record
         if let existing, existing.publicKey.byteArray != pair.publicKey {
-            throw VaultError(code: "E_VAULT_OTHER_KEY", message: "a different device key is already stored", help: "This phone is already set up for a home. Sign out of it first.")
+            throw VaultError(code: "E_VAULT_OTHER_KEY", message: "a different device key is already stored", help: AppWords.text("This phone is already set up for a home. Sign out of it first."))
         }
         var pkcs8 = Self.pkcs8Prefix + scalar
         defer { wipe(&pkcs8) }
@@ -136,7 +136,7 @@ public final class Vault {
         let copies = record.copies.filter { $0.credentialId != credentialID }
         if copies.count == record.copies.count { return }
         if copies.isEmpty {
-            throw VaultError(code: "E_VAULT_LAST_COPY", message: "refusing to remove the only wrapped copy", help: "That is the only passkey that can unlock this device. Add another one first.")
+            throw VaultError(code: "E_VAULT_LAST_COPY", message: "refusing to remove the only wrapped copy", help: AppWords.text("That is the only passkey that can unlock this device. Add another one first."))
         }
         write(Record(publicKey: record.publicKey, copies: copies))
     }
@@ -152,8 +152,10 @@ public final class Vault {
     // MARK: Wrapping keys
 
     /// The local key: random, in the Keychain, no ceremony in front of it.
-    public func localWrappingKey() -> WrappingKey {
-        if let existing = store.get(Self.localWrapKey), existing.count == 32 {
+    /// Made only when the Keychain says there is none; one it cannot read,
+    /// as before the first unlock, throws rather than being replaced.
+    public func localWrappingKey() throws -> WrappingKey {
+        if let existing = try store.read(Self.localWrapKey), existing.count == 32 {
             return WrappingKey(credentialID: Self.localCredentialID, source: .local, key: existing)
         }
         let key = randomBytes(32)
@@ -165,39 +167,39 @@ public final class Vault {
     /// copies exist. Reading your own house is not a privilege.
     public func silentWrappingKey() throws -> WrappingKey? {
         guard let record else { throw emptyVault() }
-        return record.copies.contains { $0.credentialId == Self.localCredentialID } ? localWrappingKey() : nil
+        return record.copies.contains { $0.credentialId == Self.localCredentialID } ? try localWrappingKey() : nil
     }
 
     /// Add the local copy, so the next start never prompts.
     public func ensureLocalCopy(_ current: WrappingKey) throws {
         guard let record else { throw emptyVault() }
         if record.copies.contains(where: { $0.credentialId == Self.localCredentialID }) { return }
-        try addCredential(current: current, next: localWrappingKey())
+        try addCredential(current: current, next: try localWrappingKey())
     }
 
     /// A key for a device enrolling now: one prompt, no questions. Where PRF
     /// is missing this still returns a key, the local one, and `source` says
     /// so. A decline is rethrown; any other platform failure falls back.
     public func enrollWrappingKey(_ passkeys: PasskeyAuthenticator?, label: String = Origin.rpName) async throws -> WrappingKey {
-        guard let passkeys, passkeys.isAvailable else { return localWrappingKey() }
+        guard let passkeys, passkeys.isAvailable else { return try localWrappingKey() }
         do {
-            let outcome = try await passkeys.register(label: label, userHandle: userHandle(), excludeCredentialIDs: credentialIDs)
+            let outcome = try await passkeys.register(label: label, userHandle: try userHandle(), excludeCredentialIDs: credentialIDs)
             if let prf = outcome.prfOutput {
                 return PRF.wrappingKey(credentialID: outcome.credentialID, prfOutput: prf)
             }
             // Some platforms register the passkey and only evaluate PRF on an
             // assertion. One more prompt now, while the person is looking,
             // beats a vault nothing can open later.
-            guard outcome.prfEnabled else { return localWrappingKey() }
+            guard outcome.prfEnabled else { return try localWrappingKey() }
             let asserted = try await passkeys.assert(credentialIDs: [outcome.credentialID])
             if let prf = asserted.prfOutput {
                 return PRF.wrappingKey(credentialID: asserted.credentialID, prfOutput: prf)
             }
-            return localWrappingKey()
+            return try localWrappingKey()
         } catch is PasskeyCancelled {
             throw PasskeyCancelled()
         } catch {
-            return localWrappingKey()
+            return try localWrappingKey()
         }
     }
 
@@ -219,7 +221,7 @@ public final class Vault {
             } catch {}
         }
         if record.copies.contains(where: { $0.credentialId == Self.localCredentialID }) {
-            return localWrappingKey()
+            return try localWrappingKey()
         }
         throw locked()
     }
@@ -234,8 +236,8 @@ public final class Vault {
         store.putJSON(Self.vaultKey, record)
     }
 
-    func userHandle() -> Bytes {
-        if let existing = store.get(Self.userHandleKey) { return existing }
+    func userHandle() throws -> Bytes {
+        if let existing = try store.read(Self.userHandleKey) { return existing }
         // Stable per install, so a second passkey replaces the first in the
         // platform's list instead of stacking up identical entries.
         let handle = randomBytes(16)
@@ -265,16 +267,20 @@ public final class Vault {
         }
     }
 
+    /// What to do when no key opens the stored copy. The shell says the
+    /// same when a connect fails for a reason it cannot name.
+    static let lockedHelp = "This device can no longer unlock its key. Open your box's local dashboard, then Settings → FTW app → Show pairing code, and scan a new QR."
+
     private func locked() -> VaultError {
-        VaultError(code: "E_VAULT_LOCKED", message: "no wrapping key opens the stored copy", help: "This device can no longer unlock its key. Open your box's local dashboard, then Settings → FTW app → Show pairing code, and scan a new QR.")
+        VaultError(code: "E_VAULT_LOCKED", message: "no wrapping key opens the stored copy", help: AppWords.text(Self.lockedHelp))
     }
 
     private func noCopy(_ credentialID: String) -> VaultError {
-        VaultError(code: "E_VAULT_NO_COPY", message: "no wrapped copy for credential \(credentialID)", help: "This passkey has not been given access yet. Unlock with the one you set up first.")
+        VaultError(code: "E_VAULT_NO_COPY", message: "no wrapped copy for credential \(credentialID)", help: AppWords.text("This passkey has not been given access yet. Unlock with the one you set up first."))
     }
 
     private func emptyVault() -> VaultError {
-        VaultError(code: "E_VAULT_EMPTY", message: "no device key has been created", help: "Open your box's local dashboard, then Settings → FTW app → Show pairing code, and scan the QR.")
+        VaultError(code: "E_VAULT_EMPTY", message: "no device key has been created", help: AppWords.text("Open your box's local dashboard, then Settings → FTW app → Show pairing code, and scan the QR."))
     }
 }
 

@@ -9,6 +9,11 @@
 "Encrypted relay connected · no reading yet" = "Krypterat relä anslutet · inget mätvärde än";
 "Encrypted relay connected · a device stopped responding" = "Krypterat relä anslutet · en enhet svarar inte";
 "Encrypted relay connected · readings" = "Krypterat relä anslutet · mätvärden";
+"Live via FTW Cloud" = "Live via FTW Cloud";
+"FTW Cloud connected · no reading yet" = "FTW Cloud anslutet · inget mätvärde än";
+"FTW Cloud connected · a device stopped responding" = "FTW Cloud anslutet · en enhet svarar inte";
+"FTW Cloud connected · readings" = "FTW Cloud anslutet · mätvärden";
+"FTW Cloud · age unverified" = "FTW Cloud · åldern obekräftad";
 "Access ended" = "Åtkomsten är avslutad";
 "FTW is busy" = "FTW är upptaget";
 "Your box is starting" = "Din box startar";
@@ -18,6 +23,7 @@
 "Securing home link" = "Krypterar hemlänken";
 "Connecting to your box" = "Ansluter till din box";
 "Can't reach your box" = "Når inte din box";
+"Can't reach your box · last reading %@" = "Når inte din box · senaste mätvärde %@";
 
 /* Age of a reading */
 "unknown" = "okänt";

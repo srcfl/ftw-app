@@ -100,9 +100,12 @@ public struct HelloOk: Equatable, Sendable {
     public var boot: BootProgress?
     public var hint: String?
     public var subscribed: Bool
+    /// The box's FTW Cloud key, home and names, while the grant is on.
+    public var cloud: CloudIdentity?
 
     init(_ c: CBOR) {
         proto = c["proto"]?.int ?? Proto.max
+        cloud = CloudIdentity(c["cloud"])
         mode = c["mode"]?.string.flatMap(BoxMode.init(rawValue:)) ?? .full
         let b = c["box"]
         box = BoxInfo(id: b?["id"]?.string ?? "", build: b?["build"]?.string ?? "", tz: b?["tz"]?.string ?? "")

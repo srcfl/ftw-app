@@ -693,13 +693,15 @@ public final class LoopbackCarrier: Carrier {
         self.onStatus = onStatus
     }
 
-    public func send(_ frame: Bytes) {
-        guard status.isOpen, !closed else { return }
+    @discardableResult
+    public func send(_ frame: Bytes) -> Bool {
+        guard status.isOpen, !closed else { return false }
         toBox.append(frame)
         scheduler.after(latencyMs) { [weak self] in
             guard let self, !self.closed, !self.toBox.isEmpty else { return }
             self.box.receive(self.toBox.removeFirst())
         }
+        return true
     }
 
     /// Pull to refresh in the demo: the house moves on a second.

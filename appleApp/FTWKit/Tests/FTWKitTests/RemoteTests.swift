@@ -51,8 +51,8 @@ import FTWShared
 
         /// Run a command the way an intent does, from a cold app: nothing
         /// read yet, the stream not yet up.
-        func perform(_ command: RemoteCommand, _ loadpoints: LoadpointsModel, for ms: Double = 5_000) async -> RemoteOutcome {
-            let task = Task { await loadpoints.perform(command) }
+        func perform(_ command: RemoteCommand, _ loadpoints: LoadpointsModel, loadpointID: String? = nil, for ms: Double = 5_000) async -> RemoteOutcome {
+            let task = Task { await loadpoints.perform(command, loadpointID: loadpointID) }
             await run(ms)
             return await task.value
         }
@@ -198,6 +198,28 @@ import FTWShared
             #expect(cmd.args["soc"]?.double == 0.4)
             #expect(cmd.args["id"]?.string == "garage")
             #expect(rig.activities.log.isEmpty)
+        }
+    }
+
+    /// A notification's 50 %: any whole level, on the charger its event
+    /// named. A charger the box does not have is never swapped for one it
+    /// does.
+    @Test func aNotificationNamesItsCharger() async throws {
+        try await AppWords.$language.withValue(.en) {
+            let rig = Rig()
+            let loadpoints = try rig.start()
+            let out = await rig.perform(.setLevel(pct: 50), loadpoints, loadpointID: "garage")
+            #expect(out.kind == .done)
+            let cmd = try #require(rig.wire?.commands.last)
+            #expect(cmd.op == Contract.opLoadpointSocSet)
+            #expect(cmd.args["soc"]?.double == 0.5)
+            #expect(cmd.args["id"]?.string == "garage")
+
+            let sent = rig.wire?.commands.count
+            let elsewhere = await rig.perform(.chargeNow, loadpoints, loadpointID: "street")
+            #expect(elsewhere.kind == .failed)
+            #expect(elsewhere.text == "FTW has no charger to control.")
+            #expect(rig.wire?.commands.count == sent)
         }
     }
 
@@ -507,11 +529,12 @@ final class RecordingCarrier: Carrier {
     var kind: CarrierKind { inner.kind }
     var status: CarrierStatus { inner.status }
 
-    func send(_ frame: Bytes) {
+    @discardableResult
+    func send(_ frame: Bytes) -> Bool {
         if let d = try? Frame.decode(frame), d.envelope.t == "cmd", let b = d.envelope.b {
             commands.append(Command(op: b["op"]?.string ?? "", args: b["args"] ?? CBOR.emptyMap, notValidAfterMs: b["notValidAfterMs"]?.double, uptimeMs: uptimeMs))
         }
-        inner.send(frame)
+        return inner.send(frame)
     }
 
     func setHandlers(onFrame: @escaping @MainActor (Bytes) -> Void, onStatus: @escaping @MainActor (CarrierStatus) -> Void) {

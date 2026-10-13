@@ -26,6 +26,9 @@ public struct SessionState: Sendable {
     /// that states something about the box from them would be inventing it.
     public var heardFromBox = false
     public var box: BoxInfo?
+    /// FTW Cloud as the box described it in hello: its key, home and names.
+    /// Nil while the grant is off.
+    public var cloud: CloudIdentity?
     /// Box uptime at the last frame. All ages are deltas against this.
     public var uptimeMs: Double = 0
     public var controlRev: UInt64 = 0
@@ -404,6 +407,9 @@ public final class Session {
             ])),
         ])
         let frame = try Frame.encode(lane: Frame.laneControl, envelope: Envelope(t: "cmd", b: body), bucket: subscription.bucket)
+        // A carrier that is reconnecting inside itself would drop the frame
+        // in silence; saying so now beats waiting out the ack deadline.
+        guard carrier.status.isOpen else { throw Self.notSent }
         return try await withCheckedThrowingContinuation { cont in
             let ackTimer = scheduler.after(Self.cmdAckTimeoutMs) { [weak self] in
                 guard let self, let p = self.pendingCommands[cmdId], !p.acked else { return }
@@ -419,9 +425,17 @@ public final class Session {
                 p.continuation.resume(returning: CmdResult(cmdId: cmdId, state: .unconfirmed))
             }
             pendingCommands[cmdId] = PendingCommand(continuation: cont, ackTimer: ackTimer, confirmTimer: confirmTimer, onAck: onAck)
-            carrier.send(frame)
+            if !carrier.send(frame), let p = pendingCommands.removeValue(forKey: cmdId) {
+                p.ackTimer.cancel()
+                p.confirmTimer.cancel()
+                p.continuation.resume(throwing: Self.notSent)
+            }
         }
     }
+
+    /// A command that never left this phone. The registry's no-ack code,
+    /// because that is what it is: the box never had it.
+    static let notSent = CommandError(code: "E_NO_ACK", help: "That didn't reach your box. Try again.")
 
     /// UUIDv7: time-ordered, so the box can expire idempotency keys by prefix.
     static func uuidv7(nowMs: Double) -> String {
@@ -543,6 +557,7 @@ public final class Session {
         s.heardFromBox = true
         s.modes = b.modes
         s.box = b.box
+        s.cloud = b.cloud
         s.uptimeMs = b.uptimeMs
         s.boot = b.boot
         s.needsUpdate = b.hint == "app_update" || b.proto == Proto.floor
