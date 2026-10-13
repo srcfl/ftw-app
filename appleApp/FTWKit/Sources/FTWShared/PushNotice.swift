@@ -93,6 +93,8 @@ public struct PushNotice: Sendable, Equatable {
     /// payload never shows.
     public var category: String
     public var level: UNNotificationInterruptionLevel
+    /// Whether it makes a sound.
+    public var sound = true
     /// One thread per home.
     public var thread: String
     /// The checked fields, for the app. The app checks the payload again
@@ -118,6 +120,17 @@ public struct PushNotice: Sendable, Equatable {
     /// The generic line, for an extension that ran out of time.
     public static func generic(_ language: PushText.Language) -> PushNotice {
         PushNotice(PushAlert(.generic, home: ""), home: nil, language: language)
+    }
+
+    /// An event shown before. iOS shows something for every push unless
+    /// Apple grants the filtering entitlement, and without it empty content
+    /// brings back the payload's own alert. So: the generic line, quiet,
+    /// with no buttons, in Notification Center only.
+    public static func repeated(_ alert: PushAlert, language: PushText.Language) -> PushNotice {
+        var n = PushNotice(PushAlert(.generic, home: alert.home), home: nil, language: language)
+        n.level = .passive
+        n.sound = false
+        return n
     }
 
     /// The key `verified` sits under in the notification's userInfo.

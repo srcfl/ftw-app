@@ -24,9 +24,8 @@ final class NotificationService: UNNotificationServiceExtension {
         let alert = PushAlert.read(userInfo: userInfo, boxKey: { keys?.boxKey(home: $0) }, nowMs: Int64(nowMs))
         log.info("push: \(alert.verdict.rawValue, privacy: .public) \(alert.kind, privacy: .public)")
         if let seen = PushSeen.shared(), !seen.accept(alert, nowMs: nowMs) {
-            // Shown once already. Empty content asks iOS to show nothing.
             log.info("push: seen before, seq \(alert.seq, privacy: .public)")
-            finish(UNNotificationContent())
+            finish(content(.repeated(alert, language: .preferred())))
             return
         }
         finish(content(PushNotice(alert, home: keys?.read(home: alert.home), language: .preferred())))
@@ -50,7 +49,7 @@ final class NotificationService: UNNotificationServiceExtension {
         let c = UNMutableNotificationContent()
         c.title = notice.title
         c.body = notice.body
-        c.sound = .default
+        c.sound = notice.sound ? .default : nil
         c.categoryIdentifier = notice.category
         c.threadIdentifier = notice.thread
         c.interruptionLevel = notice.level

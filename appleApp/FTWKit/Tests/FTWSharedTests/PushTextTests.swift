@@ -231,5 +231,14 @@ import Testing
         #expect(generic.verified.isEmpty)
         #expect(generic.title == "Något hände hemma")
         #expect(PushNotice.generic(.en).category == "")
+
+        // Shown before: the generic line, quiet, no buttons, same thread.
+        let again = PushNotice.repeated(Self.event(PushKind.chargingConnected), language: .sv)
+        #expect(again.title == "Något hände hemma")
+        #expect(again.category == "")
+        #expect(again.level == .passive)
+        #expect(!again.sound)
+        #expect(again.thread == "fjzyr67buzpyncqmjliwgezvde")
+        #expect(connected.sound && unreachable.sound)
     }
 }
