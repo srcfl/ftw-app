@@ -110,6 +110,32 @@ import Testing
         #expect(w.relay.calls.isEmpty)
     }
 
+    /// Found in the simulator: consent given while FTW Cloud was already
+    /// on, then turned off in About. The next start must not turn it on
+    /// again.
+    @Test func offInAboutStaysOffAfterARestart() async throws {
+        let d = try defaults()
+        let w = try home(cloud: true)
+        let consent = CloudConsent(defaults: d)
+        await consent.accept(w.site)
+        await consent.turnOff(w.site)
+        // The next start: the box says FTW Cloud is off now.
+        let later = try home(cloud: false)
+        await CloudConsent(defaults: d).ensure(later.site)
+        #expect(later.relay.calls.isEmpty)
+    }
+
+    /// Turned off on the box itself, not in the app: the app still leaves
+    /// it off, because it already asked once.
+    @Test func offOnTheBoxStaysOff() async throws {
+        let d = try defaults()
+        let w = try home(cloud: true)
+        await CloudConsent(defaults: d).accept(w.site)
+        let later = try home(cloud: false)
+        await CloudConsent(defaults: d).ensure(later.site)
+        #expect(later.relay.calls.isEmpty)
+    }
+
     /// About: off asks the box to erase the copy; the receipt is the time on
     /// the service's confirmation.
     @Test func offAndTheReceipt() async throws {

@@ -90,7 +90,12 @@ public final class CloudConsent {
     /// or in About, it stays off until an owner turns it on again.
     public func ensure(_ site: SiteModel) async {
         guard answered, let siteId = site.siteId, !site.isDemo, Self.audience(site) == .owner,
-              !defaults.bool(forKey: Keys.asked(siteId)), !site.cloudOn else { return }
+              !defaults.bool(forKey: Keys.asked(siteId)) else { return }
+        // Already on: nothing to ask for, now or later.
+        if site.cloudOn {
+            defaults.set(true, forKey: Keys.asked(siteId))
+            return
+        }
         if await turnOn(site) {
             defaults.set(true, forKey: Keys.asked(siteId))
         }
@@ -127,7 +132,10 @@ public final class CloudConsent {
     /// the receipt once it has one.
     @discardableResult
     public func turnOff(_ site: SiteModel) async -> Bool {
-        await act {
+        // Off by hand is the person's word: the app never turns it on again
+        // by itself.
+        if let siteId = site.siteId { defaults.set(true, forKey: Keys.asked(siteId)) }
+        return await act {
             box = try await site.callBox(.delete, "/api/cloud/grant").map(BoxState.init)
         }
     }

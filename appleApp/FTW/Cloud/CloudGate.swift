@@ -18,6 +18,7 @@ private struct CloudGate: ViewModifier {
             .sheet(isPresented: Binding(get: { !app.needsPairing && consent.shouldAsk(app.site) }, set: { _ in })) {
                 CloudConsentView(app: app, consent: consent)
                     .presentationDragIndicator(.hidden)
+                    .tint(Theme.accent)
             }
             // When the box answers, an owner who agreed turns FTW Cloud on
             // there, once per home.
