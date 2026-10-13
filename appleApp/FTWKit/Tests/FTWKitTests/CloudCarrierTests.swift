@@ -212,20 +212,33 @@ final class CloudRig {
         #expect(rig.service.watches == [1, 0])
     }
 
-    /// A refusal is not retried by itself: the roster or the grant has to
-    /// change first, and the next foreground asks again.
-    @Test func aRefusalWaitsForWake() async throws {
+    /// A refusal is asked again slowly, as after a service restart that has
+    /// not heard from the box yet, and at once on the next foreground.
+    @Test func aRefusalIsAskedAgainSlowly() async throws {
         let rig = try CloudRig()
         rig.service.roster = []
         rig.carrier.start()
         await rig.run(100)
-        #expect(rig.carrier.status == .closed(code: CloudWire.closeDenied, retrying: false))
-        await rig.run(120_000)
+        #expect(rig.carrier.status == .closed(code: CloudWire.closeDenied, retrying: true))
+        await rig.run(10_000)
         #expect(rig.service.dialled.count == 1)
+        await rig.run(10_000)
+        #expect(rig.service.dialled.count == 2)
         rig.service.roster = [rig.device.publicKey]
         rig.carrier.wake()
         await rig.run(100)
         #expect(rig.carrier.status.isOpen)
+    }
+
+    /// Another session of this phone took over: this one stays closed.
+    @Test func aReplacedSessionStaysClosed() async throws {
+        let rig = try CloudRig()
+        rig.carrier.start()
+        await rig.run(50)
+        rig.service.close(code: CloudWire.closeReplaced)
+        await rig.run(120_000)
+        #expect(rig.carrier.status == .closed(code: CloudWire.closeReplaced, retrying: false))
+        #expect(rig.service.dialled.count == 1)
     }
 
     /// The roster changed what this phone may read: it asks again at once.

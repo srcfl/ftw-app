@@ -4,6 +4,10 @@ import Observation
 import os
 
 private let log = Logger(subsystem: "energy.ftw.app", category: "widgets")
+/// When each source first delivered, counted from `start`, so the three
+/// layers of a cold start and the relay's path can be compared. Read with
+/// `log show --predicate 'subsystem == "energy.ftw.app" AND category == "reading"'`.
+private let readingLog = Logger(subsystem: "energy.ftw.app", category: "reading")
 
 /// The bridge between the session and the screens.
 ///
@@ -87,6 +91,8 @@ public final class SiteModel {
     @ObservationIgnored private var cloudDirty = false
     /// Where the readings on screen came from at the last change.
     @ObservationIgnored private(set) var source: ReadingSource = .relay
+    @ObservationIgnored private var startedAtMs: Double = 0
+    @ObservationIgnored private var firsts: Set<String> = []
     /// The cloud session, for the About screen. Nil while there is none.
     public private(set) var cloudStatus: CloudCarrier.Status?
     @ObservationIgnored private var nextListener = 0
@@ -110,6 +116,7 @@ public final class SiteModel {
     /// Paint from cache, then let the shell connect. The cache is a carrier,
     /// not a failure: it is how the first frame has something honest.
     public func start() {
+        startedAtMs = scheduler.nowMs
         if let siteId, let cached = files?.readJSON(CachedSnapshot.self, "snapshot-\(siteId)"), cached.siteId == siteId {
             core.restore(cached)
             cachedAtMs = cached.savedAtMs
@@ -242,10 +249,20 @@ public final class SiteModel {
             scheduleSnapshot()
         }
         publish()
-        if reading, source == .relay {
-            lastFrameAtMs = now
-            recordRecent(session.fields, now)
+        if reading {
+            first("relay reading")
+            if source == .relay {
+                lastFrameAtMs = now
+                recordRecent(session.fields, now)
+            }
         }
+    }
+
+    /// Logs once per home how long after `start` something first happened.
+    func first(_ what: String) {
+        guard startedAtMs > 0, firsts.insert(what).inserted else { return }
+        let ms = Int((scheduler.nowMs - startedAtMs).rounded())
+        readingLog.notice("\(what, privacy: .public) \(ms, privacy: .public) ms after start")
     }
 
     /// What the screens read: the box session's state, with the cloud's
@@ -738,11 +755,13 @@ extension SiteModel {
     private func onCloudSnapshot(_ snapshot: CloudWire.Snapshot, _ at: Double) {
         var any = false
         for env in snapshot.envelopes where acceptCloud(env, at) { any = true }
+        first("cloud snapshot")
         if any { cloudRead(at) } else { publish() }
     }
 
     private func onCloudEnvelope(_ env: CloudWire.Envelope, _ at: Double) {
         guard acceptCloud(env, at) else { return }
+        if env.t == CloudWire.msgLive { first("cloud live") }
         cloudRead(at)
     }
 

@@ -17,9 +17,8 @@ public final class CloudCarrier {
     public enum Status: Equatable, Sendable {
         case connecting
         case open(sinceMs: Double)
-        /// `retrying` is false after a refusal: nothing changes by asking
-        /// again until the box's roster or grant does, so the carrier waits
-        /// for `wake`.
+        /// `retrying` is false once another session of this phone took
+        /// over: asking again would only take it back.
         case closed(code: Int, retrying: Bool)
 
         public var isOpen: Bool {
@@ -30,6 +29,11 @@ public final class CloudCarrier {
 
     static let backoffBaseMs: Double = 500
     static let backoffCapMs: Double = 60_000
+    /// A refusal changes only when the box's roster or grant does, or when
+    /// a service that just restarted has heard from the box again. Asked
+    /// again slowly, and at once on `wake`.
+    static let refusedBaseMs: Double = 15_000
+    static let refusedCapMs: Double = 300_000
     /// Message 2 is one round trip after message 1; a service this slow is
     /// not one to wait on.
     static let handshakeTimeoutMs: Double = 10_000
@@ -51,6 +55,7 @@ public final class CloudCarrier {
     /// message 1 may be a rotated key; the next one gets one try.
     private var keyIndex = 0
     private var attempt = 0
+    private var refusals = 0
     private var retry: Cancellable?
     private var deadline: Cancellable?
     private var shutdown = false
@@ -105,6 +110,7 @@ public final class CloudCarrier {
         retry?.cancel()
         retry = nil
         attempt = 0
+        refusals = 0
         keyIndex = 0
         drop()
         dial()
@@ -152,7 +158,9 @@ public final class CloudCarrier {
         let keys = endpoint.serviceKeys
         guard keyIndex < keys.count,
               let hs = try? HandshakeState.initiator(staticKey: deviceKey, remoteStatic: keys[keyIndex], prologue: CloudWire.appPrologue(home: home)) else {
-            fail(code: CloudWire.closeDenied, retrying: false)
+            shutdown = true
+            drop()
+            setStatus(.closed(code: CloudWire.closeDenied, retrying: false))
             return
         }
         let now = CloudWire.encodeUnsigned(t: CloudWire.msgNow, body: .map([("hz", .int(looking ? CloudWire.hzLooking : CloudWire.hzAway))]))
@@ -191,6 +199,7 @@ public final class CloudCarrier {
         handshake = nil
         transport = NoiseTransport(keys)
         attempt = 0
+        refusals = 0
         setStatus(.open(sinceMs: arrival))
         onSnapshot(snapshot, arrival)
     }
@@ -212,8 +221,14 @@ public final class CloudCarrier {
             // Perhaps the service already runs on the app's other key.
             keyIndex += 1
             dial()
-        case CloudWire.closeDenied, CloudWire.closeReplaced:
+        case CloudWire.closeReplaced:
             setStatus(.closed(code: code, retrying: false))
+        case CloudWire.closeDenied:
+            keyIndex = 0
+            setStatus(.closed(code: code, retrying: true))
+            let ceiling = min(Self.refusedCapMs, Self.refusedBaseMs * pow(2, Double(refusals)))
+            refusals = min(refusals + 1, 16)
+            schedule(ceiling / 2 + scheduler.random() * ceiling / 2)
         case CloudWire.closeChanged:
             // The roster changed what this phone may read: ask again now,
             // once, to learn what that is.
