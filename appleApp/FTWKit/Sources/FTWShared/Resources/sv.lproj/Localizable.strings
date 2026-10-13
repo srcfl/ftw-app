@@ -52,3 +52,24 @@
 "incl. grid fee" = "inkl. nätavgift";
 "spot price only" = "endast spotpris";
 "incl. surcharges" = "inkl. påslag";
+
+/* Charge now: the Control and the Live Activity */
+"Charge now" = "Ladda nu";
+"Starts charging the car at once, until you go back to the plan." = "Börjar ladda bilen direkt, tills du går tillbaka till planen.";
+"Back to the plan" = "Tillbaka till planen";
+"No time limit" = "Ingen tidsgräns";
+"Charge now on since %@" = "Ladda nu på sedan %@";
+"Last confirmed %@ · open FTW" = "Senast bekräftat %@ · öppna FTW";
+"It may have changed since." = "Det kan ha ändrats sedan dess.";
+"Sending Charge now…" = "Skickar Ladda nu…";
+"Waiting for FTW" = "Väntar på FTW";
+"FTW received Charge now" = "FTW tog emot Ladda nu";
+"Waiting for the charger" = "Väntar på laddaren";
+"No answer from FTW · open FTW" = "Inget svar från FTW · öppna FTW";
+"Charge now may not have started." = "Ladda nu kanske inte startade.";
+"On" = "På";
+"Off" = "Av";
+"No car plugged in" = "Ingen bil inkopplad";
+"Open FTW to check" = "Öppna FTW för att se";
+"Open FTW to charge now." = "Öppna FTW för att ladda nu.";
+"Open FTW, then try again." = "Öppna FTW och försök igen.";

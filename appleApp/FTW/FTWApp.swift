@@ -27,6 +27,9 @@ struct FTWApp: App {
             // App Review and anyone without a box can try a simulated home.
             demo: SimulatedBox.loopback
         )
+        // Siri, the Control and the Live Activity reach the box through the
+        // app, and Charge now starts its Live Activity wherever it is pressed.
+        IntentRunner.install(model)
         // A paired phone paints its cached home before anything else runs.
         model.launch()
         #if DEBUG

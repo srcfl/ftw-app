@@ -1,5 +1,20 @@
 import Foundation
 import Network
+import Observation
+
+/// Whether this phone has a network path at all, for the freshness line:
+/// with none, the honest sentence is that the phone is offline, not that
+/// the box cannot be reached.
+@Observable
+@MainActor
+final class NetworkState {
+    static let shared = NetworkState()
+    private(set) var online = true
+
+    fileprivate func set(_ online: Bool) {
+        if self.online != online { self.online = online }
+    }
+}
 
 /// Tells the app when a network path comes back, so a stream replaces its
 /// dead socket at once instead of waiting out a timeout. Lives as long as
@@ -23,6 +38,7 @@ final class NetworkWatch {
     }
 
     private func update(_ online: Bool) {
+        NetworkState.shared.set(online)
         if online, !wasOnline { onOnline() }
         wasOnline = online
     }

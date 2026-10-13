@@ -24,6 +24,13 @@
 			remoteGlobalIDString = F7A000000000000000000050;
 			remoteInfo = FTWWidgets;
 		};
+		F7A000000000000000000106 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F7A000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F7A000000000000000000010;
+			remoteInfo = FTW;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -64,6 +71,7 @@
 		F7A000000000000000000061 /* NOTICE */ = {isa = PBXFileReference; lastKnownFileType = text; name = NOTICE; path = ../NOTICE; sourceTree = SOURCE_ROOT; };
 		F7A000000000000000000062 /* LICENSING.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; name = LICENSING.md; path = ../LICENSING.md; sourceTree = SOURCE_ROOT; };
 		F7A000000000000000000040 /* FTWWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FTWWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		F7A000000000000000000100 /* FTWUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FTWUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -75,6 +83,16 @@
 		F7A000000000000000000041 /* FTWWidgets */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = FTWWidgets;
+			sourceTree = "<group>";
+		};
+		F7A000000000000000000101 /* FTWUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = FTWUITests;
+			sourceTree = "<group>";
+		};
+		F7A000000000000000000110 /* FTWCharts */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = FTWCharts;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -97,6 +115,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F7A000000000000000000104 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -105,6 +130,8 @@
 			children = (
 				F7A000000000000000000003 /* FTW */,
 				F7A000000000000000000041 /* FTWWidgets */,
+				F7A000000000000000000101 /* FTWUITests */,
+				F7A000000000000000000110 /* FTWCharts */,
 				F7A000000000000000000008 /* FTW.xcconfig */,
 				F7A000000000000000000006 /* FTW.entitlements */,
 				F7A000000000000000000009 /* FTW-Info.plist */,
@@ -130,6 +157,7 @@
 			children = (
 				F7A000000000000000000005 /* FTW.app */,
 				F7A000000000000000000040 /* FTWWidgets.appex */,
+				F7A000000000000000000100 /* FTWUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -155,6 +183,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				F7A000000000000000000003 /* FTW */,
+				F7A000000000000000000110 /* FTWCharts */,
 			);
 			name = FTW;
 			packageProductDependencies = (
@@ -179,6 +208,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				F7A000000000000000000041 /* FTWWidgets */,
+				F7A000000000000000000110 /* FTWCharts */,
 			);
 			name = FTWWidgets;
 			packageProductDependencies = (
@@ -187,6 +217,27 @@
 			productName = FTWWidgets;
 			productReference = F7A000000000000000000040 /* FTWWidgets.appex */;
 			productType = "com.apple.product-type.app-extension";
+		};
+		F7A000000000000000000102 /* FTWUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F7A000000000000000000108 /* Build configuration list for PBXNativeTarget "FTWUITests" */;
+			buildPhases = (
+				F7A000000000000000000103 /* Sources */,
+				F7A000000000000000000104 /* Frameworks */,
+				F7A000000000000000000105 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				F7A000000000000000000107 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				F7A000000000000000000101 /* FTWUITests */,
+			);
+			name = FTWUITests;
+			productName = FTWUITests;
+			productReference = F7A000000000000000000100 /* FTWUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 /* End PBXNativeTarget section */
 
@@ -203,6 +254,10 @@
 					};
 					F7A000000000000000000050 = {
 						CreatedOnToolsVersion = 27.0;
+					};
+					F7A000000000000000000102 = {
+						CreatedOnToolsVersion = 27.0;
+						TestTargetID = F7A000000000000000000010;
 					};
 				};
 			};
@@ -226,6 +281,7 @@
 			targets = (
 				F7A000000000000000000010 /* FTW */,
 				F7A000000000000000000050 /* FTWWidgets */,
+				F7A000000000000000000102 /* FTWUITests */,
 			);
 		};
 /* End PBXProject section */
@@ -239,6 +295,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		F7A000000000000000000053 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F7A000000000000000000105 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -286,6 +349,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F7A000000000000000000103 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -293,6 +363,11 @@
 			isa = PBXTargetDependency;
 			target = F7A000000000000000000050 /* FTWWidgets */;
 			targetProxy = F7A000000000000000000035 /* PBXContainerItemProxy */;
+		};
+		F7A000000000000000000107 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F7A000000000000000000010 /* FTW */;
+			targetProxy = F7A000000000000000000106 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -464,6 +539,34 @@
 			};
 			name = Release;
 		};
+		F7A000000000000000000109 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = energy.ftw.app.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = FTW;
+			};
+			name = Debug;
+		};
+		F7A00000000000000000010A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				GENERATE_INFOPLIST_FILE = YES;
+				PRODUCT_BUNDLE_IDENTIFIER = energy.ftw.app.uitests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = FTW;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -490,6 +593,15 @@
 			buildConfigurations = (
 				F7A000000000000000000054 /* Debug */,
 				F7A000000000000000000055 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F7A000000000000000000108 /* Build configuration list for PBXNativeTarget "FTWUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F7A000000000000000000109 /* Debug */,
+				F7A00000000000000000010A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

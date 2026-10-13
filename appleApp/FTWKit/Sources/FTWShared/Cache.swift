@@ -206,10 +206,24 @@ public struct PriceEntry: CacheValue {
     /// Local midnight the window starts at.
     public var fromMs: Double
     public var prices: Prices
+    /// The household's time zone, as the box names it, so a widget reads the
+    /// clock the way the home does. Nil in a record from before it was kept.
+    public var timeZone: String?
 
-    public init(fromMs: Double, prices: Prices) {
+    public init(fromMs: Double, prices: Prices, timeZone: String? = nil) {
         self.fromMs = fromMs
         self.prices = prices
+        self.timeZone = timeZone
+    }
+}
+
+extension Calendar {
+    /// The household's calendar: the box's zone when a record names one,
+    /// else the phone's.
+    public static func household(_ identifier: String?) -> Calendar {
+        var calendar = Calendar.current
+        if let identifier, let zone = TimeZone(identifier: identifier) { calendar.timeZone = zone }
+        return calendar
     }
 }
 
@@ -233,8 +247,11 @@ public struct CarEntry: CacheValue {
         public var powerW: Double
         /// The goal the box holds, whole percent.
         public var targetSocPct: Double?
+        /// Whether Charge now is on, in the box's account. Nil in a record
+        /// written before the app kept it.
+        public var holding: Bool?
 
-        public init(loadpointID: String, pluggedIn: Bool, socPct: Double?, socSource: String, socReadAtMs: Double?, powerW: Double, targetSocPct: Double?) {
+        public init(loadpointID: String, pluggedIn: Bool, socPct: Double?, socSource: String, socReadAtMs: Double?, powerW: Double, targetSocPct: Double?, holding: Bool? = nil) {
             self.loadpointID = loadpointID
             self.pluggedIn = pluggedIn
             self.socPct = socPct
@@ -242,6 +259,7 @@ public struct CarEntry: CacheValue {
             self.socReadAtMs = socReadAtMs
             self.powerW = powerW
             self.targetSocPct = targetSocPct
+            self.holding = holding
         }
     }
 

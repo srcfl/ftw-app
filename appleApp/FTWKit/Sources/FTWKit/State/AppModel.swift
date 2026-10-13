@@ -12,6 +12,8 @@ public final class HomeModels {
     public let charging: ChargingWatch
     public let savings: SavingsModel
     public let loadpoints: LoadpointsModel
+    /// Live, history, plan and mode for Now's nodes.
+    public let nodes: NodeModels
 
     init(site: SiteModel) {
         self.site = site
@@ -20,6 +22,7 @@ public final class HomeModels {
         charging = ChargingWatch(site: site)
         savings = SavingsModel(site: site)
         loadpoints = LoadpointsModel(site: site, charging: charging)
+        nodes = NodeModels(site: site, loadpoints: loadpoints, prices: prices)
     }
 }
 
@@ -139,15 +142,15 @@ public final class AppModel {
         let mine = connectGeneration
         do {
             guard let stored = sites.get(siteId) else {
-                throw ConnectError(kind: .notPaired, help: "This phone has no record of that home.")
+                throw ConnectError(kind: .notPaired, help: AppWords.text("This phone has no record of that home."))
             }
             guard vault.isEnrolled else {
-                throw ConnectError(kind: .notEnrolled, help: "This device has no key for that home.")
+                throw ConnectError(kind: .notEnrolled, help: AppWords.text("This device has no key for that home."))
             }
             // Read from the QR, never derived: a handle derived from the box
             // key would be one household identifier good for years.
             guard let secret = stored.rendezvousSecret?.byteArray else {
-                throw ConnectError(kind: .stalePairing, help: "This home was paired before this app could reach it privately.")
+                throw ConnectError(kind: .stalePairing, help: AppWords.text("This home was paired before this app could reach it privately."))
             }
             var wrapping = try vault.silentWrappingKey()
             if wrapping == nil {
@@ -170,12 +173,17 @@ public final class AppModel {
             )
             if site.connect(noise) { connectHelp = nil }
             site.connectCloud(deviceKey: device, makeSocket: makeSocket)
+        } catch is PasskeyCancelled {
+            // A closed sheet is not a lost key: say what happened and let
+            // the person try again.
+            guard mine == connectGeneration else { return }
+            connectHelp = AppWords.text("Unlocking was cancelled. Try again to open your home.")
         } catch let e as HelpfulError {
             guard mine == connectGeneration else { return }
             connectHelp = e.help
         } catch {
             guard mine == connectGeneration else { return }
-            connectHelp = "This device can no longer unlock its key. Open your box's local dashboard, then Settings → FTW app → Show pairing code, and scan a new QR."
+            connectHelp = AppWords.text(Vault.lockedHelp)
         }
     }
 
@@ -263,6 +271,9 @@ public final class AppModel {
 
     public func exitDemo() {
         guard isDemo else { return }
+        // The demo's Live Activity must not outlive it: its button would
+        // reach the home that opens next.
+        home?.loadpoints.endLiveActivities()
         home?.site.destroy()
         home = nil
         isDemo = false
@@ -275,6 +286,7 @@ public final class AppModel {
     /// cleared second, so a reading landing mid-clear cannot write the home
     /// back. The widgets lose their records too.
     public func leave() {
+        home?.loadpoints.endLiveActivities()
         home?.site.destroy()
         home = nil
         vault.reset()
