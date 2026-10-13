@@ -321,6 +321,7 @@ private struct LiveSection: View {
     /// words above it take what they need.
     let fill: Bool
     @State private var readout: ChartReadout?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let now = site.nowMs
@@ -346,6 +347,9 @@ private struct LiveSection: View {
             } else {
                 LiveChart(node: node, points: points, nowMs: now, look: NodeLook.look(node, live: live), onScrub: { readout = $0 })
                     .equatable()
+                    // Each second's step glides over that second, so the
+                    // curve moves on at an even pace instead of jumping.
+                    .animation(reduceMotion ? nil : .linear(duration: 1), value: now)
                     // Its own height, so larger words above it make the
                     // page scroll rather than the curve flat.
                     .frame(height: fill ? 52 : 110)
