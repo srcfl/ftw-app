@@ -409,7 +409,8 @@ public final class SiteModel {
                 socSource: lp.socSource,
                 socReadAtMs: lp.socReadAtMs(answeredAtMs: now),
                 powerW: lp.powerW,
-                targetSocPct: lp.targetSocPct
+                targetSocPct: lp.targetSocPct,
+                holding: LoadpointsModel.holding(lp)
             )
         })
         if let last = lastCars, last.entry.sameReading(entry), now - last.atMs < Self.carRewriteMs { return }
@@ -449,6 +450,12 @@ public final class SiteModel {
         }
         writing = task
         return task
+    }
+
+    /// Wait for every write asked for so far to land, so whatever reads
+    /// the App Group next (the Control) reads the newest record.
+    public func flushShared() async {
+        await writing?.value
     }
 
     /// Where the prices the widgets hold run out. Nil when they hold none.
