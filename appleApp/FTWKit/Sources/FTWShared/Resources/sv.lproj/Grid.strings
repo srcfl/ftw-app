@@ -1,0 +1,15 @@
+/* Nätwidgeten. Nyckeln är engelskan (GridWord). */
+"Grid today" = "Nätet i dag";
+"Today's energy from the grid and what it cost, as your box counted it." = "Dagens el från nätet och vad den kostade, som din box räknade.";
+"in %@ · out %@ kWh" = "in %@ · ut %@ kWh";
+"at %@" = "kl %@";
+"last %@" = "senast %@";
+"partial" = "delvis";
+"no prices" = "inga priser";
+"Open FTW to see today's grid" = "Öppna FTW för att se nätet i dag";
+"Today's figures aren't here yet · open FTW" = "Dagens siffror har inte kommit än · öppna FTW";
+"%@ kWh net from the grid today" = "%@ kWh netto från nätet i dag";
+"%@ kWh net to the grid today" = "%@ kWh netto till nätet i dag";
+"%@ kWh net with the grid today" = "%@ kWh netto mot nätet i dag";
+"cost %@" = "kostnad %@";
+"earned %@" = "tjänat %@";

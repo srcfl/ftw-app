@@ -13,6 +13,7 @@ struct FTWWidgets: WidgetBundle {
         PlanWidget()
         ChargeNowControl()
         ChargeNowLiveActivity()
+        GridTodayWidget()
     }
 }
 

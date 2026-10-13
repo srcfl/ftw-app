@@ -1,0 +1,15 @@
+/* The grid widget. English is the key (GridWord). */
+"Grid today" = "Grid today";
+"Today's energy from the grid and what it cost, as your box counted it." = "Today's energy from the grid and what it cost, as your box counted it.";
+"in %@ · out %@ kWh" = "in %@ · out %@ kWh";
+"at %@" = "at %@";
+"last %@" = "last %@";
+"partial" = "partial";
+"no prices" = "no prices";
+"Open FTW to see today's grid" = "Open FTW to see today's grid";
+"Today's figures aren't here yet · open FTW" = "Today's figures aren't here yet · open FTW";
+"%@ kWh net from the grid today" = "%@ kWh net from the grid today";
+"%@ kWh net to the grid today" = "%@ kWh net to the grid today";
+"%@ kWh net with the grid today" = "%@ kWh net with the grid today";
+"cost %@" = "cost %@";
+"earned %@" = "earned %@";

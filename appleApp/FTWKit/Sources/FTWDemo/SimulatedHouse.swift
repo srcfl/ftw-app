@@ -13,6 +13,9 @@ public final class SimulatedHouse {
     public let batteryMaxW: Double = 5_000
     public let fuseAmps: Double = 25
     public let timeZone: TimeZone
+    /// A clear midsummer's day whatever the date, for showing a day that
+    /// sells more than it buys.
+    public var sunny = false
 
     public private(set) var socFraction: Double = 0.62
     public private(set) var batteryW: Double = 0
@@ -153,6 +156,7 @@ public final class SimulatedHouse {
 
     /// How far the year is toward midsummer: 1 in June, 0 in December.
     func season(_ ms: Double) -> Double {
+        if sunny { return 1 }
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = timeZone
         let day = Double(cal.ordinality(of: .day, in: .year, for: Date(timeIntervalSince1970: ms / 1000)) ?? 172)
@@ -167,7 +171,7 @@ public final class SimulatedHouse {
         let half = 3.5 + 4.5 * s
         guard h > 12.5 - half, h < 12.5 + half else { return 0 }
         let sun = sin(Double.pi * (h - 12.5 + half) / (2 * half))
-        let cloud = 0.85 + 0.15 * wobble(ms / 600_000, 3)
+        let cloud = sunny ? 1 : 0.85 + 0.15 * wobble(ms / 600_000, 3)
         return -(pvPeakW * (0.2 + 0.8 * s) * max(0, sun) * max(0, sun) * cloud).rounded()
     }
 

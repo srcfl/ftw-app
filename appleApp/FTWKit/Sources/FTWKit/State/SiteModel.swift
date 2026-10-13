@@ -69,6 +69,9 @@ public final class SiteModel {
     /// The prices last left for the widgets, so the same prices again are
     /// neither written nor reloaded.
     @ObservationIgnored private var lastPrices: PriceEntry?
+    /// Today over the grid as last left, so the same figures again are not
+    /// written.
+    @ObservationIgnored private var lastGridToday: GridTodayEntry?
     /// The latest write to `shared`. Each waits for the one before, so they
     /// land in the order they were asked for.
     @ObservationIgnored private var writing: Task<Void, Never>?
@@ -149,11 +152,14 @@ public final class SiteModel {
     /// One display frame: what arrives within it is drawn together.
     static let coalesceMs: Double = 16
 
-    public init(siteId: String?, build: String, ua: String, scheduler: Scheduler, files: SealedFiles?, shared: AppGroupFiles? = nil, isDemo: Bool = false) {
+    /// `demoShares` lets a demo leave its records for the widgets. Only a
+    /// Debug build asks for it, to photograph them; the demo otherwise
+    /// writes nothing.
+    public init(siteId: String?, build: String, ua: String, scheduler: Scheduler, files: SealedFiles?, shared: AppGroupFiles? = nil, isDemo: Bool = false, demoShares: Bool = false) {
         self.siteId = siteId
         self.scheduler = scheduler
         self.files = files
-        self.shared = isDemo ? nil : shared
+        self.shared = isDemo && !demoShares ? nil : shared
         self.isDemo = isDemo
         nowMs = scheduler.nowMs
         minuteMs = (scheduler.nowMs / 60_000).rounded(.down) * 60_000
@@ -739,6 +745,17 @@ public final class SiteModel {
         write(CacheRecord(siteId: siteId, carrier: via ?? session.carrier, srcState: answering ? .live : .stale, readAtMs: now, value: entry), to: shared)
     }
 
+    /// Whether this home leaves records for the widgets.
+    var sharesWidgets: Bool { siteId != nil && shared != nil }
+
+    /// Leave today over the grid for the grid widget, dated when the box's
+    /// totals arrived. `srcState` is the grid meter's as it was then.
+    func shareGridToday(_ entry: GridTodayEntry, readAtMs: Double, srcState: SourceState) {
+        guard let siteId, let shared, entry != lastGridToday else { return }
+        lastGridToday = entry
+        write(CacheRecord(siteId: siteId, carrier: session.carrier, srcState: srcState, readAtMs: readAtMs, value: entry), to: shared)
+    }
+
     /// Leave the plan for the plan widget. `sentAtMs` is when the box sent
     /// it, which is what the widget dates it by.
     func sharePlan(_ entry: PlanEntry, sentAtMs: Double) {
@@ -766,6 +783,7 @@ public final class SiteModel {
                 // better than no app; the next read tries again.
                 log.error("could not write \(Value.name, privacy: .public) for widgets: \(error.localizedDescription, privacy: .public)")
                 if Value.self == PriceEntry.self { self?.lastPrices = nil }
+                if Value.self == GridTodayEntry.self { self?.lastGridToday = nil }
             }
         }
         writing = task
