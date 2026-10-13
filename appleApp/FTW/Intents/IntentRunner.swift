@@ -58,6 +58,10 @@ final class IntentRunner: CommandRunner {
         defer { end() }
         let started = ContinuousClock.now
         let out = await home.loadpoints.perform(command)
+        // The system redraws the Control when this returns: the record it
+        // reads must already hold the box's answer, or the tile would flip
+        // back and then forward again.
+        await home.site.flushShared()
         Self.log.info("\(String(describing: command), privacy: .public) answered in \((ContinuousClock.now - started) / .milliseconds(1), format: .fixed(precision: 0), privacy: .public) ms")
         // A refusal leaves the Control's record as it was; the tile, which
         // flipped on the tap, goes back to what the box confirmed.

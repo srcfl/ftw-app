@@ -13,14 +13,45 @@ import Testing
 
     // MARK: The Live Activity
 
-    /// Only the box's confirmation starts it; a read never does, because a
-    /// read cannot say when Charge now began.
-    @Test func onlyAConfirmationStartsIt() {
+    /// This phone's own command starts it, from the moment it is sent; a
+    /// read never does, because a read cannot say when Charge now began.
+    @Test func onlyThisPhonesCommandStartsIt() {
         let t = Self.t
+        #expect(ChargeNowActivity.next(nil, .sent(atMs: t)) == .start(.init(phase: .sent, startedAtMs: t, confirmedAtMs: t)))
         #expect(ChargeNowActivity.next(nil, .started(atMs: t)) == .start(.init(startedAtMs: t, confirmedAtMs: t)))
         #expect(ChargeNowActivity.next(nil, .seen(holding: true, atMs: t)) == .none)
         #expect(ChargeNowActivity.next(nil, .seen(holding: false, atMs: t)) == .none)
+        #expect(ChargeNowActivity.next(nil, .received(atMs: t)) == .none)
+        #expect(ChargeNowActivity.next(nil, .refused) == .none)
         #expect(ChargeNowActivity.next(nil, .stopped) == .none)
+    }
+
+    /// Sent, received, on: each step only once it has happened, and on
+    /// counts from the box's confirmation, not from the tap.
+    @Test func theStepsFollowTheReceipt() {
+        let t = Self.t
+        let sent = ChargeNowActivity.State(phase: .sent, startedAtMs: t, confirmedAtMs: t)
+        let received = ChargeNowActivity.State(phase: .received, startedAtMs: t, confirmedAtMs: t + 300)
+        #expect(ChargeNowActivity.next(sent, .received(atMs: t + 300)) == .update(received))
+        #expect(ChargeNowActivity.next(received, .started(atMs: t + 1_200)) == .update(.init(phase: .on, startedAtMs: t + 1_200, confirmedAtMs: t + 1_200)))
+        // A read while it is on its way decides nothing; the answer does.
+        #expect(ChargeNowActivity.next(received, .seen(holding: false, atMs: t + 500)) == .none)
+        #expect(ChargeNowActivity.next(sent, .refused) == .end)
+        #expect(ChargeNowActivity.next(received, .refused) == .end)
+        // A second press while it is on leaves the card as it is.
+        let on = ChargeNowActivity.State(startedAtMs: t, confirmedAtMs: t)
+        #expect(ChargeNowActivity.next(on, .sent(atMs: t + 60_000)) == .none)
+        #expect(ChargeNowActivity.next(on, .received(atMs: t + 60_000)) == .none)
+        #expect(ChargeNowActivity.next(on, .refused) == .none)
+    }
+
+    /// A card from before the steps reads back as on.
+    @Test func anOlderCardReadsBackAsOn() throws {
+        let json = #"{"startedAtMs":1,"confirmedAtMs":2}"#
+        let state = try JSONDecoder().decode(ChargeNowActivity.State.self, from: Data(json.utf8))
+        #expect(state == .init(phase: .on, startedAtMs: 1, confirmedAtMs: 2))
+        let round = try JSONDecoder().decode(ChargeNowActivity.State.self, from: JSONEncoder().encode(ChargeNowActivity.State(phase: .received, startedAtMs: 3, confirmedAtMs: 4)))
+        #expect(round.phase == .received)
     }
 
     /// A read that finds it still on moves the confirmation and keeps the
@@ -94,6 +125,30 @@ import Testing
         #expect(stale.subtitle == "It may have changed since.")
         #expect(stale.timer == .stopped(from: s.startedAt, at: s.confirmedAt))
         #expect(stale.dimmed)
+    }
+
+    /// While the command is on its way the card says so, with no time yet,
+    /// and gives up after a minute with no answer.
+    @Test func theCardSaysWhatIsHappeningNow() {
+        let t = Self.t
+        let sent = ChargeNowActivity.State(phase: .sent, startedAtMs: t, confirmedAtMs: t)
+        let a = ChargeNowActivity.face(sent, stale: false, zone: Self.stockholm)
+        #expect(a.headline == "Sending Charge now…")
+        #expect(a.subtitle == "Waiting for FTW")
+        #expect(a.timer == .waiting)
+        #expect(a.steps == 1)
+        let b = ChargeNowActivity.face(.init(phase: .received, startedAtMs: t, confirmedAtMs: t), stale: false, zone: Self.stockholm)
+        #expect(b.headline == "FTW received Charge now")
+        #expect(b.subtitle == "Waiting for the charger")
+        #expect(b.steps == 2)
+        let c = ChargeNowActivity.face(.init(startedAtMs: t, confirmedAtMs: t), stale: false, zone: Self.stockholm)
+        #expect(c.steps == 3)
+        #expect(sent.staleDate.timeIntervalSince1970 * 1000 == t + ChargeNowActivity.answerMs)
+        let lost = ChargeNowActivity.face(sent, stale: true, zone: Self.stockholm)
+        #expect(lost.headline == "No answer from FTW · open FTW")
+        #expect(lost.subtitle == "Charge now may not have started.")
+        #expect(lost.timer == .waiting)
+        #expect(lost.dimmed)
     }
 
     // MARK: The Control

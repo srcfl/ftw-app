@@ -23,6 +23,9 @@ final class ChargeNowActivities: ChargeNowHost {
     }
 
     func apply(_ action: ChargeNowActivity.Action, home: String, loadpointID: String, zone: TimeZone) {
+        #if DEBUG
+        if Self.heldBack(action) { return }
+        #endif
         switch action {
         case .start(var state):
             guard ActivityAuthorizationInfo().areActivitiesEnabled else {
@@ -93,6 +96,18 @@ final class ChargeNowActivities: ChargeNowHost {
     }
 
     #if DEBUG
+    /// For screenshots: `-FTWDemoPhase sent` or `received` keeps the Live
+    /// Activity at that step, which otherwise lasts under a second.
+    private static func heldBack(_ action: ChargeNowActivity.Action) -> Bool {
+        guard let name = UserDefaults.standard.string(forKey: "FTWDemoPhase"),
+              let hold = ChargeNowActivity.State.Phase(rawValue: name) else { return false }
+        let order = ChargeNowActivity.State.Phase.allCases
+        switch action {
+        case .start(let s), .update(let s): return order.firstIndex(of: s.phase)! > order.firstIndex(of: hold)!
+        case .end, .none: return true
+        }
+    }
+
     /// For screenshots: `-FTWDemoStaleActivity YES` starts the Live
     /// Activity as if Charge now had been on for 25 minutes, and lets it go
     /// stale 20 seconds later instead of 15 minutes, with no read to

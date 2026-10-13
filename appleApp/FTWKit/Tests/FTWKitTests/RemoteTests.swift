@@ -84,16 +84,23 @@ import FTWShared
             #expect(cmd.uptimeMs > 0)
             #expect(rig.box?.house.manualHoldW == 11_000)
 
-            // Started once, at the box's confirmation; the read after it
-            // found the hold and moved nothing back.
-            guard case .start(let s)? = rig.activities.log.first else {
+            // Started when sent, then received, then on from the box's
+            // confirmation; the read after it found the hold.
+            guard case .start(let sent)? = rig.activities.log.first else {
                 Issue.record("no Live Activity: \(rig.activities.log)")
                 return
             }
-            #expect(s.startedAtMs == s.confirmedAtMs)
-            #expect(s.startedAtMs > CarTextTests.t)
+            #expect(sent.phase == .sent)
+            let phases = rig.activities.log.compactMap { action -> ChargeNowActivity.State.Phase? in
+                if case .update(let s) = action { return s.phase }
+                return nil
+            }
+            #expect(phases.first == .received)
+            #expect(phases.contains(.on))
             #expect(rig.activities.log.dropFirst().allSatisfy { if case .update = $0 { return true } else { return false } })
-            #expect(rig.activities.states["demo/garage"]?.startedAtMs == s.startedAtMs)
+            let on = try #require(rig.activities.states["demo/garage"])
+            #expect(on.phase == .on)
+            #expect(on.startedAtMs > sent.startedAtMs)
         }
     }
 
@@ -157,9 +164,10 @@ import FTWShared
         }
     }
 
-    /// Received and never confirmed, and the charger does not hold it: no
-    /// Live Activity, and the answer says the box has not confirmed.
-    @Test func anUnconfirmedChargeNowStartsNothing() async throws {
+    /// Received and never confirmed, and the charger does not hold it: the
+    /// card that showed it on its way closes, never having said "on", and
+    /// the answer says the box has not confirmed.
+    @Test func anUnconfirmedChargeNowLeavesNoCard() async throws {
         try await AppWords.$language.withValue(.en) {
             let rig = Rig()
             let loadpoints = try rig.start()
@@ -167,7 +175,13 @@ import FTWShared
             let out = await rig.perform(.chargeNow, loadpoints, for: 22_000)
             #expect(out.kind == .pending)
             #expect(out.text == "FTW received it but has not confirmed the result yet.")
-            #expect(rig.activities.log.isEmpty)
+            #expect(rig.activities.log.last == .end)
+            #expect(rig.activities.states.isEmpty)
+            #expect(!rig.activities.log.contains { action in
+                if case .update(let s) = action { return s.phase == .on }
+                if case .start(let s) = action { return s.phase == .on }
+                return false
+            })
         }
     }
 
@@ -383,6 +397,9 @@ import FTWShared
             #expect(!locked.headline.contains(":"))
 
             _ = await rig.perform(.chargeNow, loadpoints)
+            // The card shows the box's outcome in place; locked, it does not.
+            #expect(loadpoints.answer(locked: false).receipt == "FTW started charging. Waiting for the car to draw power.")
+            #expect(loadpoints.answer(locked: true).receipt == nil)
             let charging = loadpoints.answer(locked: true)
             #expect(charging.gist == .chargingNow)
             #expect(charging.headline == "Charge now is on.")

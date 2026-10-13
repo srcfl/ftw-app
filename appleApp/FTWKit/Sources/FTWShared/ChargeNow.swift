@@ -12,27 +12,50 @@ import Foundation
 /// box. Plain values, so the app, the widget extension and a test all read
 /// the same rules.
 public enum ChargeNowActivity {
-    /// The Live Activity's dynamic state. Two times, both on the phone's
-    /// clock: when the box first confirmed Charge now, and when the phone
-    /// last saw it still on.
+    /// The Live Activity's dynamic state: how far Charge now has come, and
+    /// two times on the phone's clock. While it is on, `startedAtMs` is when
+    /// the box confirmed it and `confirmedAtMs` when the phone last saw it
+    /// still on; before that, both are the last step of the command.
     public struct State: Codable, Hashable, Sendable {
+        /// The command's steps, as the receipt in the app shows them.
+        public enum Phase: String, Codable, Hashable, Sendable, CaseIterable {
+            /// The phone sent Charge now.
+            case sent
+            /// The box has it (`cmd.ack`).
+            case received
+            /// The box confirmed it (`cmd.result`) or a read found it on.
+            case on
+        }
+
+        public var phase: Phase
         public var startedAtMs: Double
         public var confirmedAtMs: Double
 
-        public init(startedAtMs: Double, confirmedAtMs: Double) {
+        public init(phase: Phase = .on, startedAtMs: Double, confirmedAtMs: Double) {
+            self.phase = phase
             self.startedAtMs = startedAtMs
             self.confirmedAtMs = confirmedAtMs
+        }
+
+        public init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            phase = try c.decodeIfPresent(Phase.self, forKey: .phase) ?? .on
+            startedAtMs = try c.decode(Double.self, forKey: .startedAtMs)
+            confirmedAtMs = try c.decode(Double.self, forKey: .confirmedAtMs)
         }
 
         public var startedAt: Date { Date(timeIntervalSince1970: startedAtMs / 1000) }
         public var confirmedAt: Date { Date(timeIntervalSince1970: confirmedAtMs / 1000) }
 
-        /// After this the phone can no longer vouch that Charge now is still
-        /// on: the car may have been unplugged, or someone went back to the
-        /// plan from another phone.
-        public var staleDate: Date { Date(timeIntervalSince1970: (confirmedAtMs + ChargeNowActivity.vouchMs) / 1000) }
+        /// After this the phone can no longer vouch for what it shows: that
+        /// Charge now is still on (the car may have been unplugged, or
+        /// another phone went back to the plan), or, for a command, that an
+        /// answer is still coming.
+        public var staleDate: Date { Date(timeIntervalSince1970: (confirmedAtMs + window) / 1000) }
 
-        public func isStale(atMs nowMs: Double) -> Bool { nowMs >= confirmedAtMs + ChargeNowActivity.vouchMs }
+        public func isStale(atMs nowMs: Double) -> Bool { nowMs >= confirmedAtMs + window }
+
+        private var window: Double { phase == .on ? ChargeNowActivity.vouchMs : ChargeNowActivity.answerMs }
     }
 
     /// How long one confirmation is shown as current. The app confirms it
@@ -41,11 +64,21 @@ public enum ChargeNowActivity {
     /// confirms it while the app sleeps.
     public static let vouchMs: Double = 15 * 60_000
 
-    /// What the box just said about one charger.
+    /// How long a command on its way is shown as on its way. The box has
+    /// 20 s to answer; past a minute nothing is coming.
+    public static let answerMs: Double = 60_000
+
+    /// What happened to Charge now on one charger.
     public enum Event: Equatable, Sendable {
+        /// This phone sent Charge now.
+        case sent(atMs: Double)
+        /// The box took it (`cmd.ack`).
+        case received(atMs: Double)
         /// The box confirmed Charge now: its `cmd.result`, or, when the
         /// result never came, a read of the charger after this phone asked.
         case started(atMs: Double)
+        /// The box refused it, or nothing confirmed it.
+        case refused
         /// The box confirmed Back to the plan or Pause.
         case stopped
         /// A read of the charger. `holding` is whether Charge now is on.
@@ -59,19 +92,36 @@ public enum ChargeNowActivity {
         case none
     }
 
-    /// The next step for one charger's Live Activity. Only a confirmation
-    /// starts one: a read that finds Charge now on without this phone having
-    /// asked does not know when it started.
+    /// The next step for one charger's Live Activity. This phone's own
+    /// command starts one, from the moment it is sent; a read that finds
+    /// Charge now on without this phone having asked does not know when it
+    /// started, and starts nothing. Each step shows only what has happened:
+    /// sent, received, then on once the box confirmed it.
     public static func next(_ current: State?, _ event: Event) -> Action {
         switch (current, event) {
+        case (nil, .sent(let at)):
+            return .start(State(phase: .sent, startedAtMs: at, confirmedAtMs: at))
         case (nil, .started(let at)):
-            return .start(State(startedAtMs: at, confirmedAtMs: at))
+            return .start(State(phase: .on, startedAtMs: at, confirmedAtMs: at))
         case (nil, _):
             return .none
-        case (let s?, .started(let at)), (let s?, .seen(true, let at)):
-            return .update(State(startedAtMs: s.startedAtMs, confirmedAtMs: max(s.confirmedAtMs, at)))
-        case (_?, .stopped), (_?, .seen(false, _)):
+        case (let s?, .sent(let at)):
+            // A second press while it is on changes nothing on the card.
+            return s.phase == .on ? .none : .update(State(phase: .sent, startedAtMs: at, confirmedAtMs: at))
+        case (let s?, .received(let at)):
+            return s.phase == .sent ? .update(State(phase: .received, startedAtMs: s.startedAtMs, confirmedAtMs: at)) : .none
+        case (let s?, .started(let at)):
+            if s.phase == .on { return .update(State(phase: .on, startedAtMs: s.startedAtMs, confirmedAtMs: max(s.confirmedAtMs, at))) }
+            return .update(State(phase: .on, startedAtMs: at, confirmedAtMs: at))
+        case (let s?, .refused):
+            // A refused second press leaves Charge now as it was.
+            return s.phase == .on ? .none : .end
+        case (_?, .stopped):
             return .end
+        case (let s?, .seen(let holding, let at)):
+            // While the command is on its way, its own answer decides.
+            guard s.phase == .on else { return .none }
+            return holding ? .update(State(phase: .on, startedAtMs: s.startedAtMs, confirmedAtMs: max(s.confirmedAtMs, at))) : .end
         }
     }
 
@@ -82,28 +132,43 @@ public enum ChargeNowActivity {
     /// the timer stopped there, and everything dimmed.
     public struct Face: Equatable, Sendable {
         public enum Timer: Equatable, Sendable {
+            /// The command is on its way: no time to count yet.
+            case waiting
             /// Counts up from the start.
             case running(from: Date)
             /// Stopped at the last confirmation.
             case stopped(from: Date, at: Date)
         }
 
+        /// One line: what is happening now.
         public var headline: String
         public var subtitle: String
         public var timer: Timer
+        /// How many of the band's three steps are done: sent, received, on.
+        public var steps: Int
         public var dimmed: Bool
     }
 
     public static func face(_ state: State, stale: Bool, zone: TimeZone) -> Face {
-        if stale {
+        let steps = State.Phase.allCases.firstIndex(of: state.phase).map { $0 + 1 } ?? 3
+        switch (state.phase, stale) {
+        case (.on, false):
+            return Face(headline: since(state, zone: zone), subtitle: noTimeLimit, timer: .running(from: state.startedAt), steps: steps, dimmed: false)
+        case (.on, true):
             return Face(
                 headline: confirmed(state, zone: zone),
                 subtitle: ChargeNowWord.mayHaveChanged.text,
                 timer: .stopped(from: state.startedAt, at: state.confirmedAt),
+                steps: steps,
                 dimmed: true
             )
+        case (.sent, false):
+            return Face(headline: ChargeNowWord.sending.text, subtitle: ChargeNowWord.waitingForFTW.text, timer: .waiting, steps: steps, dimmed: false)
+        case (.received, false):
+            return Face(headline: ChargeNowWord.received.text, subtitle: ChargeNowWord.waitingForCharger.text, timer: .waiting, steps: steps, dimmed: false)
+        case (_, true):
+            return Face(headline: ChargeNowWord.noAnswer.text, subtitle: ChargeNowWord.mayNotHaveStarted.text, timer: .waiting, steps: steps, dimmed: true)
         }
-        return Face(headline: since(state, zone: zone), subtitle: noTimeLimit, timer: .running(from: state.startedAt), dimmed: false)
     }
 
     // MARK: Words
@@ -189,6 +254,12 @@ enum ChargeNowWord: String, CaseIterable {
     case since = "Charge now on since %@"
     case confirmed = "Last confirmed %@ · open FTW"
     case mayHaveChanged = "It may have changed since."
+    case sending = "Sending Charge now…"
+    case waitingForFTW = "Waiting for FTW"
+    case received = "FTW received Charge now"
+    case waitingForCharger = "Waiting for the charger"
+    case noAnswer = "No answer from FTW · open FTW"
+    case mayNotHaveStarted = "Charge now may not have started."
     case on = "On"
     case off = "Off"
     case noCar = "No car plugged in"

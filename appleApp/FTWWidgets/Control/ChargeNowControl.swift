@@ -23,8 +23,14 @@ struct ChargeNowControl: ControlWidget {
                 Text(ChargeNowActivity.title)
                 Text(state.label)
             } valueLabel: { isOn in
-                Label(state.label, systemImage: isOn ? "bolt.car.fill" : "bolt.car")
-                    .controlWidgetActionHint(isOn ? ChargeNowActivity.backToPlan : ChargeNowActivity.title)
+                // As Apple's own switches do: the icon changes, in place.
+                Label {
+                    Text(state.label)
+                } icon: {
+                    Image(systemName: isOn ? "bolt.car.fill" : "bolt.car")
+                        .contentTransition(.symbolEffect(.replace))
+                }
+                .controlWidgetActionHint(isOn ? ChargeNowActivity.backToPlan : ChargeNowActivity.title)
             }
         }
         .displayName(LocalizedStringResource(stringLiteral: ChargeNowActivity.title))

@@ -370,19 +370,33 @@ public final class LoadpointsModel: Activatable {
 
     private func hold(_ lp: Loadpoint, _ ask: EVText.Step.Ask, _ args: [(String, CBOR)]) async {
         if let step = holdStep[lp.id], !step.settled { return }
-        await follow(lp.id, ask, op: Contract.opLoadpointHold, args: args, into: \.holdStep, tag: "hold")
-        // Only the box's confirmation moves the Live Activity, and at once:
-        // the read below can take a while.
+        // Charge now shows outside the app as the receipt does inside it:
+        // sent at once, received on the box's `cmd.ack`, on only once the
+        // box confirms it.
+        var acked: (@MainActor () -> Void)?
+        if ask == .chargeNow {
+            showChargeNow(lp.id, .sent(atMs: site.scheduler.nowMs))
+            let id = lp.id
+            acked = { [weak self] in
+                guard let self else { return }
+                self.showChargeNow(id, .received(atMs: self.site.scheduler.nowMs))
+            }
+        }
+        await follow(lp.id, ask, op: Contract.opLoadpointHold, args: args, into: \.holdStep, tag: "hold", acked: acked)
+        // The box's answer moves the Live Activity at once: the read below
+        // can take a while.
         let result = holdStep[lp.id]?.ask == ask ? holdStep[lp.id]?.result : nil
         switch (ask, result) {
         case (.chargeNow, .applied?): showChargeNow(lp.id, .started(atMs: site.scheduler.nowMs))
+        case (.chargeNow, .refused?), (.chargeNow, .superseded?): showChargeNow(lp.id, .refused)
         case (.resume, .applied?), (.pause, .applied?): showChargeNow(lp.id, .stopped)
         default: break
         }
         try? await loadChargers()
         // Taken and never confirmed: the charger's own account decides.
-        if ask == .chargeNow, case .unconfirmed? = result, let now = points.first(where: { $0.id == lp.id }), Self.holding(now) {
-            showChargeNow(lp.id, .started(atMs: readAtMs ?? site.scheduler.nowMs))
+        if ask == .chargeNow, case .unconfirmed? = result {
+            let now = points.first(where: { $0.id == lp.id })
+            showChargeNow(lp.id, now.map(Self.holding) == true ? .started(atMs: readAtMs ?? site.scheduler.nowMs) : .refused)
         }
     }
 
@@ -431,7 +445,7 @@ public final class LoadpointsModel: Activatable {
 
     /// One command, written into `into` at every stage: sent, received,
     /// and what the box did or why not.
-    private func follow(_ id: String, _ ask: EVText.Step.Ask, op: String, args: [(String, CBOR)], into path: ReferenceWritableKeyPath<LoadpointsModel, [String: EVText.Step]>, tag: String) async {
+    private func follow(_ id: String, _ ask: EVText.Step.Ask, op: String, args: [(String, CBOR)], into path: ReferenceWritableKeyPath<LoadpointsModel, [String: EVText.Step]>, tag: String, acked: (@MainActor () -> Void)? = nil) async {
         let key = "\(tag) \(id)"
         clearing[key]?.cancel()
         self[keyPath: path][id] = EVText.Step(ask: ask)
@@ -440,6 +454,7 @@ public final class LoadpointsModel: Activatable {
             let r = try await site.core.command(op, args: args, onAck: { [weak self] in
                 guard let self, self[keyPath: path][id]?.ask == ask else { return }
                 self[keyPath: path][id]?.acked = true
+                acked?()
             })
             switch r.state {
             case .applied: result = .applied(observed: r.observedValue)
@@ -697,6 +712,7 @@ public final class LoadpointsModel: Activatable {
         default:
             answer.headline = EVText.status(lp, zone: zone)
         }
+        answer.receipt = outcome(hold: lp)?.text
         if let level { answer.details.append("\(AppWords.percent(level.pct)) · \(EVText.originShort(level, zone: zone))") }
         if !holds, let plan = EVText.plan(lp, windows: windows[lp.id] ?? lp.planWindows, nowMs: site.nowMs, zone: zone) {
             answer.details.append(plan)
@@ -764,6 +780,9 @@ public struct CarAnswer: Equatable, Sendable {
     public var canChargeNow: Bool
     /// The home the answer is about, for the card's Back to the plan.
     public var home: String
+    /// The last command's receipt, as the car view shows it: what was sent
+    /// and what the box did. Nil when locked or when there is none.
+    public var receipt: String? = nil
 
     /// Spoken: the answer, and its age once it is minutes old.
     public func spoken(nowMs: Double) -> String {

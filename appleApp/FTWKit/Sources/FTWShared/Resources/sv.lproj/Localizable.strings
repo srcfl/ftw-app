@@ -55,6 +55,12 @@
 "Charge now on since %@" = "Ladda nu på sedan %@";
 "Last confirmed %@ · open FTW" = "Senast bekräftat %@ · öppna FTW";
 "It may have changed since." = "Det kan ha ändrats sedan dess.";
+"Sending Charge now…" = "Skickar Ladda nu…";
+"Waiting for FTW" = "Väntar på FTW";
+"FTW received Charge now" = "FTW tog emot Ladda nu";
+"Waiting for the charger" = "Väntar på laddaren";
+"No answer from FTW · open FTW" = "Inget svar från FTW · öppna FTW";
+"Charge now may not have started." = "Ladda nu kanske inte startade.";
 "On" = "På";
 "Off" = "Av";
 "No car plugged in" = "Ingen bil inkopplad";
