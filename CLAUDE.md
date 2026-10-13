@@ -130,6 +130,26 @@ native, and smooth enough to impress.
 Fredrik chose this look for the polish release on 13 Oct 2026. Read it
 before you change a colour, a font or a mark.
 
+His standing rules from that day outlive the release:
+
+1. The phone keeps its own cache of the whole home and opens on it. FTW
+   Cloud only speeds things up and holds state; the app works when the
+   cloud is gone. Robust, fast, smooth.
+2. The fastest live path wins. Which path does not matter, only that it is
+   fast. Push, never poll.
+3. Freshness has no ticking seconds. A quiet mark says live the moment you
+   lift the phone: light means live.
+4. "FTW in control" is a small mark: green when FTW controls, a warning
+   when it does not. One tap gives the full detail, as the box's own page
+   does. Never a big banner.
+5. Charts are never angular and never hairlines; they have volume. On/off
+   loads (0 ↔ 1 kW) draw as bucket means with a range, and the scrub still
+   gives exact values.
+6. The flow on Now is small and smooth: continuous light, not jumping dots.
+7. TUI and retro are welcome, never bloated: Swedish simplicity.
+
+The rules below put these into practice.
+
 - **Light means live.** Only a reading the box has confirmed live glows or
   moves: a live carrier (relay, WebRTC or graded-live FTW Cloud) and
   `srcState` live. The cache, the past, the plan and a quiet stream are
