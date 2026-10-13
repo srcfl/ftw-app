@@ -258,7 +258,8 @@ public struct EnergyToday: Equatable, Sendable {
             let covered = max(0, s.startMs + s.stepMs - max(s.startMs, fromMs))
             guard covered > 0 else { continue }
             guard let w = s.watts else {
-                e.missingMs += covered
+                // A step on its way is not missing yet.
+                if !s.fetching { e.missingMs += covered }
                 continue
             }
             let wh = abs(w) * covered / 3_600_000

@@ -381,6 +381,56 @@ import FTWShared
     }
 }
 
+/// What a chart says under the finger.
+@Suite struct ReadoutTests {
+    static let step = 300_000.0
+
+    func sample(_ i: Int, _ w: Double?, fetching: Bool = false) -> HistorySample {
+        HistorySample(startMs: Double(i) * Self.step, stepMs: Self.step, watts: w, fetching: fetching)
+    }
+
+    @Test func aStepSaysItsPowerItsWayAndTheEnergySoFar() {
+        AppWords.$language.withValue(.en) {
+            let samples = [sample(0, 1_200), sample(1, -600), sample(2, nil), sample(3, nil, fetching: true), sample(4, 2_400)]
+            let r = Readouts.history(.battery, samples, fromMs: 0, at: Self.step * 1.5)
+            #expect(r?.when == AppWords.clock(Self.step, zone: .current))
+            #expect(r?.what == "600\u{00A0}W giving power · ↑ \(AppWords.energy(100)) ↓ \(AppWords.energy(50)) so far")
+            // A hole says which kind it is.
+            #expect(Readouts.history(.battery, samples, fromMs: 0, at: Self.step * 2.5)?.what == "no data")
+            #expect(Readouts.history(.battery, samples, fromMs: 0, at: Self.step * 3.5)?.what == "fetching…")
+            // One way only for the sun.
+            #expect(Readouts.history(.solar, [sample(0, 1_200)], fromMs: 0, at: 1)?.what == "1.2\u{00A0}kW making · \(AppWords.energy(100)) so far")
+        }
+    }
+
+    @Test func twoFingersSayTheMeanAndTheEnergyBetweenThem() {
+        AppWords.$language.withValue(.sv) {
+            let samples = [sample(0, 1_200), sample(1, 600), sample(2, 0)]
+            let r = Readouts.history(.home, samples, range: 0...(Self.step * 2))
+            #expect(r?.what == "i snitt 900\u{00A0}W · \(AppWords.energy(150))")
+        }
+    }
+
+    @Test func aSlotAheadSaysWhatThePlanDoesWhyAndThePrice() {
+        AppWords.$language.withValue(.en) {
+            let hour = 3_600_000.0
+            let bars = [ChartSlot(startMs: 0, endMs: hour, watts: 2_500, reason: "cheap_import"), ChartSlot(startMs: hour, endMs: 2 * hour, watts: 40, reason: "idle")]
+            let prices = [ChartPrice(startMs: 0, endMs: hour, minor: 65.5), ChartPrice(startMs: hour, endMs: 2 * hour, minor: 120)]
+            let first = Readouts.ahead(.battery, bars, prices, currency: "SEK", forecast: false, at: 10)
+            #expect(first?.what == "charging 2.5\u{00A0}kW · \(PlanText.reason("cheap_import")) · 65.5 öre/kWh")
+            // A resting slot gives no reason, only the price.
+            let second = Readouts.ahead(.battery, bars, prices, currency: "SEK", forecast: false, at: hour + 10)
+            #expect(second?.what == "resting 40\u{00A0}W · 120 öre/kWh")
+            // Swedish writes the decimal comma.
+            AppWords.$language.withValue(.sv) {
+                #expect(Readouts.ahead(.battery, bars, prices, currency: "SEK", forecast: false, at: 10)?.what.hasSuffix("65,5 öre/kWh") == true)
+            }
+            let both = Readouts.ahead(.battery, bars, prices, currency: "SEK", forecast: false, range: 0...(2 * hour))
+            #expect(both?.what.hasPrefix("↑ \(AppWords.energy(2_500)) ↓ \(AppWords.energy(0)) · average") == true)
+        }
+    }
+}
+
 @Suite struct HistoryWireTests {
     /// Over the whole stack (relay, Noise, frames, session) to the simulated
     /// box: tiles arrive, and a second ask with the closed tiles in `have`
@@ -715,6 +765,8 @@ import FTWShared
             "appleApp/FTWKit/Sources/FTWKit/State/ModeModel.swift", "appleApp/FTWKit/Sources/FTWKit/State/PlanModel.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/HistoryModel.swift", "appleApp/FTW/UI/PairView.swift",
             "appleApp/FTW/UI/RootView.swift", "appleApp/FTWKit/Sources/FTWKit/State/PairModel.swift",
+            "appleApp/FTW/UI/ChartScrub.swift", "appleApp/FTW/Car/CarView.swift",
+            "appleApp/FTWKit/Sources/FTWKit/State/ChartWords.swift",
         ]
         let pattern = #/(?:\bL|NodeWords\.(?:text|format)|AppWords\.(?:text|format))\("((?:[^"\\]|\\.)*)"/#
         var english = Set<String>()

@@ -198,6 +198,19 @@ public enum NodeWords {
         "Waiting for your box. You can choose when it answers.": "Väntar på boxen. Du kan välja när den svarar.",
         "Try again": "Försök igen",
         "This phone is offline": "Telefonen är offline",
+        // What a chart says under the finger.
+        "fetching…": "hämtas …",
+        "no data": "ingen data",
+        "%@ so far": "%@ hittills",
+        "↑ %@ ↓ %@ so far": "↑ %@ ↓ %@ hittills",
+        "↑ %@ ↓ %@": "↑ %@ ↓ %@",
+        "average %@": "i snitt %@",
+        "forecast %@": "prognos %@",
+        "nothing planned": "inget planerat",
+        "charged %@": "laddade %@",
+        "not charging": "laddar inte",
+        "Time": "Tid",
+        "Power": "Effekt",
         // Pairing. The box's own dashboard is in English, so its labels
         // (Settings → FTW app, Show pairing code) stay as it shows them.
         "Scan the pairing QR": "Skanna QR-koden",
