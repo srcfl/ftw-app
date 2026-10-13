@@ -145,6 +145,18 @@ import FTWShared
         #expect(computed.srcState == .lagging)
     }
 
+    @Test func aLiveReadingThroughFTWCloudIsLive() {
+        // 0.3.0 said "Not live, just now" on every node read through FTW
+        // Cloud, and Now's flow stood still: the rule knew only the relay.
+        for carrier: CarrierKind in [.relay, .webrtc, .cloud] {
+            #expect(NodeFreshness(carrier: carrier, srcState: .live, ageMs: 0, sourceName: nil).live, "\(carrier)")
+            #expect(!NodeFreshness(carrier: carrier, srcState: .stale, ageMs: 0, sourceName: nil).live, "\(carrier)")
+        }
+        for carrier: CarrierKind in [.cache, .none] {
+            #expect(!NodeFreshness(carrier: carrier, srcState: .live, ageMs: 0, sourceName: nil).live, "\(carrier)")
+        }
+    }
+
     @Test func nowDrawsEachNodeWithItsOwnFreshness() {
         let s = Self.session(state: .stale, lastOkAgo: 40_000)
         let readings = AppWords.$language.withValue(.en) {

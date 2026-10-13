@@ -1158,6 +1158,16 @@ extension SiteModel {
         return worst
     }
 
+    /// The cloud's grade for one field, never live without an anchor. Nil
+    /// when Now is not reading through FTW Cloud.
+    func cloudGrade(fid: Int) -> SourceState? {
+        guard shown.source == .cloud, let view = shown.cloudView else { return nil }
+        let g = view.grade(nowMs: Int64(nowMs))
+        var grade = g.fields[String(fid)] ?? g.sources.values.max() ?? .live
+        if !g.anchored { grade = max(grade, .stale) }
+        return grade
+    }
+
     /// The age of the oldest reading Now draws, by the anchor. Nil when the
     /// copy cannot be anchored: unverified, shown as "—".
     static func cloudAge(_ view: CloudView, nowMs: Double) -> Double? {

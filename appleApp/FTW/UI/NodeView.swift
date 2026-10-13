@@ -110,7 +110,7 @@ private struct NodeHero: View {
         VStack(alignment: .leading, spacing: 8) {
             if let reading {
                 HeroLine(reading: reading, devices: beside ?? []).equatable()
-                HeroFreshness(freshness: worst(reading.freshness, sources.devices[node] ?? []))
+                HeroFreshness(freshness: worst(reading.freshness, sources.devices[node] ?? []), showsSource: node != .home)
                 if beside == nil, let split {
                     DeviceRows(site: site, devices: split, readAtMs: sources.readAtMs, tint: Theme.color(reading.tone))
                 }
@@ -239,6 +239,8 @@ private struct HeroLine: View, Equatable {
 
 private struct HeroFreshness: View {
     let freshness: NodeFreshness
+    /// The house is no device: the meter the box reads it from is not its name.
+    var showsSource = true
 
     var body: some View {
         HStack(spacing: 6) {
@@ -256,7 +258,7 @@ private struct HeroFreshness: View {
 
     /// "Live · sungrow", or how old and why not live.
     private var line: String {
-        let name = freshness.sourceName.map { " · \($0)" } ?? ""
+        let name = showsSource ? freshness.sourceName.map { " · \($0)" } ?? "" : ""
         if freshness.live { return L("Live") + name }
         if freshness.carrier == .cache { return NodeWords.format("Saved on this phone, %@", NodeLook.age(freshness)) + name }
         switch freshness.srcState {
