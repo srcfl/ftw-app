@@ -20,10 +20,14 @@ public struct CloudEndpoint: Equatable, Sendable {
 
     public static let releaseURL = URL(string: "wss://cloud.ftw.energy/v1/app")!
 
-    /// The service's Noise keys. Empty until the service runs with its key:
-    /// a release build then reads through the relay alone and offers no
-    /// FTW Cloud, as a box built without service keys never dials.
-    static let releaseKeys: [Bytes] = []
+    /// The service's Noise keys, base64url of the X25519 public half. Up to
+    /// two, so the key can rotate across an app release: ship the new key
+    /// beside the old one, switch the service, then drop the old one. The
+    /// one key is cloud.ftw.energy's, kept as `/ftw-cloud/noise-key` in
+    /// Parameter Store (srcfl/ftw-cloud `deploy/noise.md`). Empty would mean
+    /// a release build reads through the relay alone and offers no FTW Cloud.
+    static let releaseKeyText = ["6-1WbbDzKvbwODSwhUN24MPemfLNRhcbMP2tpU_QAEk"]
+    static let releaseKeys: [Bytes] = releaseKeyText.compactMap { try? Base64url.decode($0) }
 
     /// The endpoint this build uses, or nil when it has none.
     public static var current: CloudEndpoint? {
