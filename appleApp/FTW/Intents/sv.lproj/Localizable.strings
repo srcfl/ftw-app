@@ -11,7 +11,7 @@
 "Level" = "Nivå";
 "The car is at ${level}" = "Bilen är på ${level}";
 "Is the car ready?" = "Är bilen klar?";
-"Says whether the car will be ready in time, from what your box says now. A locked iPhone gives the gist only." = "Säger om bilen blir klar i tid, utifrån vad din box säger nu. En låst iPhone svarar utan detaljer.";
+"Says whether the car will be ready in time, from what your box says now. A locked phone gives the gist only." = "Säger om bilen blir klar i tid, utifrån vad din box säger nu. En låst telefon svarar utan detaljer.";
 "The car" = "Bilen";
 "Car's level" = "Bilens nivå";
 "Said" = "Sagt";
