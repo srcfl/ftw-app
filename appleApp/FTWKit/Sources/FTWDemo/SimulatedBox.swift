@@ -35,6 +35,10 @@ public final class SimulatedBox {
     /// estimate meanwhile and the data grows into it. 0 sends all at once.
     public var holdTileMs: Double = 0
     private var heldTile = false
+    /// The share of today the box has prices for, as
+    /// `priced_coverage_pct`. Below 0.95 the grid widget marks its cost
+    /// partial.
+    public var pricedShare: Double = 1
     /// A Core with srcfl/ftw#1586 reads and sends the ready time as
     /// `time_of_day_min` on the household clock. Off, it is a Core that
     /// knows only `time_of_day_min_utc`.
@@ -480,10 +484,8 @@ public final class SimulatedBox {
             return (200, ["days": .array(rows)])
         case ("GET", "/api/savings/daily"):
             let days = max(1, min(90, Int(query["days"] ?? "7") ?? 7))
-            let rows: [JSON] = (0..<days).reversed().map { offset in
-                ["day": .string(house.localDay(now - Double(offset) * 86_400_000)), "saved_ore": .number((1_400 + 900 * house.wobble(Double(offset) * 1e6, 5)).rounded()), "resolution": "slot"]
-            }
-            return (200, ["days": .array(rows)])
+            let rows: [JSON] = (0..<days).reversed().map { savingsRow(dayOffset: $0, nowMs: now) }
+            return (200, ["days": .array(rows), "tz": .string(house.timeZone.identifier), "value_scope": "site_total"])
         case ("GET", "/api/loadpoints"):
             return (200, ["enabled": true, "loadpoints": [loadpointJSON()]])
         case ("GET", "/api/planner/prefs"):
@@ -732,6 +734,11 @@ extension SimulatedBox {
         }
         // For recordings: `-FTWDemoGap YES` holds a tile back for 2 s.
         if UserDefaults.standard.bool(forKey: "FTWDemoGap") { box.holdTileMs = 2_000 }
+        // For the grid widget: `-FTWDemoSunny YES` makes today a long
+        // summer's day that sells more than it buys, and
+        // `-FTWDemoPartial YES` leaves a fifth of it unpriced.
+        if UserDefaults.standard.bool(forKey: "FTWDemoSunny") { box.house.sunny = true }
+        if UserDefaults.standard.bool(forKey: "FTWDemoPartial") { box.pricedShare = 0.8 }
         #endif
         current = box
         return LoopbackCarrier(box: box, scheduler: scheduler)

@@ -14,6 +14,8 @@ public final class HomeModels {
     public let loadpoints: LoadpointsModel
     /// Live, history, plan and mode for Now's nodes.
     public let nodes: NodeModels
+    /// Today over the grid, for the grid widget.
+    public let gridToday: GridTodayShare
 
     init(site: SiteModel) {
         self.site = site
@@ -23,6 +25,7 @@ public final class HomeModels {
         savings = SavingsModel(site: site)
         loadpoints = LoadpointsModel(site: site, charging: charging)
         nodes = NodeModels(site: site, loadpoints: loadpoints, prices: prices)
+        gridToday = GridTodayShare(site: site, history: nodes.history, prices: prices)
     }
 }
 
@@ -54,6 +57,10 @@ public final class AppModel {
     /// A pairing link that arrived from outside, shown before it is trusted.
     public var offeredLink: String?
     public private(set) var isDemo = false
+    /// The demo leaves its records for the widgets under the home "demo".
+    /// Only a Debug build sets it, to photograph the widgets; the demo
+    /// otherwise writes nothing.
+    public var demoSharesWidgets = false
 
     @ObservationIgnored public let vault: Vault
     @ObservationIgnored public let sites: SiteList
@@ -258,7 +265,9 @@ public final class AppModel {
     public func startDemo() {
         guard let demo else { return }
         home?.site.destroy()
-        let site = SiteModel(siteId: nil, build: build, ua: ua, scheduler: scheduler, files: nil, isDemo: true)
+        let shares = demoSharesWidgets && shared != nil
+        let site = SiteModel(siteId: shares ? "demo" : nil, build: build, ua: ua, scheduler: scheduler, files: nil, shared: shares ? shared : nil, isDemo: true, demoShares: shares)
+        if shares { site.sharedWritten = sharedWritten }
         site.ceilingW = 11_000
         home = HomeModels(site: site)
         isDemo = true

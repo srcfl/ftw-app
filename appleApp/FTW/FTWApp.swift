@@ -36,7 +36,9 @@ struct FTWApp: App {
         // A paired phone paints its cached home before anything else runs.
         model.launch()
         #if DEBUG
-        // For screenshots: `-FTWDemo YES` opens the simulated home.
+        // For screenshots: `-FTWDemo YES` opens the simulated home, and
+        // `-FTWDemoWidgets YES` lets it leave its records for the widgets.
+        model.demoSharesWidgets = UserDefaults.standard.bool(forKey: "FTWDemoWidgets")
         if UserDefaults.standard.bool(forKey: "FTWDemo") { model.startDemo() }
         // For end-to-end tests: `-FTWPairLink <url>` offers a pairing link
         // as a scanned QR would, where the simulator has no camera.
