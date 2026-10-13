@@ -19,6 +19,7 @@ struct RootView: View {
         .background(Theme.surface.ignoresSafeArea())
         .tint(Theme.accent)
         .onAppear { LaunchClock.mark("first frame") }
+        .cloudConsent(app)
     }
 }
 

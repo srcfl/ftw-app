@@ -51,6 +51,15 @@ public enum Contract {
     public static let capDerEV = "der.ev"
     public static let capPriceSpot = "price.spot"
     public static let capAPIPassthrough = "api.passthrough"
+    /// The box can run the FTW Cloud uplink. Absent, the app offers no FTW
+    /// Cloud and reads through the relay alone.
+    public static let capCloudLink = "cloud.link"
+
+    /// The scopes an FTW Cloud grant may name, and what its data may be
+    /// used for: the registry's `cloud_scopes` and `cloud_purposes`.
+    public static let cloudScopes = ["ftw.live.read", "ftw.history.read", "ftw.plan.read", "ftw.health.read", "ftw.events.read"]
+    public static let cloudPurposes = ["serve", "stats"]
+    public static let cloudPurposeStats = "stats"
 
     public static let opSetMode = "site.mode.set"
     public static let opPlannerPrefsSet = "planner.prefs.set"

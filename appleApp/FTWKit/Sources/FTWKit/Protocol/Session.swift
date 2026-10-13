@@ -26,6 +26,9 @@ public struct SessionState: Sendable {
     /// that states something about the box from them would be inventing it.
     public var heardFromBox = false
     public var box: BoxInfo?
+    /// FTW Cloud as the box described it in hello: its key, home and names.
+    /// Nil while the grant is off.
+    public var cloud: CloudIdentity?
     /// Box uptime at the last frame. All ages are deltas against this.
     public var uptimeMs: Double = 0
     public var controlRev: UInt64 = 0
@@ -480,6 +483,7 @@ public final class Session {
         s.heardFromBox = true
         s.modes = b.modes
         s.box = b.box
+        s.cloud = b.cloud
         s.uptimeMs = b.uptimeMs
         s.boot = b.boot
         s.needsUpdate = b.hint == "app_update" || b.proto == Proto.floor

@@ -11,7 +11,7 @@ import Foundation
 /// with it: "connected, but the inverter went quiet 40 seconds ago" needs
 /// both.
 public enum CarrierKind: String, Sendable, Codable {
-    /// `cloud` is data read through FTW Cloud. Nothing produces it yet.
+    /// `cloud` is data read through FTW Cloud, signed by the box.
     case webrtc, relay, cloud, cache, none
 }
 

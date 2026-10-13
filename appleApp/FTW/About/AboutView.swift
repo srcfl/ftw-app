@@ -81,6 +81,7 @@ struct AboutView: View {
                 }
 
                 Section {
+                    if !app.isDemo { NavigationLink { CloudSettingsView(app: app) } label: { Label(CloudWords.text("FTW Cloud"), systemImage: "cloud") } }
                     Link(destination: Origin.privacyURL()) {
                         Label(AboutWords.text("Privacy policy"), systemImage: "hand.raised")
                     }
@@ -90,7 +91,7 @@ struct AboutView: View {
                 } header: {
                     Text(AboutWords.text("Privacy and support"))
                 } footer: {
-                    Text(AboutWords.text("FTW collects nothing about you. Readings and commands travel encrypted between this phone and your box, and Sourceful cannot read them."))
+                    Text(app.site?.cloudOn == true ? CloudWords.text("With FTW Cloud on, Sourceful keeps a copy of your home's readings, signed by your box, to serve this app. Commands travel encrypted between this phone and your box, and Sourceful cannot read them.") : AboutWords.text("FTW collects nothing about you. Readings and commands travel encrypted between this phone and your box, and Sourceful cannot read them."))
                 }
 
                 Section {

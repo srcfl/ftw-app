@@ -109,6 +109,12 @@ public struct CloudView: Sendable {
         self.boxKey = boxKey
     }
 
+    /// M's box uptime and the age of each source's newest reading at M, so a
+    /// screen can say how old a reading is. Nil before an anchored message.
+    public var anchorReadings: (uptimeMs: Int64, ages: [String: Int64])? {
+        m.map { ($0.uptimeMs, $0.ages) }
+    }
+
     /// The boot the view holds, nil before the first message.
     public var boot: Bytes? { currentBoot.isEmpty ? nil : currentBoot }
 

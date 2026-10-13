@@ -169,6 +169,7 @@ public final class AppModel {
                 scheduler: scheduler
             )
             if site.connect(noise) { connectHelp = nil }
+            site.connectCloud(deviceKey: device, makeSocket: makeSocket)
         } catch let e as HelpfulError {
             guard mine == connectGeneration else { return }
             connectHelp = e.help

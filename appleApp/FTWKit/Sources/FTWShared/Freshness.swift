@@ -32,7 +32,7 @@ public enum Freshness {
         busy: Bool = false
     ) -> Band {
         let reaching = !noCarrier && [.idle, .handshaking, .subscribing, .failed, .booting].contains(phase)
-        let connected = carrier == .relay || carrier == .webrtc
+        let connected = carrier == .relay || carrier == .webrtc || carrier == .cloud
         // The relay turned this phone away because the home already has as
         // many phones watching as it serves. Not a fault, and not ours to fix.
         let turnedAway = busy && !connected && reaching
@@ -40,7 +40,16 @@ public enum Freshness {
         let tone: Tone = connected ? (srcState == .live ? .live : .stale) : turnedAway ? .busy : (reaching ? .reaching : .lost)
 
         let message: String
-        if connected {
+        if connected, carrier == .cloud {
+            // The box signed every reading; the anchor says how old it is.
+            // Without one the copy is never live and its age is unverified.
+            switch srcState {
+            case .live: message = Words.text("Live via FTW Cloud")
+            case .never: message = Words.text("FTW Cloud connected · no reading yet")
+            case .down: message = Words.text("FTW Cloud connected · a device stopped responding")
+            default: message = ageMs == nil ? Words.text("FTW Cloud · age unverified") : Words.text("FTW Cloud connected · readings")
+            }
+        } else if connected {
             let webrtc = carrier == .webrtc
             switch srcState {
             case .live: message = webrtc ? Words.text("Live at home") : Words.text("Live via encrypted relay")
