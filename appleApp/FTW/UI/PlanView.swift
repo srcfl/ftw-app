@@ -13,7 +13,7 @@ struct PlanView: View {
 
     var body: some View {
         FitScreen(spacing: 10) { fill in
-            PlanBody(site: home.site, models: models, loadpoints: home.loadpoints, fill: fill, chooseMode: { choosingMode = true })
+            PlanBody(site: home.site, models: models, loadpoints: home.loadpoints, prices: home.prices, fill: fill, chooseMode: { choosingMode = true })
         }
         .navigationTitle(PlanGlance.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -38,6 +38,7 @@ private struct PlanBody: View {
     let site: SiteModel
     let models: NodeModels
     let loadpoints: LoadpointsModel
+    let prices: PriceModel
     let fill: Bool
     let chooseMode: () -> Void
 
@@ -64,6 +65,7 @@ private struct PlanBody: View {
         .padding(.horizontal, 12)
         .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
         .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
+        PriceRow(prices: prices, minute: minute)
         Events(moment: moment, entry: models.planShare.entry, loadpoints: loadpoints)
         CompactMode(mode: models.mode, choose: chooseMode)
     }
@@ -192,6 +194,40 @@ private struct Events: View {
             let mean = inBlock.map(\.totalMinor).reduce(0, +) / Double(inBlock.count)
             let unit = PriceUnits.unit(entry.currency)
             return NodeWords.format("%@ on average", "\(AppWords.decimal(PriceStrip.text(mean, entry.currency))) \(unit.perKwh)")
+        }
+    }
+}
+
+/// The price the plan stands on, in one row, and the way to its chart.
+private struct PriceRow: View {
+    let prices: PriceModel
+    let minute: Double
+
+    var body: some View {
+        if let window = prices.prices {
+            let current = window.slots.first { minute >= $0.startMs && minute < $0.startMs + $0.durationMs }
+            NavigationLink(value: HomeRoute.price) {
+                HStack(alignment: .firstTextBaseline) {
+                    Kicker(L("Electricity price"))
+                    Spacer(minLength: 8)
+                    if let current {
+                        Text("\(Text(AppWords.decimal(PriceStrip.text(current.totalMinor, window.currency))).font(Theme.number(15, weight: .bold)).foregroundStyle(Theme.fg)) \(Text(PriceUnits.unit(window.currency).perKwh).font(.caption2).foregroundStyle(Theme.fgMuted))")
+                            .lineLimit(1)
+                            .contentTransition(.numericText())
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Theme.fgMuted)
+                }
+                .padding(.vertical, 10)
+                .padding(.horizontal, 12)
+                .frame(minHeight: 44)
+                .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
+                .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
+                .contentShape(RoundedRectangle(cornerRadius: Theme.radius))
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("plan.price")
         }
     }
 }

@@ -39,8 +39,9 @@ public final class ModeModel {
         styles.min { abs($0.k - k) < abs($1.k - k) } ?? styles[2]
     }
 
-    /// What "Use the plan" asks for when the box has not said.
-    public nonisolated static let planFallback = "planner_passive_arbitrage"
+    /// What "Use the plan" asks for when the box has not said: the
+    /// registry's first primary planner mode, never a name written here.
+    public nonisolated static let planFallback = Contract.modes.first { $0.tier == "primary" && $0.key.hasPrefix("planner_") }?.key ?? Contract.modes[0].key
 
     /// The planner preferences as the box answered them.
     public struct Prefs: Equatable, Sendable {

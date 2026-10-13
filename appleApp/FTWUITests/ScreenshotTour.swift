@@ -40,6 +40,14 @@ final class ScreenshotTour: XCTestCase {
             plan.tap()
             Thread.sleep(forTimeInterval: 3)
             shoot(app, "plan")
+            let price = app.buttons["plan.price"]
+            if price.waitForExistence(timeout: 3) {
+                price.tap()
+                Thread.sleep(forTimeInterval: 3)
+                shoot(app, "price")
+                app.navigationBars.buttons.element(boundBy: 0).tap()
+                Thread.sleep(forTimeInterval: 1.5)
+            }
             app.navigationBars.buttons.element(boundBy: 0).tap()
             Thread.sleep(forTimeInterval: 1.5)
         }
@@ -63,7 +71,8 @@ final class ScreenshotTour: XCTestCase {
                 app.buttons["node.mode.change"].tap()
                 Thread.sleep(forTimeInterval: 2)
                 shoot(app, "mode")
-                app.swipeDown(velocity: .fast)
+                let close = app.buttons["mode.close"]
+                if close.exists { close.tap() } else { app.swipeDown(velocity: .fast) }
                 Thread.sleep(forTimeInterval: 1)
             }
             app.navigationBars.buttons.element(boundBy: 0).tap()

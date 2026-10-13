@@ -45,14 +45,16 @@ struct NodeView: View {
         FitScreen(spacing: 10) { fill in
             NodeHero(site: site, node: node, loadpoints: home.loadpoints, sources: models.sources)
             LiveSection(site: site, trace: models.live, node: node, fill: fill)
-                .frame(height: fill ? 84 : nil)
             Picker(L("Period"), selection: $period.animation(Theme.spring)) {
                 ForEach(Period.allCases, id: \.self) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("node.period")
             PeriodSection(site: site, node: node, period: period, models: models, prices: home.prices, loadpoints: home.loadpoints, fill: fill)
-                .frame(minHeight: fill ? 130 : nil, idealHeight: fill ? 130 : nil, maxHeight: fill ? .infinity : nil)
+                // No ideal height of its own: the page measures the chart's
+                // floor and the words under it, so large text scrolls the
+                // page rather than squeezing the card.
+                .frame(maxHeight: fill ? .infinity : nil)
             if node == .car {
                 CarLink(loadpoints: home.loadpoints, zoom: zoom)
             } else {
@@ -321,22 +323,41 @@ private struct LiveSection: View {
     /// On a page that scrolls, the chart keeps its own height and the
     /// words above it take what they need.
     let fill: Bool
+    @State private var readout: ChartReadout?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let now = site.nowMs
         let points = trace.points(node.fid, sinceMs: now - LiveTrace.windowMs).map { LiveTrace.Point(t: $0.t, v: node.shown($0.v)) }
         let live = site.freshness(node).live
         VStack(alignment: .leading, spacing: 4) {
-            Kicker(L("Live · last 5 min"))
+            // The header gives way to the place under the finger.
+            ZStack(alignment: .leading) {
+                Kicker(L("Live · last 5 min"))
+                    .opacity(readout == nil ? 1 : 0)
+                if let readout {
+                    ReadoutLine(readout: readout, otherwise: "")
+                        .lineLimit(1)
+                }
+            }
+            .transaction { $0.animation = nil }
             if points.count < 2 {
                 Text(live ? L("Drawing as readings arrive…") : L("No live readings while your box is out of reach."))
                     .font(.footnote)
                     .foregroundStyle(Theme.fgMuted)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: fill ? 52 : 110)
             } else {
-                LiveChart(points: points, nowMs: now, look: NodeLook.look(node, live: live))
+                LiveChart(node: node, points: points, nowMs: now, look: NodeLook.look(node, live: live), onScrub: { readout = $0 })
                     .equatable()
-                    .frame(height: fill ? nil : 110)
+                    // Each second's step glides over that second, so the
+                    // curve moves on at an even pace instead of jumping;
+                    // not under Reduce Motion or in Low Power Mode.
+                    .animation(reduceMotion || PowerState.shared.lowPower ? nil : .linear(duration: 1), value: now)
+                    // Its own height, so larger words above it make the
+                    // page scroll rather than the curve flat.
+                    .frame(height: fill ? 52 : 110)
+                    .accessibilityIdentifier("node.live.chart")
             }
         }
         .padding(.vertical, 8)
@@ -356,6 +377,7 @@ private struct PeriodSection: View {
     let prices: PriceModel
     let loadpoints: LoadpointsModel
     let fill: Bool
+    @State private var readout: ChartReadout?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -366,19 +388,19 @@ private struct PeriodSection: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .frame(height: fill ? nil : 180)
-            Text(summary)
-                .font(.footnote)
-                .foregroundStyle(Theme.fgDim)
-                .fixedSize(horizontal: false, vertical: true)
+            // Never lower than this on a page that fits: past it, the page
+            // scrolls instead.
+            .frame(minHeight: fill ? 120 : 180)
+            .accessibilityIdentifier("node.period.chart")
+            ReadoutLine(readout: readout, otherwise: summary)
                 .contentTransition(.opacity)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 10)
         .padding(.horizontal, 12)
         .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
         .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
         .animation(Theme.spring, value: period)
+        .onChange(of: period) { _, _ in readout = nil }
     }
 
     private var fromMs: Double {
@@ -393,14 +415,14 @@ private struct PeriodSection: View {
         let stride = period == .today ? 6 : 12
         if node == .car {
             if models.carEnergy.loaded {
-                CarHoursChart(hours: models.carEnergy.hours, fromMs: fromMs, toMs: toMs, strideHours: stride).equatable()
+                CarHoursChart(hours: models.carEnergy.hours, fromMs: fromMs, toMs: toMs, strideHours: stride, onScrub: { readout = $0 }).equatable()
             } else {
                 Placeholder(text: models.carEnergy.problem)
             }
         } else if !models.history.available {
             Placeholder(text: L("Your box keeps no history."))
         } else if models.history.frame != nil {
-            HistoryChart(samples: models.history.samples(node, fromMs: fromMs), fromMs: fromMs, toMs: toMs, look: NodeLook.look(node), strideHours: stride)
+            HistoryChart(node: node, samples: models.history.samples(node, fromMs: fromMs), fromMs: fromMs, toMs: toMs, look: NodeLook.look(node), strideHours: stride, onScrub: { readout = $0 })
                 .equatable()
         } else {
             Placeholder(text: models.history.problem)
@@ -418,11 +440,13 @@ private struct PeriodSection: View {
                 Placeholder(text: models.plan.loaded ? nil : models.plan.problem)
             } else {
                 AheadChart(
-                    bars: slots.map { AheadChart.Bar(startMs: $0.startMs, endMs: $0.endMs, watts: node == .battery ? $0.batteryW : $0.gridW) },
+                    node: node,
+                    bars: slots.map { AheadChart.Bar(startMs: $0.startMs, endMs: $0.endMs, watts: node == .battery ? $0.batteryW : $0.gridW, reason: $0.reason) },
                     prices: slots.compactMap { s in s.priceMinor.map { AheadChart.Price(startMs: s.startMs, endMs: s.endMs, minor: $0) } },
                     currency: window?.currency ?? "SEK",
                     nowMs: now,
-                    look: NodeLook.look(node)
+                    look: NodeLook.look(node),
+                    onScrub: { readout = $0 }
                 ).equatable()
             }
         case .solar, .home:
@@ -431,16 +455,20 @@ private struct PeriodSection: View {
                 Placeholder(text: models.plan.forecastLoaded ? L("No forecast for the hours ahead yet.") : nil)
             } else {
                 AheadChart(
+                    node: node,
                     bars: slots.map { AheadChart.Bar(startMs: $0.startMs, endMs: $0.startMs + $0.durationMs, watts: node == .solar ? $0.pvW : $0.loadW) },
                     prices: slots.compactMap { s in s.priceMinor.map { AheadChart.Price(startMs: s.startMs, endMs: s.startMs + s.durationMs, minor: $0) } },
                     currency: window?.currency ?? "SEK",
                     nowMs: now,
-                    look: NodeLook.look(node)
+                    look: NodeLook.look(node),
+                    forecast: true,
+                    onScrub: { readout = $0 }
                 ).equatable()
             }
         case .car:
             let windows = loadpoints.points.flatMap { loadpoints.windows[$0.id] ?? $0.planWindows }
             AheadChart(
+                node: .car,
                 bars: windows.filter { $0.toMs > now }.map { w in
                     // A window that names no peak is drawn at its mean.
                     AheadChart.Bar(startMs: w.fromMs, endMs: w.toMs, watts: w.peakW ?? (w.energyWh ?? 0) * 3_600_000 / max(1, w.toMs - w.fromMs))
@@ -448,7 +476,8 @@ private struct PeriodSection: View {
                 prices: priceBars,
                 currency: window?.currency ?? "SEK",
                 nowMs: now,
-                look: NodeLook.look(.car)
+                look: NodeLook.look(.car),
+                onScrub: { readout = $0 }
             ).equatable()
         }
     }
