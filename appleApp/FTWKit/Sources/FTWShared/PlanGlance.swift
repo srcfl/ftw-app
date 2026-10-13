@@ -184,8 +184,8 @@ public enum PlanGlance {
         public let nextUntil: String?
         /// "cheapest 02–04", when the hours ahead have a cheap stretch.
         public let cheapText: String?
-        /// What comes after `next`, in the summary's words. Nil when nothing
-        /// does.
+        /// The one thing that comes after `next`, the car first, and the
+        /// cheap hours. Nil when nothing does.
         public let laterText: String?
         /// "Planned 14:05", or "Plan from 14:05 · open FTW" once old.
         public let ageText: String?
@@ -265,7 +265,7 @@ public enum PlanGlance {
             cheapText: state == .nothing ? nil : list.first { $0.kind == .cheap }.map { PlanWord.cheapest.format(range($0, from: t, clock: clock, ongoingIsNow: state == .plan)) },
             laterText: next.flatMap { n in
                 let rest = list.filter { $0 != n }
-                return rest.isEmpty ? nil : line(rest, from: t, clock: clock, ongoingIsNow: true)
+                return rest.isEmpty ? nil : line(rest, from: t, clock: clock, ongoingIsNow: true, actions: 1)
             },
             ageText: age
         )
@@ -275,9 +275,9 @@ public enum PlanGlance {
     /// 02–04": the car's next charge and the battery's next move, in the
     /// order they happen, then the cheap hours. Without a car, the battery's
     /// next two moves.
-    static func line(_ events: [Event], from t: Double, clock: Clock, ongoingIsNow: Bool) -> String {
+    static func line(_ events: [Event], from t: Double, clock: Clock, ongoingIsNow: Bool, actions most: Int = 2) -> String {
         let car = events.first { $0.kind == .car }
-        let battery = events.filter { $0.kind == .charge || $0.kind == .discharge }.prefix(car == nil ? 2 : 1)
+        let battery = events.filter { $0.kind == .charge || $0.kind == .discharge }.prefix(car == nil ? most : most - 1)
         let actions = ([car].compactMap { $0 } + battery).sorted { $0.startMs < $1.startMs }
         var parts = actions.map { e -> String in
             let when = range(e, from: t, clock: clock, ongoingIsNow: ongoingIsNow)

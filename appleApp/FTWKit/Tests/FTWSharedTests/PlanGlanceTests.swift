@@ -87,7 +87,7 @@ import Testing
         #expect(now.nextUntil == "until 21:15")
         #expect(now.cheapText == "cheapest 02–04")
         // Beside the next thing, what comes after it.
-        #expect(now.laterText == "22:00–23:30 battery charges · 01:00–04:45 car charges to 80\u{00A0}% · cheapest 02–04")
+        #expect(now.laterText == "01:00–04:45 car charges to 80\u{00A0}% · cheapest 02–04")
         #expect(now.ageText == nil)
 
         // Half a minute before it starts is now: a screen marks the minute.

@@ -8,7 +8,8 @@ import XCTest
 ///     xcrun xcresulttool export attachments --path shots.xcresult --output-path shots
 ///
 /// `FTW_TEXT` takes a content size such as `UICTContentSizeCategoryXXXL`;
-/// light or dark is the simulator's own setting.
+/// `FTW_TOUR=now` takes Now and the plan only; light or dark is the
+/// simulator's own setting.
 final class ScreenshotTour: XCTestCase {
     @MainActor
     func testTour() throws {
@@ -30,6 +31,17 @@ final class ScreenshotTour: XCTestCase {
         shoot(app, "now")
         // At another text size, Now is the picture that matters.
         guard text == "UICTContentSizeCategoryL" else { return }
+
+        let plan = app.buttons["now.plan"]
+        if plan.waitForExistence(timeout: 5) {
+            plan.tap()
+            Thread.sleep(forTimeInterval: 3)
+            shoot(app, "plan")
+            app.navigationBars.buttons.element(boundBy: 0).tap()
+            Thread.sleep(forTimeInterval: 1.5)
+        }
+        // `FTW_TOUR=now` stops at Now and the plan.
+        guard env["FTW_TOUR"] != "now" else { return }
 
         for node in ["solar", "battery", "home", "grid", "car"] {
             let door = app.buttons["now.node.\(node)"]
