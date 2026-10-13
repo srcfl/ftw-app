@@ -140,6 +140,26 @@ public enum Readouts {
         return ChartReadout(when: span(range.lowerBound, range.upperBound), what: NodeWords.format("average %@", price(mean, currency)))
     }
 
+    /// A quarter on the plan dial: when, what the plan does with the
+    /// battery and why, the car, and the price. Past quarters the plan no
+    /// longer covers give only their price.
+    public static func dial(_ face: PlanDial.Face, _ i: Int, nowMs: Double) -> ChartReadout? {
+        guard face.quarters.indices.contains(i) else { return nil }
+        let q = face.quarters[i]
+        let span = "\(AppWords.clock(q.startMs, zone: face.timeZone))–\(AppWords.clock(q.endMs, zone: face.timeZone))"
+        var parts = [String]()
+        switch q.action {
+        case .store: parts.append(NodeWords.text("battery stores"))
+        case .use: parts.append(NodeWords.text("battery is used"))
+        case .wait: parts.append(NodeWords.text("battery waits"))
+        case .unplanned: if q.endMs > nowMs { parts.append(NodeWords.text("not planned yet")) }
+        }
+        if let reason = q.reason, q.action == .store || q.action == .use { parts.append(PlanText.reason(reason)) }
+        if q.car { parts.append(NodeWords.text("car charges")) }
+        parts.append(q.priceMinor.map { price($0, face.currency) } ?? NodeWords.text("no price yet"))
+        return ChartReadout(when: q.turn == 1 ? NodeWords.format("tomorrow %@", span) : span, what: parts.joined(separator: " · "))
+    }
+
     /// A moment of the live curve.
     public static func live(_ node: EnergyNode, _ points: [LiveTrace.Point], at ms: Double) -> ChartReadout? {
         guard let p = points.min(by: { abs($0.t - ms) < abs($1.t - ms) }), abs(p.t - ms) < LiveTrace.gapMs else {

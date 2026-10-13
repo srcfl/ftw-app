@@ -411,6 +411,41 @@ import FTWShared
         }
     }
 
+    /// A quarter on the plan dial: what the plan does with the battery and
+    /// why, the car, the price; tomorrow named; nothing claimed for a past
+    /// quarter the plan no longer covers.
+    @Test func aQuarterOnTheDialSaysWhatThePlanDoesTheCarAndThePrice() {
+        let zone = "Europe/Stockholm"
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: zone)!
+        func at(_ day: Int, _ h: Int, _ m: Int = 0) -> Double {
+            calendar.date(from: DateComponents(year: 2026, month: 10, day: day, hour: h, minute: m))!.timeIntervalSince1970 * 1000
+        }
+        let quarter = 900_000.0
+        let battery = (0..<8).map { i in
+            PlanEntry.Slot(startMs: at(13, 22) + Double(i) * quarter, durationMs: quarter, batteryW: i < 4 ? -2_000 : 3_000, reason: i < 4 ? "expensive_import" : "cheap_import")
+        } + [PlanEntry.Slot(startMs: at(14, 0), durationMs: quarter, batteryW: 0, reason: "idle")]
+        let prices = (0..<48).map { PriceSlot(startMs: at(13, 0) + Double($0) * 3_600_000, durationMs: 3_600_000, spotMinor: 50, totalMinor: 65.5) }
+        let entry = PlanEntry(battery: battery, charges: [PlanEntry.Charge(loadpointID: "garage", fromMs: at(13, 23), toMs: at(13, 23, 30), energyWh: 5_000, targetPct: 80)],
+                              prices: prices, currency: "SEK", boxStale: false, timeZone: zone)
+        let now = at(13, 21, 50)
+        let face = PlanDial.face(entry, nowMs: now)
+        func read(_ day: Int, _ h: Int, _ m: Int = 0) -> ChartReadout? { Readouts.dial(face, face.index(at: at(day, h, m))!, nowMs: now) }
+        AppWords.$language.withValue(.en) {
+            #expect(read(13, 22)?.when == "22:00–22:15")
+            #expect(read(13, 22)?.what == "battery is used · power is dear · 65.5 öre/kWh")
+            #expect(read(13, 23)?.what == "battery stores · power is cheap · car charges · 65.5 öre/kWh")
+            #expect(read(14, 0)?.when == "tomorrow 00:00–00:15")
+            #expect(read(14, 0)?.what == "battery waits · 65.5 öre/kWh")
+            #expect(read(14, 2)?.what == "not planned yet · 65.5 öre/kWh")
+            #expect(read(13, 9)?.what == "65.5 öre/kWh")
+        }
+        AppWords.$language.withValue(.sv) {
+            #expect(read(13, 22)?.what == "batteriet används · elen är dyr · 65,5 öre/kWh")
+            #expect(read(14, 0)?.when == "i morgon 00:00–00:15")
+        }
+    }
+
     @Test func aSlotAheadSaysWhatThePlanDoesWhyAndThePrice() {
         AppWords.$language.withValue(.en) {
             let hour = 3_600_000.0
@@ -767,6 +802,7 @@ import FTWShared
             "appleApp/FTW/UI/RootView.swift", "appleApp/FTWKit/Sources/FTWKit/State/PairModel.swift",
             "appleApp/FTW/UI/ChartScrub.swift", "appleApp/FTW/Car/CarView.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/ChartWords.swift", "appleApp/FTW/UI/PriceView.swift",
+            "appleApp/FTW/UI/PlanDialCard.swift",
         ]
         let pattern = #/(?:\bL|NodeWords\.(?:text|format)|AppWords\.(?:text|format))\("((?:[^"\\]|\\.)*)"/#
         var english = Set<String>()
@@ -879,7 +915,12 @@ final class DemoRig {
         let charge = try #require(first.value.charges.first)
         #expect(charge.targetPct == 80)
         #expect(charge.toMs > charge.fromMs)
-        #expect(first.value == share.entry.trimmed(nowMs: site.nowMs))
+        // The record also carries the battery's level, read live, for the
+        // plan dial on the lock screen.
+        var expected = share.entry.trimmed(nowMs: site.nowMs)
+        expected.batteryLevel = first.value.batteryLevel
+        #expect(first.value == expected)
+        #expect(first.value.batteryLevel?.percent == site.socPercent)
         let writes = wakes.count
 
         // The clock moving on rewrites nothing.
@@ -894,6 +935,42 @@ final class DemoRig {
         let again = try #require(CacheReader(sources: [shared]).read(PlanEntry.self, siteId: "home"))
         #expect(again.record.readAtMs > first.record.readAtMs)
         #expect(wakes.count == writes + 1)
+        plan.deactivate()
+    }
+
+    /// The plan dial's record: today and tomorrow whole, the sky from the
+    /// box's own forecast once read, and the battery's level read live.
+    @Test func theDialGetsTodayTomorrowTheSkyAndTheBattery() async throws {
+        let site = SiteModel(siteId: "home", build: "test", ua: "test", scheduler: scheduler, files: nil, shared: shared)
+        site.start()
+        let loadpoints = LoadpointsModel(site: site, charging: nil, cache: nil)
+        let prices = PriceModel(site: site)
+        let plan = PlanModel(site: site)
+        let share = PlanShare(site: site, plan: plan, loadpoints: loadpoints, prices: prices)
+        site.connect(SimulatedBox.loopback(scheduler))
+        loadpoints.activate()
+        prices.activate()
+        plan.activate()
+        await run(2_000)
+        let before = try #require(CacheReader(sources: [shared]).read(PlanEntry.self, siteId: "home")).value
+        // No forecast read yet: no sky, never one made up.
+        #expect(before.daylight == nil)
+        #expect(share.entry.daylight == nil)
+        let midnight = Calendar.household(before.timeZone).startOfDay(for: Date(timeIntervalSince1970: site.nowMs / 1000)).timeIntervalSince1970 * 1000
+        // Today's prices from midnight, the hours already gone included.
+        #expect(before.prices.first?.startMs == midnight)
+        #expect(before.prices.allSatisfy { $0.startMs < midnight + 48 * 3_600_000 })
+        #expect(before.batteryLevel?.percent == site.socPercent)
+        #expect(before.batteryLevel?.readAtMs ?? 0 <= site.nowMs)
+
+        plan.activate(forecast: true)
+        await run(1_500)
+        let after = try #require(CacheReader(sources: [shared]).read(PlanEntry.self, siteId: "home")).value
+        let daylight = try #require(after.daylight)
+        #expect(daylight.covered.toMs > daylight.covered.fromMs)
+        #expect(daylight.sun.allSatisfy { $0.fromMs >= daylight.covered.fromMs && $0.toMs <= daylight.covered.toMs })
+        #expect(daylight == PlanEntry.Daylight(plan.forecast.map { ($0.startMs, $0.durationMs, $0.pvW) }))
+        plan.deactivate(forecast: true)
         plan.deactivate()
     }
 }

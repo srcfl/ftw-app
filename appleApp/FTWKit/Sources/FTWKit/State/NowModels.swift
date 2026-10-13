@@ -191,6 +191,9 @@ public final class PriceModel: Activatable {
 
     public private(set) var prices: Prices?
     public private(set) var fromMs: Double = 0
+    /// An ask is on its way: a stretch without prices is being fetched,
+    /// not missing.
+    public private(set) var fetching = false
 
     @ObservationIgnored private unowned let site: SiteModel
     @ObservationIgnored private var ask: LiveAsk?
@@ -242,6 +245,8 @@ public final class PriceModel: Activatable {
         generation += 1
         let mine = generation
         let from = midnight(site.nowMs)
+        fetching = true
+        defer { if mine == generation { fetching = false } }
         do {
             let wire = try await site.prices(fromMs: from, toMs: from + Self.horizonMs)
             guard mine == generation else { return }

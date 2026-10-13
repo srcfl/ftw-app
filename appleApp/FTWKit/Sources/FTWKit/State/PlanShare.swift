@@ -6,7 +6,7 @@ extension PlanEntry {
     /// car's charging windows with the level it charges toward, and the
     /// prices under them. Prices come from the price model, or else from the
     /// plan's own slots.
-    public static func live(plan: Plan?, points: [Loadpoint], windows: [String: [Loadpoint.Window]], prices: Prices?, timeZone: String? = nil) -> PlanEntry {
+    public static func live(plan: Plan?, points: [Loadpoint], windows: [String: [Loadpoint.Window]], prices: Prices?, timeZone: String? = nil, daylight: Daylight? = nil, batteryLevel: Level? = nil) -> PlanEntry {
         let battery = plan.map { p in p.slots.map { Slot(startMs: $0.startMs, durationMs: $0.durationMs, batteryW: $0.batteryW, reason: $0.reason) } }
         var charges = [Charge]()
         for lp in points {
@@ -18,13 +18,16 @@ extension PlanEntry {
         if slots.isEmpty, let plan {
             slots = plan.slots.compactMap { s in s.priceMinor.map { PriceSlot(startMs: s.startMs, durationMs: s.durationMs, spotMinor: $0, totalMinor: $0) } }
         }
-        return PlanEntry(battery: battery, charges: charges, prices: slots, currency: prices?.currency ?? "SEK", boxStale: plan?.stale ?? false, timeZone: timeZone)
+        return PlanEntry(battery: battery, charges: charges, prices: slots, currency: prices?.currency ?? "SEK", boxStale: plan?.stale ?? false, timeZone: timeZone, daylight: daylight, batteryLevel: batteryLevel)
     }
 
-    /// Only what lies ahead, for the widget's record: from an hour back to a
-    /// day ahead.
+    /// Only today and tomorrow, in the household's clock, for the widget's
+    /// record: the plan dial's two turns.
     func trimmed(nowMs: Double) -> PlanEntry {
-        let from = nowMs - 3_600_000, to = nowMs + 24 * 3_600_000
+        let calendar = Calendar.household(timeZone)
+        let today = calendar.startOfDay(for: Date(timeIntervalSince1970: nowMs / 1000))
+        let from = today.timeIntervalSince1970 * 1000
+        let to = (calendar.date(byAdding: .day, value: 2, to: today)?.timeIntervalSince1970).map { $0 * 1000 } ?? from + 48 * 3_600_000
         var e = self
         e.battery = battery?.filter { $0.startMs + $0.durationMs > from && $0.startMs < to }
         e.charges = charges.filter { $0.toMs > from && $0.fromMs < to }
@@ -60,16 +63,36 @@ public final class PlanShare {
         token = site.observe { [weak self] in self?.check() }
     }
 
-    /// The plan as Now draws it.
+    /// The plan as Now and the plan dial draw it, with the sun the box
+    /// forecasts when the app has read it.
     public var entry: PlanEntry {
-        PlanEntry.live(plan: site.session.plan, points: loadpoints.points, windows: loadpoints.windows, prices: prices.prices, timeZone: loadpoints.zone.identifier)
+        PlanEntry.live(plan: site.session.plan, points: loadpoints.points, windows: loadpoints.windows, prices: prices.prices, timeZone: loadpoints.zone.identifier, daylight: daylight)
+    }
+
+    /// The box's solar forecast as the dial's sky: nil until it is read.
+    var daylight: PlanEntry.Daylight? {
+        guard plan.forecastLoaded else { return nil }
+        return PlanEntry.Daylight(plan.forecast.map { ($0.startMs, $0.durationMs, $0.pvW) })
+    }
+
+    /// A battery level read live, for the widget's dial. It is written again
+    /// once it has moved and the last one is `levelRewriteMs` old, so a
+    /// battery at work does not rewrite the record every minute.
+    static let levelRewriteMs: Double = 5 * 60_000
+    private var level: PlanEntry.Level?
+
+    private func refreshLevel() {
+        guard site.isLive, let pct = site.socPercent else { return }
+        if let level, level.percent == pct || site.nowMs - level.readAtMs < Self.levelRewriteMs { return }
+        level = PlanEntry.Level(percent: pct, readAtMs: site.nowMs)
     }
 
     /// What would make the record different. Cheap enough for every tick.
     var key: String {
         let w = loadpoints.points.map { lp in "\(lp.id):\((loadpoints.windows[lp.id] ?? lp.planWindows).map { "\($0.fromMs)-\($0.toMs)" }.joined(separator: ",")):\(lp.targetSocPct ?? lp.schedule?.socPct ?? -1)" }
         let p = prices.prices.map { "\($0.slots.count)@\($0.slots.first?.startMs ?? 0)" } ?? "-"
-        return "\(planKey)|\(w.joined(separator: ";"))|\(p)"
+        let sun = plan.forecastLoaded ? "\(plan.forecast.count)@\(plan.forecast.first?.startMs ?? 0)" : "-"
+        return "\(planKey)|\(w.joined(separator: ";"))|\(p)|\(sun)|\(level?.readAtMs ?? 0)"
     }
 
     private var planKey: String {
@@ -91,10 +114,13 @@ public final class PlanShare {
         }
         // Nothing to say until the box has sent a plan.
         guard site.session.plan != nil, let sent = sentAtMs else { return }
+        refreshLevel()
         let key = self.key
         guard key != lastKey || sent != lastSentAtMs else { return }
         lastKey = key
         lastSentAtMs = sent
-        site.sharePlan(entry.trimmed(nowMs: site.nowMs), sentAtMs: sent)
+        var record = entry.trimmed(nowMs: site.nowMs)
+        record.batteryLevel = level
+        site.sharePlan(record, sentAtMs: sent)
     }
 }

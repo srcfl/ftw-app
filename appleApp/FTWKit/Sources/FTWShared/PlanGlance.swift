@@ -55,14 +55,72 @@ public struct PlanEntry: CacheValue {
     /// The household's time zone, as the box names it, so a widget reads the
     /// clock the way the home does. Nil in a record from before it was kept.
     public var timeZone: String?
+    /// Where the box's own solar forecast expects the panels to make power,
+    /// for the plan dial's sky. Nil when the app has not read the forecast.
+    public var daylight: Daylight?
+    /// The battery's level as the app last read it live. Nil when it had
+    /// no live reading.
+    public var batteryLevel: Level?
 
-    public init(battery: [Slot]?, charges: [Charge], prices: [PriceSlot], currency: String, boxStale: Bool, timeZone: String? = nil) {
+    /// A stretch of time.
+    public struct Span: Codable, Sendable, Equatable {
+        public var fromMs: Double
+        public var toMs: Double
+
+        public init(fromMs: Double, toMs: Double) {
+            self.fromMs = fromMs
+            self.toMs = toMs
+        }
+    }
+
+    /// The stretch the solar forecast covers, and the runs in it where it
+    /// expects more than nothing from the panels.
+    public struct Daylight: Codable, Sendable, Equatable {
+        public var covered: Span
+        public var sun: [Span]
+
+        public init(covered: Span, sun: [Span]) {
+            self.covered = covered
+            self.sun = sun
+        }
+
+        /// From the forecast's slots: start, length and expected watts.
+        public init?(_ slots: [(startMs: Double, durationMs: Double, pvW: Double)]) {
+            let sorted = slots.filter { $0.durationMs > 0 }.sorted { $0.startMs < $1.startMs }
+            guard let first = sorted.first, let last = sorted.last else { return nil }
+            var runs = [Span]()
+            for s in sorted where s.pvW > 0 {
+                let end = s.startMs + s.durationMs
+                if let open = runs.last, s.startMs <= open.toMs + 1 {
+                    runs[runs.count - 1].toMs = max(open.toMs, end)
+                } else {
+                    runs.append(Span(fromMs: s.startMs, toMs: end))
+                }
+            }
+            self.init(covered: Span(fromMs: first.startMs, toMs: last.startMs + last.durationMs), sun: runs)
+        }
+    }
+
+    /// A battery level, whole percent, and when it was read.
+    public struct Level: Codable, Sendable, Equatable {
+        public var percent: Double
+        public var readAtMs: Double
+
+        public init(percent: Double, readAtMs: Double) {
+            self.percent = percent
+            self.readAtMs = readAtMs
+        }
+    }
+
+    public init(battery: [Slot]?, charges: [Charge], prices: [PriceSlot], currency: String, boxStale: Bool, timeZone: String? = nil, daylight: Daylight? = nil, batteryLevel: Level? = nil) {
         self.battery = battery
         self.charges = charges
         self.prices = prices
         self.currency = currency
         self.boxStale = boxStale
         self.timeZone = timeZone
+        self.daylight = daylight
+        self.batteryLevel = batteryLevel
     }
 }
 
@@ -352,6 +410,8 @@ public enum PlanGlance {
 
     public static var title: String { PlanWord.title.text }
     public static var summaryText: String { PlanWord.summary.text }
+    public static var dialTitle: String { PlanWord.dialTitle.text }
+    public static var dialSummary: String { PlanWord.dialSummary.text }
 }
 
 /// Every sentence the plan shows, on Now and in its widget. The English is
@@ -379,6 +439,13 @@ enum PlanWord: String, CaseIterable {
     case cheapPower = "Cheapest power"
     case planned = "Planned %@"
     case planFrom = "Plan from %@ · open FTW"
+    case dialTitle = "Plan dial"
+    case dialSummary = "Today and tomorrow round a dial: the price, what the battery does and when the car charges."
+    case pricesAt13 = "Tomorrow's prices come around 13:00"
+    case pricesLate = "Tomorrow's prices are not in yet"
+    case pricesAt13Short = "Prices around 13:00"
+    case pricesLateShort = "No prices yet"
+    case tomorrow = "Tomorrow"
 
     var text: String { Words.bundle.localizedString(forKey: rawValue, value: rawValue, table: "Plan") }
 

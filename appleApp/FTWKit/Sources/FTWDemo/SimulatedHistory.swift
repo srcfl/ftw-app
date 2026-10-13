@@ -120,12 +120,14 @@ extension SimulatedHouse {
         var reason: String
     }
 
-    /// The next 24 hours in quarter hours, the one running now first and
-    /// starting now.
-    func plan(nowMs: Double, hours: Double = 24) -> [Step] {
+    /// The hours ahead in quarter hours, the one running now first and
+    /// starting now, as far as the prices reach: to midnight, and to the end
+    /// of tomorrow once its rates publish at 13:00, as Core plans.
+    func plan(nowMs: Double) -> [Step] {
         let slotMs: Double = 900_000
         var t = (nowMs / slotMs).rounded(.down) * slotMs
-        let end = t + hours * 3_600_000
+        let midnight = nowMs - hourOfDay(nowMs) * 3_600_000
+        let end = midnight + (hourOfDay(nowMs) >= 13 ? 48 : 24) * 3_600_000
         var prices = [Double]()
         var probe = t
         while probe < end { prices.append(priceAt(probe + slotMs / 2)); probe += slotMs }

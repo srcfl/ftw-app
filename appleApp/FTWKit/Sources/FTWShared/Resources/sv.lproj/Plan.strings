@@ -20,3 +20,10 @@
 "Cheapest power" = "Billigast el";
 "Planned %@" = "Planerad %@";
 "Plan from %@ · open FTW" = "Plan från %@ · öppna FTW";
+"Plan dial" = "Plantavla";
+"Today and tomorrow round a dial: the price, what the battery does and when the car charges." = "I dag och i morgon runt en tavla: priset, vad batteriet gör och när bilen laddar.";
+"Tomorrow's prices come around 13:00" = "Morgondagens priser kommer runt 13:00";
+"Tomorrow's prices are not in yet" = "Morgondagens priser har inte kommit än";
+"Prices around 13:00" = "Priser runt 13:00";
+"No prices yet" = "Inga priser än";
+"Tomorrow" = "I morgon";

@@ -216,6 +216,19 @@ public enum NodeWords {
         "not charging": "laddar inte",
         "Time": "Tid",
         "Power": "Effekt",
+        // The plan dial.
+        "battery stores": "batteriet lagrar",
+        "battery is used": "batteriet används",
+        "battery waits": "batteriet väntar",
+        "car charges": "bilen laddar",
+        "no price yet": "inget pris än",
+        "not planned yet": "inte planerat än",
+        "stores": "lagrar",
+        "used": "används",
+        "waits": "väntar",
+        "Plan dial": "Plantavla",
+        "battery %@": "batteri %@",
+        "Swipe up or down to move an hour.": "Svep uppåt eller nedåt för att flytta en timme.",
         // Pairing. The box's own dashboard is in English, so its labels
         // (Settings → FTW app, Show pairing code) stay as it shows them.
         "Scan the pairing QR": "Skanna QR-koden",

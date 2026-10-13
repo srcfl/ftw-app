@@ -140,6 +140,39 @@ Borrow patterns from the best iOS apps, never their graphics or brands.
 | Calm lists, one prominent action, a quiet second one | Things, Apple Home | Pairing, mode sheet |
 | Liquid Glass only where the system puts it (bars, sheets, buttons) | iOS 26 | Toolbars, sheets, glass buttons; no custom glass panels |
 
+### Plan dial
+
+FTW's own form, from Fredrik's film (srcfl/sourceful-films,
+`product/ftw-confirmed`): the plan for today and tomorrow round one dial.
+His rules (2026-10-13):
+
+1. The day runs like the sun's path: midnight at the bottom, noon at the
+   top, up on the left and down on the right. It can never read as a
+   12-hour clock.
+2. One bar per quarter hour, as tall as the price. Its colour is what the
+   plan does with the battery: `Theme.storage` stores, `Theme.fg` (white on
+   the glass) uses, `Theme.fgMuted` waits. A dot in `Theme.mobility` marks
+   a quarter when the car charges. Gold is the sun's colour, never the
+   battery's.
+3. In the middle: the battery as a ring, then the time and the price in
+   mono figures.
+4. A hand marks now, and what has passed dims.
+5. Tomorrow is the outer turn, with bars only once the box has tomorrow's
+   prices. Until then the turn stays empty under a quiet "prices come
+   around 13:00". Never a bar without a price. A gap being fetched follows
+   the gap rule above.
+6. The sky band on the rim comes from the box's own solar forecast (day
+   where the PV forecast is above zero), never from astronomy or the
+   phone's location.
+7. A dark glass behind the dial, so it reads on any background, StandBy
+   and the lock screen too.
+
+`FTWShared/PlanDial.swift` holds the geometry, the quarters and the rules
+for a finger; `FTWCharts/PlanDialView.swift` draws. The plan view puts the
+dial at its top, and a finger dragged round it scrubs the plan. The
+`energy.ftw.plan-dial` widget shows it small, in StandBy and as a circle on
+the lock screen. Now keeps the straight plan and never scrolls.
+
 ## Non-negotiable invariants
 
 - **Never fake live.** Every reading carries its age.
