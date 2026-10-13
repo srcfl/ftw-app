@@ -48,7 +48,7 @@ struct PlanCard: View, Equatable {
         .accessibilityLabel(PlanGlance.title)
         .accessibilityValue([moment.summary, priceNow.map { "\(L("Price now")) \($0) \(unit)" }].compactMap { $0 }.joined(separator: ". "))
         .accessibilityHint(L("Opens the plan."))
-        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .fitCap(.xLarge)
     }
 }
 
@@ -108,8 +108,8 @@ struct PlanLanes: View, Equatable {
         .chartYScale(domain: 0...1)
         .chartYAxis(.hidden)
         .chartXAxis {
-            AxisMarks(preset: .aligned, values: .stride(by: .hour, count: 3)) { _ in
-                AxisValueLabel(format: .dateTime.hour(.twoDigits(amPM: .omitted))).font(.caption2).foregroundStyle(Theme.fgMuted)
+            AxisMarks(preset: .aligned, values: .stride(by: .hour, count: 3)) { value in
+                AxisValueLabel { hourLabel(value) }
             }
         }
         .accessibilityHidden(true)

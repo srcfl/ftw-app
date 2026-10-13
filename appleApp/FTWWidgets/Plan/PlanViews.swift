@@ -218,7 +218,7 @@ struct WidgetLanes: View {
                     yStart: .value("Bottom", 0.0),
                     yEnd: .value("Price", Self.priceFloor + Self.priceRise * max(0, bar.minor) / top)
                 )
-                .foregroundStyle(full && !moment.isGrey ? AnyShapeStyle(Tone.of(bar.tone)) : AnyShapeStyle(.primary))
+                .foregroundStyle(full ? AnyShapeStyle(moment.isGrey ? Tone.flat : Tone.of(bar.tone)) : AnyShapeStyle(.primary))
                 .opacity(0.4)
             }
             ForEach(moment.events) { e in
@@ -229,7 +229,7 @@ struct WidgetLanes: View {
                     yStart: .value("Low", lane.lowerBound),
                     yEnd: .value("High", lane.upperBound)
                 )
-                .foregroundStyle(full && !moment.isGrey ? AnyShapeStyle(Tone.of(e.kind)) : AnyShapeStyle(.primary))
+                .foregroundStyle(full ? AnyShapeStyle(moment.isGrey ? Tone.flat : Tone.of(e.kind)) : AnyShapeStyle(.primary))
                 .opacity(moment.isGrey ? 0.45 : 1)
                 .cornerRadius(4)
             }

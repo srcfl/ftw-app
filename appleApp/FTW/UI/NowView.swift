@@ -104,7 +104,7 @@ private struct NowBody: View {
         }
         StatusSection(site: site, mode: home.nodes.mode, choose: chooseMode)
         FlowSection(site: site, loadpoints: home.loadpoints, zoom: zoom)
-            .frame(minHeight: fill ? 250 : 330, idealHeight: fill ? 250 : 330, maxHeight: fill ? .infinity : 330)
+            .frame(minHeight: fill ? 214 : 330, idealHeight: fill ? 214 : 330, maxHeight: fill ? .infinity : 330)
         PlanSection(site: site, models: home.nodes, prices: home.prices, zoom: zoom)
         AboutLink(app: app)
             .padding(.top, -18)
@@ -154,16 +154,13 @@ struct StatusRow: View, Equatable {
     }
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: 10) {
-                control
-                Spacer(minLength: 8)
-                modeView(alignment: .trailing)
-            }
-            VStack(alignment: .leading, spacing: 10) {
-                control
-                modeView(alignment: .leading)
-            }
+        // One row on every iPhone: the mode keeps its width and the answer
+        // wraps beside it, rather than the two stacking.
+        HStack(alignment: .center, spacing: 10) {
+            control
+                .frame(maxWidth: .infinity, alignment: .leading)
+            modeView(alignment: .trailing)
+                .fixedSize()
         }
         .padding(.vertical, 10)
         .padding(.leading, 16)
@@ -178,9 +175,9 @@ struct StatusRow: View, Equatable {
         }
         .animation(Theme.spring, value: answer)
         .animation(Theme.spring, value: mode)
-        // One row on every iPhone at every standard size; the node views
-        // and the mode sheet say the same at any size.
-        .dynamicTypeSize(...DynamicTypeSize.xLarge)
+        // One calm row on every iPhone at every standard size; the node
+        // views and the mode sheet say the same at any size.
+        .fitCap(.large)
     }
 
     private var control: some View {

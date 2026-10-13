@@ -12,6 +12,14 @@ import SwiftUI
 
 private func date(_ ms: Double) -> Date { Date(timeIntervalSince1970: ms / 1000) }
 
+/// "15", on the 24-hour clock FTW uses in both languages: an English phone
+/// would otherwise label the afternoon "03".
+func hourLabel(_ value: AxisValue) -> some View {
+    Text(value.as(Date.self).map { String(format: "%02d", Calendar.current.component(.hour, from: $0)) } ?? "")
+        .font(.caption2)
+        .foregroundStyle(Theme.fgMuted)
+}
+
 /// One width for every axis label, so charts stacked one above the other
 /// put the same hour at the same place.
 private let axisWidth: CGFloat = 44
@@ -95,9 +103,9 @@ struct HistoryChart: View, Equatable {
         }
         .chartXScale(domain: date(fromMs)...date(toMs))
         .chartXAxis {
-            AxisMarks(values: .stride(by: .hour, count: strideHours)) { _ in
+            AxisMarks(values: .stride(by: .hour, count: strideHours)) { value in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(Theme.line)
-                AxisValueLabel(format: .dateTime.hour(.twoDigits(amPM: .omitted))).font(.caption2).foregroundStyle(Theme.fgMuted)
+                AxisValueLabel { hourLabel(value) }
             }
         }
         .chartYAxis { powerAxis() }
@@ -144,9 +152,9 @@ struct CarHoursChart: View, Equatable {
         }
         .chartXScale(domain: date(fromMs)...date(toMs))
         .chartXAxis {
-            AxisMarks(values: .stride(by: .hour, count: strideHours)) { _ in
+            AxisMarks(values: .stride(by: .hour, count: strideHours)) { value in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(Theme.line)
-                AxisValueLabel(format: .dateTime.hour(.twoDigits(amPM: .omitted))).font(.caption2).foregroundStyle(Theme.fgMuted)
+                AxisValueLabel { hourLabel(value) }
             }
         }
         .chartYAxis {
@@ -246,8 +254,8 @@ struct PriceStripChart: View, Equatable {
         }
         .chartXScale(domain: date(fromMs)...date(toMs))
         .chartXAxis {
-            AxisMarks(preset: .aligned, values: .stride(by: .hour, count: 3)) { _ in
-                AxisValueLabel(format: .dateTime.hour(.twoDigits(amPM: .omitted))).font(.caption2).foregroundStyle(Theme.fgMuted)
+            AxisMarks(preset: .aligned, values: .stride(by: .hour, count: 3)) { value in
+                AxisValueLabel { hourLabel(value) }
             }
         }
         .chartYAxis {

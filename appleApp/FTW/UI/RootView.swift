@@ -210,3 +210,23 @@ struct DemoBand: View {
         .dynamicTypeSize(...DynamicTypeSize.xLarge)
     }
 }
+
+/// Holds a part of a fixed page at `cap` while the page has to fit the
+/// screen, and lets it grow freely at the accessibility sizes, where the
+/// page scrolls instead.
+struct FitCap: ViewModifier {
+    let cap: DynamicTypeSize
+    @Environment(\.dynamicTypeSize) private var size
+
+    func body(content: Content) -> some View {
+        if size.isAccessibilitySize {
+            content
+        } else {
+            content.dynamicTypeSize(...cap)
+        }
+    }
+}
+
+extension View {
+    func fitCap(_ cap: DynamicTypeSize) -> some View { modifier(FitCap(cap: cap)) }
+}

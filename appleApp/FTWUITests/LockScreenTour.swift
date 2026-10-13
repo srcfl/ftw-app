@@ -56,6 +56,16 @@ final class LockScreenTour: XCTestCase {
         shoot("lock-plan")
     }
 
+    /// The lock screen as it is, for a widget placed before.
+    /// `TEST_RUNNER_FTW_LOCK=shot`.
+    func testShowTheLockScreen() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["FTW_LOCK"] == "shot", "Set TEST_RUNNER_FTW_LOCK=shot to photograph the lock screen.")
+        lock()
+        wake()
+        Thread.sleep(forTimeInterval: 3)
+        shoot("lock-plan")
+    }
+
     private func tap(_ element: XCUIElement) -> Bool {
         guard element.waitForExistence(timeout: 5) else { return false }
         element.tap()
