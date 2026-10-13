@@ -103,9 +103,9 @@ struct ModeSheet: View {
         } header: {
             Text(L("How your home is run"))
         } footer: {
-            if !onPlan {
-                Text(L("Used while the plan runs."))
-            } else if let style = mode.shownStyle {
+            // The style's own help whatever runs: a footer that changed
+            // with the mode would move the rows below it under the finger.
+            if let style = mode.shownStyle {
                 Text(L(style.help))
                     .contentTransition(.opacity)
             }

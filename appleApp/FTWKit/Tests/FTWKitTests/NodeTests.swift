@@ -284,6 +284,103 @@ import FTWShared
     }
 }
 
+/// A node's history on a fixed grid: points keep their identity as data
+/// arrives, a stretch still being fetched is bridged by an estimate, and a
+/// hole the box confirms is a break.
+@Suite struct HistoryPlotTests {
+    static let step = 300_000.0
+
+    func sample(_ i: Int, _ w: Double?, fetching: Bool = false) -> HistorySample {
+        HistorySample(startMs: Double(i) * Self.step, stepMs: Self.step, watts: w, fetching: fetching)
+    }
+
+    @Test func everyPointSitsOnTheGrid() {
+        let points = HistoryPlot.points([sample(0, 100), sample(1, 200), sample(2, 300)], fromMs: 0)
+        #expect(points.map(\.id) == [0, Self.step, 2 * Self.step])
+        #expect(points.map(\.t) == [Self.step / 2, Self.step * 1.5, Self.step * 2.5])
+        #expect(Set(points.map(\.run)).count == 1)
+        #expect(points.allSatisfy { $0.kind == .measured })
+    }
+
+    @Test func aStretchBeingFetchedIsAStraightEstimate() {
+        let points = HistoryPlot.points([sample(0, 100), sample(1, nil, fetching: true), sample(2, nil, fetching: true), sample(3, 400)], fromMs: 0)
+        let estimates = points.filter { $0.kind == .estimate }
+        #expect(estimates.map(\.id) == [Self.step, 2 * Self.step])
+        #expect(estimates.map(\.v) == [200, 300])
+        // The measured line breaks under the bridge: it never claims a value
+        // there.
+        let measured = points.filter { $0.kind == .measured }
+        #expect(measured.count == 2)
+        #expect(measured[0].run != measured[1].run)
+        // Once the data arrives, the same points are measured: an estimate
+        // grows into its value.
+        let arrived = HistoryPlot.points([sample(0, 100), sample(1, 150), sample(2, 380), sample(3, 400)], fromMs: 0)
+        #expect(arrived.map(\.id) == points.map(\.id))
+        #expect(arrived.allSatisfy { $0.kind == .measured })
+        #expect(Set(arrived.map(\.run)).count == 1)
+    }
+
+    @Test func aHoleTheBoxConfirmsIsABreak() {
+        let points = HistoryPlot.points([sample(0, 100), sample(1, nil), sample(2, nil), sample(3, 400)], fromMs: 0)
+        #expect(points.map(\.id) == [0, 3 * Self.step])
+        #expect(points.allSatisfy { $0.kind == .measured })
+        #expect(points[0].run != points[1].run)
+    }
+
+    @Test func noBridgeWithoutAMeasuredPointOnEachSide() {
+        let tail = HistoryPlot.points([sample(0, 100), sample(1, nil, fetching: true)], fromMs: 0)
+        #expect(tail.map(\.kind) == [.measured])
+        let head = HistoryPlot.points([sample(0, nil, fetching: true), sample(1, 100)], fromMs: 0)
+        #expect(head.map(\.kind) == [.measured])
+        let afterHole = HistoryPlot.points([sample(0, 100), sample(1, nil), sample(2, nil, fetching: true), sample(3, 300)], fromMs: 0)
+        #expect(afterHole.filter { $0.kind == .estimate }.isEmpty)
+    }
+
+    /// A tile that has not arrived is on its way while the model loads; a
+    /// hole in a tile that arrived is the box saying it has nothing.
+    @Test func onlyATileNotYetHereIsFetching() {
+        let frame = HistoryGeometry.Frame(
+            startMs: 0, stepMs: Self.step, points: 4, names: ["pv_w"],
+            columns: [[100, missingSample, missingSample, 400]],
+            arrived: [true, true, false, true]
+        )
+        let loading = HistoryModel.samples(frame, node: .solar, fromMs: 0, fetching: true)
+        #expect(loading.map(\.fetching) == [false, false, true, false])
+        let settled = HistoryModel.samples(frame, node: .solar, fromMs: 0, fetching: false)
+        #expect(settled.allSatisfy { !$0.fetching })
+    }
+}
+
+/// The demo's slow tile, end to end: while it is on its way the chart has
+/// an estimate there; once it lands the same points are measured.
+@Suite struct HistoryGapTests {
+    @MainActor
+    @Test func aTileHeldBackIsBridgedThenFilled() async throws {
+        let rig = DemoRig()
+        rig.app.startDemo()
+        let box = try #require(rig.box)
+        box.holdTileMs = 2_000
+        let history = try #require(rig.app.home).nodes.history
+        history.activate()
+        await rig.run(1_000)
+        let from = rig.scheduler.nowMs - HistoryModel.spanMs
+        let waiting = history.samples(.home, fromMs: from)
+        #expect(history.loading)
+        #expect(waiting.contains { $0.fetching })
+        let bridged = HistoryPlot.points(waiting, fromMs: from)
+        let estimates = bridged.filter { $0.kind == .estimate }
+        #expect(!estimates.isEmpty)
+        await rig.run(2_500)
+        #expect(!history.loading)
+        let filled = HistoryPlot.points(history.samples(.home, fromMs: from), fromMs: from)
+        #expect(filled.allSatisfy { $0.kind == .measured })
+        // The points that were estimates are now measured, with the same
+        // identity.
+        let ids = Set(filled.map(\.id))
+        #expect(estimates.allSatisfy { ids.contains($0.id) })
+    }
+}
+
 @Suite struct HistoryWireTests {
     /// Over the whole stack (relay, Noise, frames, session) to the simulated
     /// box: tiles arrive, and a second ask with the closed tiles in `have`

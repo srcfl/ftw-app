@@ -81,6 +81,9 @@ public final class HistoryModel {
                 guard let self, mine == self.token else { return }
                 have[chunk.tileId] = chunk
                 if !chunk.partial { self.tiles[chunk.tileId] = chunk }
+                // Drawn as the tiles arrive: a tile still on its way is a
+                // bridge the next one grows into.
+                self.show(plan, have, from, to)
             }
             guard mine == token else { return }
             show(plan, have, from, to)
@@ -113,17 +116,20 @@ public final class HistoryModel {
     /// with a hole where the box recorded nothing.
     public func samples(_ node: EnergyNode, fromMs: Double) -> [HistorySample] {
         guard let frame else { return [] }
-        return Self.samples(frame, node: node, fromMs: fromMs)
+        return Self.samples(frame, node: node, fromMs: fromMs, fetching: loading)
     }
 
-    static func samples(_ frame: HistoryGeometry.Frame, node: EnergyNode, fromMs: Double) -> [HistorySample] {
+    /// `fetching`: a hole whose tile has not arrived is on its way, not
+    /// known to be empty.
+    nonisolated static func samples(_ frame: HistoryGeometry.Frame, node: EnergyNode, fromMs: Double, fetching: Bool = false) -> [HistorySample] {
         guard frame.names.contains(node.series) else { return [] }
         var out = [HistorySample]()
         out.reserveCapacity(frame.points)
         for i in 0..<frame.points {
             let t = frame.time(at: i)
             guard t + frame.stepMs > fromMs else { continue }
-            out.append(HistorySample(startMs: t, stepMs: frame.stepMs, watts: frame.value(node.series, at: i).map { node.shown(Double($0)) }))
+            let watts = frame.value(node.series, at: i).map { node.shown(Double($0)) }
+            out.append(HistorySample(startMs: t, stepMs: frame.stepMs, watts: watts, fetching: watts == nil && fetching && !frame.hasArrived(i)))
         }
         return out
     }
@@ -147,7 +153,91 @@ public struct HistorySample: Equatable, Sendable, Identifiable {
     /// Signed as the node shows it: positive for solar making power, the
     /// battery charging, the home buying, the house using.
     public let watts: Double?
+    /// A hole that is only not here yet: its tile is on its way. A hole
+    /// that is not fetching is one the box has no record for.
+    public var fetching = false
     public var id: Double { startMs }
+
+    public init(startMs: Double, stepMs: Double, watts: Double?, fetching: Bool = false) {
+        self.startMs = startMs
+        self.stepMs = stepMs
+        self.watts = watts
+        self.fetching = fetching
+    }
+}
+
+/// A node's history as the chart draws it: one point per step on a fixed
+/// grid, so a point keeps its identity as data arrives; a break where the
+/// box has no record; and over a stretch still being fetched, a straight
+/// estimate between the measured points either side, never a value.
+public enum HistoryPlot {
+    public struct Point: Equatable, Sendable, Identifiable {
+        public enum Kind: Equatable, Sendable { case measured, estimate }
+        /// The middle of the step, or `fromMs` for a step cut by it.
+        public let t: Double
+        public let v: Double
+        public let kind: Kind
+        /// Measured points in the same run join; a hole the box confirms
+        /// starts a new run. Estimates carry the run they bridge from.
+        public let run: Int
+        /// The step's start: the same for a point whether it is estimated
+        /// or measured, so the one can grow into the other.
+        public let id: Double
+
+        public init(t: Double, v: Double, kind: Kind, run: Int, id: Double) {
+            self.t = t
+            self.v = v
+            self.kind = kind
+            self.run = run
+            self.id = id
+        }
+    }
+
+    public static func points(_ samples: [HistorySample], fromMs: Double) -> [Point] {
+        var out = [Point]()
+        out.reserveCapacity(samples.count)
+        var run = 0
+        var last: Point?
+        var waiting = [HistorySample]()
+        func t(_ s: HistorySample) -> Double { max(fromMs, s.startMs + s.stepMs / 2) }
+
+        func settleWaiting(next: Point?) {
+            defer { waiting.removeAll() }
+            guard !waiting.isEmpty else { return }
+            // A bridge needs a measured point on each side; without one the
+            // stretch is simply not drawn yet.
+            guard let a = last, a.kind == .measured, let b = next else {
+                run += 1
+                return
+            }
+            for s in waiting {
+                let x = t(s)
+                let f = b.t == a.t ? 0 : (x - a.t) / (b.t - a.t)
+                out.append(Point(t: x, v: a.v + (b.v - a.v) * f, kind: .estimate, run: run, id: s.startMs))
+            }
+            // The measured line breaks under the bridge, so it never claims
+            // a value there.
+            run += 1
+        }
+
+        for s in samples {
+            if let w = s.watts {
+                let p = Point(t: t(s), v: w, kind: .measured, run: run, id: s.startMs)
+                if !waiting.isEmpty { settleWaiting(next: Point(t: p.t, v: p.v, kind: .measured, run: run + 1, id: p.id)) }
+                let point = Point(t: p.t, v: p.v, kind: .measured, run: run, id: p.id)
+                out.append(point)
+                last = point
+            } else if s.fetching {
+                waiting.append(s)
+            } else {
+                settleWaiting(next: nil)
+                if last?.kind == .measured, last?.run == run { run += 1 }
+                last = nil
+            }
+        }
+        settleWaiting(next: nil)
+        return out
+    }
 }
 
 /// Energy one way and the other since a moment, in Wh. A mean power over a

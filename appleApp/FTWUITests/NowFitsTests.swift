@@ -159,10 +159,11 @@ final class NowFitsTests: XCTestCase {
         XCTAssertTrue(window.contains(idle.frame), "\(idle.frame) is outside \(window)")
         let top = idle.frame.minY
         idle.tap()
-        Thread.sleep(forTimeInterval: 0.3)
-        shoot(app, "mode-sending")
-        XCTAssertEqual(idle.frame.minY, top, accuracy: 1, "the row moved under the finger")
+        // The demo box answers after 0.9 s; look well before that.
+        Thread.sleep(forTimeInterval: 0.15)
         XCTAssertTrue(plan.isSelected, "the box's mode lost its tick before the box answered")
+        XCTAssertEqual(idle.frame.minY, top, accuracy: 1, "the row moved under the finger")
+        shoot(app, "mode-sending")
         // Applied: the sheet goes, and Now names the box's new mode.
         XCTAssertTrue(plan.waitForNonExistence(timeout: 10), "the sheet stayed open after the box applied the mode")
         XCTAssertEqual(button.value as? String, "Stop batteries")

@@ -126,6 +126,15 @@ public enum HistoryGeometry {
         public var names: [String]
         /// One per name. `missingSample` where there is a hole.
         public var columns: [[Int32]]
+        /// Per point, whether its tile has arrived. A hole in a tile that
+        /// arrived is the box saying it has nothing; a hole in one that has
+        /// not is only not known yet. Empty means every tile arrived.
+        public var arrived: [Bool] = []
+
+        /// Whether the point's tile has arrived.
+        public func hasArrived(_ index: Int) -> Bool {
+            arrived.isEmpty || (index >= 0 && index < arrived.count && arrived[index])
+        }
 
         public func value(_ name: String, at index: Int) -> Int32? {
             guard let c = names.firstIndex(of: name), index >= 0, index < columns[c].count else { return nil }
@@ -142,17 +151,19 @@ public enum HistoryGeometry {
         let perTile = plan.tiles.first?.points ?? 0
         let points = perTile * plan.tiles.count
         var columns = names.map { _ in [Int32](repeating: missingSample, count: points) }
+        var arrived = [Bool](repeating: false, count: points)
         for (index, planned) in plan.tiles.enumerated() {
             guard let tile = tiles[planned.tileId] else { continue }
             let unpacked = unpack(tile.data, seriesCount: tile.series.count)
             let offset = index * perTile
+            for i in offset..<min(points, offset + perTile) { arrived[i] = true }
             for (target, name) in names.enumerated() {
                 guard let s = tile.series.firstIndex(of: name), s < unpacked.count else { continue }
                 let source = unpacked[s].prefix(perTile)
                 for (i, v) in source.enumerated() { columns[target][offset + i] = v }
             }
         }
-        return Frame(startMs: plan.tiles.first?.startMs ?? 0, stepMs: plan.stepMs, points: points, names: names, columns: columns)
+        return Frame(startMs: plan.tiles.first?.startMs ?? 0, stepMs: plan.stepMs, points: points, names: names, columns: columns, arrived: arrived)
     }
 
     /// Trim a tile-aligned frame to the window asked for.
@@ -167,7 +178,8 @@ public enum HistoryGeometry {
             stepMs: frame.stepMs,
             points: last - first,
             names: frame.names,
-            columns: frame.columns.map { Array($0[first..<last]) }
+            columns: frame.columns.map { Array($0[first..<last]) },
+            arrived: frame.arrived.isEmpty ? [] : Array(frame.arrived[first..<last])
         )
     }
 

@@ -30,6 +30,11 @@ public final class SimulatedBox {
     /// How long the box takes from ack to result: the demo waits as a
     /// charger write does, so the receipt has a moment to show.
     public var resultDelayMs: Double = 0
+    /// Holds one closed tile of the first history answer back this long,
+    /// then sends it, as a slow box would: the app bridges the gap with an
+    /// estimate meanwhile and the data grows into it. 0 sends all at once.
+    public var holdTileMs: Double = 0
+    private var heldTile = false
     /// A Core with srcfl/ftw#1586 reads and sends the ready time as
     /// `time_of_day_min` on the household clock. Off, it is a Core that
     /// knows only `time_of_day_min_utc`.
@@ -108,8 +113,24 @@ public final class SimulatedBox {
                 refuse(env.id, "E_UNKNOWN_OP", [("t", .text("hist.query"))])
                 return
             }
-            for chunk in historyTiles(q) { sendBulk(Envelope(t: "hist.chunk", id: env.id, b: chunk.wire)) }
-            sendBulk(Envelope(t: "hist.end", id: env.id, b: HistEnd(resActual: q.res, gaps: []).wire))
+            var chunks = historyTiles(q)
+            var held: HistChunk?
+            if holdTileMs > 0, !heldTile, chunks.count >= 3 {
+                // A closed tile in the middle, so measured data sits on
+                // both sides of it.
+                heldTile = true
+                held = chunks.remove(at: chunks.count - 2)
+            }
+            for chunk in chunks { sendBulk(Envelope(t: "hist.chunk", id: env.id, b: chunk.wire)) }
+            let end = Envelope(t: "hist.end", id: env.id, b: HistEnd(resActual: q.res, gaps: []).wire)
+            if let held {
+                scheduler.after(holdTileMs) { [weak self] in
+                    self?.sendBulk(Envelope(t: "hist.chunk", id: env.id, b: held.wire))
+                    self?.sendBulk(end)
+                }
+            } else {
+                sendBulk(end)
+            }
         case "plan.get":
             sendBulk(Envelope(t: "plan", id: env.id, b: sessionPlan().wire))
         case "api.req": onAPI(env.id, body)
@@ -707,6 +728,8 @@ extension SimulatedBox {
         if let name = UserDefaults.standard.string(forKey: "FTWDemoCar"), let car = DemoCar(rawValue: name) {
             car.apply(to: box.house, nowMs: scheduler.nowMs)
         }
+        // For recordings: `-FTWDemoGap YES` holds a tile back for 2 s.
+        if UserDefaults.standard.bool(forKey: "FTWDemoGap") { box.holdTileMs = 2_000 }
         #endif
         current = box
         return LoopbackCarrier(box: box, scheduler: scheduler)

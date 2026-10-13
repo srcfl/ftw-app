@@ -162,43 +162,65 @@ struct HistoryChart: View, Equatable {
     let strideHours: Int
 
     var body: some View {
-        let points = runs()
-        Chart {
-            ForEach(points.indices, id: \.self) { i in
-                let p = points[i]
-                signedRun(p.t, p.v, run: p.run, look: look, opacity: (0.35, 0.05), lineWidth: 1.5)
+        // Worked out once per change of data; the motion only moves
+        // between two lists.
+        MovingPoints(points: HistoryPlot.points(samples, fromMs: fromMs)) { drawn, fading, fadeLeft in
+            Chart {
+                ForEach(drawn.filter { $0.kind == .measured }) { p in
+                    signedRun(p.t, p.v, run: p.run, look: look, opacity: (0.35, 0.05), lineWidth: 1.5)
+                }
+                // A stretch still on its way: a faint dashed estimate, never
+                // a value.
+                ForEach(Array(Self.bridges(drawn).enumerated()), id: \.offset) { i, bridge in
+                    ForEach(bridge) { p in
+                        LineMark(x: .value("Time", date(p.t)), y: .value("Power", p.v), series: .value("Estimate", "e\(i)"))
+                            .foregroundStyle(look.line.opacity(0.45))
+                            .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [3, 4]))
+                    }
+                }
+                if fadeLeft > 0 {
+                    ForEach(fading) { p in
+                        LineMark(x: .value("Time", date(p.t)), y: .value("Power", p.v), series: .value("Estimate", "gone \(p.run)"))
+                            .foregroundStyle(look.line.opacity(0.45 * fadeLeft))
+                            .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [3, 4]))
+                    }
+                }
+                if look.signed {
+                    RuleMark(y: .value("Zero", 0)).foregroundStyle(Theme.line)
+                }
             }
-            if look.signed {
-                RuleMark(y: .value("Zero", 0)).foregroundStyle(Theme.line)
+            .chartXScale(domain: date(fromMs)...date(toMs))
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .hour, count: strideHours)) { value in
+                    AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(Theme.line)
+                    AxisValueLabel { hourLabel(value) }
+                }
             }
+            .chartYAxis { powerAxis() }
+            .chartYScale(domain: .automatic(includesZero: true))
+            .directionWords(look)
         }
-        .chartXScale(domain: date(fromMs)...date(toMs))
-        .chartXAxis {
-            AxisMarks(values: .stride(by: .hour, count: strideHours)) { value in
-                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(Theme.line)
-                AxisValueLabel { hourLabel(value) }
-            }
-        }
-        .chartYAxis { powerAxis() }
-        .chartYScale(domain: .automatic(includesZero: true))
-        .directionWords(look)
         .dynamicTypeSize(...chartTextCap)
     }
 
-    /// Each sample at the middle of its step, numbered by run so a hole is
-    /// a break in the line rather than a line drawn across it.
-    private func runs() -> [(t: Double, v: Double, run: Int)] {
-        var out = [(t: Double, v: Double, run: Int)]()
-        var run = 0
-        var open = false
-        for s in samples {
-            guard let w = s.watts else {
-                if open { run += 1; open = false }
-                continue
+    /// Each run of estimates with the measured point either side, so the
+    /// dashed line meets the solid one.
+    static func bridges(_ points: [HistoryPlot.Point]) -> [[HistoryPlot.Point]] {
+        var out = [[HistoryPlot.Point]]()
+        var current = [HistoryPlot.Point]()
+        var previous: HistoryPlot.Point?
+        for p in points {
+            if p.kind == .estimate {
+                if current.isEmpty, let previous, previous.kind == .measured { current.append(previous) }
+                current.append(p)
+            } else if !current.isEmpty {
+                current.append(p)
+                out.append(current)
+                current = []
             }
-            out.append((max(fromMs, s.startMs + s.stepMs / 2), w, run))
-            open = true
+            previous = p
         }
+        if !current.isEmpty { out.append(current) }
         return out
     }
 }

@@ -196,7 +196,6 @@ public enum NodeWords {
         "Not confirmed": "Inte bekräftat",
         "Each choice goes to your box at once.": "Varje val går till boxen direkt.",
         "Waiting for your box. You can choose when it answers.": "Väntar på boxen. Du kan välja när den svarar.",
-        "Used while the plan runs.": "Gäller när planen kör.",
         "Try again": "Försök igen",
         "This phone is offline": "Telefonen är offline",
         // Pairing. The box's own dashboard is in English, so its labels
