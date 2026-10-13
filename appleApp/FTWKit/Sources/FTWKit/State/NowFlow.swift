@@ -65,7 +65,9 @@ public enum NowFlow {
                 toward = w >= 0
             case .car:
                 word = idle ? NodeWords.text("resting") : NodeWords.text("charging")
-                tone = Flow.tone(.ev, w)
+                // The car keeps its colour; the word and the dots say it
+                // charges.
+                tone = .ev
                 toward = false
                 level = carLevel?.pct
             }
