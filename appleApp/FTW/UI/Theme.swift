@@ -62,6 +62,23 @@ enum Theme {
     static let spring = Animation.spring(duration: 0.35, bounce: 0.15)
 }
 
+/// Whether Low Power Mode is on, kept current, for the motion that can
+/// wait: the flow's dots slow down and the live curve stops gliding.
+@Observable
+@MainActor
+final class PowerState {
+    static let shared = PowerState()
+    private(set) var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+
+    private init() {
+        Task { @MainActor [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: Notification.Name.NSProcessInfoPowerStateDidChange) {
+                self?.lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+            }
+        }
+    }
+}
+
 /// A raised card, the web app's `.card`.
 struct Card<Content: View>: View {
     @ViewBuilder var content: Content

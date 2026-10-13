@@ -348,8 +348,9 @@ private struct LiveSection: View {
                 LiveChart(node: node, points: points, nowMs: now, look: NodeLook.look(node, live: live), onScrub: { readout = $0 })
                     .equatable()
                     // Each second's step glides over that second, so the
-                    // curve moves on at an even pace instead of jumping.
-                    .animation(reduceMotion ? nil : .linear(duration: 1), value: now)
+                    // curve moves on at an even pace instead of jumping;
+                    // not under Reduce Motion or in Low Power Mode.
+                    .animation(reduceMotion || PowerState.shared.lowPower ? nil : .linear(duration: 1), value: now)
                     // Its own height, so larger words above it make the
                     // page scroll rather than the curve flat.
                     .frame(height: fill ? 52 : 110)
