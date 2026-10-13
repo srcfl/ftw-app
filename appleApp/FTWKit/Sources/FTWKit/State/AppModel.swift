@@ -142,15 +142,15 @@ public final class AppModel {
         let mine = connectGeneration
         do {
             guard let stored = sites.get(siteId) else {
-                throw ConnectError(kind: .notPaired, help: "This phone has no record of that home.")
+                throw ConnectError(kind: .notPaired, help: AppWords.text("This phone has no record of that home."))
             }
             guard vault.isEnrolled else {
-                throw ConnectError(kind: .notEnrolled, help: "This device has no key for that home.")
+                throw ConnectError(kind: .notEnrolled, help: AppWords.text("This device has no key for that home."))
             }
             // Read from the QR, never derived: a handle derived from the box
             // key would be one household identifier good for years.
             guard let secret = stored.rendezvousSecret?.byteArray else {
-                throw ConnectError(kind: .stalePairing, help: "This home was paired before this app could reach it privately.")
+                throw ConnectError(kind: .stalePairing, help: AppWords.text("This home was paired before this app could reach it privately."))
             }
             var wrapping = try vault.silentWrappingKey()
             if wrapping == nil {
@@ -173,12 +173,17 @@ public final class AppModel {
             )
             if site.connect(noise) { connectHelp = nil }
             site.connectCloud(deviceKey: device, makeSocket: makeSocket)
+        } catch is PasskeyCancelled {
+            // A closed sheet is not a lost key: say what happened and let
+            // the person try again.
+            guard mine == connectGeneration else { return }
+            connectHelp = AppWords.text("Unlocking was cancelled. Try again to open your home.")
         } catch let e as HelpfulError {
             guard mine == connectGeneration else { return }
             connectHelp = e.help
         } catch {
             guard mine == connectGeneration else { return }
-            connectHelp = "This device can no longer unlock its key. Open your box's local dashboard, then Settings → FTW app → Show pairing code, and scan a new QR."
+            connectHelp = AppWords.text(Vault.lockedHelp)
         }
     }
 
