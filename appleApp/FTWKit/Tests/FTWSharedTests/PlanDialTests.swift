@@ -24,8 +24,15 @@ import Testing
     /// on Wednesday, rests otherwise; the car charges 02:00 to 04:30.
     func entry(priceHours: Int = 48, daylight: PlanEntry.Daylight? = nil) -> PlanEntry {
         let midnight = at(13, 0)
-        let prices = (0..<priceHours).map { i in
-            PriceSlot(startMs: midnight + Double(i) * Self.hour, durationMs: Self.hour, spotMinor: 50, totalMinor: i % 24 == 18 ? 200 : (i % 24 == 2 || i % 24 == 3 ? 20 : 80))
+        func price(_ i: Int) -> Double {
+            switch i % 24 {
+            case 18: return 200
+            case 2, 3: return 20
+            default: return 80
+            }
+        }
+        let prices = (0..<priceHours).map { (i: Int) -> PriceSlot in
+            PriceSlot(startMs: midnight + Double(i) * Self.hour, durationMs: Self.hour, spotMinor: 50, totalMinor: price(i))
         }
         let from = at(13, 16, 10)
         var battery = [PlanEntry.Slot(startMs: from, durationMs: at(13, 16, 15) - from, batteryW: 0, reason: "idle")]
@@ -204,8 +211,10 @@ import Testing
         var slots = [(startMs: Double, durationMs: Double, pvW: Double)]()
         var t = at(13, 16)
         while t < at(14, 16) {
-            let h = Double(calendar.component(.hour, from: Date(timeIntervalSince1970: t / 1000))) + Double(calendar.component(.minute, from: Date(timeIntervalSince1970: t / 1000))) / 60
-            slots.append((t, Self.quarter, h >= 7.5 && h < 17.5 ? 1_200 : 0))
+            let date = Date(timeIntervalSince1970: t / 1000)
+            let h: Double = Double(calendar.component(.hour, from: date)) + Double(calendar.component(.minute, from: date)) / 60
+            let pv: Double = h >= 7.5 && h < 17.5 ? 1_200 : 0
+            slots.append((startMs: t, durationMs: Self.quarter, pvW: pv))
             t += Self.quarter
         }
         let daylight = try! #require(PlanEntry.Daylight(slots))
