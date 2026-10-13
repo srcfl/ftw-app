@@ -265,6 +265,9 @@ public final class AppModel {
 
     public func exitDemo() {
         guard isDemo else { return }
+        // The demo's Live Activity must not outlive it: its button would
+        // reach the home that opens next.
+        home?.loadpoints.endLiveActivities()
         home?.site.destroy()
         home = nil
         isDemo = false
@@ -277,6 +280,7 @@ public final class AppModel {
     /// cleared second, so a reading landing mid-clear cannot write the home
     /// back. The widgets lose their records too.
     public func leave() {
+        home?.loadpoints.endLiveActivities()
         home?.site.destroy()
         home = nil
         vault.reset()

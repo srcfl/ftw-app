@@ -8,6 +8,8 @@
 	<array>
 		<string>energy.ftw.app.prices</string>
 	</array>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

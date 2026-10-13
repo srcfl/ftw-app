@@ -247,8 +247,11 @@ public struct CarEntry: CacheValue {
         public var powerW: Double
         /// The goal the box holds, whole percent.
         public var targetSocPct: Double?
+        /// Whether Charge now is on, in the box's account. Nil in a record
+        /// written before the app kept it.
+        public var holding: Bool?
 
-        public init(loadpointID: String, pluggedIn: Bool, socPct: Double?, socSource: String, socReadAtMs: Double?, powerW: Double, targetSocPct: Double?) {
+        public init(loadpointID: String, pluggedIn: Bool, socPct: Double?, socSource: String, socReadAtMs: Double?, powerW: Double, targetSocPct: Double?, holding: Bool? = nil) {
             self.loadpointID = loadpointID
             self.pluggedIn = pluggedIn
             self.socPct = socPct
@@ -256,6 +259,7 @@ public struct CarEntry: CacheValue {
             self.socReadAtMs = socReadAtMs
             self.powerW = powerW
             self.targetSocPct = targetSocPct
+            self.holding = holding
         }
     }
 
