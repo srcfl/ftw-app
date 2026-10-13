@@ -82,14 +82,18 @@ struct ChargeNowBanner: View {
             HStack(alignment: .center, spacing: 12) {
                 Bolt(face: face).font(.title2)
                 VStack(alignment: .leading, spacing: 2) {
-                    Headline(face: face)
+                    // The card's height is capped: what is happening keeps
+                    // its lines before the line under it.
+                    Headline(face: face).layoutPriority(1)
                     Subtitle(face: face)
                 }
                 // The words first; the time takes what is left.
                 .layoutPriority(1)
                 Spacer(minLength: 8)
+                // A stopped time is smaller, so the stale words fit beside
+                // it on a narrow phone.
                 Elapsed(face: face)
-                    .font(.system(.largeTitle, design: .rounded, weight: .semibold))
+                    .font(.system(face.dimmed ? .title2 : .largeTitle, design: .rounded, weight: .semibold))
                     .minimumScaleFactor(0.6)
                     .frame(maxWidth: 120, alignment: .trailing)
             }
