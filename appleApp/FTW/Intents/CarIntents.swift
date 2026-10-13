@@ -58,32 +58,49 @@ struct CarCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let answer {
+                // The answer Siri gave sits above the card; once a button
+                // here changes the state, the new state fades in on top.
                 if answer.headline != said {
                     Label {
-                        Text(answer.headline).font(.headline)
+                        Text(answer.headline)
+                            .font(.headline)
+                            .contentTransition(.interpolate)
                     } icon: {
-                        Image(systemName: Self.symbol(answer.gist)).foregroundStyle(.tint)
+                        Image(systemName: Self.symbol(answer.gist))
+                            .foregroundStyle(.tint)
+                            .contentTransition(.symbolEffect(.replace))
                     }
+                    .transition(.opacity.combined(with: .move(edge: .top)))
                 }
                 if !answer.details.isEmpty {
                     VStack(alignment: .leading, spacing: 2) {
-                        ForEach(answer.details, id: \.self) { Text($0) }
+                        ForEach(answer.details, id: \.self) { Text($0).contentTransition(.interpolate) }
                     }
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .privacySensitive()
                 }
+                if let receipt = answer.receipt {
+                    Text(receipt)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.tint)
+                        .contentTransition(.interpolate)
+                        .transition(.opacity)
+                }
                 if let read = answer.readText(nowMs: nowMs) {
                     Text(read).font(.caption).foregroundStyle(.secondary)
                 }
-                if answer.holding {
-                    Button(intent: BackToPlanIntent(loadpointID: answer.loadpointID)) {
-                        Label(ChargeNowActivity.backToPlan, systemImage: "calendar")
-                    }
-                    .buttonStyle(.borderedProminent)
-                } else if answer.canChargeNow {
-                    Button(intent: ChargeNowIntent()) {
-                        Label(ChargeNowActivity.title, systemImage: "bolt.fill")
+                // One button in one place: Charge now or Back to the plan,
+                // its label and icon changing in place.
+                if answer.holding || answer.canChargeNow {
+                    Button(intent: CardCommandIntent(on: !answer.holding, loadpointID: answer.loadpointID, home: answer.home)) {
+                        Label {
+                            Text(answer.holding ? ChargeNowActivity.backToPlan : ChargeNowActivity.title)
+                                .contentTransition(.interpolate)
+                        } icon: {
+                            Image(systemName: answer.holding ? "calendar" : "bolt.fill")
+                                .contentTransition(.symbolEffect(.replace))
+                        }
                     }
                     .buttonStyle(.bordered)
                 }
@@ -93,6 +110,7 @@ struct CarCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
+        .animation(Theme.spring, value: answer)
     }
 
     static func symbol(_ gist: CarAnswer.Gist) -> String {
@@ -109,6 +127,48 @@ struct CarCard: View {
     }
 }
 
+/// The card's one button. It answers with nothing of its own, so the card
+/// stays where it is and redraws with the box's outcome instead of giving
+/// way to a new answer.
+struct CardCommandIntent: AppIntent {
+    static let title: LocalizedStringResource = "Charge now"
+    static let isDiscoverable = false
+    static let authenticationPolicy: IntentAuthenticationPolicy = .requiresAuthentication
+    static let supportedModes: IntentModes = .background
+
+    #if compiler(>=6.4)
+    @available(iOS 27.0, *)
+    static var allowedExecutionTargets: IntentExecutionTargets { .main }
+    #endif
+
+    @Parameter(title: "On")
+    var on: Bool
+
+    @Parameter(title: "Charger")
+    var loadpointID: String?
+
+    @Parameter(title: "Home")
+    var home: String?
+
+    init() {}
+
+    init(on: Bool, loadpointID: String?, home: String) {
+        self.on = on
+        self.loadpointID = loadpointID
+        self.home = home
+    }
+
+    @MainActor
+    func perform() async throws -> some IntentResult {
+        _ = await IntentRunner.shared?.run(on ? .chargeNow : .backToPlan(loadpointID: loadpointID, home: home))
+        return .result()
+    }
+}
+
+/// It starts the Live Activity when it is Charge now, from wherever the
+/// card is.
+extension CardCommandIntent: LiveActivityIntent {}
+
 /// What Siri, Spotlight and the Shortcuts app offer without setup. Fixed
 /// phrases: no App Schema covers a car's charging, so Siri matches these
 /// and not free speech.
@@ -122,6 +182,15 @@ struct FTWShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Charge now",
             systemImageName: "bolt.car.fill"
+        )
+        AppShortcut(
+            intent: BackToPlanIntent(),
+            phrases: [
+                "Back to the plan with \(.applicationName)",
+                "Stop charging now with \(.applicationName)",
+            ],
+            shortTitle: "Back to the plan",
+            systemImageName: "calendar"
         )
         AppShortcut(
             intent: CarStatusIntent(),

@@ -15,6 +15,11 @@
 "The car" = "Bilen";
 "Car's level" = "Bilens nivå";
 "Said" = "Sagt";
+"Home" = "Hem";
+"Turns Charge now on or off." = "Slår på eller av Ladda nu.";
+"On" = "På";
+"Open FTW" = "Öppna FTW";
+"Reason" = "Orsak";
 
 /* A push from FTW Cloud, as Apple shows it if the notification extension
    does not run. The extension writes every other line itself. */
