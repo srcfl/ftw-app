@@ -117,6 +117,26 @@ final class NowFitsTests: XCTestCase {
         shoot(app, "battery-ax5")
     }
 
+    /// At the largest accessibility size the mode sheet still shows its
+    /// choices: the bar at its foot stops growing before they do.
+    @MainActor
+    func testAtTheLargestAccessibilitySizeTheModeSheetShowsItsChoices() throws {
+        let app = launchDemo(text: "UICTContentSizeCategoryAccessibilityXXXL")
+        let button = app.buttons["now.mode"]
+        XCTAssertTrue(button.waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 3)
+        button.tap()
+        let plan = app.buttons["mode.choice.plan"]
+        XCTAssertTrue(plan.waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 1.5)
+        shoot(app, "mode-ax5")
+        XCTAssertTrue(plan.isHittable, "the plan's row is hidden")
+        let window = app.windows.firstMatch.frame
+        let bar = app.descendants(matching: .any)["mode.receipt"].firstMatch
+        XCTAssertTrue(bar.exists)
+        XCTAssertLessThan(bar.frame.height, window.height * 0.25, "the receipt bar takes \(bar.frame.height) of \(window.height)")
+    }
+
     @MainActor
     func testANodeOpensItsLiveHistoryPlanAndMode() throws {
         let app = launchDemo()

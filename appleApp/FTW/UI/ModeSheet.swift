@@ -213,6 +213,9 @@ private struct ReceiptBar: View {
         .animation(Theme.spring, value: mode.outcome)
         .animation(Theme.spring, value: mode.connected)
         .accessibilityIdentifier("mode.receipt")
+        // A bar at the foot of the sheet: it must leave the choices room at
+        // the largest text, so it stops growing before them.
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 
     @ViewBuilder private var content: some View {
