@@ -93,6 +93,11 @@ final class FakeCloudService {
     var watches: [Int] {
         received.filter { $0.t == CloudWire.msgWatch }.compactMap { (try? decodeCBOR($0.b))?["hz"]?.int }
     }
+
+    /// The APNs tokens the phone registered, in order.
+    var registrations: [Bytes] {
+        received.filter { $0.t == CloudWire.msgPushRegister }.compactMap { (try? decodeCBOR($0.b))?["apnsToken"]?.byteString }
+    }
 }
 
 @MainActor

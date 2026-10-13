@@ -128,6 +128,14 @@ public final class SiteModel {
     /// When the newest cloud envelope arrived, for the time of a reading the
     /// anchor cannot place.
     @ObservationIgnored private var cloudArrivalMs: Double?
+    /// What the notification extension was last given for this home.
+    @ObservationIgnored private var sharedCloudHome: CloudHome?
+    /// Whether FTW Cloud's session takes the phone's APNs token, and the
+    /// token, sent again at every opening.
+    @ObservationIgnored private var pushSinkOn = false
+    @ObservationIgnored private var pushToken: PushTokens.Token?
+    /// Where the token comes from: `PushTokens`, unless a test hands its own.
+    @ObservationIgnored var pushTokens = PushTokenSource.app
     /// Where the readings on screen came from at the last change.
     @ObservationIgnored private(set) var source: ReadingSource = .relay
     @ObservationIgnored private var startedAtMs: Double = 0
@@ -458,6 +466,7 @@ public final class SiteModel {
         if cloudDirty, let identity = cloudIdentity {
             cloudDirty = false
             files.writeJSON("cloud-\(siteId)", CloudCache(identity: identity, offset: ruleU), wait: wait)
+            shareCloudHome()
         }
         guard session.phase == .streaming || !session.fields.isEmpty, cachedAtMs == nil else { return }
         // The cloud's ages move with the clock; take them as of now.
@@ -838,6 +847,23 @@ private final class StreamWait {
 
 // MARK: - FTW Cloud
 
+/// Where a site model gets the phone's APNs token.
+struct PushTokenSource: Sendable {
+    var install: @Sendable (any PushTokenSink) async -> Void
+    var uninstall: @Sendable () -> Void
+
+    static let app = PushTokenSource(install: { await PushTokens.install($0) }, uninstall: { PushTokens.uninstall() })
+}
+
+/// The site model's end of `PushTokens`, which calls it off the main actor.
+private struct CloudPushSink: PushTokenSink {
+    let deliver: @MainActor @Sendable (PushTokens.Token) -> Void
+
+    func register(apnsToken: Data, environment: PushEnvironment) async {
+        await deliver(PushTokens.Token(data: apnsToken, environment: environment))
+    }
+}
+
 /// Where the readings on screen come from.
 enum ReadingSource: Sendable {
     case relay, cloud
@@ -847,11 +873,8 @@ enum ReadingSource: Sendable {
 /// on its key and names, and rule U's anchor. Both came from the box over
 /// Noise; neither from the service.
 struct CloudCache: Codable, Equatable, Sendable {
-    struct Offset: Codable, Equatable, Sendable {
-        var boot: Bytes
-        var offsetMs: Int64
-        var learnedAtMs: Int64
-    }
+    /// The notification extension dates events with the same anchor.
+    typealias Offset = CloudHome.Offset
 
     var identity: CloudIdentity
     var offset: Offset?
@@ -889,12 +912,14 @@ extension SiteModel {
             onStatus: { [weak self] status in
                 guard let self else { return }
                 self.cloudStatus = status
+                if status.isOpen { self.registerPush() }
                 self.publish()
                 self.scheduleClock()
             }
         )
         cloud = c
         cloudStatus = c.status
+        installPushSink()
         c.start()
     }
 
@@ -923,8 +948,12 @@ extension SiteModel {
     /// The box answered hello: FTW Cloud is on with this key, or off.
     private func cloudHello(_ identity: CloudIdentity?) {
         guard let identity else {
-            // Off, or never on. What the cloud delivered goes with it.
+            // Off, or never on. What the cloud delivered goes with it, and
+            // so do its pushes.
             closeCloud()
+            if let home = cloudIdentity?.home ?? sharedCloudHome?.home { cloudKeys?.remove(home: home) }
+            sharedCloudHome = nil
+            uninstallPushSink()
             cloudView = nil
             cloudIdentity = nil
             ruleU = nil
@@ -934,9 +963,61 @@ extension SiteModel {
             return
         }
         adoptCloud(identity, offset: nil)
+        shareCloudHome()
         cloudDirty = true
         persistNow()
         startCloud()
+    }
+
+    // MARK: Pushes
+
+    /// The App Group files the notification extension reads. None in the
+    /// demo, which has no App Group files.
+    private var cloudKeys: CloudKeys? {
+        shared.map { CloudKeys(directory: $0.directory) }
+    }
+
+    /// Give the notification extension what the box said over Noise: its
+    /// key, its names, and rule U's anchor. Written only when it changed.
+    private func shareCloudHome() {
+        guard let siteId, let keys = cloudKeys, let identity = cloudIdentity else { return }
+        let row = CloudHome(home: identity.home, siteId: siteId, boxKey: Data(identity.pk),
+                            loadpoints: identity.loadpoints, sources: identity.sources, offset: ruleU)
+        guard row != sharedCloudHome else { return }
+        if let old = sharedCloudHome, old.home != row.home { keys.remove(home: old.home) }
+        do {
+            try keys.write(row)
+            sharedCloudHome = row
+        } catch {
+            log.error("cloud keys not written: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    /// While FTW Cloud is on, its session takes the phone's APNs token: it
+    /// is how the service learns where Apple can reach this phone. The first
+    /// install asks the person to allow notifications.
+    private func installPushSink() {
+        guard !pushSinkOn else { return }
+        pushSinkOn = true
+        let sink = CloudPushSink { [weak self] token in
+            self?.pushToken = token
+            self?.registerPush()
+        }
+        let source = pushTokens
+        Task { await source.install(sink) }
+    }
+
+    private func uninstallPushSink() {
+        guard pushSinkOn else { return }
+        pushSinkOn = false
+        pushToken = nil
+        pushTokens.uninstall()
+    }
+
+    /// At every opening of the session, and when Apple gives a new token.
+    private func registerPush() {
+        guard let pushToken, let cloud, cloud.status.isOpen else { return }
+        cloud.pushRegister(apnsToken: pushToken.data, environment: pushToken.environment)
     }
 
     /// Rule U: phone time minus box uptime, the smallest seen per boot.

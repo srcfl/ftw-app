@@ -22,9 +22,16 @@ import Testing
             var seq: UInt64?
             var atMs: Int64?
         }
+        struct Offset: Decodable {
+            var home: String
+            var boot: String
+            var offsetMs: Int64
+            var learnedAtMs: Int64
+        }
         struct Case: Decodable {
             var name: String
             var payload: String
+            var offset: Offset?
             var nowMs: Int64
             var want: Want
         }
@@ -57,14 +64,19 @@ import Testing
 
     @Test func everyPushVectorReadsAsTheGoReferenceReadsIt() throws {
         let file = try Self.load("push-vectors", as: PushFile.self)
-        #expect(file.cases.count == 14)
+        #expect(file.cases.count == 18)
         let keys = Dictionary(uniqueKeysWithValues: file.keys.map { ($0.home, Data(hex: $0.pk)) })
         for c in file.cases {
             let payload = Data(c.payload.utf8)
-            let fromJSON = PushAlert.read(payload: payload, boxKey: { keys[$0] }, nowMs: c.nowMs)
+            // Rule U's anchor, held for one home, as CloudKeys holds it.
+            let offset = { (home: String) -> CloudHome.Offset? in
+                guard let o = c.offset, o.home == home else { return nil }
+                return CloudHome.Offset(boot: Array(Data(hex: o.boot)), offsetMs: o.offsetMs, learnedAtMs: o.learnedAtMs)
+            }
+            let fromJSON = PushAlert.read(payload: payload, boxKey: { keys[$0] }, offset: offset, nowMs: c.nowMs)
             // The extension gets userInfo, not the bytes: both roads agree.
             let userInfo = try #require(JSONSerialization.jsonObject(with: payload) as? [AnyHashable: Any])
-            let fromUserInfo = PushAlert.read(userInfo: userInfo, boxKey: { keys[$0] }, nowMs: c.nowMs)
+            let fromUserInfo = PushAlert.read(userInfo: userInfo, boxKey: { keys[$0] }, offset: offset, nowMs: c.nowMs)
             #expect(fromJSON == fromUserInfo, "\(c.name)")
 
             let a = fromJSON

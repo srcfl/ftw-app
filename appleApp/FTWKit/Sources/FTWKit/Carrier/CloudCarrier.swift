@@ -106,6 +106,18 @@ public final class CloudCarrier {
         send(on ? CloudWire.msgSuspend : CloudWire.msgUnsuspend, .map([("deviceId", .text(deviceID))]))
     }
 
+    /// Tell the service where Apple can reach this phone, for alerts. The
+    /// service binds the token to this phone's roster entry, so a phone
+    /// that may not read events registers nothing, and keeps one row per
+    /// token, so sending it again changes nothing. False when the session
+    /// is not open and nothing went out.
+    @discardableResult
+    public func pushRegister(apnsToken: Data, environment: PushEnvironment) -> Bool {
+        send(CloudWire.msgPushRegister, .map([
+            ("apnsToken", .bytes(Bytes(apnsToken))), ("environment", .text(environment.rawValue)), ("kind", .text(CloudWire.pushKindAlert)),
+        ]))
+    }
+
     /// The app came to the front or the network changed: dial now if the
     /// session is not open, after a refusal too.
     public func wake() {

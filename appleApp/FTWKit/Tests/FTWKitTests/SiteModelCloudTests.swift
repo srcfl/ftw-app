@@ -103,6 +103,7 @@ final class CloudSite {
     let identity: CloudIdentity
     var site: SiteModel!
     let relay = ScriptedBox()
+    let tokens = FakeTokens()
 
     init(noClock: Bool = false) throws {
         files = SealedFiles(directory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ftw-test-\(UUID().uuidString)"), store: store)
@@ -132,6 +133,7 @@ final class CloudSite {
 
     func open() {
         site = SiteModel(siteId: "s1", build: "test", ua: "test", scheduler: scheduler, files: files, shared: shared)
+        site.pushTokens = tokens.source
         site.start()
     }
 

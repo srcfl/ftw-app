@@ -1,8 +1,8 @@
 import Foundation
 
 /// What this phone holds about one home for FTW Cloud's pushes: the key the
-/// box signs events with, which paired home it is, and the names behind the
-/// opaque ids an event uses. The app writes it when the box describes its
+/// box signs events with, which paired home it is, the names behind the
+/// opaque ids an event uses, and rule U's anchor. The app writes it when the box describes its
 /// FTW Cloud link over Noise; the notification extension reads it.
 ///
 /// Nothing here is a secret. A public key checks signatures and cannot make
@@ -18,13 +18,31 @@ public struct CloudHome: Codable, Sendable, Equatable {
     public var loadpoints: [String: String]
     /// Opaque source id → the name the box shows for the device.
     public var sources: [String: String]
+    /// Rule U's anchor, so an event from a box without a synced clock can
+    /// still be dated. Nil until the phone has learned one over Noise.
+    public var offset: Offset?
 
-    public init(home: String, siteId: String, boxKey: Data, loadpoints: [String: String] = [:], sources: [String: String] = [:]) {
+    /// Rule U's anchor: phone time minus box uptime, the smallest the phone
+    /// learned over Noise for `boot`, and when it last learned it.
+    public struct Offset: Codable, Sendable, Equatable {
+        public var boot: [UInt8]
+        public var offsetMs: Int64
+        public var learnedAtMs: Int64
+
+        public init(boot: [UInt8], offsetMs: Int64, learnedAtMs: Int64) {
+            self.boot = boot
+            self.offsetMs = offsetMs
+            self.learnedAtMs = learnedAtMs
+        }
+    }
+
+    public init(home: String, siteId: String, boxKey: Data, loadpoints: [String: String] = [:], sources: [String: String] = [:], offset: Offset? = nil) {
         self.home = home
         self.siteId = siteId
         self.boxKey = boxKey
         self.loadpoints = loadpoints
         self.sources = sources
+        self.offset = offset
     }
 
     /// The charger an event means. An event that names none means the only
@@ -81,6 +99,11 @@ public struct CloudKeys: Sendable {
     /// The box key for a home, for `PushAlert.read`.
     public func boxKey(home: String) -> Data? {
         read(home: home)?.boxKey
+    }
+
+    /// Rule U's anchor for a home, for `PushAlert.read`.
+    public func offset(home: String) -> CloudHome.Offset? {
+        read(home: home)?.offset
     }
 
     /// Only the app writes. Atomic, so the extension never reads half a file.

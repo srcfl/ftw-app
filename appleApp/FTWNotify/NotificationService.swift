@@ -21,7 +21,7 @@ final class NotificationService: UNNotificationServiceExtension {
         userInfo = request.content.userInfo
         let nowMs = Date.now.timeIntervalSince1970 * 1000
         let keys = CloudKeys.shared()
-        let alert = PushAlert.read(userInfo: userInfo, boxKey: { keys?.boxKey(home: $0) }, nowMs: Int64(nowMs))
+        let alert = PushAlert.read(userInfo: userInfo, boxKey: { keys?.boxKey(home: $0) }, offset: { keys?.offset(home: $0) }, nowMs: Int64(nowMs))
         log.info("push: \(alert.verdict.rawValue, privacy: .public) \(alert.kind, privacy: .public)")
         if let seen = PushSeen.shared(), !seen.accept(alert, nowMs: nowMs) {
             log.info("push: seen before, seq \(alert.seq, privacy: .public)")

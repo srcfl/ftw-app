@@ -44,7 +44,6 @@ enum Notifications {
         center.setNotificationCategories(categories(.preferred()))
         PushTokens.setAsk { await askAndRegister() }
         #if DEBUG
-        seedFromLaunchArguments()
         if UserDefaults.standard.bool(forKey: "FTWPushRegister") {
             Task { await askAndRegister() }
             return
@@ -116,41 +115,6 @@ enum Notifications {
         let out = await runner.run(command, loadpointID: loadpointID)
         log.info("push: \(action.rawValue, privacy: .public): \(String(describing: out.kind), privacy: .public): \(out.text, privacy: .public)")
     }
-
-    #if DEBUG
-    /// Until the box's session info fills CloudKeys (FTW Cloud C3), a debug
-    /// build can hold one home for an end-to-end test:
-    ///
-    ///     -FTWCloudHome <home id> -FTWCloudBoxKey <base64url P-256 point>
-    ///     -FTWCloudLoadpoint <opaque>=<loadpoint id>[,…]
-    ///     -FTWCloudSource <opaque>=<name>[,…]  -FTWCloudSite <site id>
-    ///
-    /// The site is the open home's by default, or "demo" with `-FTWDemo YES`.
-    static func seedFromLaunchArguments() {
-        let d = UserDefaults.standard
-        guard let home = d.string(forKey: "FTWCloudHome"), let text = d.string(forKey: "FTWCloudBoxKey") else { return }
-        func pairs(_ key: String) -> [String: String] {
-            var out = [String: String]()
-            for pair in (d.string(forKey: key) ?? "").split(separator: ",") {
-                let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
-                if parts.count == 2 { out[parts[0]] = parts[1] }
-            }
-            return out
-        }
-        let site = d.string(forKey: "FTWCloudSite") ?? (d.bool(forKey: "FTWDemo") ? "demo" : IntentRunner.shared?.app.sites.current()?.siteId ?? "")
-        guard let keys = CloudKeys.shared() else {
-            log.error("push: not seeded: no App Group")
-            return
-        }
-        do {
-            let row = CloudHome(home: home, siteId: site, boxKey: Data(try Base64url.decode(text)), loadpoints: pairs("FTWCloudLoadpoint"), sources: pairs("FTWCloudSource"))
-            try keys.write(row)
-            log.notice("push: seeded a home for \(site, privacy: .public) with \(row.loadpoints.count, privacy: .public) chargers")
-        } catch {
-            log.error("push: not seeded: \(String(describing: error), privacy: .public)")
-        }
-    }
-    #endif
 }
 
 /// Where the system hands a pressed button and a notification that arrives
@@ -164,6 +128,7 @@ final class NotificationButtons: NSObject, UNUserNotificationCenterDelegate {
         let alert = PushAlert.read(
             userInfo: response.notification.request.content.userInfo,
             boxKey: { keys?.boxKey(home: $0) },
+            offset: { keys?.offset(home: $0) },
             nowMs: Int64(response.notification.date.timeIntervalSince1970 * 1000)
         )
         await Notifications.act(action, command, alert: alert, home: keys?.read(home: alert.home))

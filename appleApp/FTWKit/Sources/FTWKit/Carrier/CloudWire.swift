@@ -1,9 +1,4 @@
 import Foundation
-#if canImport(CryptoKit)
-import CryptoKit
-#else
-import Crypto
-#endif
 import FTWShared
 
 /// The FTW Cloud wire, as a phone reads it.
@@ -71,6 +66,11 @@ public enum CloudWire {
     /// An owner's, `{deviceId}`. They only narrow access.
     public static let msgSuspend = "suspend"
     public static let msgUnsuspend = "unsuspend"
+    /// Phone to service, `{apnsToken, environment, kind}`: where Apple can
+    /// reach this phone. The service binds it to the phone's roster entry.
+    public static let msgPushRegister = "push.register"
+    /// The only kind of push registration so far.
+    static let pushKindAlert = "alert"
 
     public static let hzLooking = 1
     public static let hzAway = 0
@@ -216,13 +216,11 @@ public enum CloudWire {
 
     /// Whether `envelope` carries an ES256 signature by `boxKey` for `home`,
     /// over the bytes received, never a re-encoding. The key is the one the
-    /// box gave this phone over Noise, never one from the service.
+    /// box gave this phone over Noise, never one from the service. The
+    /// notification extension's check, so a push and a reading are checked
+    /// alike.
     public static func verify(boxKey: Bytes, home: String, envelope: Envelope) -> Bool {
-        guard boxKey.count == publicKeyBytes, envelope.sig.count == sigBytes,
-              let key = try? P256.Signing.PublicKey(x963Representation: boxKey),
-              let sig = try? P256.Signing.ECDSASignature(rawRepresentation: envelope.sig)
-        else { return false }
-        return key.isValidSignature(sig, for: SHA256.hash(data: signedInput(home: home, t: envelope.t, b: envelope.b)))
+        PushAlert.verify(boxKey: boxKey, home: home, t: envelope.t, b: envelope.b, sig: envelope.sig)
     }
 
     // MARK: - Ids
