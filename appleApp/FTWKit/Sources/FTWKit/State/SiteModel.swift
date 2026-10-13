@@ -1089,28 +1089,21 @@ extension SiteModel {
         scheduleClock()
     }
 
-    /// The cloud is where readings come from while its session is open and it
-    /// holds a live, unless the box session streams live readings and the
-    /// cloud's are not live. Numbers never step back in time: a copy that is
-    /// not live takes over only when it is at least as new as what is on
-    /// screen. With neither streaming, the newer copy stays.
+    /// The box's own stream is where live readings come from: straight from
+    /// the box, at its own rate. FTW Cloud gives the first frame before that
+    /// stream is up, and stands in when it falls silent. Numbers never step
+    /// back in time: a copy that is not live takes over only when it is at
+    /// least as new as what is on screen. With neither live, the newer copy
+    /// stays.
     private func readingSource() -> ReadingSource {
         guard let view = cloudView, view.live != nil else { return .relay }
         let now = scheduler.nowMs
         let relayStreaming = relay.phase == .streaming && relayFrameAtMs != nil
+        if relayStreaming, relaySrcState == .live { return .relay }
         let cloudLive = Self.cloudState(view, nowMs: now) == .live
-        if relayStreaming, relaySrcState == .live, !cloudLive {
-            return .relay
-        }
+        if cloud?.status.isOpen == true, cloudLive { return .cloud }
         let cloudAt = view.anchorSentMs(nowMs: Int64(now)).map(Double.init)
-        let relayAt = relayFrameAtMs ?? cachedAtMs
-        if cloud?.status.isOpen == true {
-            if cloudLive || source == .cloud { return .cloud }
-            guard let relayAt else { return .cloud }
-            return (cloudAt ?? -.infinity) >= relayAt ? .cloud : .relay
-        }
-        if relayStreaming { return .relay }
-        guard let relayAt else { return .cloud }
+        guard let relayAt = relayFrameAtMs ?? cachedAtMs else { return .cloud }
         return (cloudAt ?? -.infinity) >= relayAt ? .cloud : .relay
     }
 

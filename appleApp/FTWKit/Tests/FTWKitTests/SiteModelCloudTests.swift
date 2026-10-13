@@ -49,6 +49,12 @@ final class ScriptedBox: Carrier {
         status = .closed(reason: reason, retryable: false)
     }
 
+    /// The box session drops, as the phone sees it.
+    func drop() {
+        status = .closed(reason: "gone", retryable: true)
+        onStatus(status)
+    }
+
     func open(_ at: Double) {
         status = .open(sinceMs: at)
         onStatus(status)
@@ -240,9 +246,10 @@ final class CloudSite {
         #expect(w.site.ageMs != nil)
     }
 
-    /// The cloud fails or is out of reach: the box session's readings take
-    /// over under its own name, and the cloud takes back over when it heals.
-    @Test func theRelayTakesOverWhileTheCloudIsDown() async throws {
+    /// Both paths live: the box's own stream wins, straight from the box at
+    /// its own rate. When it closes, FTW Cloud carries on at once, and when
+    /// the cloud fails the box session stays.
+    @Test func theFastestLivePathWins() async throws {
         let w = try CloudSite()
         w.open()
         w.connectCloud()
@@ -252,17 +259,34 @@ final class CloudSite {
         w.relay.snap(uptimeMs: w.uptime, gridW: 700)
         w.service.held = [try w.live(gridW: 1000)]
         await w.run(60)
-        #expect(w.site.carrier == .cloud)
-        #expect(w.site.session.fields[Contract.FID.gridW] == 1000)
+        #expect(w.site.carrier == .relay)
+        #expect(w.site.session.fields[Contract.FID.gridW] == 700)
 
         w.service.close(code: 1006)
         await w.run(20)
         #expect(w.site.carrier == .relay)
-        #expect(w.site.session.fields[Contract.FID.gridW] == 700)
         #expect(w.site.freshness(noCarrier: false).message == "Live via encrypted relay")
+    }
 
-        await w.run(600)
+    /// The box session closes while FTW Cloud is live: the cloud's readings
+    /// take over at once, under its own name.
+    @Test func theCloudCarriesOnWhenTheBoxSessionCloses() async throws {
+        let w = try CloudSite()
+        w.open()
+        w.connectCloud()
+        w.site.connect(w.relay)
+        w.relay.open(w.scheduler.nowMs)
+        w.relay.helloOk(uptimeMs: w.uptime, cloud: w.identity)
+        w.relay.snap(uptimeMs: w.uptime, gridW: 700)
+        w.service.held = [try w.live(gridW: 1000)]
+        await w.run(60)
+        #expect(w.site.carrier == .relay)
+
+        w.relay.drop()
+        w.service.push(try w.live(gridW: 1000))
+        await w.run(20)
         #expect(w.site.carrier == .cloud)
+        #expect(w.site.session.fields[Contract.FID.gridW] == 1000)
     }
 
     /// A box session that streams live wins over a cloud copy that is not
