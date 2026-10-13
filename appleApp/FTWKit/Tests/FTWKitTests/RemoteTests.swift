@@ -271,6 +271,26 @@ import FTWShared
         }
     }
 
+    /// Exit demo and Remove this phone leave no Live Activity behind.
+    @Test func exitDemoAndLeaveEndEveryLiveActivity() async throws {
+        try await AppWords.$language.withValue(.en) {
+            let rig = Rig()
+            let loadpoints = try rig.start()
+            _ = await rig.perform(.chargeNow, loadpoints)
+            #expect(rig.activities.states["demo/garage"] != nil)
+            rig.app.exitDemo()
+            #expect(rig.activities.states.isEmpty)
+            #expect(rig.activities.endedAllExcept.contains { $0 == nil })
+
+            let again = Rig()
+            let second = try again.start()
+            _ = await again.perform(.chargeNow, second)
+            #expect(again.activities.states["demo/garage"] != nil)
+            again.app.leave()
+            #expect(again.activities.states.isEmpty)
+        }
+    }
+
     /// With a Live Activity up, the stream coming back while someone looks
     /// reads the chargers once by itself, and a charger the box no longer
     /// lists ends its Live Activity.
