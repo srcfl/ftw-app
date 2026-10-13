@@ -219,7 +219,7 @@ struct LevelChips: View {
             if selected {
                 Button(action: action) { title.foregroundStyle(Theme.onAccent) }
                     .buttonStyle(.borderedProminent)
-                    .tint(Theme.accent)
+                    .tint(Theme.accentFill)
             } else {
                 Button(action: action) { title.foregroundStyle(Theme.fg) }
                     .buttonStyle(.bordered)

@@ -3,80 +3,127 @@ import SwiftUI
 
 /// How the home is run: the plan, with its planning style and whether the
 /// battery may sell, or one of the manual modes. Each choice goes to the box
-/// at once; there is no Save. A tap answers with a haptic and "Sent", then
-/// the box's receipt, then what the box did.
+/// at once; there is no Save. A tap answers with a haptic, the row waits
+/// with a turning mark while the box's mode keeps its tick, and the receipt
+/// sits in a bar of fixed height at the foot, so no row moves under the
+/// finger. A mode the box applied closes the sheet.
 struct ModeSheet: View {
     let mode: ModeModel
     @Environment(\.dismiss) private var dismiss
     @State private var taps = 0
+    /// The sheet's height for its content, measured once laid out.
+    @State private var fitted: CGFloat = 520
+    @State private var detent: PresentationDetent = .height(520)
 
     var body: some View {
         NavigationStack {
             List {
-                if let outcome = mode.outcome {
-                    Section {
-                        ReceiptView(outcome: outcome)
-                    }
-                    .listRowBackground(Theme.surfaceRaised)
-                }
                 planSection
                 manualSection
             }
             .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Theme.surface)
-            .animation(Theme.spring, value: mode.outcome)
+            .safeAreaBar(edge: .bottom) { ReceiptBar(mode: mode) }
+            .scrollEdgeEffectStyle(.hard, for: .bottom)
+            .onScrollGeometryChange(for: CGFloat.self) { g in
+                (g.contentSize.height + g.contentInsets.top + g.contentInsets.bottom).rounded()
+            } action: { _, height in
+                fit(height)
+            }
+            .animation(Theme.spring, value: mode.pending)
             .animation(Theme.spring, value: mode.shown)
             .navigationTitle(L("Mode"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(L("Done")) { dismiss() }
+                    Button(role: .close) { dismiss() }
+                        .accessibilityIdentifier("mode.close")
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.height(fitted), .large], selection: $detent)
         .presentationDragIndicator(.visible)
-        .sensoryFeedback(.impact(weight: .medium), trigger: taps)
+        .sensoryFeedback(.selection, trigger: taps)
         .sensoryFeedback(trigger: mode.outcome?.tone) { _, tone in Self.feedback(tone) }
+        .task(id: mode.change?.result) { await closeOnceApplied() }
         .onAppear { mode.activate() }
         .onDisappear { mode.deactivate() }
     }
 
-    private var onPlan: Bool { ModeWords.isPlan(mode.shown) }
+    /// The sheet follows its content, unless the reader pulled it to full
+    /// height.
+    private func fit(_ height: CGFloat) {
+        guard height > 0, abs(height - fitted) > 1 else { return }
+        let following = detent != .large
+        fitted = height
+        if following { detent = .height(height) }
+    }
+
+    /// A mode the box applied: the tick has moved and the haptic said so;
+    /// a moment later the sheet goes. A style or a sale stays, since the
+    /// reader may change the other too.
+    private func closeOnceApplied() async {
+        guard let change = mode.change, change.result == .applied, case .mode = change.ask else { return }
+        try? await Task.sleep(for: .milliseconds(900))
+        guard !Task.isCancelled else { return }
+        dismiss()
+    }
+
+    /// Whether the plan runs, as the box has it until it answers, so the
+    /// plan's settings and their footer hold still while a change waits.
+    private var onPlan: Bool { ModeWords.isPlan(mode.pending == nil ? mode.shown : mode.actual) }
+
+    /// The box's mode keeps its tick until the box answers; the row asked
+    /// for waits beside it.
+    private func ticked(_ isRow: (String?) -> Bool) -> Bool {
+        mode.pending == nil ? isRow(mode.shown) : isRow(mode.actual)
+    }
 
     @ViewBuilder private var planSection: some View {
         Section {
-            choice(title: L("Plan"), help: ModeWords.help(mode.info(mode.prefs?.mappedMode ?? ModeModel.planFallback)), selected: onPlan) {
+            choice(
+                title: L("Plan"),
+                help: ModeWords.help(mode.info(mode.prefs?.mappedMode ?? ModeModel.planFallback)),
+                selected: ticked { ModeWords.isPlan($0) },
+                waiting: mode.pending.map { ModeWords.isPlan($0) } ?? false,
+                id: "plan"
+            ) {
                 await mode.usePlan()
             }
-            if onPlan {
-                Picker(L("Planning style"), selection: styleBinding) {
-                    ForEach(ModeModel.styles) { style in
-                        Text(L(style.name)).tag(style.key)
-                    }
+            // The plan's own settings stay in place whatever runs, so the
+            // list never changes length under the finger.
+            Picker(L("Planning style"), selection: styleBinding) {
+                ForEach(ModeModel.styles) { style in
+                    Text(L(style.name)).tag(style.key)
                 }
-                .pickerStyle(.menu)
-                .disabled(mode.sending || mode.prefs == nil)
-                Toggle(L("Let the battery sell to the grid when it pays"), isOn: exportBinding)
-                    .disabled(mode.sending || mode.prefs == nil)
-                    .tint(Theme.accent)
             }
+            .pickerStyle(.menu)
+            .disabled(!canSet || mode.prefs == nil || !onPlan)
+            Toggle(L("Let the battery sell to the grid when it pays"), isOn: exportBinding)
+                .disabled(!canSet || mode.prefs == nil || !onPlan)
+                .tint(Theme.accentFill)
         } header: {
             Text(L("How your home is run"))
         } footer: {
-            if onPlan, let style = mode.shownStyle {
+            if !onPlan {
+                Text(L("Used while the plan runs."))
+            } else if let style = mode.shownStyle {
                 Text(L(style.help))
+                    .contentTransition(.opacity)
             }
         }
-        .listRowBackground(Theme.surfaceRaised)
     }
 
     @ViewBuilder private var manualSection: some View {
         if !mode.manualModes.isEmpty {
             Section {
                 ForEach(mode.manualModes) { m in
-                    choice(title: ModeWords.name(m), help: ModeWords.help(m), selected: mode.shown == m.key) {
+                    choice(
+                        title: ModeWords.name(m),
+                        help: ModeWords.help(m),
+                        selected: ticked { $0 == m.key },
+                        waiting: mode.pending == m.key,
+                        id: m.key
+                    ) {
                         await mode.set(m.key)
                     }
                 }
@@ -85,13 +132,15 @@ struct ModeSheet: View {
             } footer: {
                 Text(L("A manual mode runs until you choose another. FTW does not plan meanwhile."))
             }
-            .listRowBackground(Theme.surfaceRaised)
         }
     }
 
-    private func choice(title: String, help: String, selected: Bool, _ run: @escaping () async -> Void) -> some View {
+    /// A change can go: the stream is up and nothing else is on its way.
+    private var canSet: Bool { mode.connected && !mode.sending }
+
+    private func choice(title: String, help: String, selected: Bool, waiting: Bool, id: String, _ run: @escaping () async -> Void) -> some View {
         Button {
-            guard !selected else { return }
+            guard !selected, canSet else { return }
             taps += 1
             Task { await run() }
         } label: {
@@ -103,15 +152,20 @@ struct ModeSheet: View {
                     }
                 }
                 Spacer(minLength: 8)
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(selected ? Theme.accent : Theme.fgMuted)
+                Image(systemName: waiting ? "circle.dotted" : (selected ? "checkmark.circle.fill" : "circle"))
+                    .foregroundStyle(selected || waiting ? Theme.accent : Theme.fgMuted)
                     .contentTransition(.symbolEffect(.replace))
+                    .symbolEffect(.rotate, options: .repeating, isActive: waiting)
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(mode.sending && !selected)
+        // The running mode never greys out; the others rest while a change
+        // is on its way or the box is out of reach, and the bar says why.
+        .disabled(!selected && !waiting && !canSet)
         .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityValue(waiting ? L("Sending to your box…") : "")
+        .accessibilityIdentifier("mode.choice.\(id)")
     }
 
     private var styleBinding: Binding<String> {
@@ -141,6 +195,51 @@ struct ModeSheet: View {
         case .warning?: return .warning
         case .failed?: return .error
         default: return nil
+        }
+    }
+}
+
+/// The foot of the sheet: why the choices rest, the receipt of the last
+/// change, or how the sheet works. Its height is held for the longest
+/// receipt, so nothing above it moves when one arrives.
+private struct ReceiptBar: View {
+    let mode: ModeModel
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            // The room a receipt needs, its marks and two lines, at any
+            // text size.
+            VStack(alignment: .leading, spacing: 6) {
+                Label(L("Received"), systemImage: "circle").font(.caption.weight(.semibold))
+                Text(verbatim: "\n").font(.footnote.weight(.medium))
+            }
+            .padding(.vertical, 4)
+            .hidden()
+            .accessibilityHidden(true)
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .animation(Theme.spring, value: mode.outcome)
+        .animation(Theme.spring, value: mode.connected)
+        .accessibilityIdentifier("mode.receipt")
+    }
+
+    @ViewBuilder private var content: some View {
+        if let outcome = mode.outcome {
+            ReceiptView(outcome: outcome)
+                .transition(.opacity)
+        } else if !mode.connected {
+            Label(L("Waiting for your box. You can choose when it answers."), systemImage: "wifi.exclamationmark")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(Theme.fgDim)
+                .transition(.opacity)
+        } else {
+            Text(L("Each choice goes to your box at once."))
+                .font(.footnote)
+                .foregroundStyle(Theme.fgMuted)
+                .transition(.opacity)
         }
     }
 }

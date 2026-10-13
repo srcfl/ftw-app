@@ -101,7 +101,7 @@ struct PlanLanes: View, Equatable {
                 }
             }
             RuleMark(x: .value("Now", date(from)))
-                .foregroundStyle(Theme.accent)
+                .foregroundStyle(Theme.accentFill)
                 .lineStyle(StrokeStyle(lineWidth: 1.5))
         }
         .chartXScale(domain: date(from)...date(to))

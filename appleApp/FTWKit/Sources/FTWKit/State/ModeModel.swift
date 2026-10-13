@@ -9,9 +9,10 @@ import Observation
 /// `GET /api/planner/prefs`.
 ///
 /// A change is a command (`site.mode.set` or `planner.prefs.set`), followed
-/// from tap to outcome. The screen shows the choice at once and what the box
-/// reports otherwise; a refusal snaps back, because nothing here overrides
-/// what the box said.
+/// from tap to outcome. The screen shows the choice while it is on its way,
+/// and what the box reports once it has answered: a refusal snaps back, and
+/// a change the box never confirmed shows the box's mode with a warning,
+/// because nothing here overrides what the box said.
 @Observable
 @MainActor
 public final class ModeModel {
@@ -69,12 +70,16 @@ public final class ModeModel {
         }
 
         public let ask: Ask
+        /// Held until the session streams, so nothing is sent into a gap.
+        public var waiting = false
         public var acked = false
         public var result: Result?
+        /// The box's last report when the result came: an applied change
+        /// stands until the box reports again, so the screen does not flick
+        /// back to the old value in between.
+        var reportAtResult: Double?
 
         public var settled: Bool { result != nil }
-        /// Still worth showing as the choice: on its way or done.
-        var standing: Bool { result == nil || result == .applied || result == .unconfirmed }
     }
 
     /// How long a confirmed change keeps its receipt on screen.
@@ -82,6 +87,9 @@ public final class ModeModel {
 
     public private(set) var change: Change?
     public private(set) var prefs: Prefs?
+    /// When the prefs were last read, so an applied style or sale stands
+    /// until the box has been asked again.
+    private var prefsReadAtMs: Double?
 
     /// Runs after the box applied a change, so the plan can be read again.
     @ObservationIgnored public var applied: (@MainActor () -> Void)?
@@ -114,6 +122,7 @@ public final class ModeModel {
     func loadPrefs() async throws {
         let wire = try await site.callBox(.get, "/api/planner/prefs")
         prefs = Self.prefs(wire)
+        prefsReadAtMs = site.scheduler.nowMs
     }
 
     static func prefs(_ wire: JSON?) -> Prefs {
@@ -139,19 +148,63 @@ public final class ModeModel {
 
     /// The choice while it is on its way, else what the box reports.
     public var shown: String? {
-        if let change, change.standing, case .mode(let m) = change.ask { return m }
+        if let change, standing(change), case .mode(let m) = change.ask { return m }
         return actual
     }
 
     public var shownStyle: Style? {
-        if let change, change.standing, case .style(let k) = change.ask { return Self.style(k: k) }
+        if let change, standing(change), case .style(let k) = change.ask { return Self.style(k: k) }
         return prefs.map { Self.style(k: $0.safetyK) }
     }
 
     public var shownExport: Bool? {
-        if let change, change.standing, case .export(let on) = change.ask { return on }
+        if let change, standing(change), case .export(let on) = change.ask { return on }
         guard let e = prefs?.batteryExport, e != "unknown" else { return nil }
         return e == "allowed"
+    }
+
+    /// A choice stands while it is on its way, and once applied until the
+    /// box reports again. Any other answer leaves what the box reports.
+    private func standing(_ change: Change) -> Bool {
+        switch change.result {
+        case nil: return true
+        case .applied?:
+            if case .mode = change.ask { return site.lastFrameAtMs == change.reportAtResult }
+            return prefsReadAtMs == change.reportAtResult
+        default: return false
+        }
+    }
+
+    /// The mode asked for while it is on its way, for the row that waits.
+    public var pending: String? {
+        guard let change, change.result == nil, case .mode(let m) = change.ask else { return nil }
+        return m
+    }
+
+    /// A change the box took and never confirmed, while what it reports
+    /// still differs: "Asked for Idle. Your box has not confirmed it."
+    public var doubt: String? {
+        guard let change, change.result == .unconfirmed else { return nil }
+        let name: String
+        switch change.ask {
+        case .mode(let m):
+            guard actual != m else { return nil }
+            name = ModeWords.name(info(m))
+        case .style(let k):
+            let style = Self.style(k: k)
+            guard shownStyle != style else { return nil }
+            name = NodeWords.text(style.name)
+        case .export(let on):
+            guard shownExport != on else { return nil }
+            name = NodeWords.text(on ? "selling to the grid" : "not selling to the grid")
+        }
+        return NodeWords.format("Asked for %@. Your box has not confirmed it.", name)
+    }
+
+    /// Whether a change can go now: commands travel only on a streaming
+    /// session.
+    public var connected: Bool {
+        site.session.phase == .streaming && site.carrier != .cache
     }
 
     public func info(_ key: String?) -> ModeInfo? {
@@ -199,10 +252,23 @@ public final class ModeModel {
         await send(.export(allowed), op: Contract.opPlannerPrefsSet, args: [("battery_export", .text(allowed ? "allowed" : "not_allowed"))])
     }
 
+    /// How long a tap waits for the stream before it gives up.
+    nonisolated static let streamWaitMs: Double = 3_000
+
     private func send(_ ask: Ask, op: String, args: [(String, CBOR)]) async {
         guard !sending else { return }
         clearing?.cancel()
         change = Change(ask: ask)
+        if !connected {
+            change?.waiting = true
+            let up = await stream(within: Self.streamWaitMs)
+            guard change?.ask == ask else { return }
+            change?.waiting = false
+            guard up else {
+                change?.result = .refused(NodeWords.text("Not connected to your box right now. Try again when the connection is back."))
+                return
+            }
+        }
         let result: Change.Result
         do {
             let r = try await site.core.command(op, args: args, onAck: { [weak self] in
@@ -220,10 +286,16 @@ public final class ModeModel {
             result = .refused(Self.failure(error))
         }
         guard change?.ask == ask else { return }
+        if case .mode = ask {
+            change?.reportAtResult = site.lastFrameAtMs
+        } else {
+            change?.reportAtResult = prefsReadAtMs
+        }
         change?.result = result
-        guard result == .applied else { return }
-        // The prefs move the mode too, so both are read again.
+        // The prefs move the mode too, so both are read again, after any
+        // answer the box gave: what it holds now is what shows.
         if case .mode = ask {} else { want += 1; self.ask?.evaluate() }
+        guard result == .applied else { return }
         applied?()
         clearing = site.scheduler.after(Self.doneShownMs) { [weak self] in
             guard let self, self.change?.ask == ask, self.change?.result == .applied else { return }
@@ -235,6 +307,8 @@ public final class ModeModel {
     public var outcome: EVText.Outcome? {
         guard let change else { return nil }
         switch change.result {
+        case nil where change.waiting:
+            return EVText.Outcome(sent: .active, received: .waiting, done: .waiting, text: NodeWords.text("Waiting for the connection…"), tone: .working)
         case nil:
             return EVText.Outcome(
                 sent: .done, received: change.acked ? .done : .active, done: change.acked ? .active : .waiting,
@@ -245,6 +319,9 @@ public final class ModeModel {
             return EVText.Outcome(sent: .done, received: .done, done: .done, text: done(change.ask), tone: .done)
         case .superseded?:
             return EVText.Outcome(sent: .done, received: .done, done: .failed, text: NodeWords.text("Something else changed the mode first. Have a look and try again."), tone: .warning)
+        case .unconfirmed? where doubt == nil:
+            // The box shows what was asked after all.
+            return EVText.Outcome(sent: .done, received: .done, done: .done, text: done(change.ask), tone: .done)
         case .unconfirmed?:
             return EVText.Outcome(sent: .done, received: .done, done: .waiting, text: NodeWords.text("Your box took it but has not confirmed it yet."), tone: .warning)
         case .refused(let why)?:
@@ -284,5 +361,37 @@ public final class ModeModel {
         if let e = error as? CommandError, e.code == "E_NO_ACK" { return NodeWords.text("That did not reach your box. Try again.") }
         if error is SessionError { return NodeWords.text("Not connected to your box right now. Try again when the connection is back.") }
         return NodeWords.text("That did not go through. Try again.")
+    }
+}
+
+extension ModeModel {
+    /// True once the session streams, false if it has not within `ms`.
+    fileprivate func stream(within ms: Double) async -> Bool {
+        if connected { return true }
+        let wait = ModeStreamWait()
+        let up = await withCheckedContinuation { cont in
+            wait.continuation = cont
+            wait.token = site.observe { [weak self, wait] in
+                if self?.connected == true { wait.settle(true) }
+            }
+            wait.timer = site.scheduler.after(ms) { [wait] in wait.settle(false) }
+        }
+        if let token = wait.token { site.unobserve(token) }
+        return up
+    }
+}
+
+/// One wait for the stream, settled once.
+@MainActor
+private final class ModeStreamWait {
+    var continuation: CheckedContinuation<Bool, Never>?
+    var token: Int?
+    var timer: Cancellable?
+
+    func settle(_ up: Bool) {
+        guard let cont = continuation else { return }
+        continuation = nil
+        timer?.cancel()
+        cont.resume(returning: up)
     }
 }

@@ -457,6 +457,7 @@ import FTWShared
             rig.app.startDemo()
             let mode = try #require(rig.app.home).nodes.mode
             let box = try #require(rig.box)
+            mode.activate()
             await rig.run(1_500)
             box.neverConfirm = true
             let change = Task { await mode.set("idle") }
@@ -465,8 +466,59 @@ import FTWShared
             #expect(mode.change?.result == .unconfirmed)
             #expect(mode.outcome?.done == .waiting)
             #expect(mode.outcome?.tone == .warning)
-            // Shown as asked, never as done.
-            #expect(mode.shown == "idle")
+            // A frame with the box's own mode: that is what shows, with the
+            // ask beside it, never the ask as the mode.
+            await rig.run(1_500)
+            #expect(mode.actual == "planner_passive_arbitrage")
+            #expect(mode.shown == "planner_passive_arbitrage")
+            #expect(mode.label == "Plan · Balanced")
+            #expect(mode.doubt == "Asked for Stop batteries. Your box has not confirmed it.")
+        }
+    }
+
+    /// Between the box's "applied" and its next frame the old mode is still
+    /// on lane 0. The choice stands until that frame, so nothing flicks back.
+    @MainActor
+    @Test func anAppliedChoiceStandsUntilTheBoxReportsAgain() async throws {
+        try await AppWords.$language.withValue(.en) {
+            let rig = DemoRig()
+            rig.app.startDemo()
+            let mode = try #require(rig.app.home).nodes.mode
+            await rig.run(1_500)
+            let change = Task { await mode.set("self_consumption") }
+            var seen: Set<String> = []
+            for _ in 0..<80 {
+                await rig.run(50)
+                if let shown = mode.shown { seen.insert(shown) }
+            }
+            await change.value
+            #expect(mode.change?.result == .applied)
+            #expect(mode.shown == "self_consumption")
+            #expect(mode.doubt == nil)
+            // Never back to the old mode on the way.
+            #expect(seen == ["self_consumption"])
+        }
+    }
+
+    /// A tap while the session is not streaming waits for it, says so, and
+    /// sends once it is up: nothing goes into a gap.
+    @MainActor
+    @Test func aTapWaitsForTheStream() async throws {
+        try await AppWords.$language.withValue(.en) {
+            let rig = DemoRig()
+            rig.app.startDemo()
+            let mode = try #require(rig.app.home).nodes.mode
+            let box = try #require(rig.box)
+            #expect(!mode.connected)
+            let change = Task { await mode.set("self_consumption") }
+            await rig.run(0)
+            #expect(mode.change?.waiting == true)
+            #expect(mode.outcome?.text == "Waiting for the connection…")
+            #expect(!box.receivedCommands.contains(Contract.opSetMode))
+            await rig.run(3_000)
+            await change.value
+            #expect(box.receivedCommands.contains(Contract.opSetMode))
+            #expect(mode.change?.result == .applied)
         }
     }
 
@@ -533,7 +585,8 @@ import FTWShared
             "appleApp/FTW/UI/PlanCard.swift", "appleApp/FTW/UI/PlanView.swift", "appleApp/FTWKit/Sources/FTWKit/State/PlanShare.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/EnergyNode.swift", "appleApp/FTWKit/Sources/FTWKit/State/NowFlow.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/ModeModel.swift", "appleApp/FTWKit/Sources/FTWKit/State/PlanModel.swift",
-            "appleApp/FTWKit/Sources/FTWKit/State/HistoryModel.swift",
+            "appleApp/FTWKit/Sources/FTWKit/State/HistoryModel.swift", "appleApp/FTW/UI/PairView.swift",
+            "appleApp/FTW/UI/RootView.swift", "appleApp/FTWKit/Sources/FTWKit/State/PairModel.swift",
         ]
         let pattern = #/(?:\bL|NodeWords\.(?:text|format)|AppWords\.(?:text|format))\("((?:[^"\\]|\\.)*)"/#
         var english = Set<String>()

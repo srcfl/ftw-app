@@ -267,7 +267,9 @@ enum Tone {
     static let dear = Pair(0xCC243D, 0xFF6E74)
     static let negative = Pair(0xD48500, 0xFFB000)
     static let flat = Pair(0x686862, 0x858585)
-    static let accent = Pair(0xDA7F00, 0xFFAC41)
+    /// Text and glyphs: the app's darker accent in light, so it reads on
+    /// the widget's surface.
+    static let accent = Pair(0x9C5800, 0xFFAC41)
 
     static func of(_ tone: PriceStrip.Tone) -> Pair {
         switch tone {

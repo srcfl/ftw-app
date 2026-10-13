@@ -86,7 +86,10 @@ private struct NowBody: View {
         Title(L("Nothing from your box yet"))
         Text(app.connectHelp ?? L("This phone is paired to it and keeps trying on its own. Your home appears here as soon as the box answers."))
         if app.connectHelp != nil {
-            Button(L("Get this phone back in")) { app.recovering = true }.buttonStyle(.primary)
+            // Most of what stops a connect passes: try that first, and keep
+            // pairing again as the way back when it does not.
+            RetryConnect(app: app)
+            Button(L("Get this phone back in")) { app.recovering = true }.buttonStyle(.quiet)
         } else if !app.isDemo {
             Button(L("Your box won't let this phone in?")) { app.recovering = true }.buttonStyle(.quiet)
         }
@@ -96,6 +99,7 @@ private struct NowBody: View {
         if let help = app.connectHelp {
             Card {
                 Text(help)
+                RetryConnect(app: app)
                 Button(L("Get this phone back in")) { app.recovering = true }.buttonStyle(.quiet)
             }
         }
@@ -108,6 +112,31 @@ private struct NowBody: View {
         PlanSection(site: site, models: home.nodes, prices: home.prices, zoom: zoom)
         AboutLink(app: app)
             .padding(.top, -18)
+    }
+}
+
+/// Builds the connection again, with Face ID if the key needs it. Pairing
+/// again is a separate, later choice.
+private struct RetryConnect: View {
+    let app: AppModel
+    @State private var trying = false
+
+    var body: some View {
+        Button {
+            trying = true
+            Task {
+                await app.connect()
+                trying = false
+            }
+        } label: {
+            HStack(spacing: 8) {
+                if trying { ProgressView().controlSize(.small).tint(Theme.onAccent) }
+                Text(L("Try again"))
+            }
+        }
+        .buttonStyle(.primary)
+        .disabled(trying)
+        .accessibilityIdentifier("now.connect.retry")
     }
 }
 
@@ -126,7 +155,7 @@ private struct StatusSection: View {
                 dispatchBlockedBy: site.session.dispatchBlockedBy,
                 sources: site.session.sources
             ),
-            mode: mode.label.map { ModeLabel(text: $0, sending: mode.sending) },
+            mode: mode.label.map { ModeLabel(text: $0, sending: mode.sending, doubt: mode.doubt) },
             canChoose: mode.canControl,
             choose: choose
         )
@@ -138,6 +167,9 @@ private struct StatusSection: View {
 struct ModeLabel: Equatable {
     let text: String
     let sending: Bool
+    /// A change the box took and never confirmed: the box's mode shows,
+    /// and this says what was asked.
+    var doubt: String?
 }
 
 /// "Is FTW in control?" in one calm line, and the mode beside it. Green
@@ -154,13 +186,26 @@ struct StatusRow: View, Equatable {
     }
 
     var body: some View {
-        // One row on every iPhone: the mode keeps its width and the answer
-        // wraps beside it, rather than the two stacking.
-        HStack(alignment: .center, spacing: 10) {
-            control
-                .frame(maxWidth: .infinity, alignment: .leading)
-            modeView(alignment: .trailing)
-                .fixedSize()
+        VStack(alignment: .leading, spacing: 6) {
+            // One row on every iPhone: the mode keeps its width and the answer
+            // wraps beside it, rather than the two stacking.
+            HStack(alignment: .center, spacing: 10) {
+                control
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                modeView(alignment: .trailing)
+                    .fixedSize()
+            }
+            if let doubt = mode?.doubt {
+                Label {
+                    Text(doubt).foregroundStyle(Theme.fg)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.generation)
+                }
+                .font(.caption.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
+                    .accessibilityIdentifier("now.mode.doubt")
+            }
         }
         .padding(.vertical, 10)
         .padding(.leading, 16)

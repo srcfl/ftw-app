@@ -72,4 +72,75 @@ final class NowFitsTests: XCTestCase {
         // The node's view fits too: its last control is where it stands.
         XCTAssertTrue(app.windows.firstMatch.frame.contains(app.buttons["node.mode.change"].frame))
     }
+
+    /// The mode sheet opens tall enough for its choices, keeps the box's
+    /// mode ticked while a new one waits in its own row, moves nothing under
+    /// the finger, and closes once the box applied the mode.
+    @MainActor
+    func testTheModeSheetFitsWaitsInPlaceAndClosesOnceApplied() throws {
+        let app = launchDemo()
+        let button = app.buttons["now.mode"]
+        // The choices rest until the stream is up.
+        XCTAssertTrue(button.waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 3)
+        button.tap()
+        let plan = app.buttons["mode.choice.plan"]
+        XCTAssertTrue(plan.waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 1.5)
+        shoot(app, "mode-open")
+        XCTAssertTrue(plan.isSelected, "the box's mode is not ticked")
+        let idle = app.buttons["mode.choice.idle"]
+        XCTAssertTrue(idle.exists)
+        // Every choice the sheet opened with is on screen: the sheet fits
+        // its content, or is full height and scrolls.
+        let window = app.windows.firstMatch.frame
+        if !window.contains(idle.frame) {
+            app.swipeUp()
+            Thread.sleep(forTimeInterval: 1)
+        }
+        XCTAssertTrue(window.contains(idle.frame), "\(idle.frame) is outside \(window)")
+        let top = idle.frame.minY
+        idle.tap()
+        Thread.sleep(forTimeInterval: 0.3)
+        shoot(app, "mode-sending")
+        XCTAssertEqual(idle.frame.minY, top, accuracy: 1, "the row moved under the finger")
+        XCTAssertTrue(plan.isSelected, "the box's mode lost its tick before the box answered")
+        // Applied: the sheet goes, and Now names the box's new mode.
+        XCTAssertTrue(plan.waitForNonExistence(timeout: 10), "the sheet stayed open after the box applied the mode")
+        XCTAssertEqual(button.value as? String, "Stop batteries")
+        shoot(app, "mode-applied")
+    }
+
+    /// The first screen: a large title, one prominent action in reach
+    /// without scrolling, the demo as a second choice, all in Swedish on a
+    /// Swedish phone.
+    @MainActor
+    func testPairingHasOneActionInReachInSwedish() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-AppleLanguages", "(sv)", "-AppleLocale", "sv_SE",
+            "-UIPreferredContentSizeCategoryName", Self.standard,
+        ]
+        app.launch()
+        let scan = app.buttons["pair.primary"]
+        guard scan.waitForExistence(timeout: 10) else {
+            // A phone that holds a home opens it instead; nothing to see here.
+            throw XCTSkip("this simulator holds a paired home")
+        }
+        shoot(app, "pair")
+        XCTAssertTrue(app.navigationBars["Anslut FTW"].exists, "no large Swedish title")
+        XCTAssertEqual(scan.label, "Skanna QR-koden")
+        XCTAssertTrue(scan.isHittable)
+        XCTAssertTrue(app.windows.firstMatch.frame.contains(scan.frame))
+        XCTAssertTrue(app.buttons["pair.demo"].exists)
+        XCTAssertEqual(app.buttons.matching(identifier: "pair.primary").count, 1, "more than one prominent action")
+    }
+
+    @MainActor
+    private func shoot(_ app: XCUIApplication, _ name: String) {
+        let shot = XCTAttachment(screenshot: app.screenshot())
+        shot.name = name
+        shot.lifetime = .keepAlways
+        add(shot)
+    }
 }

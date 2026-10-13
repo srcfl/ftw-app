@@ -224,7 +224,7 @@ struct HubBubble: View, Equatable {
         .padding(8)
         .frame(width: diameter, height: diameter)
         .background(Circle().fill(Theme.surfaceElevated))
-        .overlay(Circle().strokeBorder((live ? Theme.accent : Theme.fgMuted).opacity(0.6), style: StrokeStyle(lineWidth: 2, dash: live ? [] : [4, 3])))
+        .overlay(Circle().strokeBorder((live ? Theme.accentFill : Theme.fgMuted).opacity(0.6), style: StrokeStyle(lineWidth: 2, dash: live ? [] : [4, 3])))
         .contentShape(Circle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(EnergyNode.home.title)
