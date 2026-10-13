@@ -109,6 +109,9 @@ public enum PlanDial {
         public let daylight: PlanEntry.Daylight?
         public let currency: String
         public let timeZoneID: String
+        /// The quarter at each of the two days' 192 quarter hours on the
+        /// clock, so a place on the spiral is one lookup.
+        let slots: [Int]
 
         public var timeZone: TimeZone { TimeZone(identifier: timeZoneID) ?? .current }
 
@@ -137,12 +140,12 @@ public enum PlanDial {
             return (ms >= tomorrowStartMs ? 1 : 0) + fraction
         }
 
-        /// The quarter nearest a place on the spiral, kept within `reach`.
+        /// The quarter at a place on the spiral, kept within `reach`: one
+        /// lookup, cheap enough for every move of a finger.
         public func index(atProgress p: Double) -> Int? {
-            guard let reach else { return nil }
-            var best = reach.lowerBound
-            for i in reach where abs(quarters[i].progress - p) < abs(quarters[best].progress - p) { best = i }
-            return best
+            guard let reach, !slots.isEmpty else { return nil }
+            let k = min(slots.count - 1, max(0, Int((p * 96).rounded(.down))))
+            return min(reach.upperBound, max(reach.lowerBound, slots[k]))
         }
 
         /// The quarters VoiceOver steps through: the one now and every whole
@@ -238,6 +241,18 @@ public enum PlanDial {
             ))
             t = qEnd
         }
+        // The night the clocks go back, an hour's quarters come twice; a
+        // finger gets the first. The night they go forward, the skipped
+        // hour takes the quarter before it.
+        var slots = [Int](repeating: -1, count: 192)
+        for (i, q) in quarters.enumerated() {
+            let k = q.turn * 96 + q.minuteOfDay / 15
+            if slots[k] < 0 { slots[k] = i }
+        }
+        var last = 0
+        for k in slots.indices {
+            if slots[k] < 0 { slots[k] = last } else { last = slots[k] }
+        }
         let scale = max(1, quarters.compactMap { $0.priceMinor.map(abs) }.max() ?? 1)
         let cheapest = PlanGlance.cheapest(entry, fromMs: nowMs, toMs: nowMs + PlanGlance.horizonMs).map { PlanEntry.Span(fromMs: $0.startMs, toMs: $0.endMs) }
         return Face(
@@ -250,7 +265,8 @@ public enum PlanDial {
             cheapest: cheapest,
             daylight: entry.daylight,
             currency: entry.currency,
-            timeZoneID: calendar.timeZone.identifier
+            timeZoneID: calendar.timeZone.identifier,
+            slots: slots
         )
     }
 

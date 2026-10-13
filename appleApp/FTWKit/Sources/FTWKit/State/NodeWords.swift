@@ -229,6 +229,9 @@ public enum NodeWords {
         "Plan dial": "Plantavla",
         "battery %@": "batteri %@",
         "Swipe up or down to move an hour.": "Svep uppåt eller nedåt för att flytta en timme.",
+        "Dial": "Tavla",
+        "Lanes": "Banor",
+        "Show the plan as": "Visa planen som",
         // Pairing. The box's own dashboard is in English, so its labels
         // (Settings → FTW app, Show pairing code) stay as it shows them.
         "Scan the pairing QR": "Skanna QR-koden",

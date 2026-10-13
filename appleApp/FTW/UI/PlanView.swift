@@ -1,19 +1,23 @@
 import FTWKit
 import SwiftUI
 
-/// The plan, opened from Now: today and tomorrow round the plan dial, then
-/// each thing the box means to do, when, and why, in the box's own
-/// reasons. A finger on the dial scrubs the plan.
+/// The plan, opened from Now: today and tomorrow round the plan dial, or
+/// the next twelve hours in lanes as on Now, then each thing the box means
+/// to do, when, and why, in the box's own reasons. A finger on the dial
+/// scrubs the plan.
 struct PlanView: View {
     let app: AppModel
     let home: HomeModels
     @State private var choosingMode = false
+    /// The viewer's own choice, kept on this phone. `-FTWPlanStyle lanes`
+    /// at launch holds it there, for screenshots and tests.
+    @AppStorage("FTWPlanStyle") private var style: PlanStyle = .dial
 
     private var models: NodeModels { home.nodes }
 
     var body: some View {
-        FitScreen(spacing: 10) { _ in
-            PlanBody(site: home.site, models: models, loadpoints: home.loadpoints, prices: home.prices, chooseMode: { choosingMode = true })
+        FitScreen(spacing: 10) { fill in
+            PlanBody(site: home.site, models: models, loadpoints: home.loadpoints, prices: home.prices, style: $style, fill: fill, chooseMode: { choosingMode = true })
         }
         .navigationTitle(PlanGlance.title)
         .navigationBarTitleDisplayMode(.inline)
@@ -36,11 +40,26 @@ struct PlanView: View {
     }
 }
 
+/// How the plan view draws the plan: round on the dial, or straight in
+/// lanes as on Now.
+enum PlanStyle: String, CaseIterable {
+    case dial, lanes
+
+    var label: String {
+        switch self {
+        case .dial: return L("Dial")
+        case .lanes: return L("Lanes")
+        }
+    }
+}
+
 private struct PlanBody: View {
     let site: SiteModel
     let models: NodeModels
     let loadpoints: LoadpointsModel
     let prices: PriceModel
+    @Binding var style: PlanStyle
+    let fill: Bool
     let chooseMode: () -> Void
 
     var body: some View {
@@ -48,21 +67,51 @@ private struct PlanBody: View {
         let minute = (site.nowMs / 60_000).rounded(.down) * 60_000
         let entry = models.planShare.entry
         let moment = PlanGlance.live(entry, nowMs: minute)
-        PlanDialCard(
-            entry: entry,
-            nowMs: minute,
-            batteryPct: site.socPercent,
-            batteryOld: !site.isLive,
-            fetching: prices.fetching,
-            summary: moment.summary
-        )
-        Text(stateLine(moment))
-            .font(.footnote)
-            .foregroundStyle(moment.state == .boxStale ? Theme.generation : Theme.fgDim)
-            .fixedSize(horizontal: false, vertical: true)
+        Picker(L("Show the plan as"), selection: $style.animation(Theme.spring)) {
+            ForEach(PlanStyle.allCases, id: \.self) { Text($0.label).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .accessibilityIdentifier("plan.style")
+        switch style {
+        case .dial:
+            PlanDialCard(
+                entry: entry,
+                nowMs: minute,
+                batteryPct: site.socPercent,
+                batteryOld: !site.isLive,
+                fetching: prices.fetching,
+                summary: moment.summary
+            )
+            stateText(moment)
+        case .lanes:
+            VStack(alignment: .leading, spacing: 4) {
+                Text(moment.summary)
+                    .font(.headline)
+                    .foregroundStyle(Theme.fg)
+                    .fixedSize(horizontal: false, vertical: true)
+                stateText(moment)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                PlanLanes(moment: moment)
+                    .equatable()
+                    .frame(minHeight: fill ? 84 : 140, idealHeight: fill ? 84 : 140, maxHeight: fill ? 200 : 140)
+                Legend(kinds: Set(moment.events.map(\.kind)))
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
+        }
         PriceRow(prices: prices, minute: minute)
-        Events(moment: moment, entry: models.planShare.entry, loadpoints: loadpoints)
+        Events(moment: moment, entry: models.planShare.entry, loadpoints: loadpoints, style: style)
         CompactMode(mode: models.mode, choose: chooseMode)
+    }
+
+    private func stateText(_ m: PlanGlance.Moment) -> some View {
+        Text(stateLine(m))
+            .font(.footnote)
+            .foregroundStyle(m.state == .boxStale ? Theme.generation : Theme.fgDim)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// When the box made it, or that it could not.
@@ -73,11 +122,42 @@ private struct PlanBody: View {
     }
 }
 
-/// Each thing the box means to do, when, and why.
+/// What each colour on the lanes means.
+private struct Legend: View {
+    let kinds: Set<PlanGlance.Kind>
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) { items }
+            VStack(alignment: .leading, spacing: 4) { items }
+        }
+        .font(.caption2)
+        .foregroundStyle(Theme.fgDim)
+    }
+
+    /// Only what the lanes hold, in short words: the rows below say the rest.
+    @ViewBuilder private var items: some View {
+        if kinds.contains(.car) { item(.car, L("Car")) }
+        if kinds.contains(.charge) { item(.charge, L("charging")) }
+        if kinds.contains(.discharge) { item(.discharge, L("discharging")) }
+        if kinds.contains(.cheap) { item(.cheap, L("Cheapest")) }
+    }
+
+    private func item(_ kind: PlanGlance.Kind, _ text: String) -> some View {
+        HStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: 2).fill(PlanLanes.color(kind)).frame(width: 10, height: 6)
+            Text(text).lineLimit(1)
+        }
+    }
+}
+
+/// Each thing the box means to do, when, and why, marked as the plan above
+/// draws it.
 private struct Events: View {
     let moment: PlanGlance.Moment
     let entry: PlanEntry
     let loadpoints: LoadpointsModel
+    let style: PlanStyle
 
     var body: some View {
         VStack(spacing: 0) {
@@ -109,8 +189,15 @@ private struct Events: View {
 
     private func row(_ e: PlanGlance.Event) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
-            DialSwatch(kind: e.kind)
-                .alignmentGuide(.firstTextBaseline) { $0[.bottom] - 2 }
+            Group {
+                switch style {
+                case .dial:
+                    DialSwatch(kind: e.kind)
+                case .lanes:
+                    RoundedRectangle(cornerRadius: 2).fill(PlanLanes.color(e.kind)).frame(width: 10, height: 6)
+                }
+            }
+            .alignmentGuide(.firstTextBaseline) { $0[.bottom] - (style == .dial ? 2 : 0) }
             VStack(alignment: .leading, spacing: 1) {
                 Text(PlanGlance.what(e))
                     .font(.subheadline.weight(.semibold))

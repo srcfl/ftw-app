@@ -1,5 +1,10 @@
 import FTWKit
+import os
 import SwiftUI
+
+/// Points of interest for Instruments: each drag event on the dial, and
+/// each change of the quarter under the finger.
+private let signposts = OSSignposter(subsystem: "energy.ftw.app", category: .pointsOfInterest)
 
 /// The plan dial at the top of the plan view. A finger dragged round it
 /// scrubs the plan a quarter at a time, onto tomorrow past midnight and
@@ -20,19 +25,16 @@ struct PlanDialCard: View {
 
     @State private var face: PlanDial.Face?
     @State private var size: CGSize = .zero
-    /// The finger, in turns along the spiral, and the quarter under it.
-    @State private var progress: Double?
-    @State private var selected: Int?
+    /// The quarter under the finger, or where VoiceOver stepped. The card
+    /// does not read it, so a move redraws only what shows it.
+    @State private var selection = PlanDialSelection()
+    @State private var finger = Finger()
     /// Where VoiceOver has stepped to.
     @State private var spoken: Int?
-    @State private var ticks = 0
-    @State private var bumps = 0
-    @State private var lastTick = Date.distantPast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         let face = self.face ?? PlanDial.face(entry, nowMs: nowMs)
-        let marked = selected ?? spoken
         VStack(alignment: .leading, spacing: 8) {
             PlanDialView(
                 face: face,
@@ -40,7 +42,7 @@ struct PlanDialCard: View {
                 palette: .app,
                 batteryPct: batteryPct,
                 batteryOld: batteryOld,
-                selected: marked,
+                selection: selection,
                 still: reduceMotion || PowerState.shared.lowPower,
                 fetching: fetching,
                 note: note(face)
@@ -57,12 +59,10 @@ struct PlanDialCard: View {
             .accessibilityHint(L("Swipe up or down to move an hour."))
             .accessibilityAdjustableAction { step(face, $0) }
             .accessibilityIdentifier("plan.dial")
-            ReadoutLine(readout: marked.flatMap { Readouts.dial(face, $0, nowMs: nowMs) }, otherwise: summary)
-                .accessibilityHidden(marked != nil)
+            .background { ScrubHaptics(finger: finger) }
+            DialReadout(face: face, selection: selection, nowMs: nowMs, summary: summary)
             DialLegend(car: face.quarters.contains(where: \.car))
         }
-        .sensoryFeedback(.selection, trigger: ticks)
-        .sensoryFeedback(.impact(weight: .light), trigger: bumps)
         .onChange(of: FaceKey(entry: entry, quarter: Int(nowMs / PlanDial.quarterMs)), initial: true) {
             self.face = PlanDial.face(entry, nowMs: nowMs)
         }
@@ -76,9 +76,15 @@ struct PlanDialCard: View {
 
     // MARK: A finger
 
+    /// Each drag event costs a little arithmetic and one lookup and writes
+    /// nothing a view reads. A change of quarter moves `selection`: the
+    /// mark, the middle and the line under the dial redraw, and a haptic
+    /// plays.
     private func scrub(_ face: PlanDial.Face) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { drag in
+                let event = signposts.beginInterval("dial drag")
+                defer { signposts.endInterval("dial drag", event) }
                 guard let reach = face.reach, size.width > 0 else { return }
                 let radius = min(size.width, size.height) / 2 / 1.14
                 let x = (drag.location.x - size.width / 2) / radius
@@ -86,20 +92,21 @@ struct PlanDialCard: View {
                 // Past either end the finger winds no further, so turning
                 // back answers at once.
                 let lo = face.quarters[reach.lowerBound].progress, hi = face.quarters[reach.upperBound].progress
-                let p = min(hi + 0.01, max(lo - 0.01, PlanDial.progress(x: x, y: y, from: progress)))
-                progress = p
-                guard let i = face.index(atProgress: p), i != selected else { return }
-                selected = i
+                let p = min(hi + 0.01, max(lo - 0.01, PlanDial.progress(x: x, y: y, from: finger.progress)))
+                finger.progress = p
+                guard let i = face.index(atProgress: p), i != selection.index else { return }
+                signposts.emitEvent("dial quarter")
+                selection.index = i
                 if i == face.index(at: nowMs) || face.edgesCheapest(i) {
-                    bumps += 1
-                } else if Date().timeIntervalSince(lastTick) >= 0.04 {
-                    lastTick = Date()
-                    ticks += 1
+                    finger.bumps += 1
+                } else if drag.time.timeIntervalSince(finger.lastTick) >= 0.04 {
+                    finger.lastTick = drag.time
+                    finger.ticks += 1
                 }
             }
             .onEnded { _ in
-                progress = nil
-                selected = nil
+                finger.progress = nil
+                selection.index = spoken
             }
     }
 
@@ -115,6 +122,7 @@ struct PlanDialCard: View {
         @unknown default: return
         }
         spoken = face.step(from: spoken, forward: forward, nowMs: nowMs) ?? spoken
+        selection.index = spoken
     }
 
     /// "14:00–14:15, battery stores · spare solar · 65,5 öre/kWh", and the
@@ -127,6 +135,44 @@ struct PlanDialCard: View {
             text = "\(L("now")), \(text), \(NodeWords.format("battery %@", PlanDial.percent(batteryPct)))"
         }
         return text
+    }
+}
+
+/// The finger: where it is on the spiral and when it last ticked, written
+/// on every drag event and read by nothing that draws, and the haptics'
+/// counts, read only by `ScrubHaptics`.
+@MainActor
+@Observable
+private final class Finger {
+    @ObservationIgnored var progress: Double?
+    @ObservationIgnored var lastTick = Date.distantPast
+    var ticks = 0
+    var bumps = 0
+}
+
+/// The haptics, in a view of their own so a tick redraws nothing else.
+private struct ScrubHaptics: View {
+    let finger: Finger
+
+    var body: some View {
+        Color.clear
+            .sensoryFeedback(.selection, trigger: finger.ticks)
+            .sensoryFeedback(.impact(weight: .light), trigger: finger.bumps)
+    }
+}
+
+/// The line under the dial: what is planned at the marked quarter, or the
+/// plan's own sentence. It alone of the card reads the selection.
+private struct DialReadout: View {
+    let face: PlanDial.Face
+    let selection: PlanDialSelection
+    let nowMs: Double
+    let summary: String
+
+    var body: some View {
+        let marked = selection.index
+        ReadoutLine(readout: marked.flatMap { Readouts.dial(face, $0, nowMs: nowMs) }, otherwise: summary)
+            .accessibilityHidden(marked != nil)
     }
 }
 

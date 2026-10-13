@@ -25,6 +25,15 @@ struct PlanDialPalette: Equatable {
     var glass: Color
 }
 
+/// The quarter a finger, VoiceOver or later the Crown marks on the dial.
+/// Only the mark and the middle read it, so when it moves they redraw and
+/// nothing else does.
+@MainActor
+@Observable
+final class PlanDialSelection {
+    var index: Int?
+}
+
 /// FTW's plan as a round dial: today the inner turn of a spiral, tomorrow
 /// the outer, a bar per quarter hour as tall as the price and coloured by
 /// what the plan does with the battery. Midnight at the bottom, noon at the
@@ -33,10 +42,10 @@ struct PlanDialPalette: Equatable {
 /// the time and the price.
 ///
 /// The app, the widgets and later the Watch draw this same view. It draws;
-/// a finger or the Crown belongs to whoever holds it, and hands it the
-/// quarter to mark as `selected`. Each layer redraws only when what it
-/// shows changes: the bars when the plan or the quarter does, the hand by
-/// the minute, the mark as the finger moves.
+/// a finger or the Crown belongs to whoever holds it, and marks a quarter
+/// through `selection`. Each layer redraws only when what it shows
+/// changes: the bars when the plan or the quarter does, the hand by the
+/// minute, the mark and the middle as the finger moves.
 struct PlanDialView: View {
     let face: PlanDial.Face
     let nowMs: Double
@@ -45,8 +54,9 @@ struct PlanDialView: View {
     var batteryPct: Double?
     /// The reading is old: the ring shows it quietly.
     var batteryOld = false
-    /// The quarter under a finger or the Crown.
-    var selected: Int?
+    /// The quarter under a finger or the Crown. Nil where nothing can
+    /// mark one, as in a widget.
+    var selection: PlanDialSelection?
     /// Hour labels inside the rim. The app has room for them.
     var labels = true
     /// The middle without the price's unit, for a widget's small dial.
@@ -76,7 +86,7 @@ struct PlanDialView: View {
                 DialBars(
                     face: face,
                     nowIndex: nowIndex,
-                    sky: Sky(face.sky(nowMs: quarterStart)),
+                    skyFromMs: quarterStart,
                     radius: radius,
                     palette: palette,
                     labels: labels,
@@ -86,12 +96,15 @@ struct PlanDialView: View {
                     fetching: fetching
                 )
                 .equatable()
-                if let selected, face.quarters.indices.contains(selected) {
-                    DialMark(face: face, index: selected, nowIndex: nowIndex, radius: radius, palette: palette, grey: grey, monochrome: monochrome)
+                if let selection {
+                    DialMark(face: face, selection: selection, radius: radius, palette: palette, grey: grey, monochrome: monochrome)
                 }
-                DialHand(progress: face.progress(at: minute), radius: radius, color: palette.hand)
+                DialHand(face: face, minute: minute, radius: radius, color: palette.hand)
+                    .equatable()
                 DialCentre(
-                    centre: PlanDial.centre(face, nowMs: minute, selected: selected),
+                    face: face,
+                    minute: minute,
+                    selection: selection,
                     radius: radius,
                     palette: palette,
                     batteryPct: batteryPct,
@@ -185,7 +198,8 @@ private struct DialMotion {
 private struct DialBars: View, Equatable {
     let face: PlanDial.Face
     let nowIndex: Int
-    let sky: Sky
+    /// The sky runs for the 24 hours from here.
+    let skyFromMs: Double
     let radius: CGFloat
     let palette: PlanDialPalette
     let labels: Bool
@@ -199,19 +213,20 @@ private struct DialBars: View, Equatable {
     @State private var moving = false
 
     nonisolated static func == (a: Self, b: Self) -> Bool {
-        a.face == b.face && a.nowIndex == b.nowIndex && a.sky == b.sky && a.radius == b.radius && a.palette == b.palette
+        a.face == b.face && a.nowIndex == b.nowIndex && a.skyFromMs == b.skyFromMs && a.radius == b.radius && a.palette == b.palette
             && a.labels == b.labels && a.grey == b.grey && a.monochrome == b.monochrome && a.still == b.still && a.fetching == b.fetching
     }
 
     var body: some View {
+        let sky = Sky(face.sky(nowMs: skyFromMs))
         if still {
             // A widget, or no motion: the bars as they are, nothing to follow.
             let lengths = Self.targets(face)
-            Canvas { ctx, size in draw(&ctx, size: size, lengths: lengths, at: .distantFuture) }
+            Canvas { ctx, size in draw(&ctx, size: size, sky: sky, lengths: lengths, at: .distantFuture) }
         } else {
             TimelineView(.animation(paused: !moving)) { context in
                 let at = moving ? context.date : .distantFuture
-                Canvas { ctx, size in draw(&ctx, size: size, lengths: shown, at: at) }
+                Canvas { ctx, size in draw(&ctx, size: size, sky: sky, lengths: shown, at: at) }
             }
             .onAppear { begin() }
             .onChange(of: face) { begin() }
@@ -249,7 +264,7 @@ private struct DialBars: View, Equatable {
 
     // MARK: Drawing
 
-    private func draw(_ ctx: inout GraphicsContext, size: CGSize, lengths: [Double: Double], at date: Date) {
+    private func draw(_ ctx: inout GraphicsContext, size: CGSize, sky: Sky, lengths: [Double: Double], at date: Date) {
         let c = CGPoint(x: size.width / 2, y: size.height / 2)
         let r = Double(radius)
         func point(_ f: Double, _ rr: Double) -> CGPoint {
@@ -386,14 +401,19 @@ private struct DialBars: View, Equatable {
 /// drawn bright over the rest.
 private struct DialMark: View {
     let face: PlanDial.Face
-    let index: Int
-    let nowIndex: Int
+    let selection: PlanDialSelection
     let radius: CGFloat
     let palette: PlanDialPalette
     let grey: Bool
     let monochrome: Bool
 
     var body: some View {
+        if let index = selection.index, face.quarters.indices.contains(index) {
+            mark(index)
+        }
+    }
+
+    private func mark(_ index: Int) -> some View {
         Canvas { ctx, size in
             let c = CGPoint(x: size.width / 2, y: size.height / 2)
             let r = Double(radius)
@@ -430,13 +450,21 @@ private struct DialMark: View {
 }
 
 /// Now: a hand from the battery's ring to the rim, and a dot where it
-/// crosses the spiral.
-private struct DialHand: View {
-    let progress: Double
+/// crosses the spiral. Redrawn by the minute and nothing else.
+private struct DialHand: View, Equatable {
+    let face: PlanDial.Face
+    let minute: Double
     let radius: CGFloat
     let color: Color
 
+    /// The hand reads only the face's day and clock.
+    nonisolated static func == (a: Self, b: Self) -> Bool {
+        a.minute == b.minute && a.radius == b.radius && a.color == b.color
+            && a.face.dayStartMs == b.face.dayStartMs && a.face.timeZoneID == b.face.timeZoneID
+    }
+
     var body: some View {
+        let progress = face.progress(at: minute)
         Canvas { ctx, size in
             let c = CGPoint(x: size.width / 2, y: size.height / 2)
             let r = Double(radius)
@@ -456,9 +484,11 @@ private struct DialHand: View {
 }
 
 /// The middle: the battery as a ring, then the time and the price in mono
-/// figures.
+/// figures, now or at the marked quarter.
 private struct DialCentre: View {
-    let centre: PlanDial.Centre
+    let face: PlanDial.Face
+    let minute: Double
+    let selection: PlanDialSelection?
     let radius: CGFloat
     let palette: PlanDialPalette
     let batteryPct: Double?
@@ -469,6 +499,7 @@ private struct DialCentre: View {
     let caption: String?
 
     var body: some View {
+        let centre = PlanDial.centre(face, nowMs: minute, selected: selection?.index)
         let L = PlanDial.Layout.self
         let ring = radius * 2 * L.battery
         let width = radius * L.batteryWidth

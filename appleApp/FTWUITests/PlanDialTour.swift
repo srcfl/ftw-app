@@ -1,10 +1,14 @@
 import XCTest
 
-/// Drags a finger round the plan dial, for screen recordings: this
-/// evening, across midnight into tomorrow, then on round tomorrow. Each
-/// drag is one touch, slow, and held at its end. Skipped unless asked for:
+/// Drags a finger round the plan dial, for screen recordings and
+/// Instruments: this evening, across midnight into tomorrow, then on round
+/// tomorrow. Each drag is one touch, slow, and held at its end. Skipped
+/// unless asked for:
 ///
 ///     TEST_RUNNER_FTW_DIAL=1 xcodebuild test … -only-testing:FTWUITests/PlanDialTour
+///
+/// With `TEST_RUNNER_FTW_DIAL_ATTACH=1` it takes over an app already
+/// running, as one `xctrace record --launch` started.
 final class PlanDialTour: XCTestCase {
     @MainActor
     func testScrubRoundTheDial() throws {
@@ -12,11 +16,17 @@ final class PlanDialTour: XCTestCase {
         try XCTSkipUnless(env["FTW_DIAL"] == "1", "Set TEST_RUNNER_FTW_DIAL=1 to drive the plan dial.")
         let lang = env["FTW_LANG"] ?? "sv"
         let app = XCUIApplication()
-        app.launchArguments = [
-            "-FTWDemo", "YES", "-FTWTab", "plan",
-            "-AppleLanguages", "(\(lang))", "-AppleLocale", lang == "sv" ? "sv_SE" : "en_US",
-        ]
-        app.launch()
+        if env["FTW_DIAL_ATTACH"] == "1" {
+            // Instruments started the app (`-FTWDemo YES -FTWTab plan`), so
+            // it can trace SwiftUI: take it over as it runs.
+            app.activate()
+        } else {
+            app.launchArguments = [
+                "-FTWDemo", "YES", "-FTWTab", "plan", "-FTWPlanStyle", "dial",
+                "-AppleLanguages", "(\(lang))", "-AppleLocale", lang == "sv" ? "sv_SE" : "en_US",
+            ]
+            app.launch()
+        }
         let dial = app.descendants(matching: .any)["plan.dial"].firstMatch
         XCTAssertTrue(dial.waitForExistence(timeout: 15))
         // The bars grow in round the spiral; let them settle.

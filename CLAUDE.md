@@ -152,8 +152,8 @@ His rules (2026-10-13):
 2. One bar per quarter hour, as tall as the price. Its colour is what the
    plan does with the battery: `Theme.storage` stores, `Theme.fg` (white on
    the glass) uses, `Theme.fgMuted` waits. A dot in `Theme.mobility` marks
-   a quarter when the car charges. Gold is the sun's colour, never the
-   battery's.
+   a quarter when the car charges. On the dial, gold is the sun's colour,
+   never the battery's.
 3. In the middle: the battery as a ring, then the time and the price in
    mono figures.
 4. A hand marks now, and what has passed dims.
@@ -168,10 +168,14 @@ His rules (2026-10-13):
    and the lock screen too.
 
 `FTWShared/PlanDial.swift` holds the geometry, the quarters and the rules
-for a finger; `FTWCharts/PlanDialView.swift` draws. The plan view puts the
-dial at its top, and a finger dragged round it scrubs the plan. The
-`energy.ftw.plan-dial` widget shows it small, in StandBy and as a circle on
-the lock screen. Now keeps the straight plan and never scrolls.
+for a finger; `FTWCharts/PlanDialView.swift` draws. The plan view shows the
+dial by default, and a finger dragged round it scrubs the plan; a switch
+at the top brings back the 12-hour lanes, and the phone keeps the
+viewer's choice. A drag event costs one lookup; only a change of quarter
+redraws, and then only the mark, the middle and the line under the dial.
+The `energy.ftw.plan-dial` widget shows the dial small, in StandBy and as
+a circle on the lock screen. Now keeps the straight plan and never
+scrolls.
 
 ## Non-negotiable invariants
 

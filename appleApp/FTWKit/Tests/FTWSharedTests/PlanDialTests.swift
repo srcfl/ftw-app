@@ -144,6 +144,32 @@ import Testing
         #expect(face.reach == nil)
     }
 
+    /// A finger finds its quarter in one lookup, on the nights the clocks
+    /// change too: the hour that comes twice gives its first quarters, the
+    /// hour that never comes gives the quarter before it.
+    @Test func aFingerFindsItsQuarterOnTheNightsTheClocksChange() {
+        func prices(from start: Double) -> [PriceSlot] {
+            (0..<200).map { PriceSlot(startMs: start + Double($0) * Self.quarter, durationMs: Self.quarter, spotMinor: 50, totalMinor: 80) }
+        }
+        var back = entry()
+        back.prices = prices(from: at(25, 0))
+        let autumn = PlanDial.face(back, nowMs: at(25, 12))
+        let first = autumn.quarters.firstIndex { $0.minuteOfDay == 150 }
+        #expect(autumn.index(atProgress: 152.0 / 1440) == first)
+        #expect(autumn.quarters[autumn.index(atProgress: 12.1 / 24)!].minuteOfDay == 720)
+
+        var spring = calendar
+        spring.timeZone = TimeZone(identifier: "Europe/Stockholm")!
+        let march = spring.date(from: DateComponents(year: 2026, month: 3, day: 29))!.timeIntervalSince1970 * 1000
+        var forward = entry()
+        forward.prices = prices(from: march)
+        let face = PlanDial.face(forward, nowMs: march + 12 * Self.hour, calendar: spring)
+        #expect(face.quarters.filter { $0.turn == 0 }.count == 92)
+        let skipped = face.index(atProgress: 152.0 / 1440)!
+        #expect(face.quarters[skipped].minuteOfDay == 105)
+        #expect(face.quarters[face.index(atProgress: 3.1 / 24)!].minuteOfDay == 180)
+    }
+
     // MARK: A finger
 
     @Test func aFingerGoesOnRoundPastMidnight() {
