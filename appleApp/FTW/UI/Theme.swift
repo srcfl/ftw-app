@@ -16,7 +16,11 @@ enum Theme {
     static let fgMuted = Color("ftw.fgMuted")
     static let onAccent = Color("ftw.onAccent")
 
+    /// Accent for text and small glyphs: dark enough to read on every
+    /// light surface.
     static let accent = Color("ftw.accent")
+    /// The brand orange, for fills, strokes, lines and prominent buttons.
+    static let accentFill = Color("ftw.accentFill")
     static let importing = Color("ftw.importing")
     static let exporting = Color("ftw.exporting")
     static let generation = Color("ftw.generation")
@@ -38,7 +42,7 @@ enum Theme {
         case .solar: return generation
         case .battery, .charging, .discharging: return storage
         case .ev: return mobility
-        case .house: return accent
+        case .house: return accentFill
         }
     }
 
@@ -56,6 +60,23 @@ enum Theme {
 
     /// One spring for everything that moves, so the app moves as one thing.
     static let spring = Animation.spring(duration: 0.35, bounce: 0.15)
+}
+
+/// Whether Low Power Mode is on, kept current, for the motion that can
+/// wait: the flow's dots slow down and the live curve stops gliding.
+@Observable
+@MainActor
+final class PowerState {
+    static let shared = PowerState()
+    private(set) var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+
+    private init() {
+        Task { @MainActor [weak self] in
+            for await _ in NotificationCenter.default.notifications(named: Notification.Name.NSProcessInfoPowerStateDidChange) {
+                self?.lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+            }
+        }
+    }
 }
 
 /// A raised card, the web app's `.card`.
@@ -82,6 +103,8 @@ struct Kicker: View {
             .font(.caption2.weight(.semibold))
             .tracking(0.8)
             .foregroundStyle(Theme.fgMuted)
+            // A label over a card, never louder than what it labels.
+            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
     }
 }
 
@@ -137,7 +160,7 @@ struct FTWButtonStyle: ButtonStyle {
 
     private var background: Color {
         switch kind {
-        case .primary: return Theme.accent
+        case .primary: return Theme.accentFill
         case .danger: return Theme.importing
         case .quiet, .outline: return .clear
         }
@@ -195,6 +218,6 @@ enum Clock {
     }
 }
 
-/// The app's words in the phone's language, English or Swedish
-/// (FTWKit's `AppWords`). Text built from a String is shown as given.
-func L(_ en: String) -> String { AppWords.text(en) }
+/// The app's words in the phone's language, English or Swedish (FTWKit's
+/// `NodeWords`, then `AppWords`). Text built from a String is shown as given.
+func L(_ en: String) -> String { NodeWords.text(en) }

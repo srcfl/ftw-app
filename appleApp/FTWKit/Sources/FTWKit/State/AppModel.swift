@@ -12,6 +12,8 @@ public final class HomeModels {
     public let charging: ChargingWatch
     public let savings: SavingsModel
     public let loadpoints: LoadpointsModel
+    /// Live, history, plan and mode for Now's nodes.
+    public let nodes: NodeModels
 
     init(site: SiteModel) {
         self.site = site
@@ -20,6 +22,7 @@ public final class HomeModels {
         charging = ChargingWatch(site: site)
         savings = SavingsModel(site: site)
         loadpoints = LoadpointsModel(site: site, charging: charging)
+        nodes = NodeModels(site: site, loadpoints: loadpoints, prices: prices)
     }
 }
 
@@ -263,6 +266,9 @@ public final class AppModel {
 
     public func exitDemo() {
         guard isDemo else { return }
+        // The demo's Live Activity must not outlive it: its button would
+        // reach the home that opens next.
+        home?.loadpoints.endLiveActivities()
         home?.site.destroy()
         home = nil
         isDemo = false
@@ -275,6 +281,7 @@ public final class AppModel {
     /// cleared second, so a reading landing mid-clear cannot write the home
     /// back. The widgets lose their records too.
     public func leave() {
+        home?.loadpoints.endLiveActivities()
         home?.site.destroy()
         home = nil
         vault.reset()

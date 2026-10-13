@@ -19,14 +19,18 @@ struct AboutLink: View {
             .font(.footnote.weight(.medium))
             .foregroundStyle(Theme.accent)
             .buttonStyle(.plain)
+            // A 44 pt target for each, without a taller line of text.
+            .frame(minHeight: 44)
             Text(verbatim: "FTW \(BuildSource.bundled.versionText)")
                 .font(.caption)
                 .foregroundStyle(Theme.fgMuted)
         }
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
-        .padding(.top, 28)
+        .padding(.top, 12)
         .padding(.bottom, 8)
+        // The foot of the page: never larger than the drawing above it.
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
         .sheet(item: $open) { start in
             AboutView(app: app, start: start)
         }

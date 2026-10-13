@@ -1,0 +1,22 @@
+/* The plan ahead, on Now and in its widget. Keys are the English (PlanWord). */
+"Plan ahead" = "Plan framåt";
+"What FTW plans to do over the next hours, and when power is cheapest." = "Vad FTW planerar de närmaste timmarna, och när elen är billigast.";
+"Open FTW to see the plan" = "Öppna FTW för att se planen";
+"No plan from your box yet" = "Ingen plan från boxen än";
+"Your box couldn't plan ahead · it runs on safe defaults" = "Boxen kunde inte planera · kör på säkra standardval";
+"Nothing planned for 12 hours" = "Inget planerat på 12 timmar";
+"%@ car charges to %@" = "%@ laddar bilen till %@";
+"%@ car charges" = "%@ laddar bilen";
+"%@ battery charges" = "%@ laddar batteriet";
+"%@ battery gives power" = "%@ laddar batteriet ur";
+"cheapest %@" = "billigast %@";
+"Now" = "Nu";
+"now" = "nu";
+"until %@" = "till %@";
+"Car charges to %@" = "Bilen laddar till %@";
+"Car charges" = "Bilen laddar";
+"Battery charges" = "Batteriet laddar";
+"Battery gives power" = "Batteriet laddar ur";
+"Cheapest power" = "Billigast el";
+"Planned %@" = "Planerad %@";
+"Plan from %@ · open FTW" = "Plan från %@ · öppna FTW";
