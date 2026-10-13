@@ -51,7 +51,10 @@ struct NodeView: View {
             .pickerStyle(.segmented)
             .accessibilityIdentifier("node.period")
             PeriodSection(site: site, node: node, period: period, models: models, prices: home.prices, loadpoints: home.loadpoints, fill: fill)
-                .frame(minHeight: fill ? 130 : nil, idealHeight: fill ? 130 : nil, maxHeight: fill ? .infinity : nil)
+                // No ideal height of its own: the page measures the chart's
+                // floor and the words under it, so large text scrolls the
+                // page rather than squeezing the card.
+                .frame(maxHeight: fill ? .infinity : nil)
             if node == .car {
                 CarLink(loadpoints: home.loadpoints, zoom: zoom)
             } else {
