@@ -1,0 +1,5 @@
+/* A push from FTW Cloud, as Apple shows it if the notification extension
+   does not run. The extension writes every other line itself. Elsewhere
+   the English is the key, so nothing else is listed here. */
+"push.title" = "Something happened at home";
+"push.generic" = "Open FTW to see what.";

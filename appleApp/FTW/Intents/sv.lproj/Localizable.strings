@@ -15,3 +15,8 @@
 "The car" = "Bilen";
 "Car's level" = "Bilens nivå";
 "Said" = "Sagt";
+
+/* A push from FTW Cloud, as Apple shows it if the notification extension
+   does not run. The extension writes every other line itself. */
+"push.title" = "Något hände hemma";
+"push.generic" = "Öppna FTW för att se vad.";

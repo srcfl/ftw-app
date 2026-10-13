@@ -4,9 +4,10 @@
 //
 // - FTWKit: pairing, the passkey derivations, Noise IK, frames, the relay,
 //   the session and the state each screen reads. The app alone links it.
-// - FTWShared: plain `Sendable` values the app shares with its widgets and,
-//   later, a notification extension. The App Group cache, its records and
-//   the formatters a widget needs. Nothing on the main actor, no keys.
+// - FTWShared: plain `Sendable` values the app shares with its widgets and
+//   its notification extension. The App Group cache, its records, the
+//   formatters a widget needs, and the check and the words of a push.
+//   Nothing on the main actor, no secret keys.
 // - FTWDemo: a simulated box in this process, for the demo, App Review and
 //   previews. Kept out of FTWKit so the product module holds no fake box.
 //
@@ -33,6 +34,10 @@ let package = Package(
             dependencies: ["FTWKit", "FTWDemo"],
             resources: [.copy("Resources")]
         ),
-        .testTarget(name: "FTWSharedTests", dependencies: ["FTWShared"]),
+        .testTarget(
+            name: "FTWSharedTests",
+            dependencies: ["FTWShared"],
+            resources: [.copy("Resources")]
+        ),
     ]
 )
