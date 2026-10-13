@@ -38,6 +38,9 @@ struct FTWApp: App {
         #if DEBUG
         // For screenshots: `-FTWDemo YES` opens the simulated home.
         if UserDefaults.standard.bool(forKey: "FTWDemo") { model.startDemo() }
+        // For end-to-end tests: `-FTWPairLink <url>` offers a pairing link
+        // as a scanned QR would, where the simulator has no camera.
+        if let link = UserDefaults.standard.string(forKey: "FTWPairLink") { model.offer(link) }
         #endif
         _app = State(initialValue: model)
         network = NetworkWatch { [weak model] in model?.networkOnline() }
