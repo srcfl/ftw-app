@@ -91,7 +91,7 @@ public struct NodeFreshness: Equatable, Sendable {
     }
 
     public var live: Bool {
-        (carrier == .relay || carrier == .webrtc) && srcState == .live
+        (carrier == .relay || carrier == .webrtc || carrier == .cloud) && srcState == .live
     }
 
     /// From the session as it stands: the field's source in the box's
@@ -137,7 +137,7 @@ extension SiteModel {
     }
 
     public func freshness(fid: Int) -> NodeFreshness {
-        NodeFreshness.of(
+        let f = NodeFreshness.of(
             fid: fid,
             session: session,
             carrier: carrier,
@@ -145,6 +145,10 @@ extension SiteModel {
             shelfMs: carrier == .cache ? cachedAtMs.map { max(0, nowMs - $0) } : nil,
             fallback: lastFrameAtMs == nil ? .stale : srcState
         )
+        // Through FTW Cloud a reading is no fresher than the cloud's own
+        // grade for its field: anchored, and inside the age rules.
+        guard carrier == .cloud, let cap = cloudGrade(fid: fid), cap > f.srcState else { return f }
+        return NodeFreshness(carrier: f.carrier, srcState: cap, ageMs: f.ageMs, sourceName: f.sourceName)
     }
 }
 
