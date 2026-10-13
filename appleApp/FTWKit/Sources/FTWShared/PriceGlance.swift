@@ -163,7 +163,7 @@ public enum PriceGlance {
             curve: curve,
             meanMinor: mean,
             included: included,
-            priceText: current.map { PriceStrip.text($0.totalMinor, prices.currency) },
+            priceText: current.map { Words.decimal(PriceStrip.text($0.totalMinor, prices.currency)) },
             unitText: unit.perKwh,
             unitLabel: unit.label,
             includedText: text(included),

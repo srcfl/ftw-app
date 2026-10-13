@@ -30,6 +30,8 @@ enum HomeRoute: Hashable {
     case node(EnergyNode)
     /// The plan ahead, from Now's plan card.
     case plan
+    /// The price ahead, from the plan.
+    case price
 
     /// Where a home opens. Debug builds take `-FTWTab car` or
     /// `-FTWNode battery` and the like, so every screen of the demo can be
@@ -41,6 +43,7 @@ enum HomeRoute: Hashable {
         switch defaults.string(forKey: "FTWTab") {
         case "car": return [.car(nil)]
         case "plan": return [.plan]
+        case "price": return [.plan, .price]
         default: return []
         }
         #else
@@ -83,6 +86,8 @@ struct HomeView: View {
                             NodeView(app: app, home: home, node: node, zoom: zoom)
                         case .plan:
                             PlanView(app: app, home: home)
+                        case .price:
+                            PriceView(home: home)
                         }
                     }
                     .freshness(app: app, site: home.site)

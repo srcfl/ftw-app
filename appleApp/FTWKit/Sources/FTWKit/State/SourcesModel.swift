@@ -27,8 +27,9 @@ public final class SourcesModel {
     /// A total that moved this much since the last read asks again.
     static let moveW: Double = 150
     static let moveShare = 0.15
-    /// Never more often than this, however much the total moves.
-    static let minGapMs: Double = 5_000
+    /// Never more often than this, however much the total moves, and not
+    /// again on opening another node's view within it.
+    nonisolated static let minGapMs: Double = 30_000
 
     public private(set) var devices: [EnergyNode: [Device]] = [:]
     public private(set) var readAtMs: Double?
@@ -69,8 +70,12 @@ public final class SourcesModel {
         let now = site.nowMs
         if let at = failedAtMs, now - at < LiveAsk.retryMs { return }
         // Never read yet (the view opened before the stream did): read now.
-        if !force, let at = readAtMs {
+        if let at = readAtMs {
             guard now - at >= Self.minGapMs else { return }
+        }
+        if !force, readAtMs != nil {
+            // A home with one device per node has no split to keep up.
+            guard watching.contains(where: { node, n in n > 0 && (devices[node]?.count ?? 0) >= 2 }) else { return }
             let moved = watching.contains { node, n in
                 guard n > 0, let w = site.session.fields[node.fid], let before = totalsAtRead[node] else { return false }
                 return abs(w - before) > max(Self.moveW, abs(before) * Self.moveShare)

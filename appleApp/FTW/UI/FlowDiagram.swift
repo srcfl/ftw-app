@@ -114,8 +114,9 @@ private struct FlowLines: View {
     let moving: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
-    @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
     @State private var onScreen = false
+
+    private var lowPower: Bool { PowerState.shared.lowPower }
 
     var body: some View {
         let still = reduceMotion || !moving
@@ -127,11 +128,6 @@ private struct FlowLines: View {
         }
         .onAppear { onScreen = true }
         .onDisappear { onScreen = false }
-        .task {
-            for await _ in NotificationCenter.default.notifications(named: Notification.Name.NSProcessInfoPowerStateDidChange) {
-                lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
-            }
-        }
     }
 
     private func draw(_ canvas: GraphicsContext, at time: TimeInterval, still: Bool) {

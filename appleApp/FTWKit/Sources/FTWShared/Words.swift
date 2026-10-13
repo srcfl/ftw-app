@@ -22,4 +22,11 @@ enum Words {
     static var locale: Locale {
         Locale(identifier: Bundle.module.preferredLocalizations.first ?? "en")
     }
+
+    /// "65,5" in Swedish, "65.5" in English: a figure written with a point
+    /// takes the language's own decimal mark.
+    static func decimal(_ text: String) -> String {
+        let mark = locale.decimalSeparator ?? "."
+        return mark == "." ? text : text.replacingOccurrences(of: ".", with: mark)
+    }
 }
