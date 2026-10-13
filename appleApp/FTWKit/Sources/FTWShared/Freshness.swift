@@ -10,6 +10,11 @@ import Foundation
 public enum Freshness {
     public enum Tone: Sendable { case live, stale, reaching, lost, busy }
 
+    /// How long the band counts a wait in seconds. Past this, a growing
+    /// counter only looks broken; the band says it cannot reach the box and
+    /// when the last reading was.
+    public static let countForMs: Double = 20_000
+
     public struct Band: Equatable, Sendable {
         public let tone: Tone
         public let message: String
@@ -29,7 +34,8 @@ public enum Freshness {
         waitMs: Double,
         bootPct: Int?,
         noCarrier: Bool,
-        busy: Bool = false
+        busy: Bool = false,
+        lastReading: String? = nil
     ) -> Band {
         let reaching = !noCarrier && [.idle, .handshaking, .subscribing, .failed, .booting].contains(phase)
         let connected = carrier == .relay || carrier == .webrtc || carrier == .cloud
@@ -37,7 +43,10 @@ public enum Freshness {
         // many phones watching as it serves. Not a fault, and not ours to fix.
         let turnedAway = busy && !connected && reaching
 
-        let tone: Tone = connected ? (srcState == .live ? .live : .stale) : turnedAway ? .busy : (reaching ? .reaching : .lost)
+        // A box that is starting says so for as long as it takes. Anything
+        // else that has not connected for a while is said as such.
+        let longWait = reaching && !turnedAway && phase != .booting && waitMs >= countForMs
+        let tone: Tone = connected ? (srcState == .live ? .live : .stale) : turnedAway ? .busy : (reaching && !longWait ? .reaching : .lost)
 
         let message: String
         if connected, carrier == .cloud {
@@ -64,6 +73,8 @@ public enum Freshness {
             message = Words.text("FTW is busy")
         } else if phase == .booting {
             message = Words.text("Your box is starting")
+        } else if longWait {
+            message = lastReading.map { Words.format("Can't reach your box · last reading %@", $0) } ?? Words.text("Can't reach your box")
         } else if reaching {
             if phase == .failed {
                 message = Words.text("Reconnecting to your box")
@@ -81,7 +92,7 @@ public enum Freshness {
         }
 
         var wait: String?
-        if reaching, !turnedAway {
+        if reaching, !turnedAway, !longWait {
             if phase == .booting, let bootPct {
                 wait = "\(bootPct)%"
             } else {

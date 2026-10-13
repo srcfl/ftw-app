@@ -51,8 +51,17 @@ public final class SiteList {
         all().first { $0.siteId == siteId }
     }
 
+    /// Adds or replaces one home. When the store cannot say which homes it
+    /// holds, nothing is written: a list written then would drop the others.
     public func put(_ site: StoredSite) {
-        var rows = all().filter { $0.siteId != site.siteId }
+        let held: Bytes?
+        do {
+            held = try store.read(Self.sitesKey)
+        } catch {
+            return
+        }
+        let existing = held.flatMap { try? JSONDecoder().decode([StoredSite].self, from: Data($0)) } ?? []
+        var rows = existing.filter { $0.siteId != site.siteId }
         rows.append(site)
         store.putJSON(Self.sitesKey, rows)
     }

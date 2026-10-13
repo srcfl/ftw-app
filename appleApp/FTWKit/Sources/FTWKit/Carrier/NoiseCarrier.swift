@@ -75,16 +75,18 @@ public final class NoiseCarrier: Carrier {
         self.onStatus = onStatus
     }
 
-    public func send(_ frame: Bytes) {
+    @discardableResult
+    public func send(_ frame: Bytes) -> Bool {
         // Before the handshake there is no key, and sending in the clear to
         // keep a caller happy would be worse than dropping.
-        guard let transport, status.isOpen else { return }
+        guard let transport, status.isOpen else { return false }
         do {
-            inner.send(try transport.encrypt(frame))
+            return inner.send(try transport.encrypt(frame))
         } catch {
             // Nonce exhaustion or a destroyed cipher: continuing would risk
             // reusing a (key, nonce) pair.
             fail("encryption failed", retryable: true)
+            return false
         }
     }
 

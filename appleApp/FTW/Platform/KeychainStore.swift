@@ -14,13 +14,27 @@ final class KeychainStore: SecureStore {
     private let service = "energy.ftw.app"
 
     func get(_ key: String) -> Bytes? {
+        (try? read(key)) ?? nil
+    }
+
+    /// Only errSecItemNotFound means absent. Before the first unlock the
+    /// keychain answers errSecInteractionNotAllowed, and that must never
+    /// lead to a new key written over the old one.
+    func read(_ key: String) throws -> Bytes? {
         var query = base(key)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else { return nil }
-        return data.byteArray
+        switch status {
+        case errSecSuccess:
+            guard let data = result as? Data else { throw SecureStoreUnavailable(status: status) }
+            return data.byteArray
+        case errSecItemNotFound:
+            return nil
+        default:
+            throw SecureStoreUnavailable(status: status)
+        }
     }
 
     func put(_ key: String, _ value: Bytes) {

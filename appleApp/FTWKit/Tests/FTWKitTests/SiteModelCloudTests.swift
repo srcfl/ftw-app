@@ -17,10 +17,12 @@ final class ScriptedBox: Carrier {
     var api: ((String, String, String) -> (Int, String))?
     private(set) var calls: [(method: String, path: String, body: String)] = []
 
-    func send(_ frame: Bytes) {
-        guard let f = try? Frame.decode(frame) else { return }
+    @discardableResult
+    func send(_ frame: Bytes) -> Bool {
+        guard status.isOpen else { return false }
+        guard let f = try? Frame.decode(frame) else { return true }
         sent.append(f.envelope.t)
-        guard f.envelope.t == "api.req", let id = f.envelope.id, let b = f.envelope.b else { return }
+        guard f.envelope.t == "api.req", let id = f.envelope.id, let b = f.envelope.b else { return true }
         let method = b["method"]?.string ?? "", path = b["path"]?.string ?? ""
         let body = b["body"]?.byteString.map { String(decoding: $0, as: UTF8.self) } ?? ""
         calls.append((method, path, body))
@@ -28,6 +30,7 @@ final class ScriptedBox: Carrier {
         reply("api.head", id, .map([("status", .int(status)), ("headers", .map([("content-type", .text("application/json"))]))]))
         reply("api.chunk", id, .map([("seq", .int(0)), ("data", .bytes(Bytes(json.utf8)))]))
         reply("api.end", id, CBOR.emptyMap)
+        return true
     }
 
     private func reply(_ t: String, _ id: UInt32, _ body: CBOR) {
@@ -169,7 +172,7 @@ final class CloudSite {
         #expect(w.site.session.fields[Contract.FID.gridW] == 111)
 
         w.connectCloud()
-        await w.run(40)
+        await w.run(60)
         #expect(w.site.carrier == .cloud)
         #expect(w.site.session.fields[Contract.FID.gridW] == 1000)
         #expect(w.site.isLive)
@@ -181,7 +184,7 @@ final class CloudSite {
 
         let firstFrame = w.site.lastFrameAtMs
         w.service.push(try w.live(gridW: 1200))
-        await w.run(30)
+        await w.run(50)
         #expect(w.site.session.fields[Contract.FID.gridW] == 1200)
         #expect(w.site.lastFrameAtMs != firstFrame)
     }
@@ -197,7 +200,7 @@ final class CloudSite {
         w.service.held = [old]
         w.open()
         w.connectCloud()
-        await w.run(40)
+        await w.run(60)
         #expect(w.site.carrier == .cloud)
         #expect(w.site.session.fields[Contract.FID.gridW] == 900)
         #expect(w.site.srcState == .down)
@@ -213,7 +216,7 @@ final class CloudSite {
         w.service.held = [try w.live(gridW: 1000)]
         w.open()
         w.connectCloud()
-        await w.run(40)
+        await w.run(60)
         #expect(w.site.carrier == .cloud)
         #expect(w.site.srcState == .stale)
         #expect(w.site.ageMs == nil)
@@ -229,7 +232,7 @@ final class CloudSite {
         w.relay.open(w.scheduler.nowMs)
         w.relay.helloOk(uptimeMs: w.uptime, cloud: w.identity)
         w.service.held = [try w.live(gridW: 1000)]
-        await w.run(40)
+        await w.run(60)
         #expect(w.site.carrier == .cloud)
         #expect(w.site.srcState == .live)
         #expect(w.site.ageMs != nil)
@@ -246,12 +249,12 @@ final class CloudSite {
         w.relay.helloOk(uptimeMs: w.uptime, cloud: w.identity)
         w.relay.snap(uptimeMs: w.uptime, gridW: 700)
         w.service.held = [try w.live(gridW: 1000)]
-        await w.run(40)
+        await w.run(60)
         #expect(w.site.carrier == .cloud)
         #expect(w.site.session.fields[Contract.FID.gridW] == 1000)
 
         w.service.close(code: 1006)
-        await w.run(1)
+        await w.run(20)
         #expect(w.site.carrier == .relay)
         #expect(w.site.session.fields[Contract.FID.gridW] == 700)
         #expect(w.site.freshness(noCarrier: false).message == "Live via encrypted relay")
@@ -272,7 +275,7 @@ final class CloudSite {
         let old = try w.live(gridW: 900, age: 120_000)
         w.service.held = [old]
         w.relay.snap(uptimeMs: w.uptime, gridW: 700)
-        await w.run(40)
+        await w.run(60)
         #expect(w.site.carrier == .relay)
         #expect(w.site.session.fields[Contract.FID.gridW] == 700)
     }
@@ -285,12 +288,12 @@ final class CloudSite {
         w.service.held = [try w.live(gridW: 1000)]
         w.open()
         w.connectCloud()
-        await w.run(40)
+        await w.run(60)
         #expect(w.site.cloudOn)
         w.site.connect(w.relay)
         w.relay.open(w.scheduler.nowMs)
         w.relay.helloOk(uptimeMs: w.uptime, cloud: nil)
-        await w.run(10)
+        await w.run(30)
         #expect(!w.site.cloudOn)
         #expect(w.site.carrier != .cloud)
         #expect(w.service.current == nil)
@@ -303,12 +306,12 @@ final class CloudSite {
         w.service.held = [try w.live(gridW: 1000)]
         w.open()
         w.connectCloud()
-        await w.run(40)
+        await w.run(60)
         #expect(w.service.dialled.isEmpty)
         w.site.connect(w.relay)
         w.relay.open(w.scheduler.nowMs)
         w.relay.helloOk(uptimeMs: w.uptime, cloud: w.identity)
-        await w.run(40)
+        await w.run(60)
         #expect(w.service.dialled.count == 1)
         #expect(w.site.carrier == .cloud)
         #expect(w.files.readJSON(CloudCache.self, "cloud-s1")?.identity == w.identity)
@@ -321,11 +324,11 @@ final class CloudSite {
         w.service.held = [try w.live(gridW: 1000)]
         w.open()
         w.connectCloud()
-        await w.run(40)
+        await w.run(60)
         var forged = try w.live(gridW: 5)
         forged.b[forged.b.count - 3] ^= 1
         w.service.push(forged)
-        await w.run(30)
+        await w.run(50)
         #expect(w.site.session.fields[Contract.FID.gridW] == 1000)
     }
 
@@ -370,7 +373,7 @@ final class CloudSite {
         w.service.held = [try w.live(gridW: 1000)]
         w.open()
         w.connectCloud()
-        await w.run(40)
+        await w.run(60)
         w.site.suspend()
         #expect(w.service.current == nil)
         #expect(w.site.carrier != .cloud)

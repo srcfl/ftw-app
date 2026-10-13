@@ -15,6 +15,10 @@ public final class SealedFiles {
     static let keyName = "cache-key"
     private let directory: URL
     private let store: SecureStore
+    /// The key, once read, so a write does not ask the keychain again.
+    private var cachedKey: Bytes?
+    /// The latest write off the main actor; each waits for the one before.
+    private var writing: Task<Void, Never>?
 
     public init(directory: URL, store: SecureStore) {
         self.directory = directory
@@ -28,10 +32,23 @@ public final class SealedFiles {
         return base.appendingPathComponent("FTW", isDirectory: true)
     }
 
-    private var key: Bytes {
-        if let k = store.get(Self.keyName), k.count == 32 { return k }
+    /// The cache key, made only when the store says it has none. A store
+    /// that cannot answer gives no key, and nothing is written or read.
+    private var key: Bytes? {
+        if let cachedKey { return cachedKey }
+        let held: Bytes?
+        do {
+            held = try store.read(Self.keyName)
+        } catch {
+            return nil
+        }
+        if let held, held.count == 32 {
+            cachedKey = held
+            return held
+        }
         let k = randomBytes(32)
         store.put(Self.keyName, k)
+        cachedKey = k
         return k
     }
 
@@ -40,6 +57,31 @@ public final class SealedFiles {
     }
 
     public func write(_ name: String, _ plain: Bytes) {
+        guard let key else { return }
+        Self.seal(key: key, name: name, plain: plain, to: url(name), in: directory)
+    }
+
+    /// Seal and write off the main actor, in the order asked for. Returns
+    /// the write, for a caller that must not end before it lands.
+    @discardableResult
+    public func writeLater(_ name: String, _ plain: Bytes) -> Task<Void, Never>? {
+        guard let key else { return nil }
+        let previous = writing
+        let target = url(name), directory = directory
+        let task = Task {
+            await previous?.value
+            await Self.sealOffMain(key: key, name: name, plain: plain, to: target, in: directory)
+        }
+        writing = task
+        return task
+    }
+
+    @concurrent
+    private nonisolated static func sealOffMain(key: Bytes, name: String, plain: Bytes, to target: URL, in directory: URL) async {
+        seal(key: key, name: name, plain: plain, to: target, in: directory)
+    }
+
+    private nonisolated static func seal(key: Bytes, name: String, plain: Bytes, to target: URL, in directory: URL) {
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let nonce = randomBytes(12)
@@ -48,14 +90,14 @@ public final class SealedFiles {
             #if os(iOS)
             options.insert(.completeFileProtectionUntilFirstUserAuthentication)
             #endif
-            try Data(sealed).write(to: url(name), options: options)
+            try Data(sealed).write(to: target, options: options)
         } catch {
             // A cache that could not be written costs a slower next start.
         }
     }
 
     public func read(_ name: String) -> Bytes? {
-        guard let data = try? Data(contentsOf: url(name)), data.count > 28 else { return nil }
+        guard let key, let data = try? Data(contentsOf: url(name)), data.count > 28 else { return nil }
         let bytes = data.byteArray
         return try? Primitives.aesGCMOpen(key: key, nonce: Array(bytes[0..<12]), ad: Array(name.utf8), ciphertext: Array(bytes[12...]))
     }
@@ -69,11 +111,18 @@ public final class SealedFiles {
     public func clear() {
         try? FileManager.default.removeItem(at: directory)
         store.remove(Self.keyName)
+        cachedKey = nil
     }
 
-    public func writeJSON<T: Encodable>(_ name: String, _ value: T) {
+    /// Encode here; with `wait` false the seal and the write happen off the
+    /// main actor.
+    public func writeJSON<T: Encodable>(_ name: String, _ value: T, wait: Bool = true) {
         guard let data = try? JSONEncoder().encode(value) else { return }
-        write(name, data.byteArray)
+        if wait {
+            write(name, data.byteArray)
+        } else {
+            writeLater(name, data.byteArray)
+        }
     }
 
     public func readJSON<T: Decodable>(_ type: T.Type, _ name: String) -> T? {

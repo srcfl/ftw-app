@@ -363,6 +363,9 @@ public final class Session {
             ])),
         ])
         let frame = try Frame.encode(lane: Frame.laneControl, envelope: Envelope(t: "cmd", b: body), bucket: subscription.bucket)
+        // A carrier that is reconnecting inside itself would drop the frame
+        // in silence; saying so now beats waiting out the ack deadline.
+        guard carrier.status.isOpen else { throw Self.notSent }
         return try await withCheckedThrowingContinuation { cont in
             let ackTimer = scheduler.after(Self.cmdAckTimeoutMs) { [weak self] in
                 guard let self, let p = self.pendingCommands[cmdId], !p.acked else { return }
@@ -378,9 +381,17 @@ public final class Session {
                 p.continuation.resume(returning: CmdResult(cmdId: cmdId, state: .unconfirmed))
             }
             pendingCommands[cmdId] = PendingCommand(continuation: cont, ackTimer: ackTimer, confirmTimer: confirmTimer, onAck: onAck)
-            carrier.send(frame)
+            if !carrier.send(frame), let p = pendingCommands.removeValue(forKey: cmdId) {
+                p.ackTimer.cancel()
+                p.confirmTimer.cancel()
+                p.continuation.resume(throwing: Self.notSent)
+            }
         }
     }
+
+    /// A command that never left this phone. The registry's no-ack code,
+    /// because that is what it is: the box never had it.
+    static let notSent = CommandError(code: "E_NO_ACK", help: "That didn't reach your box. Try again.")
 
     /// UUIDv7: time-ordered, so the box can expire idempotency keys by prefix.
     static func uuidv7(nowMs: Double) -> String {

@@ -8,6 +8,7 @@ private let log = Logger(subsystem: "energy.ftw.app", category: "widgets")
 /// layers of a cold start and the relay's path can be compared. Read with
 /// `log show --predicate 'subsystem == "energy.ftw.app" AND category == "reading"'`.
 private let readingLog = Logger(subsystem: "energy.ftw.app", category: "reading")
+private let signposter = OSSignposter(subsystem: "energy.ftw.app", category: "reading")
 
 /// The bridge between the session and the screens.
 ///
@@ -39,8 +40,19 @@ public final class SiteModel {
     public private(set) var cachedAtMs: Double?
     public private(set) var lastFrameAtMs: Double?
     public private(set) var documentVisible = true
-    /// The one clock screens depend on, so derived ages move on screen.
+    /// The clock screens read for ages. It moves with every reading, and
+    /// between readings only when something on screen would change: the
+    /// minute, a stream going quiet, a grade lapsing, or a counter the band
+    /// shows in seconds.
     public private(set) var nowMs: Double
+    /// The current minute. Text that needs no finer clock reads this and
+    /// redraws once a minute.
+    public private(set) var minuteMs: Double
+    /// When each value on screen was read, by the phone clock. A view can
+    /// glide from one value to the next over the time between them.
+    public private(set) var fieldAtMs: [Int: Double] = [:]
+    /// When the newest reading on screen was read, by the phone clock.
+    public private(set) var readingAtMs: Double?
     /// Import ceiling the optimiser defends, when known.
     public var ceilingW: Double?
 
@@ -63,12 +75,15 @@ public final class SiteModel {
     /// Called after every write to `shared`, so the app can wake its widgets.
     @ObservationIgnored public var sharedWritten: (@MainActor () -> Void)?
     @ObservationIgnored private var attemptStartedAtMs: Double
-    @ObservationIgnored private var ticker: Cancellable?
+    @ObservationIgnored private var clock: Cancellable?
     @ObservationIgnored private var resumeTimer: Cancellable?
     @ObservationIgnored private var resumeWaiting = false
     @ObservationIgnored private var recent: [(t: Double, v: [Int: Double])] = []
     @ObservationIgnored private var lastSnapshotMs: Double = 0
     @ObservationIgnored private var snapshotTimer: Cancellable?
+    /// The last snapshot written, without its time, so the same home is not
+    /// written twice.
+    @ObservationIgnored private var lastSnapshot: CachedSnapshot?
     @ObservationIgnored private var destroyed = false
     /// The box session's own state, as the last frame left it.
     @ObservationIgnored private var relay = SessionState()
@@ -76,6 +91,16 @@ public final class SiteModel {
     /// waits for this one, whatever the cloud does meanwhile.
     @ObservationIgnored private var relayFrameAtMs: Double?
     @ObservationIgnored private var listeners: [Int: @MainActor () -> Void] = [:]
+    /// A burst of messages within one display frame reaches the screens as
+    /// one change: the first goes at once, the rest together after it.
+    @ObservationIgnored private var publishTimer: Cancellable?
+    @ObservationIgnored private var lastPublishMs: Double = -.infinity
+    /// Whether a source delivered a reading since the last publish.
+    @ObservationIgnored private var relayDelivered = false
+    @ObservationIgnored private var cloudDelivered = false
+    /// From a start or a return to the front until the screen is live, as a
+    /// signpost interval.
+    @ObservationIgnored private var liveSpan: (name: StaticString, state: OSSignpostIntervalState, fromMs: Double)?
 
     // FTW Cloud. All nil while the home has no grant or this build no
     // endpoint.
@@ -89,6 +114,9 @@ public final class SiteModel {
     /// start can age the cloud's copy of a box without a clock.
     @ObservationIgnored private var ruleU: CloudCache.Offset?
     @ObservationIgnored private var cloudDirty = false
+    /// When the newest cloud envelope arrived, for the time of a reading the
+    /// anchor cannot place.
+    @ObservationIgnored private var cloudArrivalMs: Double?
     /// Where the readings on screen came from at the last change.
     @ObservationIgnored private(set) var source: ReadingSource = .relay
     @ObservationIgnored private var startedAtMs: Double = 0
@@ -99,6 +127,9 @@ public final class SiteModel {
     /// Runs the passkey ceremony a write needs. Injected by the shell.
     @ObservationIgnored public var stepUp: (@MainActor () async -> StepUpOutcome)?
 
+    /// One display frame: what arrives within it is drawn together.
+    static let coalesceMs: Double = 16
+
     public init(siteId: String?, build: String, ua: String, scheduler: Scheduler, files: SealedFiles?, shared: AppGroupFiles? = nil, isDemo: Bool = false) {
         self.siteId = siteId
         self.scheduler = scheduler
@@ -106,6 +137,7 @@ public final class SiteModel {
         self.shared = isDemo ? nil : shared
         self.isDemo = isDemo
         nowMs = scheduler.nowMs
+        minuteMs = (scheduler.nowMs / 60_000).rounded(.down) * 60_000
         attemptStartedAtMs = scheduler.nowMs
         core = Session(build: build, ua: ua, scheduler: scheduler)
         core.onChange = { [weak self] s in self?.onSession(s) }
@@ -117,28 +149,24 @@ public final class SiteModel {
     /// not a failure: it is how the first frame has something honest.
     public func start() {
         startedAtMs = scheduler.nowMs
+        beginLiveSpan("cold start to live")
         if let siteId, let cached = files?.readJSON(CachedSnapshot.self, "snapshot-\(siteId)"), cached.siteId == siteId {
             core.restore(cached)
             cachedAtMs = cached.savedAtMs
+            lastSnapshot = cached.timeless
         }
         if let siteId, let kept = files?.readJSON(CloudCache.self, "cloud-\(siteId)") {
             adoptCloud(kept.identity, offset: kept.offset)
         }
-        startTicker()
-    }
-
-    private func startTicker() {
-        ticker?.cancel()
-        ticker = scheduler.after(1_000) { [weak self] in
-            guard let self, !self.destroyed else { return }
-            self.nowMs = self.scheduler.nowMs
-            self.notify()
-            self.startTicker()
-        }
+        scheduleClock()
     }
 
     /// Attach a carrier. Refused once the model is gone, so a slow connect
     /// can never hand an old home's stream to a new one.
+    ///
+    /// A carrier made for this call is already dialling. Waking it would
+    /// only report a reconnect that never happened, so it gets the deadline
+    /// and nothing more.
     @discardableResult
     public func connect(_ carrier: Carrier) -> Bool {
         if destroyed {
@@ -146,15 +174,16 @@ public final class SiteModel {
             return false
         }
         core.connect(carrier)
-        if documentVisible { beginResume(immediate: true) }
+        if documentVisible { beginResume(wake: false) }
         return true
     }
 
     public func destroy() {
         destroyed = true
-        ticker?.cancel()
+        clock?.cancel()
         resumeTimer?.cancel()
         snapshotTimer?.cancel()
+        publishTimer?.cancel()
         core.onChange = nil
         core.close()
         cloud?.close()
@@ -162,38 +191,51 @@ public final class SiteModel {
         listeners = [:]
     }
 
-    /// The app went to the background. Write what is on screen and close the
-    /// session: iOS freezes the app within seconds anyway, and an open socket
-    /// holds one of the four streams the relay allows a home. The readings
-    /// stay, and the band dates them until a new carrier streams again.
+    /// The app went to the background. Close the session and write what is
+    /// on screen, once: iOS freezes the app within seconds anyway, and an
+    /// open socket holds one of the four streams the relay allows a home. The
+    /// readings stay, and the band dates them until a new carrier streams
+    /// again.
     public func suspend() {
         guard !destroyed else { return }
-        persistNow()
         core.close()
         closeCloud()
         // After the close, so no last change of rate goes out on the wire.
-        setVisible(false)
+        hide()
+        persistNow(wait: true)
     }
 
     /// Match the stream's cadence to whether anyone can see it.
     public func setVisible(_ visible: Bool) {
-        let was = documentVisible
-        documentVisible = visible
-        core.setTelemetryHz(visible ? 1 : 0.2)
-        cloud?.setLooking(visible)
-        if !visible {
-            cancelResume()
+        guard visible else {
+            hide()
             persistNow()
             return
         }
-        if !was { beginResume(immediate: false) }
+        let was = documentVisible
+        documentVisible = true
+        core.setTelemetryHz(1)
+        cloud?.setLooking(true)
+        if !was {
+            beginLiveSpan("foreground to live")
+            beginResume(wake: relay.phase != .streaming || relayFrameAtMs == nil)
+        }
+        scheduleClock()
+    }
+
+    private func hide() {
+        documentVisible = false
+        core.setTelemetryHz(0.2)
+        cloud?.setLooking(false)
+        cancelResume()
+        scheduleClock()
     }
 
     /// A new network path should replace the old one without waiting.
     public func networkOnline() {
         guard documentVisible else { return }
         cloud?.wake()
-        beginResume(immediate: true)
+        beginResume(wake: true)
     }
 
     /// Pull to refresh: ask for a fresh stream in place.
@@ -204,7 +246,7 @@ public final class SiteModel {
 
     // MARK: Observation for feature models
 
-    /// Called after every session change and every clock tick.
+    /// Called after every change the screens see, and when the clock moves.
     @discardableResult
     public func observe(_ f: @escaping @MainActor () -> Void) -> Int {
         nextListener += 1
@@ -233,6 +275,7 @@ public final class SiteModel {
         let reading = s.phase == .streaming && (previous.phase != .streaming || s.uptimeMs != previous.uptimeMs)
         if reading {
             relayFrameAtMs = now
+            relayDelivered = true
             finishResume()
         }
         relay = s
@@ -248,14 +291,9 @@ public final class SiteModel {
             cachedAtMs = nil
             scheduleSnapshot()
         }
+        if reading { first("relay reading") }
         publish()
-        if reading {
-            first("relay reading")
-            if source == .relay {
-                lastFrameAtMs = now
-                recordRecent(session.fields, now)
-            }
-        }
+        scheduleClock()
     }
 
     /// Logs once per home how long after `start` something first happened.
@@ -265,17 +303,124 @@ public final class SiteModel {
         readingLog.notice("\(what, privacy: .public) \(ms, privacy: .public) ms after start")
     }
 
-    /// What the screens read: the box session's state, with the cloud's
-    /// readings in it while the cloud is where readings come from.
+    /// Picks where readings come from now, and draws the change: at once
+    /// when the screens have been still for a frame, else together with
+    /// whatever else arrives within it.
     private func publish() {
         source = readingSource()
+        guard publishTimer == nil else { return }
+        let since = scheduler.nowMs - lastPublishMs
+        if since >= Self.coalesceMs {
+            publishNow()
+            return
+        }
+        publishTimer = scheduler.after(Self.coalesceMs - since) { [weak self] in
+            guard let self, !self.destroyed else { return }
+            self.publishTimer = nil
+            self.source = self.readingSource()
+            self.publishNow()
+        }
+    }
+
+    /// What the screens read: the box session's state, with the cloud's
+    /// readings in it while the cloud is where readings come from, each value
+    /// with the time it was read. The clock moves in the same change, so a
+    /// reading redraws a screen once.
+    private func publishNow() {
+        let now = scheduler.nowMs
+        lastPublishMs = now
+        let s = composed()
+        let delivered = source == .cloud ? cloudDelivered : relayDelivered
+        relayDelivered = false
+        cloudDelivered = false
+        let at = readingTime(source) ?? now
+        var times = fieldAtMs
+        for (fid, v) in s.fields where session.fields[fid] != v || times[fid] == nil {
+            times[fid] = at
+        }
+        for fid in times.keys where s.fields[fid] == nil { times[fid] = nil }
+        if delivered {
+            lastFrameAtMs = now
+            recordRecent(s.fields, now)
+        }
+        if times != fieldAtMs { fieldAtMs = times }
+        if delivered || readingAtMs == nil || s.fields.isEmpty != session.fields.isEmpty { readingAtMs = s.fields.isEmpty ? nil : at }
+        advanceClock()
+        session = s
+        endLiveSpanIfLive()
+        notify()
+    }
+
+    /// The readings the source in use gives, aged to now.
+    private func composed() -> SessionState {
         var s = relay
         if source == .cloud, let view = cloudView, let identity = cloudIdentity {
             compose(&s, view: view, identity: identity)
         }
-        session = s
-        notify()
+        return s
     }
+
+    /// When the newest reading from a source was read, by the phone clock.
+    /// For the cloud that is the anchor's send time; nil when it cannot be
+    /// placed.
+    private func readingTime(_ from: ReadingSource) -> Double? {
+        switch from {
+        case .relay:
+            return relayFrameAtMs ?? cachedAtMs
+        case .cloud:
+            guard let view = cloudView else { return nil }
+            return view.anchorSentMs(nowMs: Int64(scheduler.nowMs)).map(Double.init) ?? cloudArrivalMs
+        }
+    }
+
+    // MARK: The clock
+
+    /// Arms the one timer the clock needs: the next moment something on
+    /// screen would change with no reading arriving. While live that is the
+    /// minute, the moment the stream would count as quiet, or a cloud grade
+    /// lapsing. A counter in seconds runs only while the band shows one.
+    private func scheduleClock() {
+        clock?.cancel()
+        clock = nil
+        guard !destroyed else { return }
+        let now = scheduler.nowMs
+        var next = ((now / 60_000).rounded(.down) + 1) * 60_000
+        if documentVisible {
+            if relay.phase == .streaming, let at = relayFrameAtMs, at + Self.streamQuietAfterMs > now {
+                next = min(next, at + Self.streamQuietAfterMs)
+            }
+            if source == .cloud, let at = cloudView?.nextGradeChange(nowMs: Int64(now)) {
+                next = min(next, Double(at))
+            }
+            if bandCountsSeconds {
+                next = min(next, now + 1_000)
+            }
+        }
+        clock = scheduler.after(max(1, next - now)) { [weak self] in
+            guard let self, !self.destroyed else { return }
+            self.clock = nil
+            self.advanceClock()
+            self.notify()
+            self.scheduleClock()
+        }
+    }
+
+    /// The band shows seconds while it counts a wait or an age under a
+    /// minute; the clock ticks each second only then.
+    private var bandCountsSeconds: Bool {
+        let band = freshness(noCarrier: false)
+        if band.wait != nil { return true }
+        if band.age != nil, let age = ageMs, age < 60_000 { return true }
+        return false
+    }
+
+    private func advanceClock() {
+        nowMs = scheduler.nowMs
+        let minute = (nowMs / 60_000).rounded(.down) * 60_000
+        if minute != minuteMs { minuteMs = minute }
+    }
+
+    // MARK: Snapshots
 
     private func scheduleSnapshot() {
         guard siteId != nil, files != nil, snapshotTimer == nil else { return }
@@ -287,29 +432,53 @@ public final class SiteModel {
         }
     }
 
-    /// Write the last streaming state now, before the app can be suspended.
-    public func persistNow() {
+    /// Write what is on screen, unless it is what was written last. The seal
+    /// and the file write run off the main actor; `wait` keeps them on it,
+    /// for the moment before iOS freezes the app.
+    public func persistNow(wait: Bool = false) {
         guard let siteId, let files, !destroyed else { return }
         if cloudDirty, let identity = cloudIdentity {
             cloudDirty = false
-            files.writeJSON("cloud-\(siteId)", CloudCache(identity: identity, offset: ruleU))
+            files.writeJSON("cloud-\(siteId)", CloudCache(identity: identity, offset: ruleU), wait: wait)
         }
         guard session.phase == .streaming || !session.fields.isEmpty, cachedAtMs == nil else { return }
-        lastSnapshotMs = scheduler.nowMs
         // The cloud's ages move with the clock; take them as of now.
-        if source == .cloud { publish() }
-        files.writeJSON("snapshot-\(siteId)", CachedSnapshot(siteId: siteId, savedAtMs: scheduler.nowMs, state: session))
+        let state = source == .cloud ? composed() : session
+        let snapshot = CachedSnapshot(siteId: siteId, savedAtMs: scheduler.nowMs, state: state)
+        guard snapshot.timeless != lastSnapshot else { return }
+        lastSnapshot = snapshot.timeless
+        lastSnapshotMs = scheduler.nowMs
+        files.writeJSON("snapshot-\(siteId)", snapshot, wait: wait)
+    }
+
+    // MARK: Time to live
+
+    private func beginLiveSpan(_ name: StaticString) {
+        if let span = liveSpan { signposter.endInterval(span.name, span.state) }
+        liveSpan = (name, signposter.beginInterval(name), scheduler.nowMs)
+    }
+
+    /// Ends the interval the first time the screen is live after a start or
+    /// a return, and logs the process's first live beside LaunchClock's
+    /// first frame.
+    private func endLiveSpanIfLive() {
+        guard let span = liveSpan, isLive else { return }
+        liveSpan = nil
+        signposter.endInterval(span.name, span.state)
+        let ms = Int((scheduler.nowMs - span.fromMs).rounded())
+        readingLog.notice("\(span.name, privacy: .public) \(ms, privacy: .public) ms via \(self.carrier.rawValue, privacy: .public)")
+        ProcessClock.markOnce("live")
     }
 
     // MARK: Waking after sleep
 
-    private func beginResume(immediate: Bool) {
+    /// Give a foreground stream a deadline to prove itself, and with `wake`
+    /// ask the carrier to replace a path that may have slept stale.
+    private func beginResume(wake: Bool) {
         guard !destroyed, documentVisible else { return }
         resumeTimer?.cancel()
         resumeWaiting = true
-        if immediate || relay.phase != .streaming || relayFrameAtMs == nil {
-            core.wake()
-        }
+        if wake { core.wake() }
         let frameAtStart = relayFrameAtMs
         resumeTimer = scheduler.after(Self.foregroundFrameDeadlineMs) { [weak self] in
             guard let self, !self.destroyed, self.documentVisible, self.relayFrameAtMs == frameAtStart else { return }
@@ -368,8 +537,14 @@ public final class SiteModel {
             waitMs: connectionWaitMs,
             bootPct: session.boot?.pct,
             noCarrier: noCarrier,
-            busy: busy
+            busy: busy,
+            lastReading: (readingAtMs ?? cachedAtMs).map { AppWords.clock($0, zone: householdZone) }
         )
+    }
+
+    /// The household's time zone, as the box names it, else the phone's.
+    var householdZone: TimeZone {
+        session.box.flatMap { TimeZone(identifier: $0.tz) } ?? .current
     }
 
     /// The sources behind what the Now screen draws, named by the box.
@@ -670,8 +845,9 @@ extension SiteModel {
 
     /// An owner pauses FTW Cloud for one of the home's phones, or lifts the
     /// pause. It only narrows what the box allows.
-    public func suspendAtCloud(deviceID: String, _ on: Bool) {
-        cloud?.suspend(deviceID: deviceID, on)
+    @discardableResult
+    public func suspendAtCloud(deviceID: String, _ on: Bool) -> Bool {
+        cloud?.suspend(deviceID: deviceID, on) ?? false
     }
 
     /// Whether the box said FTW Cloud is on for this home.
@@ -685,8 +861,10 @@ extension SiteModel {
             onSnapshot: { [weak self] snap, at in self?.onCloudSnapshot(snap, at) },
             onEnvelope: { [weak self] env, at in self?.onCloudEnvelope(env, at) },
             onStatus: { [weak self] status in
-                self?.cloudStatus = status
-                self?.publish()
+                guard let self else { return }
+                self.cloudStatus = status
+                self.publish()
+                self.scheduleClock()
             }
         )
         cloud = c
@@ -757,6 +935,7 @@ extension SiteModel {
         for env in snapshot.envelopes where acceptCloud(env, at) { any = true }
         first("cloud snapshot")
         if any { cloudRead(at) } else { publish() }
+        scheduleClock()
     }
 
     private func onCloudEnvelope(_ env: CloudWire.Envelope, _ at: Double) {
@@ -779,26 +958,39 @@ extension SiteModel {
     }
 
     private func cloudRead(_ at: Double) {
-        let before = session.fields
+        cloudArrivalMs = at
+        if readingSource() == .cloud {
+            cloudDelivered = true
+            cachedAtMs = nil
+            scheduleSnapshot()
+        }
         publish()
-        guard source == .cloud else { return }
-        lastFrameAtMs = at
-        cachedAtMs = nil
-        if session.fields != before { recordRecent(session.fields, at) }
-        scheduleSnapshot()
+        scheduleClock()
     }
 
     /// The cloud is where readings come from while its session is open and it
     /// holds a live, unless the box session streams live readings and the
-    /// cloud's are not live. With neither streaming, the newer copy stays.
+    /// cloud's are not live. Numbers never step back in time: a copy that is
+    /// not live takes over only when it is at least as new as what is on
+    /// screen. With neither streaming, the newer copy stays.
     private func readingSource() -> ReadingSource {
         guard let view = cloudView, view.live != nil else { return .relay }
+        let now = scheduler.nowMs
         let relayStreaming = relay.phase == .streaming && relayFrameAtMs != nil
-        if relayStreaming, relaySrcState == .live, Self.cloudState(view, nowMs: scheduler.nowMs) != .live {
+        let cloudLive = Self.cloudState(view, nowMs: now) == .live
+        if relayStreaming, relaySrcState == .live, !cloudLive {
             return .relay
         }
-        if cloud?.status.isOpen == true { return .cloud }
-        return relayStreaming ? .relay : .cloud
+        let cloudAt = view.anchorSentMs(nowMs: Int64(now)).map(Double.init)
+        let relayAt = relayFrameAtMs ?? cachedAtMs
+        if cloud?.status.isOpen == true {
+            if cloudLive || source == .cloud { return .cloud }
+            guard let relayAt else { return .cloud }
+            return (cloudAt ?? -.infinity) >= relayAt ? .cloud : .relay
+        }
+        if relayStreaming { return .relay }
+        guard let relayAt else { return .cloud }
+        return (cloudAt ?? -.infinity) >= relayAt ? .cloud : .relay
     }
 
     /// The cloud's readings in the shape the box session gives them, under
@@ -889,5 +1081,15 @@ extension SiteModel {
         }
         guard !slots.isEmpty else { return }
         sharePrices(Prices(zone: p.zone, currency: p.currency, slots: slots, stale: false), fromMs: Double(p.t0Ms), via: .cloud)
+    }
+}
+
+extension CachedSnapshot {
+    /// The same snapshot without the time it was written, to tell whether a
+    /// new one says anything new.
+    var timeless: CachedSnapshot {
+        var c = self
+        c.savedAtMs = 0
+        return c
     }
 }

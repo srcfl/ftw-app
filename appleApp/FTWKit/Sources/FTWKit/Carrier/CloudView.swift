@@ -269,6 +269,31 @@ public struct CloudView: Sendable {
         return g
     }
 
+    /// The next moment `grade` would change with no message arriving: a
+    /// source's age passing S, 2S or 6S, a field with no source passing 2H,
+    /// or rule U's anchor lapsing. Nil while nothing anchored is held. It may
+    /// come a little early, never late, so a clock can wait for exactly this.
+    public func nextGradeChange(nowMs: Int64) -> Int64? {
+        guard let m, let send = anchorSentMs(nowMs: nowMs) else { return nil }
+        var next: Int64?
+        func consider(_ at: Int64) {
+            if at > nowMs, next.map({ at < $0 }) ?? true { next = at }
+        }
+        // Rule U's margin makes ages run a little fast; starting the wait
+        // that much sooner keeps the clock from passing a change.
+        var drift: Int64 = 0
+        if let u = ruleU(boot: m.boot, uptimeMs: m.uptimeMs, nowMs: nowMs), u == send, let off = offsets[m.boot] {
+            drift = (nowMs &- off.learnedAtMs) / Self.ruleUDriftDivisor
+            consider(off.learnedAtMs &+ Self.ruleULifetimeMs &+ 1)
+        }
+        for (id, s) in sources where s.staleAfterMs > 0 {
+            guard let age = m.ages[id] else { continue }
+            for k: Int64 in [1, 2, 6] { consider(send &+ k &* s.staleAfterMs &- age &+ 1 &- drift) }
+        }
+        consider(send &+ 2 &* heartbeatMs &+ 1 &- drift)
+        return next
+    }
+
     /// Grades an age the way the box grades its own sources.
     static func ladder(ageMs age: Int64, staleAfterMs s: Int64) -> SourceState {
         if s <= 0 { return .never }

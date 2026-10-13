@@ -183,7 +183,7 @@ struct IdentityVectors: Decodable {
 
     @Test func restoreRefusesToOverwriteAnotherIdentity() async throws {
         let vault = Vault(store: MemoryStore())
-        let local = vault.localWrappingKey()
+        let local = try vault.localWrappingKey()
         _ = try vault.deviceKey(local)
         #expect(throws: Vault.VaultError.self) { try vault.restoreDeviceKey(local, scalar: randomBytes(32)) }
     }

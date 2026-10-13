@@ -23,6 +23,7 @@
 "Securing home link" = "Krypterar hemlänken";
 "Connecting to your box" = "Ansluter till din box";
 "Can't reach your box" = "Når inte din box";
+"Can't reach your box · last reading %@" = "Når inte din box · senaste mätvärde %@";
 
 /* Age of a reading */
 "unknown" = "okänt";

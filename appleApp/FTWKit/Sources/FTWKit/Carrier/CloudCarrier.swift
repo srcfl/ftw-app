@@ -90,7 +90,8 @@ public final class CloudCarrier {
     }
 
     /// Whether anyone can see the home. While someone can, the service keeps
-    /// the box at one update a second.
+    /// the box at one update a second. A closed session takes the change
+    /// with it into message 1 of the next.
     public func setLooking(_ on: Bool) {
         guard on != looking else { return }
         looking = on
@@ -98,8 +99,10 @@ public final class CloudCarrier {
     }
 
     /// An owner suspends a device at FTW Cloud, or lifts it. It only narrows
-    /// what the box's roster allows.
-    public func suspend(deviceID: String, _ on: Bool) {
+    /// what the box's roster allows. False when the session is not open and
+    /// nothing went out.
+    @discardableResult
+    public func suspend(deviceID: String, _ on: Bool) -> Bool {
         send(on ? CloudWire.msgSuspend : CloudWire.msgUnsuspend, .map([("deviceId", .text(deviceID))]))
     }
 
@@ -204,11 +207,14 @@ public final class CloudCarrier {
         onSnapshot(snapshot, arrival)
     }
 
-    private func send(_ t: String, _ body: CBOR) {
-        guard let transport, let socket, status.isOpen else { return }
+    /// One message to the service, or false when the session is not open.
+    @discardableResult
+    private func send(_ t: String, _ body: CBOR) -> Bool {
+        guard let transport, let socket, status.isOpen else { return false }
         let env = CloudWire.encodeUnsigned(t: t, body: body)
-        guard let frame = try? CloudWire.encodeFrame(env), let msg = try? transport.encrypt(frame) else { return }
+        guard let frame = try? CloudWire.encodeFrame(env), let msg = try? transport.encrypt(frame) else { return false }
         socket.send(msg)
+        return true
     }
 
     private func closed(code: Int) {

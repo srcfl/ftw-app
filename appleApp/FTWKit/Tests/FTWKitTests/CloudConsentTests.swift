@@ -10,7 +10,7 @@ import Testing
     }
 
     /// A home whose box answers hello and the cloud routes as Core does.
-    func home(role: String = Contract.roleOwner, caps: [String] = [Contract.capCloudLink, Contract.capAPIPassthrough], cloud: Bool = false) throws -> CloudSite {
+    func home(role: String = Contract.roleOwner, caps: [String] = [Contract.capCloudLink, Contract.capAPIPassthrough], cloud: Bool = false) async throws -> CloudSite {
         let w = try CloudSite()
         w.open()
         w.site.connect(w.relay)
@@ -25,6 +25,8 @@ import Testing
         }
         w.relay.open(w.scheduler.nowMs)
         w.relay.helloOk(uptimeMs: w.uptime, cloud: cloud ? w.identity : nil, role: role, caps: caps)
+        // The screens see a burst one display frame later.
+        await w.run(20)
         return w
     }
 
@@ -41,7 +43,7 @@ import Testing
     }
 
     @Test func anOwnerTurnsItOnAtTheBoxWithEveryCloudScope() async throws {
-        let w = try home()
+        let w = try await home()
         let d = try defaults()
         let consent = CloudConsent(defaults: d)
         #expect(CloudConsent.audience(w.site) == .owner)
@@ -60,7 +62,7 @@ import Testing
     }
 
     @Test func statisticsGoOnlyWhenTicked() async throws {
-        let w = try home()
+        let w = try await home()
         let consent = CloudConsent(defaults: try defaults())
         consent.contributeStats = true
         await consent.accept(w.site)
@@ -71,7 +73,7 @@ import Testing
     /// The grant is asked for once per home. After that the box's word
     /// stands: turned off on the box or in About, it stays off.
     @Test func theGrantIsAskedForOncePerHome() async throws {
-        let w = try home()
+        let w = try await home()
         let d = try defaults()
         let consent = CloudConsent(defaults: d)
         await consent.accept(w.site)
@@ -81,7 +83,7 @@ import Testing
     }
 
     @Test func aViewerIsToldToAskTheOwner() async throws {
-        let w = try home(role: Contract.roleViewer)
+        let w = try await home(role: Contract.roleViewer)
         let consent = CloudConsent(defaults: try defaults())
         #expect(CloudConsent.audience(w.site) == .viewer)
         await consent.accept(w.site)
@@ -92,19 +94,20 @@ import Testing
 
     /// A box that cannot run the uplink yet gets the grant once it can.
     @Test func aBoxWithoutTheUplinkIsAskedLater() async throws {
-        let w = try home(caps: [Contract.capAPIPassthrough])
+        let w = try await home(caps: [Contract.capAPIPassthrough])
         let d = try defaults()
         let consent = CloudConsent(defaults: d)
         #expect(CloudConsent.audience(w.site) == .ownerLater)
         await consent.accept(w.site)
         #expect(w.relay.calls.isEmpty)
         w.relay.helloOk(uptimeMs: w.uptime, cloud: nil, caps: [Contract.capCloudLink, Contract.capAPIPassthrough])
+        await w.run(20)
         await consent.ensure(w.site)
         #expect(w.relay.calls.map(\.path) == ["/api/cloud/grant"])
     }
 
     @Test func alreadyOnIsLeftAlone() async throws {
-        let w = try home(cloud: true)
+        let w = try await home(cloud: true)
         let consent = CloudConsent(defaults: try defaults())
         await consent.accept(w.site)
         #expect(w.relay.calls.isEmpty)
@@ -115,12 +118,12 @@ import Testing
     /// again.
     @Test func offInAboutStaysOffAfterARestart() async throws {
         let d = try defaults()
-        let w = try home(cloud: true)
+        let w = try await home(cloud: true)
         let consent = CloudConsent(defaults: d)
         await consent.accept(w.site)
         await consent.turnOff(w.site)
         // The next start: the box says FTW Cloud is off now.
-        let later = try home(cloud: false)
+        let later = try await home(cloud: false)
         await CloudConsent(defaults: d).ensure(later.site)
         #expect(later.relay.calls.isEmpty)
     }
@@ -129,9 +132,9 @@ import Testing
     /// it off, because it already asked once.
     @Test func offOnTheBoxStaysOff() async throws {
         let d = try defaults()
-        let w = try home(cloud: true)
+        let w = try await home(cloud: true)
         await CloudConsent(defaults: d).accept(w.site)
-        let later = try home(cloud: false)
+        let later = try await home(cloud: false)
         await CloudConsent(defaults: d).ensure(later.site)
         #expect(later.relay.calls.isEmpty)
     }
@@ -139,7 +142,7 @@ import Testing
     /// About: off asks the box to erase the copy; the receipt is the time on
     /// the service's confirmation.
     @Test func offAndTheReceipt() async throws {
-        let w = try home(cloud: true)
+        let w = try await home(cloud: true)
         let consent = CloudConsent(defaults: try defaults())
         #expect(await consent.turnOff(w.site))
         #expect(consent.box?.erasing == true)
