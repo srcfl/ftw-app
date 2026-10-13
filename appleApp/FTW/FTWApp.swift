@@ -9,6 +9,9 @@ import WidgetKit
 struct FTWApp: App {
     @State private var app: AppModel
     @Environment(\.scenePhase) private var scenePhase
+    /// Only for what SwiftUI has no door for: the push token, and buttons
+    /// on a notification. It starts after `init`, so the runner is there.
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     private let network: NetworkWatch
 
     init() {

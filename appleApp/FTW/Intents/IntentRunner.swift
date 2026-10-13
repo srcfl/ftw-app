@@ -46,11 +46,17 @@ final class IntentRunner: CommandRunner {
         await perform(command)
     }
 
-    private func perform(_ command: RemoteCommand) async -> RemoteOutcome {
+    /// A notification's button: the same path, on the charger its event
+    /// named.
+    func run(_ command: RemoteCommand, loadpointID: String) async -> RemoteOutcome {
+        await perform(command, loadpointID: loadpointID)
+    }
+
+    private func perform(_ command: RemoteCommand, loadpointID: String? = nil) async -> RemoteOutcome {
         guard let home = await begin() else { return RemoteOutcome(.failed, ChargeNowActivity.openAndRetry) }
         defer { end() }
         let started = ContinuousClock.now
-        let out = await home.loadpoints.perform(command)
+        let out = await home.loadpoints.perform(command, loadpointID: loadpointID)
         Self.log.info("\(String(describing: command), privacy: .public) answered in \((ContinuousClock.now - started) / .milliseconds(1), format: .fixed(precision: 0), privacy: .public) ms")
         return out
     }
@@ -72,6 +78,20 @@ final class IntentRunner: CommandRunner {
     /// button on the card has just read it.
     func currentAnswer() -> CarAnswer? {
         app.home?.loadpoints.answer(locked: DeviceLock.isLocked)
+    }
+
+    /// Whether `siteId` is the home this app opens. A command from a push
+    /// goes only there; the demo never takes one, except in a debug build
+    /// that seeded it as "demo" for a test.
+    func opens(siteId: String) -> Bool {
+        if app.isDemo {
+            #if DEBUG
+            return siteId == "demo"
+            #else
+            return false
+            #endif
+        }
+        return (app.site?.siteId ?? app.sites.current()?.siteId) == siteId
     }
 
     /// The home, with a session on its way. A launch for an intent has
