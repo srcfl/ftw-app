@@ -23,10 +23,12 @@ struct NowView: View {
         .onAppear {
             home.prices.activate()
             home.nodes.mode.activate()
+            home.nodes.plan.activate()
         }
         .onDisappear {
             home.prices.deactivate()
             home.nodes.mode.deactivate()
+            home.nodes.plan.deactivate()
         }
         .sheet(isPresented: $choosingMode) {
             ModeSheet(mode: home.nodes.mode)
@@ -103,7 +105,7 @@ private struct NowBody: View {
         StatusSection(site: site, mode: home.nodes.mode, choose: chooseMode)
         FlowSection(site: site, loadpoints: home.loadpoints, zoom: zoom)
             .frame(minHeight: fill ? 250 : 330, idealHeight: fill ? 250 : 330, maxHeight: fill ? .infinity : 330)
-        PriceSection(site: site, prices: home.prices)
+        PlanSection(site: site, models: home.nodes, prices: home.prices, zoom: zoom)
         AboutLink(app: app)
             .padding(.top, -18)
     }
@@ -281,72 +283,31 @@ private struct FlowSection: View {
     }
 }
 
-// MARK: The price
+// MARK: The plan, with the price under it
 
-private struct PriceSection: View {
+private struct PlanSection: View {
     let site: SiteModel
+    let models: NodeModels
     let prices: PriceModel
+    let zoom: Namespace.ID
 
     var body: some View {
-        if let window = prices.prices {
-            // The card marks the minute, not the second: it redraws once a
-            // minute however often the clock ticks.
-            let minute = (site.nowMs / 60_000).rounded(.down) * 60_000
-            PriceNow(prices: window, nowMs: minute, hasHole: prices.hasHole)
-                .equatable()
+        // The plan marks the minute, not the second: it redraws once a
+        // minute however often the clock ticks.
+        let minute = (site.nowMs / 60_000).rounded(.down) * 60_000
+        let entry = models.planShare.entry
+        let window = prices.prices
+        let current = window.flatMap { w in w.slots.first { minute >= $0.startMs && minute < $0.startMs + $0.durationMs } }
+        NavigationLink(value: HomeRoute.plan) {
+            PlanCard(
+                moment: PlanGlance.live(entry, nowMs: minute),
+                priceNow: current.map { PriceStrip.text($0.totalMinor, window?.currency) },
+                unit: PriceUnits.unit(window?.currency).perKwh
+            )
+            .equatable()
         }
-    }
-}
-
-/// The price this hour, the hours ahead as a strip, and the cheapest two.
-struct PriceNow: View, Equatable {
-    let prices: Prices
-    let nowMs: Double
-    let hasHole: Bool
-
-    var body: some View {
-        let unit = PriceUnits.unit(prices.currency)
-        let summary = PriceStrip.summary(prices, nowMs: nowMs)
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                Kicker(L("Price now"))
-                Spacer(minLength: 8)
-                Text("\(prices.zone.isEmpty ? "" : "\(prices.zone) · ")\(PriceGlance.text(PriceGlance.included(prices.slots)))")
-                    .font(.caption2)
-                    .foregroundStyle(Theme.fgMuted)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            HStack(alignment: .center, spacing: 14) {
-                Text("\(Text(AppWords.decimal(PriceStrip.text(summary.current?.totalMinor, prices.currency))).font(Theme.number(26, weight: .bold)))\(Text(" \(unit.perKwh)").font(.caption))")
-                    .foregroundStyle(Theme.fg)
-                    .contentTransition(.numericText())
-                    .fixedSize()
-                    .accessibilityLabel(L("Price now"))
-                    .accessibilityValue("\(PriceStrip.text(summary.current?.totalMinor, prices.currency)) \(unit.perKwh)")
-                if !summary.bars.isEmpty {
-                    PriceBars(bars: Array(summary.bars.prefix(24)), currency: prices.currency, mean: summary.meanMinor)
-                        .frame(height: 38)
-                }
-            }
-            Group {
-                if hasHole {
-                    Text(L("Some hours are missing their price."))
-                } else if let block = summary.cheapest {
-                    Text(NodeWords.format("Cheapest 2 h: %@–%@ · %@", AppWords.clock(block.startMs, zone: .current), AppWords.clock(block.endMs, zone: .current), "\(AppWords.decimal(PriceStrip.text(block.meanMinor, prices.currency))) \(unit.label)"))
-                } else {
-                    Text(L("No prices published ahead yet."))
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(Theme.fgDim)
-            .lineLimit(2)
-        }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
-        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+        .buttonStyle(.plain)
+        .matchedTransitionSource(id: HomeRoute.plan, in: zoom)
+        .accessibilityIdentifier("now.plan")
     }
 }

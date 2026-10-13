@@ -530,6 +530,7 @@ import FTWShared
         let files = [
             "appleApp/FTW/UI/NowView.swift", "appleApp/FTW/UI/FlowDiagram.swift", "appleApp/FTW/UI/NodeView.swift",
             "appleApp/FTW/UI/NodeCharts.swift", "appleApp/FTW/UI/ModeSheet.swift", "appleApp/FTW/UI/PriceChart.swift",
+            "appleApp/FTW/UI/PlanCard.swift", "appleApp/FTW/UI/PlanView.swift", "appleApp/FTWKit/Sources/FTWKit/State/PlanShare.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/EnergyNode.swift", "appleApp/FTWKit/Sources/FTWKit/State/NowFlow.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/ModeModel.swift", "appleApp/FTWKit/Sources/FTWKit/State/PlanModel.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/HistoryModel.swift",
@@ -593,5 +594,73 @@ final class DemoRig {
             left -= step
         }
         for _ in 0..<10 { await Task.yield() }
+    }
+}
+
+// MARK: The plan for the widget
+
+@MainActor
+@Suite struct PlanShareTests {
+    let scheduler = ManualScheduler(nowMs: CarTextTests.t)
+    let shared = AppGroupFiles(directory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ftw-plan-\(UUID().uuidString)"))
+
+    func run(_ ms: Double, step: Double = 20) async {
+        var left = ms
+        while left > 0 {
+            for _ in 0..<10 { await Task.yield() }
+            scheduler.advance(min(step, left))
+            left -= step
+        }
+        for _ in 0..<10 { await Task.yield() }
+    }
+
+    /// The record carries when the box sent the plan, is written again only
+    /// when the plan or what hangs on it changes or the box confirms it, and
+    /// holds the car's windows and goal beside the battery.
+    @Test func thePlanIsLeftForTheWidgetDatedByTheBox() async throws {
+        let wakes = Counter()
+        let site = SiteModel(siteId: "home", build: "test", ua: "test", scheduler: scheduler, files: nil, shared: shared)
+        site.sharedWritten = { wakes.count += 1 }
+        site.start()
+        let loadpoints = LoadpointsModel(site: site, charging: nil, cache: nil)
+        let prices = PriceModel(site: site)
+        let plan = PlanModel(site: site)
+        let share = PlanShare(site: site, plan: plan, loadpoints: loadpoints, prices: prices)
+        site.connect(SimulatedBox.loopback(scheduler))
+        loadpoints.activate()
+        prices.activate()
+        await run(2_000)
+        // Nothing written before the box has sent a plan.
+        #expect(shared.siteIDs(PlanEntry.self).isEmpty)
+
+        plan.activate()
+        await run(1_500)
+        let sent = try #require(plan.receivedAtMs)
+        let first = try #require(CacheReader(sources: [shared]).read(PlanEntry.self, siteId: "home"))
+        #expect(first.record.readAtMs == sent)
+        #expect(first.carrier == .cache)
+        #expect(first.srcState == .live)
+        #expect(first.value.battery?.isEmpty == false)
+        #expect(!first.value.prices.isEmpty)
+        // The demo car charges tonight toward its goal of 80 %.
+        let charge = try #require(first.value.charges.first)
+        #expect(charge.targetPct == 80)
+        #expect(charge.toMs > charge.fromMs)
+        #expect(first.value == share.entry.trimmed(nowMs: site.nowMs))
+        let writes = wakes.count
+
+        // The clock moving on rewrites nothing.
+        await run(30_000, step: 250)
+        #expect(wakes.count == writes)
+
+        // The box confirming its plan dates the record anew.
+        let confirm = Task { try await plan.load() }
+        await run(500)
+        try await confirm.value
+        await run(100)
+        let again = try #require(CacheReader(sources: [shared]).read(PlanEntry.self, siteId: "home"))
+        #expect(again.record.readAtMs > first.record.readAtMs)
+        #expect(wakes.count == writes + 1)
+        plan.deactivate()
     }
 }

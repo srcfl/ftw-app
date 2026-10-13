@@ -159,14 +159,17 @@ public final class NodeModels {
     public let plan: PlanModel
     public let mode: ModeModel
     public let sources: SourcesModel
+    /// The plan as Now draws it, and as the plan widget reads it.
+    public let planShare: PlanShare
 
-    public init(site: SiteModel) {
+    public init(site: SiteModel, loadpoints: LoadpointsModel, prices: PriceModel) {
         live = LiveTrace(site: site)
         history = HistoryModel(site: site)
         carEnergy = CarEnergyModel(site: site)
         plan = PlanModel(site: site)
         mode = ModeModel(site: site)
         sources = SourcesModel(site: site)
+        planShare = PlanShare(site: site, plan: plan, loadpoints: loadpoints, prices: prices)
         // A change the box applied is followed by its new plan.
         mode.applied = { [plan] in plan.follow() }
     }

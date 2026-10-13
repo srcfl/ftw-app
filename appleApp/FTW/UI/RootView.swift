@@ -28,6 +28,8 @@ enum HomeRoute: Hashable {
     case car(String?)
     /// Live, history, plan and mode for one node of the flow.
     case node(EnergyNode)
+    /// The plan ahead, from Now's plan card.
+    case plan
 
     /// Where a home opens. Debug builds take `-FTWTab car` or
     /// `-FTWNode battery` and the like, so every screen of the demo can be
@@ -36,7 +38,11 @@ enum HomeRoute: Hashable {
         #if DEBUG
         let defaults = UserDefaults.standard
         if let node = defaults.string(forKey: "FTWNode").flatMap(EnergyNode.init(rawValue:)) { return [.node(node)] }
-        return defaults.string(forKey: "FTWTab") == "car" ? [.car(nil)] : []
+        switch defaults.string(forKey: "FTWTab") {
+        case "car": return [.car(nil)]
+        case "plan": return [.plan]
+        default: return []
+        }
         #else
         return []
         #endif
@@ -71,6 +77,8 @@ struct HomeView: View {
                                 CarView(app: app, home: home, id: id)
                             case .node(let node):
                                 NodeView(app: app, home: home, node: node, zoom: zoom)
+                            case .plan:
+                                PlanView(app: app, home: home)
                             }
                         }
                         .navigationTransition(.zoom(sourceID: route, in: zoom))

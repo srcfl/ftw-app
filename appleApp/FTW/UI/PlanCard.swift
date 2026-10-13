@@ -1,0 +1,133 @@
+import Charts
+import FTWKit
+import SwiftUI
+
+/// The plan on Now: one line that says what happens over the next hours,
+/// and a calm timeline under it. The car and the battery each have a lane;
+/// the prices are the faint background, not the subject. A tap opens the
+/// plan's own view.
+struct PlanCard: View, Equatable {
+    let moment: PlanGlance.Moment
+    /// "103", the price now, beside the title. Nil when there is none.
+    let priceNow: String?
+    let unit: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Kicker(PlanGlance.title)
+                Spacer(minLength: 8)
+                if let priceNow {
+                    Text("\(Text(L("Price now")).font(.caption2).foregroundStyle(Theme.fgMuted)) \(Text(AppWords.decimal(priceNow)).font(Theme.number(13, weight: .bold)).foregroundStyle(Theme.fg)) \(Text(unit).font(.caption2).foregroundStyle(Theme.fgMuted))")
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .contentTransition(.numericText())
+                }
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Theme.fgMuted)
+            }
+            Text(moment.summary)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(moment.isGrey ? Theme.fgDim : Theme.fg)
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+                .contentTransition(.opacity)
+            PlanLanes(moment: moment, compact: true)
+                .frame(height: 50)
+        }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
+        .contentShape(RoundedRectangle(cornerRadius: Theme.radius))
+        .animation(Theme.spring, value: moment.summary)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(PlanGlance.title)
+        .accessibilityValue([moment.summary, priceNow.map { "\(L("Price now")) \($0) \(unit)" }].compactMap { $0 }.joined(separator: ". "))
+        .accessibilityHint(L("Opens the plan."))
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+    }
+}
+
+/// The hours ahead as lanes over the prices: the car's charging on top,
+/// the battery below it (charging one colour, giving power another), the
+/// cheapest hours as a mark along the bottom, and the prices as faint bars
+/// behind them all.
+struct PlanLanes: View, Equatable {
+    let moment: PlanGlance.Moment
+    var compact = false
+
+    private static let car = 0.62...0.94
+    private static let battery = 0.2...0.52
+    private static let cheap = 0.0...0.08
+
+    var body: some View {
+        let from = moment.atMs
+        let to = from + PlanGlance.horizonMs
+        let top = max(1, moment.backdrop.map(\.minor).max() ?? 1)
+        let grey = moment.isGrey
+        Chart {
+            ForEach(moment.backdrop) { bar in
+                RectangleMark(
+                    xStart: .value("From", date(max(from, bar.startMs))),
+                    xEnd: .value("To", date(min(to, bar.endMs))),
+                    yStart: .value("Bottom", 0),
+                    yEnd: .value("Price", max(0.04, bar.minor / top))
+                )
+                .foregroundStyle(grey ? Theme.fgMuted : PriceBars.color(bar.tone))
+                .opacity(0.16)
+            }
+            ForEach(moment.events) { e in
+                let lane = Self.lane(e.kind)
+                RectangleMark(
+                    xStart: .value("From", date(max(from, e.startMs))),
+                    xEnd: .value("To", date(min(to, e.endMs))),
+                    yStart: .value("Low", lane.lowerBound),
+                    yEnd: .value("High", lane.upperBound)
+                )
+                .foregroundStyle(grey ? Theme.fgMuted : Self.color(e.kind))
+                .cornerRadius(5)
+                .annotation(position: .overlay, alignment: .center) {
+                    if !compact || e.endMs - e.startMs >= 90 * 60_000, let pct = e.targetPct, e.kind == .car {
+                        Text(AppWords.percent(pct))
+                            .font(.system(size: 9, weight: .bold).monospacedDigit())
+                            .foregroundStyle(.white)
+                    }
+                }
+            }
+            RuleMark(x: .value("Now", date(from)))
+                .foregroundStyle(Theme.accent)
+                .lineStyle(StrokeStyle(lineWidth: 1.5))
+        }
+        .chartXScale(domain: date(from)...date(to))
+        .chartYScale(domain: 0...1)
+        .chartYAxis(.hidden)
+        .chartXAxis {
+            AxisMarks(preset: .aligned, values: .stride(by: .hour, count: 3)) { _ in
+                AxisValueLabel(format: .dateTime.hour(.twoDigits(amPM: .omitted))).font(.caption2).foregroundStyle(Theme.fgMuted)
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    static func lane(_ kind: PlanGlance.Kind) -> ClosedRange<Double> {
+        switch kind {
+        case .car: return car
+        case .charge, .discharge: return battery
+        case .cheap: return cheap
+        }
+    }
+
+    static func color(_ kind: PlanGlance.Kind) -> Color {
+        switch kind {
+        case .car: return Theme.mobility
+        case .charge: return Theme.storage
+        case .discharge: return Theme.generation
+        case .cheap: return Theme.exporting
+        }
+    }
+
+    private func date(_ ms: Double) -> Date { Date(timeIntervalSince1970: ms / 1000) }
+}

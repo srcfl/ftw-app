@@ -33,6 +33,8 @@ public final class PlanModel {
     public private(set) var forecast: [Forecast] = []
     public private(set) var forecastLoaded = false
     public private(set) var loaded = false
+    /// When the box last answered `plan.get`.
+    public private(set) var receivedAtMs: Double?
     public private(set) var problem: String?
 
     @ObservationIgnored private unowned let site: SiteModel
@@ -79,6 +81,7 @@ public final class PlanModel {
     func load() async throws {
         do {
             _ = try await site.core.plan()
+            receivedAtMs = site.nowMs
             loaded = true
             problem = nil
         } catch {

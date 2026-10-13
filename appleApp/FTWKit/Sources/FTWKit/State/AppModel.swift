@@ -22,7 +22,7 @@ public final class HomeModels {
         charging = ChargingWatch(site: site)
         savings = SavingsModel(site: site)
         loadpoints = LoadpointsModel(site: site, charging: charging)
-        nodes = NodeModels(site: site)
+        nodes = NodeModels(site: site, loadpoints: loadpoints, prices: prices)
     }
 }
 

@@ -102,6 +102,18 @@ public enum NodeWords {
         "Prices ahead": "Priser framåt",
         "Cheapest 2 h: %@–%@ · %@": "Billigast 2 h: %@–%@ · %@",
 
+        // The plan view
+        "Opens the plan.": "Öppnar planen.",
+        "Battery charges": "Batteriet laddar",
+        "Battery gives power": "Batteriet laddar ur",
+        "Cheapest": "Billigast",
+        "Reading the plan from your box…": "Läser planen från boxen …",
+        "Planned by your box at %@. It plans again every quarter of an hour.": "Boxen planerade kl. %@. Den planerar om varje kvart.",
+        "%@ more later": "%@ till senare",
+        "up to %@": "upp till %@",
+        "%@ on average": "%@ i snitt",
+        "now": "nu",
+
         // The car
         "Charging": "Laddning",
         "Goal, level and Charge now": "Mål, nivå och Ladda nu",
