@@ -64,7 +64,7 @@ struct MediumGrid: View {
     }
 }
 
-/// The figures, stacked, over a small day.
+/// The figures, stacked, around a small day.
 struct SmallGrid: View {
     let moment: GridGlance.Moment
 
@@ -75,16 +75,10 @@ struct SmallGrid: View {
                 InOutLine(moment: moment)
                 GridDayChart(moment: moment, labels: false)
                     .padding(.vertical, 3)
-                HStack(alignment: .firstTextBaseline, spacing: 4) {
-                    // The cost keeps its size; the time gives way.
-                    CostFigure(moment: moment, size: 17)
-                        .layoutPriority(1)
-                    Spacer(minLength: 2)
-                    TimeLine(moment: moment, withNote: false)
-                }
-                if let note = moment.costNote {
-                    Text(note).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                }
+                // The time has a line of its own, so a long cost never
+                // cuts it short.
+                CostFigure(moment: moment, size: 17)
+                TimeLine(moment: moment, withNote: true)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .accessibilityElement(children: .ignore)
