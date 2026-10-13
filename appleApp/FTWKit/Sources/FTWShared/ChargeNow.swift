@@ -1,12 +1,12 @@
 import Foundation
 
-// "Charging now" outside the app: the Live Activity that reminds the owner
-// that Charge now is on and has no time limit. The phone starts it when the
-// box confirms Charge now, and ends it when the box confirms that charging
-// went back to the plan. It shows the time the box confirmed it, a timer
-// from then, and one button. It never shows power: a phone with its app
-// asleep has no reading to show, and a figure it cannot vouch for would be
-// invented.
+// Charge now outside the app: the Live Activity that reminds the owner that
+// Charge now is on and has no time limit, and the Control that shows it and
+// turns it on or off. Both say what the box confirmed and nothing more. The
+// Live Activity names the state ("Charge now on since 14:02"), not power: a
+// hold can be on while the car draws nothing, and a phone with its app
+// asleep has no reading to show. Once the phone can no longer vouch for it,
+// the Live Activity says when the box last confirmed it and stops counting.
 
 /// What the Live Activity holds, and how it moves on each answer from the
 /// box. Plain values, so the app, the widget extension and a test all read
@@ -27,17 +27,19 @@ public enum ChargeNowActivity {
         public var startedAt: Date { Date(timeIntervalSince1970: startedAtMs / 1000) }
         public var confirmedAt: Date { Date(timeIntervalSince1970: confirmedAtMs / 1000) }
 
-        /// After this the phone can no longer vouch that charging is still
+        /// After this the phone can no longer vouch that Charge now is still
         /// on: the car may have been unplugged, or someone went back to the
-        /// plan from another phone. The view then says when it was last
-        /// confirmed instead.
+        /// plan from another phone.
         public var staleDate: Date { Date(timeIntervalSince1970: (confirmedAtMs + ChargeNowActivity.vouchMs) / 1000) }
+
+        public func isStale(atMs nowMs: Double) -> Bool { nowMs >= confirmedAtMs + ChargeNowActivity.vouchMs }
     }
 
-    /// How long one confirmation is shown as current. Until the box can
-    /// push to the Live Activity (M7), nothing confirms it while the app
-    /// sleeps.
-    public static let vouchMs: Double = 60 * 60_000
+    /// How long one confirmation is shown as current. The app confirms it
+    /// again on every read of the chargers and whenever it comes to the
+    /// front; until the box can push to the Live Activity (M7), nothing
+    /// confirms it while the app sleeps.
+    public static let vouchMs: Double = 15 * 60_000
 
     /// What the box just said about one charger.
     public enum Event: Equatable, Sendable {
@@ -73,6 +75,37 @@ public enum ChargeNowActivity {
         }
     }
 
+    // MARK: What it shows
+
+    /// The Live Activity at one moment. Current: the state the box confirmed
+    /// and a timer from its start. Stale: when the box last confirmed it,
+    /// the timer stopped there, and everything dimmed.
+    public struct Face: Equatable, Sendable {
+        public enum Timer: Equatable, Sendable {
+            /// Counts up from the start.
+            case running(from: Date)
+            /// Stopped at the last confirmation.
+            case stopped(from: Date, at: Date)
+        }
+
+        public var headline: String
+        public var subtitle: String
+        public var timer: Timer
+        public var dimmed: Bool
+    }
+
+    public static func face(_ state: State, stale: Bool, zone: TimeZone) -> Face {
+        if stale {
+            return Face(
+                headline: confirmed(state, zone: zone),
+                subtitle: ChargeNowWord.mayHaveChanged.text,
+                timer: .stopped(from: state.startedAt, at: state.confirmedAt),
+                dimmed: true
+            )
+        }
+        return Face(headline: since(state, zone: zone), subtitle: noTimeLimit, timer: .running(from: state.startedAt), dimmed: false)
+    }
+
     // MARK: Words
 
     public static var title: String { ChargeNowWord.chargeNow.text }
@@ -82,17 +115,12 @@ public enum ChargeNowActivity {
     /// For a command the app cannot run yet: not paired, or no home open.
     public static var openAndRetry: String { ChargeNowWord.openAndRetry.text }
 
-    /// "Charging now since 14:02", on the household's clock.
+    /// "Charge now on since 14:02", on the household's clock.
     public static func since(_ state: State, zone: TimeZone) -> String {
         ChargeNowWord.since.format(clock(state.startedAtMs, zone: zone))
     }
 
-    /// "Since 14:02", for the smallest places.
-    public static func sinceShort(_ state: State, zone: TimeZone) -> String {
-        ChargeNowWord.sinceShort.format(clock(state.startedAtMs, zone: zone))
-    }
-
-    /// After `staleDate`: when the phone last saw it on.
+    /// Once stale: when the box last confirmed it.
     public static func confirmed(_ state: State, zone: TimeZone) -> String {
         ChargeNowWord.confirmed.format(clock(state.confirmedAtMs, zone: zone))
     }
@@ -105,6 +133,51 @@ public enum ChargeNowActivity {
     }
 }
 
+/// What the Charge now Control shows, from the car record the app left in
+/// the App Group: on or off as the box last confirmed it, and unknown once
+/// that is too old to vouch for. It never shows more than the record says.
+public struct ChargeNowControlState: Equatable, Sendable {
+    public enum Known: Equatable, Sendable {
+        case on, off, noCar, unknown
+    }
+
+    public var known: Known
+    /// The charger the Control acts on, when the record names one.
+    public var loadpointID: String?
+
+    public init(known: Known, loadpointID: String? = nil) {
+        self.known = known
+        self.loadpointID = loadpointID
+    }
+
+    public var isOn: Bool { known == .on }
+
+    /// The line under "Charge now".
+    public var label: String {
+        switch known {
+        case .on: return ChargeNowWord.on.text
+        case .off: return ChargeNowWord.off.text
+        case .noCar: return ChargeNowWord.noCar.text
+        case .unknown: return ChargeNowWord.unknown.text
+        }
+    }
+
+    /// The car with a cable, else the first; its hold as the box confirmed
+    /// it, if the record is no older than a Live Activity would vouch for.
+    public static func from(_ read: CacheRead<CarEntry>?, nowMs: Double) -> ChargeNowControlState {
+        guard let read else { return ChargeNowControlState(known: .unknown) }
+        let cars = read.value.cars
+        guard let car = cars.first(where: \.pluggedIn) ?? cars.first else { return ChargeNowControlState(known: .noCar) }
+        guard read.srcState == .live, read.ageMs(nowMs: nowMs) <= ChargeNowActivity.vouchMs, let holding = car.holding else {
+            return ChargeNowControlState(known: .unknown, loadpointID: car.loadpointID)
+        }
+        if holding { return ChargeNowControlState(known: .on, loadpointID: car.loadpointID) }
+        return ChargeNowControlState(known: car.pluggedIn ? .off : .noCar, loadpointID: car.loadpointID)
+    }
+
+    public static let kind = "energy.ftw.charge-now"
+}
+
 /// Every sentence the Control and the Live Activity show. The English is
 /// the key; the Swedish lives in `Resources/sv.lproj`, and a test checks
 /// each one has it.
@@ -113,9 +186,13 @@ enum ChargeNowWord: String, CaseIterable {
     case summary = "Starts charging the car at once, until you go back to the plan."
     case backToPlan = "Back to the plan"
     case noTimeLimit = "No time limit"
-    case since = "Charging now since %@"
-    case sinceShort = "Since %@"
+    case since = "Charge now on since %@"
     case confirmed = "Last confirmed %@ · open FTW"
+    case mayHaveChanged = "It may have changed since."
+    case on = "On"
+    case off = "Off"
+    case noCar = "No car plugged in"
+    case unknown = "Open FTW to check"
     case openToCharge = "Open FTW to charge now."
     case openAndRetry = "Open FTW, then try again."
 
@@ -134,7 +211,8 @@ import ActivityKit
 public struct ChargeNowAttributes: ActivityAttributes {
     public typealias ContentState = ChargeNowActivity.State
 
-    /// The site, or "demo" for the simulated home.
+    /// The site, or "demo" for the simulated home. Its button carries this
+    /// too, so it can never act on another home.
     public var home: String
     public var loadpointID: String
     public var zoneID: String

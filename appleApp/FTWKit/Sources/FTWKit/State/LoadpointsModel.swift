@@ -2,13 +2,21 @@ import Foundation
 import FTWShared
 import Observation
 
-/// Where the Live Activity for Charge now lives. The app supplies one built
-/// on ActivityKit; a test supplies a fake. `home` keeps one home's activity
-/// apart from another's, and from the demo's.
+/// Where Charge now shows outside the app: the Live Activity and the
+/// Control. The app supplies one built on ActivityKit and WidgetKit; a test
+/// supplies a fake. `home` keeps one home's Live Activity apart from
+/// another's, and from the demo's.
 @MainActor
 public protocol ChargeNowHost: AnyObject {
     func current(home: String, loadpointID: String) -> ChargeNowActivity.State?
     func apply(_ action: ChargeNowActivity.Action, home: String, loadpointID: String, zone: TimeZone)
+    /// The chargers with a Live Activity up in one home.
+    func loadpointIDs(home: String) -> [String]
+    /// End every Live Activity except `home`'s; nil ends them all.
+    func endAll(except home: String?)
+    /// The box's account of Charge now changed and the App Group record
+    /// holds it: the Control reads it again.
+    func holdChanged()
 }
 
 /// The car view. Everything on it is a fact the box served; the controls
@@ -58,8 +66,11 @@ public final class LoadpointsModel: Activatable {
     public private(set) var fromCache = false
 
     @ObservationIgnored private unowned let site: SiteModel
-    @ObservationIgnored private let charging: ChargingWatch?
     @ObservationIgnored private var ask: LiveAsk?
+    @ObservationIgnored private var activityAsk: LiveAsk?
+    /// Charge now per charger as the last read found it, so the Control is
+    /// told only when it changed.
+    @ObservationIgnored private var lastHolding: [String: Bool] = [:]
     @ObservationIgnored private var planAsk: LiveAsk?
     @ObservationIgnored private var active = 0
     @ObservationIgnored private var planWatchers = 0
@@ -79,14 +90,25 @@ public final class LoadpointsModel: Activatable {
 
     /// `cache` is what the app left for its widgets; a cold start paints the
     /// car from it before the box has answered. Nil in the demo and tests.
-    public init(site: SiteModel, charging: ChargingWatch?, cache: CacheReader? = CacheReader.shared()) {
+    public init(site: SiteModel, charging _: ChargingWatch?, cache: CacheReader? = CacheReader.shared(), chargeNowHost: (any ChargeNowHost)? = nil) {
         self.site = site
-        self.charging = charging
+        self.chargeNowHost = chargeNowHost
         if let siteId = site.siteId, let read = cache?.read(CarEntry.self, siteId: siteId) {
             points = read.value.cars.map { Self.loadpoint($0, readAtMs: read.record.readAtMs) }
             readAtMs = read.record.readAtMs
             fromCache = true
         }
+        // A Live Activity from another home, or from the demo, has no
+        // business on this phone once this home is open.
+        activityHost?.endAll(except: activityHome)
+        // A Live Activity is only as good as the last read: every time the
+        // stream comes back while someone looks, read the chargers once, so
+        // the Live Activity is confirmed again or ended.
+        activityAsk = LiveAsk(site: site, want: { [weak self] in
+            guard let self, self.site.documentVisible, self.site.hasPassthrough,
+                  let host = self.activityHost, !host.loadpointIDs(home: self.activityHome).isEmpty else { return nil }
+            return "live activity"
+        }, ask: { [weak self] in try await self?.loadChargers() })
     }
 
     /// A charger as the cache kept it: enough for the level, its source and
@@ -100,6 +122,7 @@ public final class LoadpointsModel: Activatable {
         ]
         if let pct = car.socPct { w.append(("current_soc", .number(pct / 100))) }
         if let pct = car.targetSocPct { w.append(("target_soc", .number(pct / 100))) }
+        if car.holding == true { w.append(("manual_active", .bool(true))) }
         if car.socSource == "vehicle", let at = car.socReadAtMs { w.append(("vehicle_soc_age_s", .number(max(0, readAtMs - at) / 1000))) }
         return Loadpoint(.object(w))
     }
@@ -206,7 +229,7 @@ public final class LoadpointsModel: Activatable {
             readAtMs = site.scheduler.nowMs
             error = nil
             site.shareCars(points, fresh: true)
-            for lp in points { showChargeNow(lp.id, .seen(holding: Self.holding(lp), atMs: readAtMs ?? site.scheduler.nowMs)) }
+            readOutside()
             planAsk?.evaluate()
         } catch {
             guard mine == token else { return }
@@ -361,7 +384,6 @@ public final class LoadpointsModel: Activatable {
         if ask == .chargeNow, case .unconfirmed? = result, let now = points.first(where: { $0.id == lp.id }), Self.holding(now) {
             showChargeNow(lp.id, .started(atMs: readAtMs ?? site.scheduler.nowMs))
         }
-        charging?.refresh()
     }
 
     /// Whether Charge now is on for this charger, in the box's account. The
@@ -371,7 +393,34 @@ public final class LoadpointsModel: Activatable {
     }
 
     /// The Live Activity's home key: the site, or the demo's own.
-    var activityHome: String { site.siteId ?? "demo" }
+    public var activityHome: String { site.siteId ?? "demo" }
+
+    /// A read of the chargers, as the Live Activity and the Control see it:
+    /// a charger still holding confirms its Live Activity again, one that
+    /// stopped or is gone ends it, and a change reaches the Control once
+    /// the App Group record holds it.
+    private func readOutside() {
+        let at = readAtMs ?? site.scheduler.nowMs
+        for lp in points { showChargeNow(lp.id, .seen(holding: Self.holding(lp), atMs: at)) }
+        guard let host = activityHost else { return }
+        for id in host.loadpointIDs(home: activityHome) where !points.contains(where: { $0.id == id }) {
+            host.apply(.end, home: activityHome, loadpointID: id, zone: zone)
+        }
+        let holding = Dictionary(points.map { ($0.id, Self.holding($0)) }, uniquingKeysWith: { a, _ in a })
+        guard holding != lastHolding else { return }
+        lastHolding = holding
+        Task { [site, weak host] in
+            await site.flushShared()
+            host?.holdChanged()
+        }
+    }
+
+    /// Leaving this home: Exit demo or Remove this phone. No Live Activity
+    /// of it may stay, because its button would reach whatever home opens
+    /// next.
+    public func endLiveActivities() {
+        activityHost?.endAll(except: nil)
+    }
 
     private func showChargeNow(_ id: String, _ event: ChargeNowActivity.Event) {
         guard let host = activityHost else { return }
@@ -444,7 +493,6 @@ public final class LoadpointsModel: Activatable {
             goalSave[lp.id] = .failed(AppWords.text("That did not go through. Try again."))
         }
         try? await loadChargers()
-        charging?.refresh()
     }
 
     public func removeGoal(_ lp: Loadpoint) async {
@@ -463,7 +511,6 @@ public final class LoadpointsModel: Activatable {
             goalSave[lp.id] = .failed(AppWords.text("That did not go through. Try again."))
         }
         try? await loadChargers()
-        charging?.refresh()
     }
 
     public static func goalText(_ save: GoalSave) -> String {
@@ -512,7 +559,18 @@ public final class LoadpointsModel: Activatable {
     /// sends the command exactly as the car view would, and says how it
     /// ended. The Live Activity moves as it does for a tap in the car view.
     public func perform(_ command: RemoteCommand, waitMs: Double = LoadpointsModel.remoteStreamWaitMs) async -> RemoteOutcome {
+        // A Live Activity's button names its home. One from another home,
+        // or from the demo, never reaches this one: its card closes instead.
+        if case .backToPlan(let id, let home?) = command, home != activityHome {
+            if let id {
+                activityHost?.apply(.end, home: home, loadpointID: id, zone: zone)
+            } else {
+                activityHost?.endAll(except: activityHome)
+            }
+            return RemoteOutcome(.failed, Self.say("That card was for another home. It is closed now."))
+        }
         guard await streaming(within: waitMs) else {
+            if site.busy { return RemoteOutcome(.failed, Self.say("FTW is busy: as many apps and browsers are watching this home as it serves. Try again when one closes.")) }
             return RemoteOutcome(.failed, AppWords.text("Not connected to FTW right now. Try again when the connection is back."))
         }
         guard site.hasPassthrough else {
@@ -526,41 +584,66 @@ public final class LoadpointsModel: Activatable {
         guard let lp = Self.target(command, in: points) else {
             return RemoteOutcome(.failed, Self.say("FTW has no charger to control."))
         }
+        // Charge now with no car would hold a charger that has nothing to
+        // charge; say so instead.
+        if command == .chargeNow, !lp.pluggedIn {
+            return RemoteOutcome(.failed, Self.say("The car is not plugged in."))
+        }
+        let busy = Self.say("FTW is still busy with your last command. Try again in a moment.")
         switch command {
-        case .chargeNow:
-            await chargeNow(lp)
-            return remoteOutcome(holdStep[lp.id], lp.id)
-        case .backToPlan:
-            await backToPlan(lp)
-            return remoteOutcome(holdStep[lp.id], lp.id)
+        case .chargeNow, .backToPlan:
+            guard !holdSending(lp) else { return RemoteOutcome(.failed, busy) }
+            let ask: EVText.Step.Ask = command == .chargeNow ? .chargeNow : .resume
+            if ask == .chargeNow { await chargeNow(lp) } else { await backToPlan(lp) }
+            return remoteOutcome(holdStep[lp.id], lp.id, ask: ask, busy: busy)
         case .setLevel(let pct):
+            guard !levelSending.contains(lp.id) else { return RemoteOutcome(.failed, busy) }
             await setLevel(lp, pct: pct)
-            return remoteOutcome(levelStep[lp.id], lp.id)
+            return remoteOutcome(levelStep[lp.id], lp.id, ask: .level(min(100, max(0, pct.rounded()))), busy: busy)
         }
     }
 
-    /// The charger a command means when it names none: the one with a car,
-    /// else the only one. Back to the plan means the one that holds.
+    /// The charger the app means when a person names none: the one with a
+    /// car, then the one that holds, then the first.
+    public var primary: Loadpoint? { Self.primary(in: points) }
+
+    static func primary(in points: [Loadpoint]) -> Loadpoint? {
+        points.first(where: \.pluggedIn) ?? points.first(where: \.manualActive) ?? points.first
+    }
+
+    /// The charger a command means. Back to the plan means the one that
+    /// holds; the rest mean the primary one.
     static func target(_ command: RemoteCommand, in points: [Loadpoint]) -> Loadpoint? {
         switch command {
-        case .backToPlan(let id?):
+        case .backToPlan(let id?, _):
             return points.first { $0.id == id }
-        case .backToPlan(nil):
-            return points.first(where: \.manualActive) ?? points.first(where: \.pluggedIn) ?? points.first
+        case .backToPlan(nil, _):
+            return points.first(where: \.manualActive) ?? primary(in: points)
         case .chargeNow, .setLevel:
-            return points.first(where: \.pluggedIn) ?? points.first
+            return primary(in: points)
         }
     }
 
     /// The receipt's sentence, and whether the box did it, has it, or not.
-    private func remoteOutcome(_ step: EVText.Step?, _ id: String) -> RemoteOutcome {
+    /// A receipt for another command, one tapped meanwhile, is not this
+    /// command's outcome.
+    private func remoteOutcome(_ step: EVText.Step?, _ id: String, ask: EVText.Step.Ask, busy: String) -> RemoteOutcome {
         guard let step else { return RemoteOutcome(.failed, AppWords.text("That did not go through. Try again.")) }
+        guard step.ask == ask else { return RemoteOutcome(.failed, busy) }
         let text = EVText.outcome(step, points.first { $0.id == id }).text
         switch step.result {
         case .applied?: return RemoteOutcome(.done, text)
         case .unconfirmed?, nil: return RemoteOutcome(.pending, text)
         case .superseded?, .refused?: return RemoteOutcome(.failed, text)
         }
+    }
+
+    /// The app opened because a command from the Control did not happen:
+    /// the reason stays on the car's receipt until the next tap.
+    public func show(refusal: String) {
+        guard let lp = primary else { return }
+        clearing["hold \(lp.id)"]?.cancel()
+        holdStep[lp.id] = EVText.Step(ask: .chargeNow, acked: false, result: .refused(refusal))
     }
 
     /// Read what "Is the car ready?" needs: the chargers, and the plan's
@@ -582,8 +665,8 @@ public final class LoadpointsModel: Activatable {
     /// "Is the car ready?" from what the box last said. Locked, the answer
     /// is the gist alone: no level, no time and no power.
     public func answer(locked: Bool) -> CarAnswer {
-        guard let lp = points.first(where: \.pluggedIn) ?? points.first else {
-            return CarAnswer(gist: .noCharger, headline: Self.say("FTW has no charger to control."), details: [], readAtMs: readAtMs, loadpointID: nil, holding: false, canChargeNow: false)
+        guard let lp = primary else {
+            return CarAnswer(gist: .noCharger, headline: Self.say("FTW has no charger to control."), details: [], readAtMs: readAtMs, loadpointID: nil, holding: false, canChargeNow: false, home: activityHome)
         }
         let r = readiness(lp)
         let holds = Self.holding(lp)
@@ -603,7 +686,7 @@ public final class LoadpointsModel: Activatable {
         } else {
             gist = .pluggedIn
         }
-        var answer = CarAnswer(gist: gist, headline: Self.say(CarAnswer.gistWords[gist] ?? ""), details: [], readAtMs: readAtMs, loadpointID: lp.id, holding: holds, canChargeNow: lp.pluggedIn && !holds)
+        var answer = CarAnswer(gist: gist, headline: Self.say(CarAnswer.gistWords[gist] ?? ""), details: [], readAtMs: readAtMs, loadpointID: lp.id, holding: holds, canChargeNow: lp.pluggedIn && !holds, home: activityHome)
         guard !locked else { return answer }
         let level = level(lp)
         switch gist {
@@ -655,6 +738,9 @@ public final class LoadpointsModel: Activatable {
         "The car is plugged in.": "Bilen är inkopplad.",
         "Read %@.": "Läst %@.",
         "Read %@": "Läst %@",
+        "FTW is still busy with your last command. Try again in a moment.": "FTW arbetar fortfarande med ditt förra kommando. Försök igen om en stund.",
+        "That card was for another home. It is closed now.": "Kortet gällde ett annat hem. Det är stängt nu.",
+        "FTW is busy: as many apps and browsers are watching this home as it serves. Try again when one closes.": "FTW är upptaget: lika många appar och webbläsare tittar på hemmet som det klarar. Försök igen när någon stänger.",
     ]
 }
 
@@ -676,6 +762,8 @@ public struct CarAnswer: Equatable, Sendable {
     public var holding: Bool
     /// A car is plugged in and not held: the card offers Charge now.
     public var canChargeNow: Bool
+    /// The home the answer is about, for the card's Back to the plan.
+    public var home: String
 
     /// Spoken: the answer, and its age once it is minutes old.
     public func spoken(nowMs: Double) -> String {

@@ -6,3 +6,5 @@
 "Ask ${applicationName} if the car is ready" = "Fråga ${applicationName} om bilen är klar";
 "Tell ${applicationName} the car is at ${level}" = "Säg till ${applicationName} att bilen är på ${level}";
 "Set the car's level in ${applicationName}" = "Ange bilens nivå i ${applicationName}";
+"Back to the plan with ${applicationName}" = "Tillbaka till planen med ${applicationName}";
+"Stop charging now with ${applicationName}" = "Sluta ladda nu med ${applicationName}";

@@ -2,6 +2,7 @@ import AppIntents
 import FTWKit
 import FTWShared
 import os
+import WidgetKit
 
 /// Runs what a Control, Siri or the Live Activity asks for, inside the app.
 ///
@@ -47,12 +48,32 @@ final class IntentRunner: CommandRunner {
     }
 
     private func perform(_ command: RemoteCommand) async -> RemoteOutcome {
-        guard let home = await begin() else { return RemoteOutcome(.failed, ChargeNowActivity.openAndRetry) }
+        guard let home = await begin() else {
+            // No home on this phone: a Live Activity left from one can only
+            // mislead, and its button has nothing to act on.
+            if case .backToPlan = command { LoadpointsModel.sharedChargeNowHost?.endAll(except: nil) }
+            ControlCenter.shared.reloadControls(ofKind: ChargeNowControlState.kind)
+            return RemoteOutcome(.failed, ChargeNowActivity.openAndRetry)
+        }
         defer { end() }
         let started = ContinuousClock.now
         let out = await home.loadpoints.perform(command)
         Self.log.info("\(String(describing: command), privacy: .public) answered in \((ContinuousClock.now - started) / .milliseconds(1), format: .fixed(precision: 0), privacy: .public) ms")
+        // A refusal leaves the Control's record as it was; the tile, which
+        // flipped on the tap, goes back to what the box confirmed.
+        if out.kind == .failed { ControlCenter.shared.reloadControls(ofKind: ChargeNowControlState.kind) }
         return out
+    }
+
+    nonisolated func show(refusal: String) async {
+        await showRefusal(refusal)
+    }
+
+    /// The app is opening on a Control's failed command: the reason stays
+    /// on the car's receipt, and the log dates it for the device test.
+    private func showRefusal(_ reason: String) {
+        Self.log.info("control refused, app opened: \(reason, privacy: .public)")
+        app.home?.loadpoints.show(refusal: reason)
     }
 
     /// "Is the car ready?": read the chargers and the plan, then answer. If

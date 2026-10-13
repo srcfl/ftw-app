@@ -77,7 +77,7 @@ struct CarCard: View {
                     Text(read).font(.caption).foregroundStyle(.secondary)
                 }
                 if answer.holding {
-                    Button(intent: BackToPlanIntent(loadpointID: answer.loadpointID)) {
+                    Button(intent: BackToPlanIntent(loadpointID: answer.loadpointID, home: answer.home)) {
                         Label(ChargeNowActivity.backToPlan, systemImage: "calendar")
                     }
                     .buttonStyle(.borderedProminent)
@@ -122,6 +122,15 @@ struct FTWShortcuts: AppShortcutsProvider {
             ],
             shortTitle: "Charge now",
             systemImageName: "bolt.car.fill"
+        )
+        AppShortcut(
+            intent: BackToPlanIntent(),
+            phrases: [
+                "Back to the plan with \(.applicationName)",
+                "Stop charging now with \(.applicationName)",
+            ],
+            shortTitle: "Back to the plan",
+            systemImageName: "calendar"
         )
         AppShortcut(
             intent: CarStatusIntent(),
