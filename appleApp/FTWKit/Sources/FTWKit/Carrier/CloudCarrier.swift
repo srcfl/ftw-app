@@ -46,6 +46,9 @@ public final class CloudCarrier {
     private let scheduler: Scheduler
     private let makeSocket: WebSocketFactory
     private var looking: Bool
+    /// What the service last heard: message 1's `hz`, then each `watch`.
+    /// Nil until message 1 of this dial goes.
+    private var told: Bool?
 
     private var socket: WebSocketConnection?
     private var generation = 0
@@ -91,11 +94,22 @@ public final class CloudCarrier {
 
     /// Whether anyone can see the home. While someone can, the service keeps
     /// the box at one update a second. A closed session takes the change
-    /// with it into message 1 of the next.
+    /// with it into message 1 of the next. A session still opening says it
+    /// once message 2 is in: a launch passes through inactive, so message 1
+    /// often says the phone looks away.
     public func setLooking(_ on: Bool) {
         guard on != looking else { return }
         looking = on
-        send(CloudWire.msgWatch, .map([("hz", .int(on ? CloudWire.hzLooking : CloudWire.hzAway))]))
+        tellLooking()
+    }
+
+    /// Send `watch` when the service last heard otherwise and the session
+    /// is open.
+    private func tellLooking() {
+        guard let told, told != looking else { return }
+        if send(CloudWire.msgWatch, .map([("hz", .int(looking ? CloudWire.hzLooking : CloudWire.hzAway))])) {
+            self.told = looking
+        }
     }
 
     /// An owner suspends a device at FTW Cloud, or lifts it. It only narrows
@@ -151,6 +165,7 @@ public final class CloudCarrier {
         let mine = generation
         handshake = nil
         transport = nil
+        told = nil
         socket = makeSocket(endpoint.url(home: home), WebSocketEvents(
             onOpen: { [weak self] in
                 guard let self, mine == self.generation else { return }
@@ -182,6 +197,7 @@ public final class CloudCarrier {
         guard let msg1 = try? hs.writeMessage(now) else { return }
         handshake = hs
         socket.send(msg1)
+        told = looking
         deadline?.cancel()
         deadline = scheduler.after(Self.handshakeTimeoutMs) { [weak self] in
             guard let self, self.transport == nil else { return }
@@ -216,6 +232,7 @@ public final class CloudCarrier {
         attempt = 0
         refusals = 0
         setStatus(.open(sinceMs: arrival))
+        tellLooking()
         onSnapshot(snapshot, arrival)
     }
 
