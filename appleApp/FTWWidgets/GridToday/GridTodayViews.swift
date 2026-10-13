@@ -147,7 +147,7 @@ struct NetFigure: View {
             if let symbol = moment.direction.symbol {
                 Image(systemName: symbol)
                     .font(.system(size: size * 0.62, weight: .bold))
-                    .foregroundStyle(moment.direction == .fromGrid ? GridColors.bars : GridColors.curve)
+                    .foregroundStyle(Theme.grid)
                     .widgetAccentable()
             }
             Text(moment.netText ?? "")
@@ -163,7 +163,7 @@ struct NetFigure: View {
     }
 }
 
-/// "⚡ 12,40 kr", or "−4,20 kr" in the colour of money earned.
+/// "⚡ 12,40 kr", or "−4,20 kr" in the grid's colour when the grid paid it.
 struct CostFigure: View {
     let moment: GridGlance.Moment
     let size: CGFloat
@@ -176,7 +176,7 @@ struct CostFigure: View {
                 .widgetAccentable()
             Text(moment.costText ?? "–")
                 .font(.system(size: size, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundStyle(moment.earned ? AnyShapeStyle(GridColors.curve) : AnyShapeStyle(.primary))
+                .foregroundStyle(moment.earned ? AnyShapeStyle(Theme.grid) : AnyShapeStyle(.primary))
                 .contentTransition(.numericText())
             if moment.costText != nil {
                 Text(moment.costUnit)
@@ -248,7 +248,8 @@ struct GridEmpty: View {
 
 /// The day on a fixed 00–24 axis: a bar for each quarter hour that bought,
 /// a curve with a soft fill below zero for what was sold, nothing for the
-/// hours still to come, and a break wherever the box has no record.
+/// hours still to come, and a break wherever the box has no record. Both
+/// are the grid's magenta; the side of zero says which way.
 ///
 /// Tinted and clear home screens draw in one colour: there the bars are
 /// solid and the curve and its fill fainter, and zero tells them apart.
@@ -272,16 +273,16 @@ struct GridDayChart: View {
                     yStart: .value("Zero", 0.0),
                     yEnd: .value("Bought", bar.watts)
                 )
-                .foregroundStyle(full ? AnyShapeStyle(GridColors.bars) : AnyShapeStyle(.primary))
+                .foregroundStyle(full ? AnyShapeStyle(Theme.grid) : AnyShapeStyle(.primary))
                 .cornerRadius(1)
             }
             ForEach(moment.curve) { p in
                 AreaMark(x: .value("Time", date(p.t)), yStart: .value("Sold", p.watts), yEnd: .value("Zero", 0.0), series: .value("Run", "\(p.run)-"))
                     .interpolationMethod(.monotone)
-                    .foregroundStyle(full ? AnyShapeStyle(GridColors.curve.opacity(0.22)) : AnyShapeStyle(.primary.opacity(0.18)))
+                    .foregroundStyle(full ? AnyShapeStyle(Theme.grid.opacity(0.22)) : AnyShapeStyle(.primary.opacity(0.18)))
                 LineMark(x: .value("Time", date(p.t)), y: .value("Sold", p.watts), series: .value("Run", "\(p.run)"))
                     .interpolationMethod(.monotone)
-                    .foregroundStyle(full ? AnyShapeStyle(GridColors.curve) : AnyShapeStyle(.primary.opacity(0.7)))
+                    .foregroundStyle(full ? AnyShapeStyle(Theme.grid) : AnyShapeStyle(.primary.opacity(0.7)))
                     .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
             }
         }

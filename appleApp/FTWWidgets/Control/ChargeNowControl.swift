@@ -6,10 +6,10 @@ import WidgetKit
 
 private let log = Logger(subsystem: "energy.ftw.app", category: "control")
 
-/// The app's filled-button orange (`ftw.accentFill`). Control Center draws
-/// an on switch's bolt in it on white, in light and dark alike, and the car
-/// around it lighter; without it both were a pale orange.
-private let onTint = Color(red: 0xDA / 255, green: 0x7F / 255, blue: 0)
+/// The car's colour as light mode draws it (`ftw.car`). Control Center
+/// draws an on switch's bolt in it on white, in light and dark alike, so it
+/// takes the variant that reads on white.
+private let onTint = Theme.fixed(Theme.car, .light)
 
 /// Charge now, as a switch in Control Center, on the Lock Screen and on the
 /// Action button. iPhone's controls also appear on a paired Apple Watch on

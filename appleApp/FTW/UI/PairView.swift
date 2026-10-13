@@ -143,10 +143,11 @@ struct PairView: View {
         if let message = model.message { Problem(message) }
     }
 
-    /// A sentence with the box's fingerprint set in even figures.
+    /// A sentence with the box's fingerprint set in mono, so it reads
+    /// character by character against the box's own page.
     private func mono(_ sentence: String, _ code: String) -> Text {
         var text = AttributedString(sentence)
-        if let range = text.range(of: code) { text[range].font = Theme.number(16) }
+        if let range = text.range(of: code) { text[range].font = Theme.mono(.callout, weight: .semibold) }
         return Text(text)
     }
 
@@ -251,7 +252,7 @@ struct Problem: View {
     var body: some View {
         Text(text)
             .font(.callout)
-            .foregroundStyle(Theme.importing)
+            .foregroundStyle(Theme.alarm)
             .fixedSize(horizontal: false, vertical: true)
     }
 }

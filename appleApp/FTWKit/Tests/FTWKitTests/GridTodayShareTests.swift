@@ -186,28 +186,15 @@ import FTWShared
         #expect(GridTodayShare.totals(["import_wh": 1]) == nil)
     }
 
-    /// The widget's two colours are FTW's own roles, `ftw.importing` and
-    /// `ftw.exporting`, not a copy that drifts from them.
-    @Test func theWidgetsColoursAreFTWsImportAndExportRoles() throws {
-        let source = try RepoFiles.read("appleApp/FTWWidgets/GridToday/GridColors.swift")
-        func pair(_ name: String) throws -> [String] {
-            let line = try #require(source.split(separator: "\n").first { $0.contains("static let \(name) = Pair(") })
-            return line.matches(of: /0x([0-9A-Fa-f]{6})/).map { String($0.1).uppercased() }
+    /// The grid widget draws the grid in the app's own grid role, magenta
+    /// both ways, from the shared catalog: no colour of its own and no
+    /// other energy's hue.
+    @Test func theWidgetDrawsTheGridInTheGridRole() throws {
+        let source = try RepoFiles.read("appleApp/FTWWidgets/GridToday/GridTodayViews.swift")
+        #expect(source.contains("Theme.grid"))
+        for other in ["solar", "gives", "stores", "car", "live", "alarm"] {
+            #expect(!source.contains("Theme.\(other)"), "the grid widget uses \(other)")
         }
-        func role(_ name: String) throws -> [String] {
-            let text = try RepoFiles.read("appleApp/FTW/UI/Theme.xcassets/\(name).colorset/Contents.json")
-            let json = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
-            let colors = try #require(json["colors"] as? [[String: Any]])
-            // Light first, then dark, as `Pair` takes them.
-            let sorted = colors.sorted { ($0["appearances"] == nil ? 0 : 1) < ($1["appearances"] == nil ? 0 : 1) }
-            return try sorted.map { c in
-                let comps = try #require((c["color"] as? [String: Any])?["components"] as? [String: String])
-                return ["red", "green", "blue"].map { String(comps[$0]!.dropFirst(2)) }.joined().uppercased()
-            }
-        }
-        let importing = try role("ftw.importing"), exporting = try role("ftw.exporting")
-        #expect(try pair("importing") == importing)
-        #expect(try pair("exporting") == exporting)
-        #expect(importing.count == 2)
+        _ = try RepoFiles.read("appleApp/FTWCharts/Theme.xcassets/ftw.grid.colorset/Contents.json")
     }
 }

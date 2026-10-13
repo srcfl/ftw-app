@@ -271,16 +271,14 @@ struct WidgetLanes: View {
 }
 
 extension Tone {
-    static let mobility = Pair(0x7F5BB6, 0xCCA8FF)
-    static let storage = Pair(0x008FA8, 0x13DCF6)
-    static let generation = Pair(0xD48500, 0xFFB000)
-
-    static func of(_ kind: PlanGlance.Kind) -> Pair {
+    static func of(_ kind: PlanGlance.Kind) -> Color {
         switch kind {
-        case .car: return mobility
-        case .charge: return storage
-        case .discharge: return generation
-        case .cheap: return cheap
+        case .car: return Theme.car
+        case .charge: return Theme.stores
+        case .discharge: return Theme.gives
+        case .cheap: return Theme.ink2
         }
     }
+
+    static func of(_ tone: PriceStrip.Tone) -> Color { Theme.price(tone) }
 }

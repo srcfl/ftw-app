@@ -205,7 +205,7 @@ struct StatusRow: View, Equatable {
                 Label {
                     Text(doubt).foregroundStyle(Theme.fg)
                 } icon: {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.generation)
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.alarm)
                 }
                 .font(.caption.weight(.medium))
                 .fixedSize(horizontal: false, vertical: true)
@@ -301,8 +301,8 @@ struct StatusRow: View, Equatable {
 
     private var color: Color {
         switch answer.tone {
-        case .ok: return Theme.exporting
-        case .warning: return Theme.generation
+        case .ok: return Theme.live
+        case .warning: return Theme.alarm
         case .neutral, .stale: return Theme.fgMuted
         }
     }

@@ -140,7 +140,7 @@ struct PriceChart: View, Equatable {
                 cheapest: cheapest.map { $0.startMs...$0.endMs },
                 cheapestLabel: L("Cheapest"),
                 meanLabel: mean.map { NodeWords.format("avg %@", AppWords.decimal(PriceStrip.text($0, currency))) },
-                palette: PriceChartPalette(cheap: Theme.exporting, flat: Theme.fgMuted, dear: Theme.importing, now: Theme.accentFill, quiet: Theme.fgMuted, labelBackground: Theme.surfaceRaised),
+                palette: .ink,
                 zone: .current,
                 selected: selected
             )

@@ -1,55 +1,49 @@
 import FTWKit
 import SwiftUI
 
-/// The web app's design roles (src/styles/tokens.css), light and dark, so the
-/// native app and the box's own page look like one product. Views read
-/// roles, never raw colours. The values live in `Theme.xcassets`, one colour
-/// set per role with its dark variant, so the system switches them.
-enum Theme {
-    static let surface = Color("ftw.surface")
-    static let surfaceSunken = Color("ftw.surfaceSunken")
-    static let surfaceRaised = Color("ftw.surfaceRaised")
-    static let surfaceElevated = Color("ftw.surfaceElevated")
-    static let line = Color("ftw.line")
-    static let fg = Color("ftw.fg")
-    static let fgDim = Color("ftw.fgDim")
-    static let fgMuted = Color("ftw.fgMuted")
-    static let onAccent = Color("ftw.onAccent")
+/// The app's side of `Theme` (FTWCharts/Palette.swift holds the palette and
+/// type it shares with the widgets): the names the screens read, the energy
+/// colour of a flow, the spring and the shapes.
+extension Theme {
+    // The names from 0.3, pointed at the Phosphor roles so every screen
+    // changed at once. New code reads the roles; these go as each screen is
+    // rebuilt.
+    static let surface = ground
+    static let surfaceSunken = hairline
+    static let surfaceRaised = raised
+    static let surfaceElevated = raised
+    static let line = hairline
+    static let fg = ink
+    static let fgDim = ink2
+    static let fgMuted = ink3
+    /// Text on an ink fill: inverse video.
+    static let onAccent = ground
+    /// The interface accent is ink. No orange anywhere.
+    static let accent = ink
+    static let accentFill = ink
+    static let storage = stores
+    static let mobility = car
 
-    /// Accent for text and small glyphs: dark enough to read on every
-    /// light surface.
-    static let accent = Color("ftw.accent")
-    /// The brand orange, for fills, strokes, lines and prominent buttons.
-    static let accentFill = Color("ftw.accentFill")
-    static let importing = Color("ftw.importing")
-    static let exporting = Color("ftw.exporting")
-    static let generation = Color("ftw.generation")
-    static let storage = Color("ftw.storage")
-    static let mobility = Color("ftw.mobility")
-
-    static let freshLive = exporting
-    static let freshStale = generation
-    static let freshLost = fgMuted
+    static let freshLive = live
+    /// Not live is ink and holds still; only live gives off colour.
+    static let freshStale = ink2
+    static let freshLost = ink3
 
     static let radius: CGFloat = 14
     static let radiusSmall: CGFloat = 10
 
+    /// One hue per energy kind. The grid is magenta both ways and the home
+    /// is ink.
     static func color(_ tone: Flow.Tone) -> Color {
         switch tone {
-        case .muted: return fgMuted
-        case .importing: return importing
-        case .exporting: return exporting
-        case .solar: return generation
-        case .battery, .charging, .discharging: return storage
-        case .ev: return mobility
-        case .house: return accentFill
+        case .muted: return ink3
+        case .importing, .exporting: return grid
+        case .solar: return solar
+        case .battery, .charging: return stores
+        case .discharging: return gives
+        case .ev: return car
+        case .house: return ink
         }
-    }
-
-    /// Mono figures, as the web app sets every number, so a value that
-    /// changes every second does not shift the line under the reader's eye.
-    static func number(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
     }
 
     /// A percentage: even digits, and a % that reads as a sign, not a
@@ -79,7 +73,9 @@ final class PowerState {
     }
 }
 
-/// A raised card, the web app's `.card`.
+/// A group of lines on the ground. No fill and no border: space, not
+/// boxes, separates one group from the next. It keeps the old card's
+/// spacing, so nothing moves.
 struct Card<Content: View>: View {
     @ViewBuilder var content: Content
 
@@ -88,20 +84,18 @@ struct Card<Content: View>: View {
             .padding(.vertical, 14)
             .padding(.horizontal, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
-            .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
     }
 }
 
-/// The small caps line over a card title.
+/// The small caps line over a group, in the terminal's mono.
 struct Kicker: View {
     let text: String
     init(_ text: String) { self.text = text }
 
     var body: some View {
         Text(text.uppercased())
-            .font(.caption2.weight(.semibold))
-            .tracking(0.8)
+            .font(Theme.mono())
+            .tracking(0.5)
             .foregroundStyle(Theme.fgMuted)
             // A label over a card, never louder than what it labels.
             .dynamicTypeSize(...DynamicTypeSize.accessibility1)
@@ -125,7 +119,8 @@ struct Hint: View {
     }
 }
 
-/// The web app's three button weights.
+/// The three button weights. The primary one is inverse video: ink with
+/// the ground for its words.
 struct FTWButtonStyle: ButtonStyle {
     enum Kind { case primary, quiet, outline, danger }
     var kind: Kind
@@ -152,7 +147,7 @@ struct FTWButtonStyle: ButtonStyle {
     private var foreground: Color {
         switch kind {
         case .primary: return Theme.onAccent
-        case .danger: return .white
+        case .danger: return Theme.ground
         case .quiet: return Theme.accent
         case .outline: return Theme.fg
         }
@@ -161,7 +156,7 @@ struct FTWButtonStyle: ButtonStyle {
     private var background: Color {
         switch kind {
         case .primary: return Theme.accentFill
-        case .danger: return Theme.importing
+        case .danger: return Theme.alarm
         case .quiet, .outline: return .clear
         }
     }

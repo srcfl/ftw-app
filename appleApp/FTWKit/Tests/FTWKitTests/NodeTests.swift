@@ -771,7 +771,7 @@ import FTWShared
     @Test func everySentenceHasSwedish() throws {
         let files = [
             "appleApp/FTW/UI/NowView.swift", "appleApp/FTW/UI/FlowDiagram.swift", "appleApp/FTW/UI/NodeView.swift",
-            "appleApp/FTW/UI/NodeCharts.swift", "appleApp/FTW/UI/ModeSheet.swift", "appleApp/FTW/UI/PriceChart.swift",
+            "appleApp/FTW/UI/NodeCharts.swift", "appleApp/FTW/UI/ModeSheet.swift",
             "appleApp/FTW/UI/PlanCard.swift", "appleApp/FTW/UI/PlanView.swift", "appleApp/FTWKit/Sources/FTWKit/State/PlanShare.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/EnergyNode.swift", "appleApp/FTWKit/Sources/FTWKit/State/NowFlow.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/ModeModel.swift", "appleApp/FTWKit/Sources/FTWKit/State/PlanModel.swift",

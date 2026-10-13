@@ -212,5 +212,5 @@ struct FTWShortcuts: AppShortcutsProvider {
         )
     }
 
-    static let shortcutTileColor: ShortcutTileColor = .orange
+    static let shortcutTileColor: ShortcutTileColor = .navy
 }

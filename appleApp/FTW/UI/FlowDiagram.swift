@@ -303,13 +303,13 @@ struct NodeValue: View {
     var body: some View {
         if let watts {
             let parts = PowerFormat.parts(watts)
-            Text("\(Text(AppWords.decimal(parts.text)).font(Theme.number(size, weight: .bold)))\(Text(" \(parts.unit)").font(.caption))")
+            Text("\(Text(AppWords.decimal(parts.text)).font(Theme.figure(size)))\(Text(" \(parts.unit)").font(.caption))")
                 .contentTransition(.numericText(value: watts))
                 .animation(Theme.spring, value: watts)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         } else {
-            Text("—").font(Theme.number(size, weight: .bold))
+            Text("—").font(Theme.figure(size))
         }
     }
 }
@@ -352,7 +352,7 @@ struct FreshnessTag: View {
             Text(NodeLook.age(freshness))
         }
         .font(.caption2)
-        .foregroundStyle(Theme.generation)
+        .foregroundStyle(Theme.freshStale)
         .lineLimit(1)
     }
 }

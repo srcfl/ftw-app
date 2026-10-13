@@ -191,7 +191,6 @@ struct Empty: View {
 struct Curve: View {
     let moment: PriceGlance.Moment
     @Environment(\.widgetRenderingMode) private var renderingMode
-    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         PriceLineChart(
@@ -201,7 +200,7 @@ struct Curve: View {
             cheapest: moment.cheapest.map { $0.startMs...$0.endMs },
             cheapestLabel: nil,
             meanLabel: nil,
-            palette: Tone.palette(colorScheme),
+            palette: .ink,
             zone: moment.timeZone,
             labelEveryHours: 3,
             monochrome: renderingMode != .fullColor
@@ -211,52 +210,15 @@ struct Curve: View {
     }
 }
 
-/// The app's colour roles (FTW/UI/Theme.swift, from the web app's tokens),
-/// the few a price widget needs.
+/// The roles a widget needs, from the app's own palette
+/// (FTWCharts/Theme.xcassets), so a widget never drifts from the app.
 enum Tone {
-    static let surface = Pair(0xFAFAF8, 0x161616)
-    static let empty = Pair(0xDCDCD6, 0x2A2A2A)
-    static let cheap = Pair(0x009639, 0x5FD37F)
-    static let dear = Pair(0xCC243D, 0xFF6E74)
-    static let negative = Pair(0xD48500, 0xFFB000)
-    static let flat = Pair(0x686862, 0x858585)
-    /// Text and glyphs: the app's darker accent in light, so it reads on
-    /// the widget's surface.
-    static let accent = Pair(0x9C5800, 0xFFAC41)
-    /// Fills and lines: the brand orange.
-    static let accentFill = Pair(0xDA7F00, 0xFFAC41)
-
-    /// The price chart's colours, for the scheme the widget draws in.
-    static func palette(_ scheme: ColorScheme) -> PriceChartPalette {
-        func pick(_ p: Pair) -> Color { scheme == .dark ? p.dark : p.light }
-        return PriceChartPalette(cheap: pick(cheap), flat: pick(flat), dear: pick(dear), now: pick(accentFill), quiet: pick(flat), labelBackground: pick(surface))
-    }
-
-    static func of(_ tone: PriceStrip.Tone) -> Pair {
-        switch tone {
-        case .cheap: return cheap
-        case .dear: return dear
-        case .flat: return flat
-        case .negative: return negative
-        }
-    }
-}
-
-/// One colour for light and one for dark, picked by SwiftUI where it draws.
-struct Pair: ShapeStyle {
-    let light: Color
-    let dark: Color
-
-    init(_ light: UInt32, _ dark: UInt32) {
-        self.light = Self.color(light)
-        self.dark = Self.color(dark)
-    }
-
-    func resolve(in environment: EnvironmentValues) -> Color {
-        environment.colorScheme == .dark ? dark : light
-    }
-
-    private static func color(_ rgb: UInt32) -> Color {
-        Color(red: Double((rgb >> 16) & 0xFF) / 255, green: Double((rgb >> 8) & 0xFF) / 255, blue: Double(rgb & 0xFF) / 255)
-    }
+    static let surface = Theme.ground
+    /// Behind a widget with nothing to show.
+    static let empty = Theme.hairline
+    static let flat = Theme.ink3
+    /// Text and glyphs: the interface is ink.
+    static let accent = Theme.ink
+    /// "Cheapest 02–04": ink, as every price is.
+    static let cheap = Theme.ink
 }
