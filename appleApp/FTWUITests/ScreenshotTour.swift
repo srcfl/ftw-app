@@ -8,8 +8,9 @@ import XCTest
 ///     xcrun xcresulttool export attachments --path shots.xcresult --output-path shots
 ///
 /// `FTW_TEXT` takes a content size such as `UICTContentSizeCategoryXXXL`;
-/// `FTW_TOUR=now` takes Now and the plan only; light or dark is the
-/// simulator's own setting.
+/// at a size other than the standard one the tour takes Now, the battery
+/// and the grid. `FTW_TOUR=now` takes Now and the plan only; light or dark
+/// is the simulator's own setting.
 final class ScreenshotTour: XCTestCase {
     @MainActor
     func testTour() throws {
@@ -29,11 +30,13 @@ final class ScreenshotTour: XCTestCase {
         // Let the stream fill the live curves, as minutes of looking would.
         Thread.sleep(forTimeInterval: settle)
         shoot(app, "now")
-        // At another text size, Now is the picture that matters.
-        guard text == "UICTContentSizeCategoryL" else { return }
+        // At another text size, Now and the nodes whose charts run both ways
+        // are the pictures that matter.
+        let standard = text == "UICTContentSizeCategoryL"
+        guard standard || env["FTW_TOUR"] != "now" else { return }
 
         let plan = app.buttons["now.plan"]
-        if plan.waitForExistence(timeout: 5) {
+        if standard, plan.waitForExistence(timeout: 5) {
             plan.tap()
             Thread.sleep(forTimeInterval: 3)
             shoot(app, "plan")
@@ -43,9 +46,10 @@ final class ScreenshotTour: XCTestCase {
         // `FTW_TOUR=now` stops at Now and the plan.
         guard env["FTW_TOUR"] != "now" else { return }
 
-        for node in ["solar", "battery", "home", "grid", "car"] {
+        for node in standard ? ["solar", "battery", "home", "grid", "car"] : ["battery", "grid"] {
             let door = app.buttons["now.node.\(node)"]
             guard door.waitForExistence(timeout: 5) else { continue }
+            if !door.isHittable { app.swipeUp() }
             door.tap()
             Thread.sleep(forTimeInterval: 3)
             shoot(app, node)

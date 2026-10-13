@@ -36,7 +36,7 @@ extension SimulatedHouse {
     func recordLive(nowMs: Double, dtMs: Double) {
         if liveSinceMs == nil { liveSinceMs = nowMs }
         let start = (nowMs / Self.bucketMs).rounded(.down) * Self.bucketMs
-        let b = Bucket(grid: gridW, pv: pvW, battery: batteryW, load: baseLoadW + evW, ev: evW)
+        let b = Bucket(grid: gridW, pv: pvW, battery: batteryW, load: baseLoadW, ev: evW)
         let e = liveBuckets[start] ?? (Bucket(), 0)
         liveBuckets[start] = (e.sum + b.scaled(dtMs), e.ms + dtMs)
     }

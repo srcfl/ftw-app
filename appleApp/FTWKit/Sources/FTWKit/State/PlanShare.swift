@@ -6,7 +6,7 @@ extension PlanEntry {
     /// car's charging windows with the level it charges toward, and the
     /// prices under them. Prices come from the price model, or else from the
     /// plan's own slots.
-    public static func live(plan: Plan?, points: [Loadpoint], windows: [String: [Loadpoint.Window]], prices: Prices?) -> PlanEntry {
+    public static func live(plan: Plan?, points: [Loadpoint], windows: [String: [Loadpoint.Window]], prices: Prices?, timeZone: String? = nil) -> PlanEntry {
         let battery = plan.map { p in p.slots.map { Slot(startMs: $0.startMs, durationMs: $0.durationMs, batteryW: $0.batteryW, reason: $0.reason) } }
         var charges = [Charge]()
         for lp in points {
@@ -18,7 +18,7 @@ extension PlanEntry {
         if slots.isEmpty, let plan {
             slots = plan.slots.compactMap { s in s.priceMinor.map { PriceSlot(startMs: s.startMs, durationMs: s.durationMs, spotMinor: $0, totalMinor: $0) } }
         }
-        return PlanEntry(battery: battery, charges: charges, prices: slots, currency: prices?.currency ?? "SEK", boxStale: plan?.stale ?? false)
+        return PlanEntry(battery: battery, charges: charges, prices: slots, currency: prices?.currency ?? "SEK", boxStale: plan?.stale ?? false, timeZone: timeZone)
     }
 
     /// Only what lies ahead, for the widget's record: from an hour back to a
@@ -62,7 +62,7 @@ public final class PlanShare {
 
     /// The plan as Now draws it.
     public var entry: PlanEntry {
-        PlanEntry.live(plan: site.session.plan, points: loadpoints.points, windows: loadpoints.windows, prices: prices.prices)
+        PlanEntry.live(plan: site.session.plan, points: loadpoints.points, windows: loadpoints.windows, prices: prices.prices, timeZone: loadpoints.zone.identifier)
     }
 
     /// What would make the record different. Cheap enough for every tick.

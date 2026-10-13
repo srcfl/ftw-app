@@ -18,16 +18,57 @@ final class NowFitsTests: XCTestCase {
     static let largest = "UICTContentSizeCategoryXXXL"
 
     @MainActor
-    private func launchDemo(text: String = NowFitsTests.standard) -> XCUIApplication {
+    private func launchDemo(text: String = NowFitsTests.standard, more: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [
             "-FTWDemo", "YES",
             "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
             "-UIPreferredContentSizeCategoryName", text,
-        ]
+        ] + more
         app.launch()
-        XCTAssertTrue(app.buttons["now.node.home"].waitForExistence(timeout: 15), "Now never drew the home")
+        if more.isEmpty {
+            XCTAssertTrue(app.buttons["now.node.home"].waitForExistence(timeout: 15), "Now never drew the home")
+        }
         return app
+    }
+
+    /// The car's view opens with Plan, Charge now and Pause on screen, at
+    /// the standard size and the largest; a tap moves no button, and the
+    /// box's answer moves the choice, not the buttons.
+    @MainActor
+    func testChargeNowIsOnTheCarsFirstScreenAndHoldsItsPlace() throws {
+        for text in [Self.standard, "UICTContentSizeCategoryAccessibilityXXXL"] {
+            let app = launchDemo(text: text, more: ["-FTWTab", "car"])
+            let charge = app.buttons["car.control.chargeNow"]
+            XCTAssertTrue(charge.waitForExistence(timeout: 15), "no Charge now at \(text)")
+            Thread.sleep(forTimeInterval: 2)
+            let window = app.windows.firstMatch.frame
+            for c in ["plan", "chargeNow", "pause"] {
+                let b = app.buttons["car.control.\(c)"]
+                XCTAssertTrue(b.isHittable, "\(c) cannot be tapped at \(text)")
+                XCTAssertTrue(window.contains(b.frame), "\(c) is off screen at \(text)")
+            }
+            guard text == Self.standard else {
+                shoot(app, "car-ax5")
+                app.terminate()
+                continue
+            }
+            shoot(app, "car-before")
+            let frames = ["plan", "chargeNow", "pause"].map { app.buttons["car.control.\($0)"].frame }
+            XCTAssertTrue(app.buttons["car.control.plan"].isSelected)
+            charge.tap()
+            Thread.sleep(forTimeInterval: 0.3)
+            shoot(app, "car-sending")
+            let chargedChosen = NSPredicate(format: "isSelected == true")
+            expectation(for: chargedChosen, evaluatedWith: charge)
+            waitForExpectations(timeout: 10)
+            shoot(app, "car-after")
+            XCTAssertEqual(["plan", "chargeNow", "pause"].map { app.buttons["car.control.\($0)"].frame }, frames, "a button moved")
+            // Back as it was, for the next test.
+            app.buttons["car.control.plan"].tap()
+            Thread.sleep(forTimeInterval: 3)
+            app.terminate()
+        }
     }
 
     @MainActor
@@ -57,6 +98,23 @@ final class NowFitsTests: XCTestCase {
         XCTAssertTrue(app.windows.firstMatch.frame.contains(foot.frame), "\(foot.frame) is outside \(app.windows.firstMatch.frame)")
         XCTAssertTrue(foot.isHittable)
         XCTAssertEqual(app.scrollViews.count, 0, "Now scrolls at the largest standard text size")
+    }
+
+    /// At the largest accessibility size the drawing gives way to a row
+    /// per node; the page may scroll, and every row still opens its node.
+    @MainActor
+    func testAtTheLargestAccessibilitySizeEveryNodeIsARow() throws {
+        let app = launchDemo(text: "UICTContentSizeCategoryAccessibilityXXXL")
+        for node in ["home", "solar", "battery", "grid", "car"] {
+            XCTAssertTrue(app.buttons["now.node.\(node)"].exists, "no row for \(node)")
+        }
+        shoot(app, "now-ax5")
+        let battery = app.buttons["now.node.battery"]
+        if !battery.isHittable { app.swipeUp() }
+        battery.tap()
+        XCTAssertTrue(app.navigationBars["Battery"].waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 2)
+        shoot(app, "battery-ax5")
     }
 
     @MainActor

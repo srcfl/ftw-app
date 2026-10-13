@@ -3,10 +3,10 @@ import FTWKit
 import SwiftUI
 
 /// The car: how full it is and who says so, the goal and whether it makes
-/// it, and Charge now, Pause and Back to the plan. Every tap answers at
-/// once (a haptic and "Sent"), then the box's receipt, then the outcome;
-/// the screen shows intent at once and a result only once the box has
-/// confirmed it.
+/// it, and Plan, Charge now and Pause in a bar at the foot, where the thumb
+/// is and in the same places whatever the car does. Every tap shows "Sent"
+/// at once, then the box's receipt, then the outcome; the screen shows
+/// intent at once and a result only once the box has confirmed it.
 struct CarView: View {
     let app: AppModel
     let home: HomeModels
@@ -25,9 +25,6 @@ struct CarView: View {
                 StatusSection(lp: lp, model: model, site: home.site)
                 LevelSection(lp: lp, model: model, canControl: home.site.canConfigure)
                 GoalSection(lp: lp, model: model, site: home.site, canControl: home.site.canConfigure, editing: $editingGoal)
-                if lp.pluggedIn, home.site.canConfigure {
-                    ControlSection(lp: lp, model: model)
-                }
                 if app.isDemo { DemoSection(lp: lp, model: model) }
             } else if model.loaded {
                 Section { Text(L("This box has no charger.")) }
@@ -39,6 +36,12 @@ struct CarView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.surface)
+        .safeAreaBar(edge: .bottom) {
+            if let lp, lp.pluggedIn, home.site.canConfigure {
+                ControlBar(lp: lp, model: model)
+            }
+        }
+        .scrollEdgeEffectStyle(.hard, for: .bottom)
         .animation(Theme.spring, value: model.points)
         .navigationTitle(L("Car"))
         .navigationBarTitleDisplayMode(.inline)
@@ -331,61 +334,135 @@ struct Readiness: View {
 
 // MARK: Charge now, Pause, Back to the plan
 
-private struct ControlSection: View {
+/// Plan · Charge now · Pause, always in these places. The one the box
+/// reports is chosen; the one asked for turns while it travels; a tap on
+/// the chosen one does nothing. Under them, the receipt has a row of its
+/// own, of fixed height, so nothing moves when it arrives.
+private struct ControlBar: View {
     let lp: Loadpoint
     let model: LoadpointsModel
-    @State private var taps = 0
+    @Environment(\.dynamicTypeSize) private var typeSize
 
-    var body: some View {
-        let paused = EVText.isPaused(lp)
-        let holding = lp.manualActive && !paused
-        let busy = model.holdSending(lp)
-        Section {
-            VStack(spacing: 10) {
-                if holding || paused {
-                    action(L("Back to the plan"), symbol: "calendar.badge.clock", prominent: true, busy: busy) { await model.backToPlan(lp) }
-                }
-                if !holding {
-                    action(L("Charge now"), symbol: "bolt.fill", prominent: !paused, busy: busy) { await model.chargeNow(lp) }
-                }
-                if !paused {
-                    action(L("Pause"), symbol: "pause.fill", prominent: false, busy: busy) { await model.pause(lp) }
-                }
+    enum Choice: CaseIterable, Identifiable {
+        case plan, chargeNow, pause
+        var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .plan: return L("Plan")
+            case .chargeNow: return L("Charge now")
+            case .pause: return L("Pause")
             }
-            .padding(.vertical, 6)
-            if let outcome = model.outcome(hold: lp) {
-                ReceiptView(outcome: outcome)
-            }
-        } footer: {
-            Text(L("Charge now runs until you go back to the plan or unplug."))
         }
-        .listRowBackground(Theme.surfaceRaised)
-        .sensoryFeedback(.impact(weight: .medium), trigger: taps)
-        .sensoryFeedback(trigger: model.outcome(hold: lp)?.tone) { _, tone in LevelSection.feedback(tone) }
+
+        var symbol: String {
+            switch self {
+            case .plan: return "calendar.badge.clock"
+            case .chargeNow: return "bolt.fill"
+            case .pause: return "pause.fill"
+            }
+        }
     }
 
-    @ViewBuilder private func action(_ title: String, symbol: String, prominent: Bool, busy: Bool, _ run: @escaping () async -> Void) -> some View {
-        let label = Label(title, systemImage: symbol)
-            .font(.body.weight(.semibold))
-            .frame(maxWidth: .infinity)
-        Group {
-            if prominent {
-                Button {
-                    taps += 1
-                    Task { await run() }
-                } label: { label.foregroundStyle(Theme.onAccent) }
-                .buttonStyle(.borderedProminent)
-            } else {
-                Button {
-                    taps += 1
-                    Task { await run() }
-                } label: { label.foregroundStyle(Theme.fg) }
-                .buttonStyle(.bordered)
-                .tint(Theme.fgMuted)
-            }
+    /// What the box reports the charger is doing.
+    private var current: Choice {
+        if EVText.isPaused(lp) { return .pause }
+        return lp.manualActive ? .chargeNow : .plan
+    }
+
+    /// The choice on its way to the box.
+    private var asked: Choice? {
+        guard let step = model.holdStep[lp.id], !step.settled else { return nil }
+        switch step.ask {
+        case .chargeNow: return .chargeNow
+        case .pause: return .pause
+        case .resume: return .plan
+        case .level: return nil
         }
-        .controlSize(.large)
-        .disabled(busy)
+    }
+
+    var body: some View {
+        let current = self.current
+        let asked = self.asked
+        VStack(alignment: .leading, spacing: 8) {
+            // Side by side; at the accessibility sizes one under the other,
+            // so no name is cut.
+            let stacked = typeSize.isAccessibilitySize
+            let layout = stacked ? AnyLayout(VStackLayout(spacing: 6)) : AnyLayout(HStackLayout(spacing: 8))
+            layout {
+                ForEach(Choice.allCases) { c in
+                    button(c, chosen: asked == nil && c == current, waiting: asked == c, stacked: stacked)
+                }
+            }
+            ZStack(alignment: .topLeading) {
+                ReceiptRoom()
+                if let outcome = model.outcome(hold: lp) {
+                    ReceiptView(outcome: outcome)
+                        .transition(.opacity)
+                } else {
+                    Text(L("Charge now runs until you go back to the plan or unplug."))
+                        .font(.footnote)
+                        .foregroundStyle(Theme.fgMuted)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .transition(.opacity)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 4)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .animation(Theme.spring, value: model.outcome(hold: lp))
+        .animation(Theme.spring, value: current)
+        // Commands answer once, when the box says what it did.
+        .sensoryFeedback(trigger: model.outcome(hold: lp)?.tone) { _, tone in LevelSection.feedback(tone) }
+        // A bar of controls: whole words before the largest letters.
+        .dynamicTypeSize(...DynamicTypeSize.accessibility2)
+    }
+
+    @ViewBuilder private func button(_ c: Choice, chosen: Bool, waiting: Bool, stacked: Bool) -> some View {
+        // The chosen one in the brand fill; the others in plain glass.
+        if chosen {
+            plain(c, chosen: true, waiting: waiting, stacked: stacked)
+                .buttonStyle(.glassProminent)
+                .tint(Theme.accentFill)
+        } else {
+            plain(c, chosen: false, waiting: waiting, stacked: stacked)
+                .buttonStyle(.glass)
+        }
+    }
+
+    private func plain(_ c: Choice, chosen: Bool, waiting: Bool, stacked: Bool) -> some View {
+        Button {
+            guard !chosen, !model.holdSending(lp) else { return }
+            Task {
+                switch c {
+                case .plan: await model.backToPlan(lp)
+                case .chargeNow: await model.chargeNow(lp)
+                case .pause: await model.pause(lp)
+                }
+            }
+        } label: {
+            let layout = stacked ? AnyLayout(HStackLayout(spacing: 10)) : AnyLayout(VStackLayout(spacing: 4))
+            layout {
+                Image(systemName: waiting ? "circle.dotted" : c.symbol)
+                    .symbolEffect(.rotate, options: .repeating, isActive: waiting)
+                    .contentTransition(.symbolEffect(.replace))
+                // One line in every state, so the chosen button, with its
+                // wider padding, is no taller than the others.
+                Text(c.title)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(chosen ? Theme.onAccent : Theme.fg)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .padding(.vertical, 4)
+        }
+        .disabled(waiting)
+        .accessibilityAddTraits(chosen ? .isSelected : [])
+        .accessibilityValue(waiting ? L("Sending to your box…") : "")
+        .accessibilityIdentifier("car.control.\(c)")
     }
 }
 
@@ -421,6 +498,34 @@ private struct PlaceholderSections: View {
         }
         .listRowBackground(Theme.surfaceRaised)
         .redacted(reason: .placeholder)
+    }
+}
+
+/// The room a receipt takes, its marks and two lines of text, laid out as
+/// `ReceiptView` lays them out and left empty, so a receipt that arrives
+/// moves nothing.
+struct ReceiptRoom: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) { marks }
+                VStack(alignment: .leading, spacing: 4) { marks }
+            }
+            Text(verbatim: "\n")
+                .font(.footnote.weight(.medium))
+        }
+        .padding(.vertical, 4)
+        .hidden()
+        .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private var marks: some View {
+        ForEach([L("Sent"), L("Received"), L("Done")], id: \.self) { label in
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark.circle.fill")
+                Text(label).font(.caption.weight(.semibold))
+            }
+        }
     }
 }
 

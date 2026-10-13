@@ -44,15 +44,15 @@ struct NodeView: View {
     var body: some View {
         FitScreen(spacing: 10) { fill in
             NodeHero(site: site, node: node, loadpoints: home.loadpoints, sources: models.sources)
-            LiveSection(site: site, trace: models.live, node: node)
-                .frame(height: fill ? 84 : 120)
+            LiveSection(site: site, trace: models.live, node: node, fill: fill)
+                .frame(height: fill ? 84 : nil)
             Picker(L("Period"), selection: $period.animation(Theme.spring)) {
                 ForEach(Period.allCases, id: \.self) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
             .accessibilityIdentifier("node.period")
-            PeriodSection(site: site, node: node, period: period, models: models, prices: home.prices, loadpoints: home.loadpoints)
-                .frame(minHeight: fill ? 130 : 210, idealHeight: fill ? 130 : 210, maxHeight: fill ? .infinity : 210)
+            PeriodSection(site: site, node: node, period: period, models: models, prices: home.prices, loadpoints: home.loadpoints, fill: fill)
+                .frame(minHeight: fill ? 130 : nil, idealHeight: fill ? 130 : nil, maxHeight: fill ? .infinity : nil)
             if node == .car {
                 CarLink(loadpoints: home.loadpoints, zoom: zoom)
             } else {
@@ -151,25 +151,59 @@ private struct HeroLine: View, Equatable {
     var devices: [DeviceLine] = []
 
     var body: some View {
-        let live = reading.freshness.live
-        let color = live ? Theme.color(reading.tone) : Theme.fgMuted
+        // Side by side while it fits; at the largest text the level and the
+        // devices go under the figure, and then the icon steps aside, so no
+        // word breaks.
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 12) {
+                figure(icon: true)
+                Spacer(minLength: 8)
+                side
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                figure(icon: true)
+                side
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                figure(icon: false)
+                side
+            }
+        }
+        .animation(Theme.spring, value: reading.word)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var live: Bool { reading.freshness.live }
+    private var color: Color { live ? Theme.color(reading.tone) : Theme.fgMuted }
+
+    private func figure(icon: Bool) -> some View {
         HStack(alignment: .center, spacing: 12) {
-            Image(systemName: NodeLook.symbol(reading.node, levelPct: reading.levelPct, flowing: reading.flowing))
-                .font(.title2)
-                .foregroundStyle(color)
-                .frame(width: 34)
-                .contentTransition(.symbolEffect(.replace))
-                .accessibilityHidden(true)
+            if icon {
+                Image(systemName: NodeLook.symbol(reading.node, levelPct: reading.levelPct, flowing: reading.flowing))
+                    .font(.title2)
+                    .foregroundStyle(color)
+                    // A glyph beside the figure, not a second figure.
+                    .dynamicTypeSize(...DynamicTypeSize.xLarge)
+                    .frame(width: 40)
+                    .contentTransition(.symbolEffect(.replace))
+                    .accessibilityHidden(true)
+            }
             VStack(alignment: .leading, spacing: 0) {
                 NodeValue(watts: reading.watts, size: 34)
                     .foregroundStyle(live ? Theme.fg : Theme.fgMuted)
                 Text(reading.word)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(color)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                     .contentTransition(.opacity)
             }
-            Spacer(minLength: 8)
-            if !devices.isEmpty {
+        }
+        .fixedSize()
+    }
+
+    @ViewBuilder private var side: some View {
+        if !devices.isEmpty {
                 VStack(alignment: .trailing, spacing: 3) {
                     ForEach(devices) { d in
                         HStack(spacing: 5) {
@@ -195,11 +229,9 @@ private struct HeroLine: View, Equatable {
                         Text(L("FTW assumes")).font(.caption2).foregroundStyle(Theme.fgMuted)
                     }
                 }
+                .fixedSize()
                 .accessibilityElement(children: .combine)
             }
-        }
-        .animation(Theme.spring, value: reading.word)
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -286,49 +318,31 @@ private struct LiveSection: View {
     let site: SiteModel
     let trace: LiveTrace
     let node: EnergyNode
+    /// On a page that scrolls, the chart keeps its own height and the
+    /// words above it take what they need.
+    let fill: Bool
 
     var body: some View {
         let now = site.nowMs
         let points = trace.points(node.fid, sinceMs: now - LiveTrace.windowMs).map { LiveTrace.Point(t: $0.t, v: node.shown($0.v)) }
         let live = site.freshness(node).live
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Kicker(L("Live · last 5 min"))
-                Spacer()
-                DirectionKey(node: node)
-            }
+            Kicker(L("Live · last 5 min"))
             if points.count < 2 {
                 Text(live ? L("Drawing as readings arrive…") : L("No live readings while your box is out of reach."))
                     .font(.footnote)
                     .foregroundStyle(Theme.fgMuted)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                LiveChart(points: points, nowMs: now, color: live ? Theme.color(NodeLook.tone(node)) : Theme.fgMuted, signed: NodeLook.signed(node))
+                LiveChart(points: points, nowMs: now, look: NodeLook.look(node, live: live))
                     .equatable()
+                    .frame(height: fill ? nil : 110)
             }
         }
         .padding(.vertical, 8)
         .padding(.horizontal, 12)
         .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
         .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
-    }
-}
-
-/// Which way is up, for a node whose curve crosses zero.
-private struct DirectionKey: View {
-    let node: EnergyNode
-
-    var body: some View {
-        if let words = node.directions {
-            HStack(spacing: 8) {
-                Label(words.up, systemImage: "arrow.up")
-                Label(words.down, systemImage: "arrow.down")
-            }
-            .labelStyle(.titleAndIcon)
-            .font(.caption2)
-            .foregroundStyle(Theme.fgDim)
-            .lineLimit(1)
-        }
     }
 }
 
@@ -341,6 +355,7 @@ private struct PeriodSection: View {
     let models: NodeModels
     let prices: PriceModel
     let loadpoints: LoadpointsModel
+    let fill: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -351,6 +366,7 @@ private struct PeriodSection: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(height: fill ? nil : 180)
             Text(summary)
                 .font(.footnote)
                 .foregroundStyle(Theme.fgDim)
@@ -384,7 +400,7 @@ private struct PeriodSection: View {
         } else if !models.history.available {
             Placeholder(text: L("Your box keeps no history."))
         } else if models.history.frame != nil {
-            HistoryChart(samples: models.history.samples(node, fromMs: fromMs), fromMs: fromMs, toMs: toMs, color: Theme.color(NodeLook.tone(node)), signed: NodeLook.signed(node), strideHours: stride)
+            HistoryChart(samples: models.history.samples(node, fromMs: fromMs), fromMs: fromMs, toMs: toMs, look: NodeLook.look(node), strideHours: stride)
                 .equatable()
         } else {
             Placeholder(text: models.history.problem)
@@ -406,9 +422,7 @@ private struct PeriodSection: View {
                     prices: slots.compactMap { s in s.priceMinor.map { AheadChart.Price(startMs: s.startMs, endMs: s.endMs, minor: $0) } },
                     currency: window?.currency ?? "SEK",
                     nowMs: now,
-                    color: Theme.color(NodeLook.tone(node)),
-                    outColor: NodeLook.outColor(node),
-                    signed: true
+                    look: NodeLook.look(node)
                 ).equatable()
             }
         case .solar, .home:
@@ -421,9 +435,7 @@ private struct PeriodSection: View {
                     prices: slots.compactMap { s in s.priceMinor.map { AheadChart.Price(startMs: s.startMs, endMs: s.startMs + s.durationMs, minor: $0) } },
                     currency: window?.currency ?? "SEK",
                     nowMs: now,
-                    color: Theme.color(NodeLook.tone(node)),
-                    outColor: Theme.color(NodeLook.tone(node)),
-                    signed: false
+                    look: NodeLook.look(node)
                 ).equatable()
             }
         case .car:
@@ -436,9 +448,7 @@ private struct PeriodSection: View {
                 prices: priceBars,
                 currency: window?.currency ?? "SEK",
                 nowMs: now,
-                color: Theme.mobility,
-                outColor: Theme.mobility,
-                signed: false
+                look: NodeLook.look(.car)
             ).equatable()
         }
     }
@@ -500,21 +510,15 @@ private struct ModeSection: View {
     var body: some View {
         let key = mode.shown
         VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline) {
-                VStack(alignment: .leading, spacing: 1) {
-                    Kicker(L("Mode"))
-                    Text(mode.label ?? "—")
-                        .font(.headline)
-                        .foregroundStyle(Theme.fg)
-                        .contentTransition(.opacity)
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline) {
+                    title
+                    Spacer(minLength: 8)
+                    change
                 }
-                Spacer(minLength: 8)
-                if mode.canControl {
-                    Button(L("Change"), action: choose)
-                        .buttonStyle(.bordered)
-                        .buttonBorderShape(.capsule)
-                        .controlSize(.small)
-                        .accessibilityIdentifier("node.mode.change")
+                VStack(alignment: .leading, spacing: 6) {
+                    title
+                    change
                 }
             }
             if let outcome = mode.outcome {
@@ -534,6 +538,39 @@ private struct ModeSection: View {
         .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
         .animation(Theme.spring, value: mode.outcome)
         .sensoryFeedback(trigger: mode.outcome?.tone) { _, tone in Self.feedback(tone) }
+    }
+
+    private var title: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Kicker(L("Mode"))
+            Text(mode.label ?? "—")
+                .font(.headline)
+                .foregroundStyle(Theme.fg)
+                .contentTransition(.opacity)
+            if let doubt = mode.doubt {
+                Label {
+                    Text(doubt).foregroundStyle(Theme.fg)
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.generation)
+                }
+                .font(.caption.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    @ViewBuilder private var change: some View {
+        if mode.canControl {
+            Button(action: choose) {
+                Text(L("Change")).lineLimit(1).fixedSize()
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.capsule)
+            .controlSize(.small)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+            .accessibilityIdentifier("node.mode.change")
+        }
     }
 
     static func feedback(_ tone: EVText.Outcome.Tone?) -> SensoryFeedback? {
@@ -617,15 +654,23 @@ extension NodeLook {
         }
     }
 
-    /// Below the line: the battery giving power, the home selling.
-    static func outColor(_ node: EnergyNode) -> Color {
+    /// One colour pair per node for all its charts: the battery in its own
+    /// colour, giving power in the same colour lighter; the grid red when
+    /// buying and green when selling, as on Now. Grey when not live.
+    static func look(_ node: EnergyNode, live: Bool = true) -> ChartLook {
+        let words = node.directions
+        guard live else {
+            return ChartLook(up: Theme.fgMuted, down: Theme.fgMuted.opacity(0.6), line: Theme.fgMuted, upWord: words?.up, downWord: words?.down)
+        }
         switch node {
-        case .battery: return Theme.generation
-        case .grid: return Theme.exporting
-        default: return Theme.color(tone(node))
+        case .battery:
+            return ChartLook(up: Theme.storage, down: Theme.storage.opacity(0.5), line: Theme.storage, upWord: words?.up, downWord: words?.down)
+        case .grid:
+            return ChartLook(up: Theme.importing, down: Theme.exporting, line: Theme.fgDim, upWord: words?.up, downWord: words?.down)
+        default:
+            let c = Theme.color(tone(node))
+            return ChartLook(up: c, down: c, line: c)
         }
     }
-
-    static func signed(_ node: EnergyNode) -> Bool { node == .battery || node == .grid }
 
 }

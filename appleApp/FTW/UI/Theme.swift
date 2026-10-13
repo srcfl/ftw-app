@@ -86,6 +86,8 @@ struct Kicker: View {
             .font(.caption2.weight(.semibold))
             .tracking(0.8)
             .foregroundStyle(Theme.fgMuted)
+            // A label over a card, never louder than what it labels.
+            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
     }
 }
 

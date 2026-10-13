@@ -240,11 +240,20 @@ struct WidgetLanes: View {
         .chartXAxis {
             AxisMarks(preset: .aligned, values: .stride(by: .hour, count: 3)) { value in
                 AxisValueLabel {
-                    if let d = value.as(Date.self) { Text(String(format: "%02d", Calendar.current.component(.hour, from: d))) }
+                    if let d = value.as(Date.self) {
+                        // The household's hour, as the rest of the widget reads it.
+                        Text(String(format: "%02d", Self.hour(d, in: moment.timeZone)))
+                    }
                 }
             }
         }
         .accessibilityHidden(true)
+    }
+
+    static func hour(_ d: Date, in zone: TimeZone) -> Int {
+        var c = Calendar.current
+        c.timeZone = zone
+        return c.component(.hour, from: d)
     }
 
     static let priceFloor = 0.03

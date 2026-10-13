@@ -10,7 +10,6 @@ import SwiftUI
 struct ModeSheet: View {
     let mode: ModeModel
     @Environment(\.dismiss) private var dismiss
-    @State private var taps = 0
     /// The sheet's height for its content, measured once laid out.
     @State private var fitted: CGFloat = 520
     @State private var detent: PresentationDetent = .height(520)
@@ -42,7 +41,7 @@ struct ModeSheet: View {
         }
         .presentationDetents([.height(fitted), .large], selection: $detent)
         .presentationDragIndicator(.visible)
-        .sensoryFeedback(.selection, trigger: taps)
+        // A command answers once, when the box says what it did.
         .sensoryFeedback(trigger: mode.outcome?.tone) { _, tone in Self.feedback(tone) }
         .task(id: mode.change?.result) { await closeOnceApplied() }
         .onAppear { mode.activate() }
@@ -141,7 +140,6 @@ struct ModeSheet: View {
     private func choice(title: String, help: String, selected: Bool, waiting: Bool, id: String, _ run: @escaping () async -> Void) -> some View {
         Button {
             guard !selected, canSet else { return }
-            taps += 1
             Task { await run() }
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
@@ -173,7 +171,6 @@ struct ModeSheet: View {
             get: { mode.shownStyle?.key ?? ModeModel.styles[2].key },
             set: { key in
                 guard let style = ModeModel.styles.first(where: { $0.key == key }) else { return }
-                taps += 1
                 Task { await mode.setStyle(style) }
             }
         )
@@ -183,7 +180,6 @@ struct ModeSheet: View {
         Binding(
             get: { mode.shownExport ?? false },
             set: { on in
-                taps += 1
                 Task { await mode.setExport(on) }
             }
         )
@@ -207,15 +203,8 @@ private struct ReceiptBar: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            // The room a receipt needs, its marks and two lines, at any
-            // text size.
-            VStack(alignment: .leading, spacing: 6) {
-                Label(L("Received"), systemImage: "circle").font(.caption.weight(.semibold))
-                Text(verbatim: "\n").font(.footnote.weight(.medium))
-            }
-            .padding(.vertical, 4)
-            .hidden()
-            .accessibilityHidden(true)
+            // The room a receipt needs, at any text size.
+            ReceiptRoom()
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
         }

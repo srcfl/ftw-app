@@ -162,7 +162,9 @@ public final class SimulatedBox {
             Contract.FID.pvW: house.pvW,
             Contract.FID.batteryW: house.batteryW,
             Contract.FID.batterySoc: (house.socFraction * 1000).rounded(),
-            Contract.FID.loadW: house.baseLoadW + house.evWatts,
+            // The house alone, as Core sends it: grid − battery − solar −
+            // car. The car is its own field.
+            Contract.FID.loadW: house.baseLoadW,
         ]
         f[Contract.FID.evW] = house.evWatts
         return f
@@ -428,7 +430,7 @@ public final class SimulatedBox {
             let perPhase = house.gridW / 3
             return (200, [
                 "grid_w": .number(house.gridW), "pv_w": .number(house.pvW), "bat_w": .number(house.batteryW),
-                "load_w": .number(house.baseLoadW + house.evWatts),
+                "load_w": .number(house.baseLoadW),
                 "energy": ["today": [
                     "import_wh": .number(house.todayImportWh), "export_wh": .number(house.todayExportWh),
                     "pv_wh": .number(house.todayPVWh), "load_wh": .number(house.todayLoadWh),

@@ -172,6 +172,25 @@ import Testing
         #expect(files.siteIDs(PlanEntry.self) == ["home"])
     }
 
+    /// A widget reads the clock the way the home does: the zone the box
+    /// names travels in the record, whatever zone the phone is in.
+    @Test func theClockIsTheHouseholds() throws {
+        var entry = night()
+        entry.timeZone = "Europe/Helsinki"
+        let m = PlanGlance.live(entry, nowMs: at(12, 20))
+        #expect(m.timeZone.identifier == "Europe/Helsinki")
+        // 21:15 in Stockholm is 22:15 in Helsinki.
+        #expect(m.summary.hasPrefix("now–22:15 battery gives power"))
+        #expect(m.nextUntil == "until 22:15")
+        // A record from before the zone was kept reads as the phone's.
+        let old = try JSONEncoder().encode(night())
+        let back = try JSONDecoder().decode(PlanEntry.self, from: old)
+        #expect(back.timeZone == nil)
+        #expect(Calendar.household(nil).timeZone == Calendar.current.timeZone)
+        #expect(Calendar.household("Nowhere/Bogus").timeZone == Calendar.current.timeZone)
+        #expect(Calendar.household("Asia/Tokyo").timeZone.identifier == "Asia/Tokyo")
+    }
+
     /// Every sentence has Swedish, with as many blanks as the English.
     @Test func everyWordHasSwedish() throws {
         let url = try #require(Words.bundle.url(forResource: "Plan", withExtension: "strings", subdirectory: nil, localization: "sv"))

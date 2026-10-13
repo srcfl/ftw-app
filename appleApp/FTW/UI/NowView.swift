@@ -107,8 +107,7 @@ private struct NowBody: View {
             Card { Text(L("This app is older than your box. Some things are hidden until it updates.")) }
         }
         StatusSection(site: site, mode: home.nodes.mode, choose: chooseMode)
-        FlowSection(site: site, loadpoints: home.loadpoints, zoom: zoom)
-            .frame(minHeight: fill ? 214 : 330, idealHeight: fill ? 214 : 330, maxHeight: fill ? .infinity : 330)
+        FlowSection(site: site, loadpoints: home.loadpoints, zoom: zoom, fill: fill, canCommand: site.canConfigure)
         PlanSection(site: site, models: home.nodes, prices: home.prices, zoom: zoom)
         AboutLink(app: app)
             .padding(.top, -18)
@@ -188,12 +187,19 @@ struct StatusRow: View, Equatable {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             // One row on every iPhone: the mode keeps its width and the answer
-            // wraps beside it, rather than the two stacking.
-            HStack(alignment: .center, spacing: 10) {
-                control
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                modeView(alignment: .trailing)
-                    .fixedSize()
+            // wraps beside it. Only at the accessibility sizes, where the
+            // mode alone is wider than the phone, do the two stack.
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 10) {
+                    control
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    modeView(alignment: .trailing)
+                        .fixedSize()
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    control
+                    modeView(alignment: .leading)
+                }
             }
             if let doubt = mode?.doubt {
                 Label {
@@ -261,7 +267,9 @@ struct StatusRow: View, Equatable {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(canChoose ? Theme.accent : Theme.fg)
                             .contentTransition(.opacity)
-                            .lineLimit(1)
+                            // Beside the answer one line; stacked under it,
+                            // as much as the name needs.
+                            .lineLimit(alignment == .trailing ? 1 : 3)
                         if mode.sending {
                             ProgressView().controlSize(.mini)
                         } else if canChoose {
@@ -306,6 +314,9 @@ private struct FlowSection: View {
     let site: SiteModel
     let loadpoints: LoadpointsModel
     let zoom: Namespace.ID
+    let fill: Bool
+    let canCommand: Bool
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         // The stream carries the car's watts; a box that leaves them out
@@ -313,15 +324,96 @@ private struct FlowSection: View {
         let evW = loadpoints.stale ? 0 : Flow.loadpointChargeW(loadpoints.points)
         let fields = Flow.withLoadpointEV(site.session.fields, evW: evW)
         let car = loadpoints.points.first.flatMap { loadpoints.level($0) }
-        FlowDiagram(
-            readings: NowFlow.readings(
-                fields: fields,
-                freshness: { site.freshness(fid: $0) },
-                carLevel: car.map { ($0.pct, $0.origin == .assumed || $0.origin == .unconfirmed) },
-                hasCar: !loadpoints.points.isEmpty
-            ),
-            zoom: zoom
+        let readings = NowFlow.readings(
+            fields: fields,
+            freshness: { site.freshness(fid: $0) },
+            carLevel: car.map { ($0.pct, $0.origin == .assumed || $0.origin == .unconfirmed) },
+            hasCar: !loadpoints.points.isEmpty
         )
+        // The drawing has fixed places and stops growing at xLarge. At the
+        // accessibility sizes each node gets a row of its own instead, so
+        // its figure can grow with the text.
+        if typeSize.isAccessibilitySize {
+            NodeList(readings: readings, zoom: zoom)
+        } else {
+            FlowDiagram(readings: readings, zoom: zoom, car: carActions)
+                .frame(minHeight: fill ? 214 : 330, idealHeight: fill ? 214 : 330, maxHeight: fill ? .infinity : 330)
+                .sensoryFeedback(trigger: carPoint.flatMap { loadpoints.outcome(hold: $0)?.tone }) { _, tone in ModeSheet.feedback(tone) }
+        }
+    }
+
+    /// The charger with a car in it, else the first.
+    private var carPoint: Loadpoint? {
+        loadpoints.points.first { $0.pluggedIn } ?? loadpoints.points.first
+    }
+
+    private var carActions: CarActions? {
+        guard canCommand, let lp = carPoint, lp.pluggedIn, !loadpoints.holdSending(lp) else { return nil }
+        let paused = EVText.isPaused(lp)
+        let holding = lp.manualActive && !paused
+        let model = loadpoints
+        return CarActions(
+            chargeNow: holding ? nil : { Task { await model.chargeNow(lp) } },
+            pause: paused ? nil : { Task { await model.pause(lp) } },
+            backToPlan: holding || paused ? { Task { await model.backToPlan(lp) } } : nil
+        )
+    }
+}
+
+/// Now's nodes as rows, for the largest text: the home first, then each
+/// node with its figure, its word, how full, and how old if not live. Each
+/// row is the same door as its bubble.
+private struct NodeList: View {
+    let readings: [NodeReading]
+    let zoom: Namespace.ID
+    /// The figure grows with the text, the way the drawing's cannot.
+    @ScaledMetric(relativeTo: .title) private var figure: CGFloat = 28
+
+    var body: some View {
+        let ordered = readings.filter { $0.node == .home } + readings.filter { $0.node != .home }
+        VStack(spacing: 0) {
+            ForEach(Array(ordered.enumerated()), id: \.element.id) { i, r in
+                if i > 0 { Divider().overlay(Theme.line) }
+                NavigationLink(value: HomeRoute.node(r.node)) {
+                    row(r)
+                }
+                .buttonStyle(.plain)
+                .matchedTransitionSource(id: HomeRoute.node(r.node), in: zoom)
+                .accessibilityIdentifier("now.node.\(r.node.rawValue)")
+            }
+        }
+        .padding(.horizontal, 12)
+        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
+    }
+
+    private func row(_ r: NodeReading) -> some View {
+        let live = r.freshness.live
+        let color = live ? Theme.color(r.tone) : Theme.fgMuted
+        return VStack(alignment: .leading, spacing: 2) {
+            Label {
+                Text(r.node.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.fgDim)
+            } icon: {
+                Image(systemName: NodeLook.symbol(r.node, levelPct: r.levelPct, flowing: r.flowing)).foregroundStyle(color)
+            }
+            NodeValue(watts: r.watts, size: figure)
+                .foregroundStyle(r.watts == nil ? Theme.fgMuted : (r.node == .home ? Theme.fg : color))
+            Text(r.word).font(.body).foregroundStyle(Theme.fgDim)
+            if let level = r.levelPct {
+                Text(AppWords.percent(level)).font(Theme.percent(.body)).foregroundStyle(r.levelAssumed ? Theme.fgMuted : Theme.fg)
+            }
+            if !live, r.watts != nil {
+                FreshnessTag(freshness: r.freshness)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(r.node.title)
+        .accessibilityValue(NodeLook.spoken(r))
+        .accessibilityHint(L("Opens live readings, history and the plan."))
+        .accessibilityAddTraits(.isButton)
     }
 }
 

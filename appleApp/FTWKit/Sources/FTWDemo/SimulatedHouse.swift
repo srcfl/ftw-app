@@ -268,7 +268,8 @@ public final class SimulatedHouse {
         recordLive(nowMs: nowMs, dtMs: dtMs)
 
         let h = dtMs / 3_600_000
-        todayLoadWh += load * h
+        // The house's own use, as Core counts it: the car is apart.
+        todayLoadWh += baseLoadW * h
         todayPVWh += -pvW * h
         if gridW > 0 { todayImportWh += gridW * h } else { todayExportWh += -gridW * h }
         if batteryW > 0 { todayChargedWh += batteryW * h } else { todayDischargedWh += -batteryW * h }

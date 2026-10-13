@@ -168,7 +168,13 @@ struct FreshnessLine: View {
             return Line(color: streaming ? Theme.accentFill : Theme.fgMuted, message: L(streaming ? "Live demo · simulated home" : "Starting the demo"), tail: nil, beats: streaming)
         }
         let band = site.freshness(noCarrier: app.connectHelp != nil)
-        let tail = [band.wait, band.age.flatMap { $0 == "—" ? nil : $0 }].compactMap { $0 }.joined(separator: " · ")
+        let age = band.age.flatMap { $0 == "—" ? nil : $0 }
+        // No network on the phone at all: say that, and how old the last
+        // reading is, rather than count seconds toward a box out of reach.
+        if !NetworkState.shared.online, band.tone != .live {
+            return Line(color: Theme.freshLost, message: L("This phone is offline"), tail: age.map { "· \($0)" }, beats: false)
+        }
+        let tail = [band.wait, age].compactMap { $0 }.joined(separator: " · ")
         return Line(color: FreshnessTone.color(band.tone), message: band.message, tail: tail.isEmpty ? nil : "· \(tail)", beats: band.tone == .live)
     }
 }

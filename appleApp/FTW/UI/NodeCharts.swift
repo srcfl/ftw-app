@@ -20,21 +20,104 @@ func hourLabel(_ value: AxisValue) -> some View {
         .foregroundStyle(Theme.fgMuted)
 }
 
-/// One width for every axis label, so charts stacked one above the other
-/// put the same hour at the same place.
-private let axisWidth: CGFloat = 44
+/// The largest text a chart's labels take: a chart is a drawing, and its
+/// figures are said again in words under it and to VoiceOver.
+let chartTextCap = DynamicTypeSize.xxLarge
 
-/// Axis labels as magnitudes: "2 kW" above the line and below it.
+/// An axis label in a column of one width for the text size, so charts
+/// stacked one above the other put the same hour at the same place.
+struct AxisText: View {
+    let text: String
+    @ScaledMetric(relativeTo: .caption2) private var width: CGFloat = 44
+
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(.caption2)
+            .foregroundStyle(Theme.fgMuted)
+            .lineLimit(1)
+            .frame(width: width, alignment: .leading)
+    }
+}
+
+/// Axis labels as magnitudes: "2 kW" above the line and below it. The zero
+/// line speaks for itself.
 private func powerAxis() -> some AxisContent {
     AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { value in
         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(Theme.line)
         AxisValueLabel {
-            if let w = value.as(Double.self) {
-                Text(PowerFormat.scale(w)).font(.caption2).foregroundStyle(Theme.fgMuted)
-                    .frame(width: axisWidth, alignment: .leading)
+            if let w = value.as(Double.self), w != 0 {
+                AxisText(PowerFormat.scale(w))
             }
         }
     }
+}
+
+/// How a node's charts draw it: one colour pair for every chart of the
+/// node, live, past and ahead, and for a node whose power runs both ways
+/// the word for each direction inside the plot.
+struct ChartLook: Equatable {
+    /// Into the battery, from the grid, or the node's only direction.
+    var up: Color
+    /// Out of the battery, to the grid.
+    var down: Color
+    /// The line over the areas.
+    var line: Color
+    var upWord: String?
+    var downWord: String?
+
+    var signed: Bool { upWord != nil }
+}
+
+/// "↑ charging" at the top of the plot and "↓ giving power" at its foot, so
+/// a signed curve says which way is which where the eye already is.
+private struct DirectionWords: ViewModifier {
+    let look: ChartLook
+
+    func body(content: Content) -> some View {
+        content.chartPlotStyle { plot in
+            plot
+                .overlay(alignment: .topLeading) { word(look.upWord, "arrow.up") }
+                .overlay(alignment: .bottomLeading) { word(look.downWord, "arrow.down") }
+        }
+    }
+
+    @ViewBuilder private func word(_ text: String?, _ symbol: String) -> some View {
+        if let text {
+            Label(text, systemImage: symbol)
+                .labelStyle(.titleAndIcon)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(Theme.fgDim)
+                .lineLimit(1)
+                .padding(.horizontal, 4)
+                .padding(.vertical, 2)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+extension View {
+    func directionWords(_ look: ChartLook) -> some View { modifier(DirectionWords(look: look)) }
+}
+
+/// A run of points drawn as two areas, the part above zero in one colour of
+/// the pair and the part below in the other, under one line.
+@ChartContentBuilder
+private func signedRun(_ t: Double, _ v: Double, run: Int, look: ChartLook, opacity: (top: Double, bottom: Double), lineWidth: CGFloat) -> some ChartContent {
+    AreaMark(x: .value("Time", date(t)), yStart: .value("Zero", 0), yEnd: .value("Power", max(0, v)), series: .value("Run", "\(run)+"))
+        .foregroundStyle(LinearGradient(colors: [look.up.opacity(opacity.top), look.up.opacity(opacity.bottom)], startPoint: .top, endPoint: .bottom))
+        .interpolationMethod(.monotone)
+    if look.signed {
+        AreaMark(x: .value("Time", date(t)), yStart: .value("Power", min(0, v)), yEnd: .value("Zero", 0), series: .value("Run", "\(run)-"))
+            .foregroundStyle(LinearGradient(colors: [look.down.opacity(opacity.bottom), look.down.opacity(opacity.top)], startPoint: .top, endPoint: .bottom))
+            .interpolationMethod(.monotone)
+    }
+    LineMark(x: .value("Time", date(t)), y: .value("Power", v), series: .value("Run", "\(run)"))
+        .foregroundStyle(look.line)
+        .lineStyle(StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+        .interpolationMethod(.monotone)
 }
 
 /// The last five minutes, from the ring buffer lane 0 fills. A break in
@@ -42,28 +125,21 @@ private func powerAxis() -> some AxisContent {
 struct LiveChart: View, Equatable {
     let points: [LiveTrace.Point]
     let nowMs: Double
-    let color: Color
-    let signed: Bool
+    let look: ChartLook
 
     var body: some View {
         let runs = LiveTrace.runs(points)
         Chart {
             ForEach(runs.indices, id: \.self) { i in
                 let r = runs[i]
-                AreaMark(x: .value("Time", date(r.point.t)), y: .value("Power", r.point.v), series: .value("Run", r.run), stacking: .unstacked)
-                    .foregroundStyle(LinearGradient(colors: [color.opacity(0.32), color.opacity(0.04)], startPoint: .top, endPoint: .bottom))
-                    .interpolationMethod(.monotone)
-                LineMark(x: .value("Time", date(r.point.t)), y: .value("Power", r.point.v), series: .value("Run", r.run))
-                    .foregroundStyle(color)
-                    .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .interpolationMethod(.monotone)
+                signedRun(r.point.t, r.point.v, run: r.run, look: look, opacity: (0.32, 0.04), lineWidth: 2)
             }
-            if signed {
+            if look.signed {
                 RuleMark(y: .value("Zero", 0)).foregroundStyle(Theme.line).lineStyle(StrokeStyle(lineWidth: 1))
             }
             if let last = runs.last {
                 PointMark(x: .value("Time", date(last.point.t)), y: .value("Power", last.point.v))
-                    .foregroundStyle(color)
+                    .foregroundStyle(last.point.v < 0 ? look.down : look.line)
                     .symbolSize(28)
             }
         }
@@ -71,6 +147,8 @@ struct LiveChart: View, Equatable {
         .chartXAxis(.hidden)
         .chartYAxis { powerAxis() }
         .chartYScale(domain: .automatic(includesZero: true))
+        .directionWords(look)
+        .dynamicTypeSize(...chartTextCap)
         .accessibilityLabel(L("Live, the last five minutes"))
     }
 }
@@ -80,8 +158,7 @@ struct HistoryChart: View, Equatable {
     let samples: [HistorySample]
     let fromMs: Double
     let toMs: Double
-    let color: Color
-    let signed: Bool
+    let look: ChartLook
     let strideHours: Int
 
     var body: some View {
@@ -89,15 +166,9 @@ struct HistoryChart: View, Equatable {
         Chart {
             ForEach(points.indices, id: \.self) { i in
                 let p = points[i]
-                AreaMark(x: .value("Time", date(p.t)), y: .value("Power", p.v), series: .value("Run", p.run), stacking: .unstacked)
-                    .foregroundStyle(LinearGradient(colors: [color.opacity(0.35), color.opacity(0.05)], startPoint: .top, endPoint: .bottom))
-                    .interpolationMethod(.monotone)
-                LineMark(x: .value("Time", date(p.t)), y: .value("Power", p.v), series: .value("Run", p.run))
-                    .foregroundStyle(color)
-                    .lineStyle(StrokeStyle(lineWidth: 1.5))
-                    .interpolationMethod(.monotone)
+                signedRun(p.t, p.v, run: p.run, look: look, opacity: (0.35, 0.05), lineWidth: 1.5)
             }
-            if signed {
+            if look.signed {
                 RuleMark(y: .value("Zero", 0)).foregroundStyle(Theme.line)
             }
         }
@@ -110,6 +181,8 @@ struct HistoryChart: View, Equatable {
         }
         .chartYAxis { powerAxis() }
         .chartYScale(domain: .automatic(includesZero: true))
+        .directionWords(look)
+        .dynamicTypeSize(...chartTextCap)
     }
 
     /// Each sample at the middle of its step, numbered by run so a hole is
@@ -161,13 +234,13 @@ struct CarHoursChart: View, Equatable {
             AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { value in
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5)).foregroundStyle(Theme.line)
                 AxisValueLabel {
-                    if let kwh = value.as(Double.self) {
-                        Text(kwh == 0 ? "0\u{00A0}kWh" : AppWords.energy(kwh * 1000)).font(.caption2).foregroundStyle(Theme.fgMuted)
-                            .frame(width: axisWidth, alignment: .leading)
+                    if let kwh = value.as(Double.self), kwh != 0 {
+                        AxisText(AppWords.energy(kwh * 1000))
                     }
                 }
             }
         }
+        .dynamicTypeSize(...chartTextCap)
     }
 }
 
@@ -193,10 +266,7 @@ struct AheadChart: View, Equatable {
     let prices: [Price]
     let currency: String
     let nowMs: Double
-    let color: Color
-    /// A second colour for bars below the line: giving power, selling.
-    let outColor: Color
-    let signed: Bool
+    let look: ChartLook
 
     var body: some View {
         let to = nowMs + PlanModel.aheadMs
@@ -209,10 +279,10 @@ struct AheadChart: View, Equatable {
                         yStart: .value("Zero", 0),
                         yEnd: .value("Power", b.watts)
                     )
-                    .foregroundStyle(b.watts >= 0 ? color : outColor)
+                    .foregroundStyle(b.watts >= 0 ? look.up : look.down)
                     .cornerRadius(1.5)
                 }
-                if signed {
+                if look.signed {
                     RuleMark(y: .value("Zero", 0)).foregroundStyle(Theme.line)
                 }
             }
@@ -220,11 +290,13 @@ struct AheadChart: View, Equatable {
             .chartXAxis(.hidden)
             .chartYAxis { powerAxis() }
             .chartYScale(domain: .automatic(includesZero: true))
+            .directionWords(look)
             if !prices.isEmpty {
                 PriceStripChart(prices: prices, currency: currency, fromMs: nowMs, toMs: to)
                     .frame(height: 36)
             }
         }
+        .dynamicTypeSize(...chartTextCap)
     }
 }
 
@@ -266,8 +338,7 @@ struct PriceStripChart: View, Equatable {
                 // of the chart above.
                 AxisValueLabel(anchor: .topLeading) {
                     if let v = value.as(Double.self) {
-                        Text("\(Int(v.rounded())) \(PriceUnits.unit(currency).label)").font(.caption2).foregroundStyle(Theme.fgMuted)
-                            .frame(width: axisWidth, alignment: .leading)
+                        AxisText("\(Int(v.rounded())) \(PriceUnits.unit(currency).label)")
                     }
                 }
             }

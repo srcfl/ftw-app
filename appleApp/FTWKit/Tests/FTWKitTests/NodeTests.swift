@@ -572,6 +572,37 @@ import FTWShared
     }
 }
 
+// MARK: The demo's balance
+
+@Suite struct DemoBalanceTests {
+    /// Core sends the house without the car: grid = house + battery +
+    /// solar + car. The demo does the same on lane 0 and in /api/status, so
+    /// Now never counts a charging car twice.
+    @MainActor
+    @Test func theHouseLeavesTheCarOut() async throws {
+        let rig = DemoRig()
+        rig.app.startDemo()
+        let box = try #require(rig.box)
+        let site = try #require(rig.app.home).site
+        box.house.plugIn()
+        box.house.boostUntilMs = rig.scheduler.nowMs + 3_600_000
+        await rig.run(3_000)
+        let f = site.session.fields
+        let ev = try #require(f[Contract.FID.evW])
+        #expect(ev > 1_000)
+        let grid = try #require(f[Contract.FID.gridW])
+        let house = try #require(f[Contract.FID.loadW])
+        let battery = f[Contract.FID.batteryW] ?? 0
+        let solar = f[Contract.FID.pvW] ?? 0
+        #expect(abs(grid - (house + battery + solar + ev)) <= 1)
+        #expect(house == box.house.baseLoadW)
+        // The house node shows the house, not the house and the car.
+        let readings = NowFlow.readings(fields: f, freshness: { _ in NodeFreshness(carrier: .relay, srcState: .live, ageMs: 0, sourceName: nil) }, hasCar: true)
+        #expect(readings.first { $0.node == .home }?.watts == house)
+        #expect(readings.first { $0.node == .car }?.watts == ev)
+    }
+}
+
 // MARK: Words
 
 @Suite struct NodeWordsTests {

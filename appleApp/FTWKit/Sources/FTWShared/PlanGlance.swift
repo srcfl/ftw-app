@@ -52,13 +52,17 @@ public struct PlanEntry: CacheValue {
     public var currency: String
     /// The box said it could not plan and runs on safe defaults.
     public var boxStale: Bool
+    /// The household's time zone, as the box names it, so a widget reads the
+    /// clock the way the home does. Nil in a record from before it was kept.
+    public var timeZone: String?
 
-    public init(battery: [Slot]?, charges: [Charge], prices: [PriceSlot], currency: String, boxStale: Bool) {
+    public init(battery: [Slot]?, charges: [Charge], prices: [PriceSlot], currency: String, boxStale: Bool, timeZone: String? = nil) {
         self.battery = battery
         self.charges = charges
         self.prices = prices
         self.currency = currency
         self.boxStale = boxStale
+        self.timeZone = timeZone
     }
 }
 
@@ -193,13 +197,16 @@ public enum PlanGlance {
         public let laterText: String?
         /// "Planned 14:05", or "Plan from 14:05 · open FTW" once old.
         public let ageText: String?
+        /// The zone the clock in this moment is read in.
+        public let timeZone: TimeZone
 
         public var isGrey: Bool { state != .plan }
     }
 
     /// The widget's timeline: one moment now, one at every start and end
     /// ahead, and one where the plan turns old.
-    public static func moments(_ read: CacheRead<PlanEntry>?, nowMs: Double, calendar: Calendar = .current) -> [Moment] {
+    public static func moments(_ read: CacheRead<PlanEntry>?, nowMs: Double, calendar given: Calendar? = nil) -> [Moment] {
+        let calendar = given ?? .household(read?.value.timeZone)
         guard let read else { return [moment(nil, atMs: nowMs, calendar: calendar)] }
         var edges = Set<Double>()
         for e in events(read.value, fromMs: nowMs, toMs: nowMs + horizonMs) {
@@ -211,10 +218,11 @@ public enum PlanGlance {
         return ([nowMs] + ahead).map { moment(read, atMs: $0, calendar: calendar) }
     }
 
-    public static func moment(_ read: CacheRead<PlanEntry>?, atMs t: Double, calendar: Calendar = .current) -> Moment {
+    public static func moment(_ read: CacheRead<PlanEntry>?, atMs t: Double, calendar given: Calendar? = nil) -> Moment {
+        let calendar = given ?? .household(read?.value.timeZone)
         guard let read else {
             return Moment(atMs: t, state: .nothing, readAtMs: nil, events: [], backdrop: [], currency: "", summary: PlanWord.openToSee.text,
-                          next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil)
+                          next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, timeZone: calendar.timeZone)
         }
         let old = t - read.record.readAtMs >= staleAfterMs
         let state: State = read.value.boxStale || read.srcState == .stale ? .boxStale : (old ? .old : .plan)
@@ -222,8 +230,8 @@ public enum PlanGlance {
     }
 
     /// Now's own reading, straight from the session: never old.
-    public static func live(_ entry: PlanEntry, nowMs: Double, calendar: Calendar = .current) -> Moment {
-        moment(entry, state: entry.boxStale ? .boxStale : .plan, readAtMs: nil, atMs: nowMs, calendar: calendar)
+    public static func live(_ entry: PlanEntry, nowMs: Double, calendar: Calendar? = nil) -> Moment {
+        moment(entry, state: entry.boxStale ? .boxStale : .plan, readAtMs: nil, atMs: nowMs, calendar: calendar ?? .household(entry.timeZone))
     }
 
     private static func moment(_ entry: PlanEntry, state: State, readAtMs: Double?, atMs t: Double, calendar: Calendar) -> Moment {
@@ -272,6 +280,8 @@ public enum PlanGlance {
                 return rest.isEmpty ? nil : line(rest, from: t, clock: clock, ongoingIsNow: true, actions: 1)
             },
             ageText: age
+        ,
+            timeZone: calendar.timeZone
         )
     }
 

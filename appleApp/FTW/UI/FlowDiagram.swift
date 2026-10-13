@@ -12,6 +12,8 @@ import SwiftUI
 struct FlowDiagram: View {
     let readings: [NodeReading]
     let zoom: Namespace.ID
+    /// Charge now, Pause and Back to the plan, held on the car's bubble.
+    var car: CarActions?
     @State private var frames: [EnergyNode: CGRect] = [:]
 
     var body: some View {
@@ -42,6 +44,7 @@ struct FlowDiagram: View {
     private func door<Label: View>(_ r: NodeReading, @ViewBuilder label: () -> Label) -> some View {
         NavigationLink(value: HomeRoute.node(r.node)) { label() }
             .buttonStyle(PressStyle())
+            .modifier(CarMenu(actions: r.node == .car ? car : nil))
             .matchedTransitionSource(id: HomeRoute.node(r.node), in: zoom)
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { frames[r.node] = $0 }
             .accessibilityIdentifier("now.node.\(r.node.rawValue)")
@@ -93,7 +96,10 @@ struct FlowDiagram: View {
 }
 
 /// The lines between the nodes and the home, and the dots that run along
-/// the live ones. Redraws thirty times a second only while something moves.
+/// the live ones, at the display's own rate while something moves and Now
+/// is on screen in an active app. Low Power Mode drops the rate to 20 a
+/// second; Reduce Motion stills the dots and marks each live line with an
+/// arrow for its direction instead.
 private struct FlowLines: View {
     struct Line {
         let from: CGPoint
@@ -106,25 +112,43 @@ private struct FlowLines: View {
 
     let lines: [Line]
     let moving: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
+    @State private var onScreen = false
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !moving)) { context in
+        let still = reduceMotion || !moving
+        let paused = still || !onScreen || scenePhase != .active
+        TimelineView(.animation(minimumInterval: lowPower ? 1.0 / 20 : nil, paused: paused)) { context in
             Canvas { canvas, _ in
-                draw(canvas, at: context.date.timeIntervalSinceReferenceDate)
+                draw(canvas, at: context.date.timeIntervalSinceReferenceDate, still: still)
+            }
+        }
+        .onAppear { onScreen = true }
+        .onDisappear { onScreen = false }
+        .task {
+            for await _ in NotificationCenter.default.notifications(named: Notification.Name.NSProcessInfoPowerStateDidChange) {
+                lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
             }
         }
     }
 
-    private func draw(_ canvas: GraphicsContext, at time: TimeInterval) {
+    private func draw(_ canvas: GraphicsContext, at time: TimeInterval, still: Bool) {
         for line in lines {
             var path = Path()
             path.move(to: line.from)
             path.addLine(to: line.to)
             canvas.stroke(path, with: .color(line.active ? line.color.opacity(0.45) : Theme.line), style: StrokeStyle(lineWidth: line.active ? 2 : 1.5, lineCap: .round, dash: line.active ? [] : [3, 5]))
-            guard line.active, moving else { continue }
+            guard line.active else { continue }
+            if still {
+                arrow(canvas, line)
+                continue
+            }
             // Speed grows with power but never races: a kettle and a car
-            // charger are both readable at a glance.
-            let speed = 0.25 + min(1.2, log10(1 + line.kw) * 0.9)
+            // charger are both readable at a glance, at most about 0.8
+            // lengths a second.
+            let speed = 0.2 + min(0.6, log10(1 + line.kw) * 0.5)
             let dots = 4
             for i in 0..<dots {
                 var t = (time * speed + Double(i) / Double(dots)).truncatingRemainder(dividingBy: 1)
@@ -132,6 +156,48 @@ private struct FlowLines: View {
                 let p = CGPoint(x: line.from.x + (line.to.x - line.from.x) * t, y: line.from.y + (line.to.y - line.from.y) * t)
                 canvas.fill(Path(ellipseIn: CGRect(x: p.x - 3, y: p.y - 3, width: 6, height: 6)), with: .color(line.color))
             }
+        }
+    }
+
+    /// A still chevron halfway along a live line, pointing the way power
+    /// flows.
+    private func arrow(_ canvas: GraphicsContext, _ line: Line) {
+        let (a, b) = line.towardHub ? (line.from, line.to) : (line.to, line.from)
+        let dx = b.x - a.x, dy = b.y - a.y
+        let length = max(1, (dx * dx + dy * dy).squareRoot())
+        let (ux, uy) = (dx / length, dy / length)
+        let mid = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+        let size: CGFloat = 6
+        var head = Path()
+        head.move(to: CGPoint(x: mid.x - ux * size - uy * size, y: mid.y - uy * size + ux * size))
+        head.addLine(to: CGPoint(x: mid.x + ux * size * 0.6, y: mid.y + uy * size * 0.6))
+        head.addLine(to: CGPoint(x: mid.x - ux * size + uy * size, y: mid.y - uy * size - ux * size))
+        canvas.stroke(head, with: .color(line.color), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+    }
+}
+
+/// What a long press on the car can do: each of Charge now, Pause and Back
+/// to the plan that is not what the charger does already. Nil when there
+/// is no car plugged in or this phone may not command it.
+struct CarActions {
+    var chargeNow: (() -> Void)?
+    var pause: (() -> Void)?
+    var backToPlan: (() -> Void)?
+}
+
+/// The car's long-press menu, only where there is something to offer.
+private struct CarMenu: ViewModifier {
+    let actions: CarActions?
+
+    func body(content: Content) -> some View {
+        if let actions {
+            content.contextMenu {
+                if let run = actions.chargeNow { Button(L("Charge now"), systemImage: "bolt.fill", action: run) }
+                if let run = actions.pause { Button(L("Pause"), systemImage: "pause.fill", action: run) }
+                if let run = actions.backToPlan { Button(L("Back to the plan"), systemImage: "calendar.badge.clock", action: run) }
+            }
+        } else {
+            content
         }
     }
 }
