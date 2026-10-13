@@ -45,7 +45,6 @@ struct NodeView: View {
         FitScreen(spacing: 10) { fill in
             NodeHero(site: site, node: node, loadpoints: home.loadpoints, sources: models.sources)
             LiveSection(site: site, trace: models.live, node: node, fill: fill)
-                .frame(height: fill ? 84 : nil)
             Picker(L("Period"), selection: $period.animation(Theme.spring)) {
                 ForEach(Period.allCases, id: \.self) { Text($0.label).tag($0) }
             }
@@ -342,11 +341,14 @@ private struct LiveSection: View {
                 Text(live ? L("Drawing as readings arrive…") : L("No live readings while your box is out of reach."))
                     .font(.footnote)
                     .foregroundStyle(Theme.fgMuted)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: fill ? 52 : 110)
             } else {
                 LiveChart(node: node, points: points, nowMs: now, look: NodeLook.look(node, live: live), onScrub: { readout = $0 })
                     .equatable()
-                    .frame(height: fill ? nil : 110)
+                    // Its own height, so larger words above it make the
+                    // page scroll rather than the curve flat.
+                    .frame(height: fill ? 52 : 110)
                     .accessibilityIdentifier("node.live.chart")
             }
         }
@@ -378,7 +380,9 @@ private struct PeriodSection: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .frame(height: fill ? nil : 180)
+            // Never lower than this on a page that fits: past it, the page
+            // scrolls instead.
+            .frame(minHeight: fill ? 120 : 180)
             .accessibilityIdentifier("node.period.chart")
             ReadoutLine(readout: readout, otherwise: summary)
                 .contentTransition(.opacity)

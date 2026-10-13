@@ -121,6 +121,25 @@ public enum Readouts {
         return ChartReadout(when: span(h.startMs, h.startMs + h.lenMs), what: h.wh > 0 ? NodeWords.format("charged %@", AppWords.energy(h.wh)) : NodeWords.text("not charging"))
     }
 
+    /// A price slot: the price, and what the plan does then.
+    public static func price(_ prices: [ChartPrice], currency: String, plan: PlanEntry?, at ms: Double) -> ChartReadout? {
+        guard let slot = prices.first(where: { $0.startMs <= ms && ms < $0.endMs }) else { return nil }
+        var parts = [price(slot.minor, currency)]
+        if let plan {
+            let doing = PlanGlance.events(plan, fromMs: slot.startMs, toMs: slot.endMs).filter { $0.kind != .cheap }
+            parts += doing.prefix(2).map(PlanGlance.what)
+        }
+        return ChartReadout(when: span(slot.startMs, slot.endMs), what: parts.joined(separator: " · "))
+    }
+
+    /// Two fingers on the prices: their mean between them.
+    public static func price(_ prices: [ChartPrice], currency: String, range: ClosedRange<Double>) -> ChartReadout? {
+        let inside = prices.filter { $0.endMs > range.lowerBound && $0.startMs < range.upperBound }
+        guard !inside.isEmpty else { return nil }
+        let mean = inside.map(\.minor).reduce(0, +) / Double(inside.count)
+        return ChartReadout(when: span(range.lowerBound, range.upperBound), what: NodeWords.format("average %@", price(mean, currency)))
+    }
+
     /// A moment of the live curve.
     public static func live(_ node: EnergyNode, _ points: [LiveTrace.Point], at ms: Double) -> ChartReadout? {
         guard let p = points.min(by: { abs($0.t - ms) < abs($1.t - ms) }), abs(p.t - ms) < LiveTrace.gapMs else {

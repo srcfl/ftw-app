@@ -90,6 +90,11 @@
 			path = FTWUITests;
 			sourceTree = "<group>";
 		};
+		F7A000000000000000000110 /* FTWCharts */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = FTWCharts;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -126,6 +131,7 @@
 				F7A000000000000000000003 /* FTW */,
 				F7A000000000000000000041 /* FTWWidgets */,
 				F7A000000000000000000101 /* FTWUITests */,
+				F7A000000000000000000110 /* FTWCharts */,
 				F7A000000000000000000008 /* FTW.xcconfig */,
 				F7A000000000000000000006 /* FTW.entitlements */,
 				F7A000000000000000000009 /* FTW-Info.plist */,
@@ -177,6 +183,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				F7A000000000000000000003 /* FTW */,
+				F7A000000000000000000110 /* FTWCharts */,
 			);
 			name = FTW;
 			packageProductDependencies = (
@@ -201,6 +208,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				F7A000000000000000000041 /* FTWWidgets */,
+				F7A000000000000000000110 /* FTWCharts */,
 			);
 			name = FTWWidgets;
 			packageProductDependencies = (
