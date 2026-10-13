@@ -31,6 +31,7 @@ struct PlanCard: View, Equatable {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(moment.isGrey ? Theme.fgDim : Theme.fg)
                 .lineLimit(2)
+                .minimumScaleFactor(0.85)
                 .fixedSize(horizontal: false, vertical: true)
                 .contentTransition(.opacity)
             PlanLanes(moment: moment, compact: true)

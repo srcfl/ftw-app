@@ -111,10 +111,14 @@ public enum PlanGlance {
 
     /// What happens between `fromMs` and `toMs`, in order: the battery's
     /// runs of charging and giving power, each car's windows, and the
-    /// cheapest two hours when they stand out. Runs are cut to the window.
+    /// cheapest two hours when they stand out. A run under way starts at
+    /// `fromMs`; one that goes on past `toMs` keeps its own end, so a time
+    /// on screen is always one the box planned.
     public static func events(_ entry: PlanEntry, fromMs t: Double, toMs end: Double) -> [Event] {
         var out = [Event]()
-        let slots = (entry.battery ?? []).filter { $0.startMs + $0.durationMs > t && $0.startMs < end }.sorted { $0.startMs < $1.startMs }
+        // Every slot still to come, so a run that starts inside the window
+        // keeps the end the box gave it.
+        let slots = (entry.battery ?? []).filter { $0.startMs + $0.durationMs > t }.sorted { $0.startMs < $1.startMs }
         var i = 0
         while i < slots.count {
             let kind = action(slots[i].batteryW)
@@ -124,14 +128,14 @@ public enum PlanGlance {
                 j += 1
                 peak = max(peak, abs(slots[j].batteryW))
             }
-            if let kind {
-                out.append(Event(kind: kind, startMs: max(t, slots[i].startMs), endMs: min(end, slots[j].startMs + slots[j].durationMs), peakW: peak, reason: slots[i].reason))
+            if let kind, slots[i].startMs < end {
+                out.append(Event(kind: kind, startMs: max(t, slots[i].startMs), endMs: slots[j].startMs + slots[j].durationMs, peakW: peak, reason: slots[i].reason))
             }
             i = j + 1
         }
         for c in entry.charges where c.toMs > t && c.fromMs < end {
             let watts = c.energyWh.map { $0 * 3_600_000 / max(1, c.toMs - c.fromMs) }
-            out.append(Event(kind: .car, startMs: max(t, c.fromMs), endMs: min(end, c.toMs), peakW: watts, targetPct: c.targetPct, energyWh: c.energyWh))
+            out.append(Event(kind: .car, startMs: max(t, c.fromMs), endMs: c.toMs, peakW: watts, targetPct: c.targetPct, energyWh: c.energyWh))
         }
         if let cheap = cheapest(entry, fromMs: t, toMs: end) { out.append(cheap) }
         return out.sorted { ($0.startMs, $0.kind.rawValue) < ($1.startMs, $1.kind.rawValue) }

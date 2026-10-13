@@ -64,9 +64,11 @@ import Testing
         #expect(events[3].startMs == at(13, 2) && events[3].endMs == at(13, 4))
         // The battery resting under the idle line is no event.
         #expect(!events.contains { $0.startMs == at(12, 21, 15) })
-        // A run is cut to the window it is asked about.
-        let later = PlanGlance.events(night(), fromMs: at(12, 22, 30), toMs: at(13, 8))
+        // A run under way starts now; one that runs past the window keeps
+        // the end the box planned.
+        let later = PlanGlance.events(night(), fromMs: at(12, 22, 30), toMs: at(13, 7))
         #expect(later.first?.kind == .charge && later.first?.startMs == at(12, 22, 30))
+        #expect(later.last?.kind == .discharge && later.last?.endMs == at(13, 8))
     }
 
     @Test func flatPricesHaveNoCheapestHours() {
