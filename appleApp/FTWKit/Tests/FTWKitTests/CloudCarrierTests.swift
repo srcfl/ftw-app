@@ -319,6 +319,34 @@ final class CloudRig {
         #expect(CloudEndpoint.resolve(defaults: defaults, debug: true)?.url != debug.url)
     }
 
+    /// A release build dials cloud.ftw.energy with its one Noise key, as a
+    /// debug build does when nothing points it elsewhere.
+    @Test func aReleaseBuildCarriesTheServicesKey() throws {
+        #expect(CloudEndpoint.releaseKeys.count == 1)
+        #expect(CloudEndpoint.releaseKeys.map(Base64url.encode) == CloudEndpoint.releaseKeyText)
+        #expect(CloudEndpoint.releaseKeys.allSatisfy { $0.count == Noise.dhBytes })
+        let defaults = try #require(UserDefaults(suiteName: "ftw-cloud-\(UUID().uuidString)"))
+        for debug in [false, true] {
+            let e = try #require(CloudEndpoint.resolve(defaults: defaults, debug: debug))
+            #expect(e.url == CloudEndpoint.releaseURL)
+            #expect(e.serviceKeys == CloudEndpoint.releaseKeys)
+        }
+    }
+
+    /// A service that answers with any other key refuses message 1, so the
+    /// phone never opens a session and holds no snapshot.
+    @MainActor
+    @Test func aServiceWithAnotherKeyIsNotTheCloud() async throws {
+        let rig = try CloudRig { svc in CloudEndpoint(url: svc.endpoint.url, serviceKeys: CloudEndpoint.releaseKeys) }
+        rig.box.start = rig.at - 60_000
+        rig.service.held = [try rig.box.fullLive(rig.at, age: 500)]
+        rig.carrier.start()
+        await rig.run(100)
+        #expect(!rig.carrier.status.isOpen)
+        #expect(rig.snapshots.isEmpty)
+        #expect(rig.statuses.contains(.closed(code: CloudWire.closeDenied, retrying: true)))
+    }
+
     /// The identity comes from the box. A home that is not the hash of the
     /// key is refused.
     @Test func theHomeIsTheHashOfTheKey() throws {

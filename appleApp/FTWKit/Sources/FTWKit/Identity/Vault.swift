@@ -106,7 +106,7 @@ public final class Vault {
         let pair = try Primitives.keyPair(fromSecret: scalar)
         let existing = record
         if let existing, existing.publicKey.byteArray != pair.publicKey {
-            throw VaultError(code: "E_VAULT_OTHER_KEY", message: "a different device key is already stored", help: "This phone is already set up for a home. Sign out of it first.")
+            throw VaultError(code: "E_VAULT_OTHER_KEY", message: "a different device key is already stored", help: AppWords.text("This phone is already set up for a home. Sign out of it first."))
         }
         var pkcs8 = Self.pkcs8Prefix + scalar
         defer { wipe(&pkcs8) }
@@ -136,7 +136,7 @@ public final class Vault {
         let copies = record.copies.filter { $0.credentialId != credentialID }
         if copies.count == record.copies.count { return }
         if copies.isEmpty {
-            throw VaultError(code: "E_VAULT_LAST_COPY", message: "refusing to remove the only wrapped copy", help: "That is the only passkey that can unlock this device. Add another one first.")
+            throw VaultError(code: "E_VAULT_LAST_COPY", message: "refusing to remove the only wrapped copy", help: AppWords.text("That is the only passkey that can unlock this device. Add another one first."))
         }
         write(Record(publicKey: record.publicKey, copies: copies))
     }
@@ -267,16 +267,20 @@ public final class Vault {
         }
     }
 
+    /// What to do when no key opens the stored copy. The shell says the
+    /// same when a connect fails for a reason it cannot name.
+    static let lockedHelp = "This device can no longer unlock its key. Open your box's local dashboard, then Settings → FTW app → Show pairing code, and scan a new QR."
+
     private func locked() -> VaultError {
-        VaultError(code: "E_VAULT_LOCKED", message: "no wrapping key opens the stored copy", help: "This device can no longer unlock its key. Open your box's local dashboard, then Settings → FTW app → Show pairing code, and scan a new QR.")
+        VaultError(code: "E_VAULT_LOCKED", message: "no wrapping key opens the stored copy", help: AppWords.text(Self.lockedHelp))
     }
 
     private func noCopy(_ credentialID: String) -> VaultError {
-        VaultError(code: "E_VAULT_NO_COPY", message: "no wrapped copy for credential \(credentialID)", help: "This passkey has not been given access yet. Unlock with the one you set up first.")
+        VaultError(code: "E_VAULT_NO_COPY", message: "no wrapped copy for credential \(credentialID)", help: AppWords.text("This passkey has not been given access yet. Unlock with the one you set up first."))
     }
 
     private func emptyVault() -> VaultError {
-        VaultError(code: "E_VAULT_EMPTY", message: "no device key has been created", help: "Open your box's local dashboard, then Settings → FTW app → Show pairing code, and scan the QR.")
+        VaultError(code: "E_VAULT_EMPTY", message: "no device key has been created", help: AppWords.text("Open your box's local dashboard, then Settings → FTW app → Show pairing code, and scan the QR."))
     }
 }
 

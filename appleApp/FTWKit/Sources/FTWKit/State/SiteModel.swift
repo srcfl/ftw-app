@@ -697,7 +697,7 @@ public final class SiteModel {
     @discardableResult
     func sharePrices(_ prices: Prices, fromMs: Double, via: CarrierKind? = nil) -> Task<Void, Never>? {
         guard let siteId, let shared else { return nil }
-        let entry = PriceEntry(fromMs: fromMs, prices: prices)
+        let entry = PriceEntry(fromMs: fromMs, prices: prices, timeZone: session.box?.tz)
         guard entry != lastPrices else { return nil }
         lastPrices = entry
         let record = CacheRecord(
