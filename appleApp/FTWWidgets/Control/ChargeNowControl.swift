@@ -6,6 +6,11 @@ import WidgetKit
 
 private let log = Logger(subsystem: "energy.ftw.app", category: "control")
 
+/// The app's filled-button orange (`ftw.accentFill`). Control Center draws
+/// an on switch's bolt in it on white, in light and dark alike, and the car
+/// around it lighter; without it both were a pale orange.
+private let onTint = Color(red: 0xDA / 255, green: 0x7F / 255, blue: 0)
+
 /// Charge now, as a switch in Control Center, on the Lock Screen and on the
 /// Action button. iPhone's controls also appear on a paired Apple Watch on
 /// watchOS 26, where a press runs on the iPhone.
@@ -32,6 +37,7 @@ struct ChargeNowControl: ControlWidget {
                 }
                 .controlWidgetActionHint(isOn ? ChargeNowActivity.backToPlan : ChargeNowActivity.title)
             }
+            .tint(onTint)
         }
         .displayName(LocalizedStringResource(stringLiteral: ChargeNowActivity.title))
         .description(LocalizedStringResource(stringLiteral: ChargeNowActivity.summary))
