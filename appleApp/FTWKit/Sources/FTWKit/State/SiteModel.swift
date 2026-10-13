@@ -101,6 +101,17 @@ public final class SiteModel {
     /// From a start or a return to the front until the screen is live, as a
     /// signpost interval.
     @ObservationIgnored private var liveSpan: (name: StaticString, state: OSSignpostIntervalState, fromMs: Double)?
+    /// What the band and the cards derive from, taken in the same change as
+    /// `session`, so they never disagree while a burst waits for its frame.
+    private var shown = Shown()
+
+    private struct Shown {
+        var source: ReadingSource = .relay
+        var relay = SessionState()
+        var relayFrameAtMs: Double?
+        var cloudOpen = false
+        var cloudView: CloudView?
+    }
 
     // FTW Cloud. All nil while the home has no grant or this build no
     // endpoint.
@@ -202,6 +213,11 @@ public final class SiteModel {
         closeCloud()
         // After the close, so no last change of rate goes out on the wire.
         hide()
+        // Settle what the screens say before iOS freezes them.
+        publishTimer?.cancel()
+        publishTimer = nil
+        source = readingSource()
+        publishNow()
         persistNow(wait: true)
     }
 
@@ -217,7 +233,9 @@ public final class SiteModel {
         core.setTelemetryHz(1)
         cloud?.setLooking(true)
         if !was {
-            beginLiveSpan("foreground to live")
+            // A start passes through inactive on its way to the front; its
+            // own interval keeps running.
+            if liveSpan == nil { beginLiveSpan("foreground to live") }
             beginResume(wake: relay.phase != .streaming || relayFrameAtMs == nil)
         }
         scheduleClock()
@@ -287,10 +305,7 @@ public final class SiteModel {
         if s.heardFromBox, let boot = s.cloud?.boot, s.carrier == .relay || s.carrier == .webrtc, s.uptimeMs != previous.uptimeMs || !previous.heardFromBox {
             learnRuleU(boot: boot, uptimeMs: s.uptimeMs, phoneMs: now)
         }
-        if s.phase == .streaming {
-            cachedAtMs = nil
-            scheduleSnapshot()
-        }
+        if s.phase == .streaming { scheduleSnapshot() }
         if reading { first("relay reading") }
         publish()
         scheduleClock()
@@ -345,7 +360,10 @@ public final class SiteModel {
         }
         if times != fieldAtMs { fieldAtMs = times }
         if delivered || readingAtMs == nil || s.fields.isEmpty != session.fields.isEmpty { readingAtMs = s.fields.isEmpty ? nil : at }
+        // A stream, or a reading from the cloud, retires the cache's claim.
+        if relay.phase == .streaming || (source == .cloud && delivered), cachedAtMs != nil { cachedAtMs = nil }
         advanceClock()
+        shown = Shown(source: source, relay: relay, relayFrameAtMs: relayFrameAtMs, cloudOpen: cloud?.status.isOpen == true, cloudView: cloudView)
         session = s
         endLiveSpanIfLive()
         notify()
@@ -512,11 +530,11 @@ public final class SiteModel {
     /// How the readings on screen reach us. A carrier is claimed only once it
     /// has delivered a reading: an open socket is evidence of nothing.
     public var carrier: CarrierKind {
-        if source == .cloud {
-            if cloud?.status.isOpen == true { return .cloud }
+        if shown.source == .cloud {
+            if shown.cloudOpen { return .cloud }
             return cachedAtMs != nil ? .cache : .none
         }
-        if relay.phase == .streaming, relayFrameAtMs != nil { return relay.carrier }
+        if shown.relay.phase == .streaming, shown.relayFrameAtMs != nil { return shown.relay.carrier }
         return cachedAtMs != nil ? .cache : .none
     }
 
@@ -550,40 +568,43 @@ public final class SiteModel {
     /// The sources behind what the Now screen draws, named by the box.
     /// The box session's sources behind what Now draws. The cloud's are
     /// graded by `CloudView`, not by these.
-    var nowSourceIDs: [String] {
+    var nowSourceIDs: [String] { Self.nowSourceIDs(shown.relay) }
+
+    static func nowSourceIDs(_ r: SessionState) -> [String] {
         var ids = [String]()
-        for fid in Self.nowFids where relay.fields[fid] != nil {
-            if let src = relay.dict[fid]?.srcId, !ids.contains(src) { ids.append(src) }
+        for fid in nowFids where r.fields[fid] != nil {
+            if let src = r.dict[fid]?.srcId, !ids.contains(src) { ids.append(src) }
         }
         return ids
     }
 
     public var srcState: SourceState {
         if session.fields.isEmpty { return .never }
-        if source == .cloud, let view = cloudView { return Self.cloudState(view, nowMs: nowMs) }
-        return relaySrcState
+        if shown.source == .cloud, let view = shown.cloudView { return Self.cloudState(view, nowMs: nowMs) }
+        return Self.relayState(shown.relay, frameAtMs: shown.relayFrameAtMs, nowMs: nowMs)
     }
 
-    private var relaySrcState: SourceState {
-        if relay.fields.isEmpty { return .never }
+    /// The box session's grade for what Now draws, from the box's own
+    /// source states and how long the stream has been quiet.
+    static func relayState(_ r: SessionState, frameAtMs: Double?, nowMs: Double) -> SourceState {
+        if r.fields.isEmpty { return .never }
         // Every source state was read off the disk: true when written.
-        if relayFrameAtMs == nil { return .stale }
-        let ids = nowSourceIDs
-        let worst: SourceState
-        if !ids.isEmpty {
-            worst = core.worstSourceState(ids)
-        } else if !relay.sources.isEmpty {
-            worst = core.worstSourceState(Array(relay.sources.keys))
-        } else {
-            worst = .live
-        }
+        guard let frameAtMs else { return .stale }
+        let ids = nowSourceIDs(r)
+        let keys = ids.isEmpty ? Array(r.sources.keys) : ids
+        let worst = keys.isEmpty ? .live : keys.map { r.sources[$0]?.state ?? .never }.max() ?? .live
         // A stream gone quiet is not live however healthy it looked.
-        if worst == .live, sinceLastFrameMs > 0 { return .lagging }
+        if worst == .live, nowMs - frameAtMs >= streamQuietAfterMs { return .lagging }
         return worst
     }
 
+    /// The same grade from the newest state, for choosing a source.
+    private var relaySrcState: SourceState {
+        Self.relayState(relay, frameAtMs: relayFrameAtMs, nowMs: scheduler.nowMs)
+    }
+
     public var sinceLastFrameMs: Double {
-        guard let at = relayFrameAtMs else { return 0 }
+        guard let at = shown.relayFrameAtMs else { return 0 }
         let since = nowMs - at
         return since < Self.streamQuietAfterMs ? 0 : since
     }
@@ -591,12 +612,17 @@ public final class SiteModel {
     /// Age of the oldest reading on screen. Nil means unknown, which is the
     /// honest answer after a box restart.
     public var ageMs: Double? {
-        if source == .cloud, let view = cloudView {
+        if shown.source == .cloud, let view = shown.cloudView {
             guard let age = Self.cloudAge(view, nowMs: nowMs) else { return nil }
             if carrier == .cache, let at = cachedAtMs { return max(age, nowMs - at) }
             return age
         }
-        let ages = nowSourceIDs.compactMap { core.ageOf($0) }
+        let r = shown.relay
+        let ages = nowSourceIDs.compactMap { id -> Double? in
+            guard let src = r.sources[id] else { return nil }
+            let age = r.uptimeMs - src.lastOkMs
+            return age < 0 ? nil : age
+        }
         if carrier == .cache, let at = cachedAtMs {
             let shelf = nowMs - at
             return shelf + (ages.max() ?? 0)
@@ -608,7 +634,7 @@ public final class SiteModel {
     /// Live is three claims at once: streaming, not the cache, and every
     /// source answering.
     public var isLive: Bool {
-        let streaming = source == .cloud ? cloud?.status.isOpen == true : session.phase == .streaming
+        let streaming = shown.source == .cloud ? shown.cloudOpen : session.phase == .streaming
         return streaming && carrier != .cache && srcState == .live
     }
 
@@ -877,6 +903,7 @@ extension SiteModel {
         cloud?.close()
         cloud = nil
         cloudStatus = nil
+        publish()
     }
 
     private func adoptCloud(_ identity: CloudIdentity, offset: CloudCache.Offset?) {
@@ -961,7 +988,6 @@ extension SiteModel {
         cloudArrivalMs = at
         if readingSource() == .cloud {
             cloudDelivered = true
-            cachedAtMs = nil
             scheduleSnapshot()
         }
         publish()

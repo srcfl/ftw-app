@@ -139,6 +139,25 @@ final class LockedStore: SecureStore {
         #expect(site.srcState == .lagging)
     }
 
+    /// Found in the simulator: while a burst waited for its frame, the band
+    /// read the newest relay state and said "Live via encrypted relay" as
+    /// the card still said "Not live right now". Both read one snapshot now.
+    @Test func theBandAndTheCardsNeverDisagree() async throws {
+        let scheduler = ManualScheduler()
+        let site = SiteModel(siteId: "s1", build: "t", ua: "t", scheduler: scheduler, files: nil)
+        site.start()
+        let relay = ScriptedBox()
+        site.connect(relay)
+        relay.open(scheduler.nowMs)
+        relay.helloOk(uptimeMs: 60_000, cloud: nil)
+        relay.snap(uptimeMs: 60_000, gridW: 500)
+        // Within the frame: whatever is shown agrees with itself.
+        #expect((site.carrier == .relay) == (site.session.phase == .streaming))
+        #expect(!site.isLive || site.carrier == .relay)
+        scheduler.advance(20)
+        #expect(site.carrier == .relay && site.session.phase == .streaming && site.isLive)
+    }
+
     /// The same home is not written twice, and the background writes once.
     @Test func theSameSnapshotIsNotWrittenTwice() async throws {
         let w = try CloudSite()
