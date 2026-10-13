@@ -123,9 +123,17 @@ private func signedRun(_ t: Double, _ v: Double, run: Int, look: ChartLook, opac
 /// The last five minutes, from the ring buffer lane 0 fills. A break in
 /// the stream is a break in the line.
 struct LiveChart: View, Equatable {
+    let node: EnergyNode
     let points: [LiveTrace.Point]
     let nowMs: Double
     let look: ChartLook
+    var onScrub: (ChartReadout?) -> Void = { _ in }
+    @State private var selected: Date?
+    @State private var range: ClosedRange<Date>?
+
+    nonisolated static func == (a: Self, b: Self) -> Bool {
+        a.node == b.node && a.points == b.points && a.nowMs == b.nowMs && a.look == b.look
+    }
 
     var body: some View {
         let runs = LiveTrace.runs(points)
@@ -137,57 +145,94 @@ struct LiveChart: View, Equatable {
             if look.signed {
                 RuleMark(y: .value("Zero", 0)).foregroundStyle(Theme.line).lineStyle(StrokeStyle(lineWidth: 1))
             }
-            if let last = runs.last {
+            if let last = runs.last, selected == nil {
                 PointMark(x: .value("Time", date(last.point.t)), y: .value("Power", last.point.v))
                     .foregroundStyle(last.point.v < 0 ? look.down : look.line)
                     .symbolSize(28)
             }
+            scrubMarks(selected, value: selectedPoint?.v, color: (selectedPoint?.v ?? 0) < 0 ? look.down : look.line)
         }
         .chartXScale(domain: date(nowMs - LiveTrace.windowMs)...date(max(nowMs, (points.last?.t ?? nowMs))))
         .chartXAxis(.hidden)
         .chartYAxis { powerAxis() }
         .chartYScale(domain: .automatic(includesZero: true))
         .directionWords(look)
+        .chartScrub(selected: $selected, range: $range, slot: { d in
+            points.min(by: { abs($0.t - d.timeIntervalSince1970 * 1000) < abs($1.t - d.timeIntervalSince1970 * 1000) })?.t
+        })
+        .onChange(of: selected) { _, d in
+            onScrub(d.flatMap { Readouts.live(node, points, at: $0.timeIntervalSince1970 * 1000) })
+        }
         .dynamicTypeSize(...chartTextCap)
         .accessibilityLabel(L("Live, the last five minutes"))
+    }
+
+    private var selectedPoint: LiveTrace.Point? {
+        guard let selected else { return nil }
+        let ms = selected.timeIntervalSince1970 * 1000
+        return points.min { abs($0.t - ms) < abs($1.t - ms) }
     }
 }
 
 /// Today or the last two days, five minutes a point, from the box's tiles.
 struct HistoryChart: View, Equatable {
+    let node: EnergyNode
     let samples: [HistorySample]
     let fromMs: Double
     let toMs: Double
     let look: ChartLook
     let strideHours: Int
+    /// What the finger is on, for the line under the chart.
+    var onScrub: (ChartReadout?) -> Void = { _ in }
+    @State private var selected: Date?
+    @State private var range: ClosedRange<Date>?
+
+    nonisolated static func == (a: Self, b: Self) -> Bool {
+        a.node == b.node && a.samples == b.samples && a.fromMs == b.fromMs && a.toMs == b.toMs && a.look == b.look && a.strideHours == b.strideHours
+    }
 
     var body: some View {
         // Worked out once per change of data; the motion only moves
         // between two lists.
         MovingPoints(points: HistoryPlot.points(samples, fromMs: fromMs)) { drawn, fading, fadeLeft in
             Chart {
+                if look.signed {
+                    RuleMark(y: .value("Zero", 0)).foregroundStyle(Theme.line)
+                }
                 ForEach(drawn.filter { $0.kind == .measured }) { p in
                     signedRun(p.t, p.v, run: p.run, look: look, opacity: (0.35, 0.05), lineWidth: 1.5)
                 }
-                // A stretch still on its way: a faint dashed estimate, never
-                // a value.
+                // A stretch still on its way: a faint band that says so, and
+                // a dashed estimate across it, never a value.
                 ForEach(Array(Self.bridges(drawn).enumerated()), id: \.offset) { i, bridge in
+                    if let span = estimateSpan(bridge) {
+                        RectangleMark(xStart: .value("From", date(span.lowerBound)), xEnd: .value("To", date(span.upperBound)))
+                            .foregroundStyle(Theme.fgDim.opacity(0.07))
+                            .annotation(position: .overlay, alignment: .top) {
+                                Text(L("fetching…"))
+                                    .font(.caption2)
+                                    .foregroundStyle(Theme.fgMuted)
+                                    .padding(.top, 4)
+                            }
+                    }
                     ForEach(bridge) { p in
                         LineMark(x: .value("Time", date(p.t)), y: .value("Power", p.v), series: .value("Estimate", "e\(i)"))
-                            .foregroundStyle(look.line.opacity(0.45))
+                            .foregroundStyle(look.line.opacity(0.6))
                             .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [3, 4]))
                     }
                 }
                 if fadeLeft > 0 {
                     ForEach(fading) { p in
                         LineMark(x: .value("Time", date(p.t)), y: .value("Power", p.v), series: .value("Estimate", "gone \(p.run)"))
-                            .foregroundStyle(look.line.opacity(0.45 * fadeLeft))
+                            .foregroundStyle(look.line.opacity(0.6 * fadeLeft))
                             .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [3, 4]))
                     }
                 }
-                if look.signed {
-                    RuleMark(y: .value("Zero", 0)).foregroundStyle(Theme.line)
+                if let range {
+                    RectangleMark(xStart: .value("From", range.lowerBound), xEnd: .value("To", range.upperBound))
+                        .foregroundStyle(Theme.fgDim.opacity(0.12))
                 }
+                scrubMarks(selected, value: selectedSample?.watts, color: (selectedSample?.watts ?? 0) < 0 ? look.down : look.line)
             }
             .chartXScale(domain: date(fromMs)...date(toMs))
             .chartXAxis {
@@ -199,8 +244,47 @@ struct HistoryChart: View, Equatable {
             .chartYAxis { powerAxis() }
             .chartYScale(domain: .automatic(includesZero: true))
             .directionWords(look)
+            .chartScrub(selected: $selected, range: $range, slot: { d in
+                samples.last { $0.startMs <= d.timeIntervalSince1970 * 1000 }?.startMs
+            }, landmark: { slot in landmarks.contains(slot) })
         }
         .dynamicTypeSize(...chartTextCap)
+        .onChange(of: selected) { _, _ in report() }
+        .onChange(of: range) { _, _ in report() }
+        .accessibilityChartDescriptor(HistoryDescriptor(node: node, samples: samples, fromMs: fromMs))
+    }
+
+    private var selectedSample: HistorySample? {
+        guard let selected else { return nil }
+        let ms = selected.timeIntervalSince1970 * 1000
+        return samples.last { $0.startMs <= ms }
+    }
+
+    /// The day's high and low, for a firmer tick.
+    private var landmarks: Set<Double> {
+        let measured = samples.filter { $0.watts != nil }
+        var out = Set<Double>()
+        if let hi = measured.max(by: { $0.watts! < $1.watts! }) { out.insert(hi.startMs) }
+        if let lo = measured.min(by: { $0.watts! < $1.watts! }) { out.insert(lo.startMs) }
+        return out
+    }
+
+    private func report() {
+        if let range {
+            onScrub(Readouts.history(node, samples, range: range.lowerBound.timeIntervalSince1970 * 1000...range.upperBound.timeIntervalSince1970 * 1000))
+        } else if let selected {
+            onScrub(Readouts.history(node, samples, fromMs: fromMs, at: selected.timeIntervalSince1970 * 1000))
+        } else {
+            onScrub(nil)
+        }
+    }
+
+    /// The steps a bridge stands in for.
+    private func estimateSpan(_ bridge: [HistoryPlot.Point]) -> ClosedRange<Double>? {
+        let estimates = bridge.filter { $0.kind == .estimate }
+        guard let first = estimates.first, let last = estimates.last else { return nil }
+        let step = samples.first?.stepMs ?? 300_000
+        return max(fromMs, first.id)...(last.id + step)
     }
 
     /// Each run of estimates with the measured point either side, so the
@@ -231,6 +315,13 @@ struct CarHoursChart: View, Equatable {
     let fromMs: Double
     let toMs: Double
     let strideHours: Int
+    var onScrub: (ChartReadout?) -> Void = { _ in }
+    @State private var selected: Date?
+    @State private var range: ClosedRange<Date>?
+
+    nonisolated static func == (a: Self, b: Self) -> Bool {
+        a.hours == b.hours && a.fromMs == b.fromMs && a.toMs == b.toMs && a.strideHours == b.strideHours
+    }
 
     var body: some View {
         Chart {
@@ -244,7 +335,13 @@ struct CarHoursChart: View, Equatable {
                 .foregroundStyle(Theme.mobility)
                 .cornerRadius(2)
             }
+            scrubMarks(selected, value: nil, color: Theme.mobility)
         }
+        .chartScrub(selected: $selected, range: $range, slot: { d in
+            let ms = d.timeIntervalSince1970 * 1000
+            return hours.first { $0.startMs <= ms && ms < $0.startMs + $0.lenMs }?.startMs
+        })
+        .onChange(of: selected) { _, d in onScrub(d.flatMap { Readouts.carHour(hours, at: $0.timeIntervalSince1970 * 1000) }) }
         .chartXScale(domain: date(fromMs)...date(toMs))
         .chartXAxis {
             AxisMarks(values: .stride(by: .hour, count: strideHours)) { value in
@@ -269,26 +366,24 @@ struct CarHoursChart: View, Equatable {
 /// The hours ahead: what the box means each slot to do, as bars, and the
 /// price under the same hours, so a plan and its reason sit side by side.
 struct AheadChart: View, Equatable {
-    struct Bar: Equatable, Identifiable {
-        let startMs: Double
-        let endMs: Double
-        /// Signed as the node shows it.
-        let watts: Double
-        var id: Double { startMs }
-    }
+    typealias Bar = ChartSlot
+    typealias Price = ChartPrice
 
-    struct Price: Equatable, Identifiable {
-        let startMs: Double
-        let endMs: Double
-        let minor: Double
-        var id: Double { startMs }
-    }
-
+    let node: EnergyNode
     let bars: [Bar]
     let prices: [Price]
     let currency: String
     let nowMs: Double
     let look: ChartLook
+    /// Whether the bars are a plan (battery, grid, car) or a forecast.
+    var forecast = false
+    var onScrub: (ChartReadout?) -> Void = { _ in }
+    @State private var selected: Date?
+    @State private var range: ClosedRange<Date>?
+
+    nonisolated static func == (a: Self, b: Self) -> Bool {
+        a.node == b.node && a.bars == b.bars && a.prices == b.prices && a.currency == b.currency && a.nowMs == b.nowMs && a.look == b.look && a.forecast == b.forecast
+    }
 
     var body: some View {
         let to = nowMs + PlanModel.aheadMs
@@ -307,18 +402,48 @@ struct AheadChart: View, Equatable {
                 if look.signed {
                     RuleMark(y: .value("Zero", 0)).foregroundStyle(Theme.line)
                 }
+                if let range {
+                    RectangleMark(xStart: .value("From", range.lowerBound), xEnd: .value("To", range.upperBound))
+                        .foregroundStyle(Theme.fgDim.opacity(0.12))
+                }
+                scrubMarks(selected, value: nil, color: look.line)
             }
             .chartXScale(domain: date(nowMs)...date(to))
             .chartXAxis(.hidden)
             .chartYAxis { powerAxis() }
             .chartYScale(domain: .automatic(includesZero: true))
             .directionWords(look)
+            .chartScrub(selected: $selected, range: $range, slot: { d in
+                Self.slot(bars, prices, d.timeIntervalSince1970 * 1000)
+            }, landmark: { slot in slot == bars.first?.startMs || slot == cheapest })
+            .onChange(of: selected) { _, _ in report() }
+            .onChange(of: range) { _, _ in report() }
             if !prices.isEmpty {
                 PriceStripChart(prices: prices, currency: currency, fromMs: nowMs, toMs: to)
                     .frame(height: 36)
             }
         }
         .dynamicTypeSize(...chartTextCap)
+    }
+}
+
+extension AheadChart {
+    /// The slot a moment falls in: a bar's, else a price's.
+    static func slot(_ bars: [Bar], _ prices: [Price], _ ms: Double) -> Double? {
+        bars.first { $0.startMs <= ms && ms < $0.endMs }?.startMs ?? prices.first { $0.startMs <= ms && ms < $0.endMs }?.startMs
+    }
+
+    /// The cheapest price ahead, for a firmer tick.
+    private var cheapest: Double? { prices.min { $0.minor < $1.minor }?.startMs }
+
+    private func report() {
+        if let range {
+            onScrub(Readouts.ahead(node, bars, prices, currency: currency, forecast: forecast, range: range.lowerBound.timeIntervalSince1970 * 1000...range.upperBound.timeIntervalSince1970 * 1000))
+        } else if let selected {
+            onScrub(Readouts.ahead(node, bars, prices, currency: currency, forecast: forecast, at: max(nowMs, selected.timeIntervalSince1970 * 1000)))
+        } else {
+            onScrub(nil)
+        }
     }
 }
 
