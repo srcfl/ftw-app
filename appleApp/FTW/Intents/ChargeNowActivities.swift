@@ -33,13 +33,6 @@ final class ChargeNowActivities: ChargeNowHost {
             state = Self.screenshotState(state)
             #endif
             start(state, home: home, loadpointID: loadpointID, zone: zone)
-            #if DEBUG
-            if UserDefaults.standard.bool(forKey: "FTWDemoSecondActivity") {
-                // For screenshots of the island's minimal view, which needs
-                // two Live Activities at once.
-                start(state, home: "screenshot", loadpointID: "second", zone: zone)
-            }
-            #endif
         case .update(let state):
             #if DEBUG
             // The stale screenshot keeps its old confirmation.
@@ -67,9 +60,13 @@ final class ChargeNowActivities: ChargeNowHost {
     }
 
     private func start(_ state: ChargeNowActivity.State, home: String, loadpointID: String, zone: TimeZone) {
+        var staleDate = state.staleDate
+        #if DEBUG
+        if UserDefaults.standard.bool(forKey: "FTWDemoStaleActivity") { staleDate = .now.addingTimeInterval(20) }
+        #endif
         do {
             let attributes = ChargeNowAttributes(home: home, loadpointID: loadpointID, zone: zone)
-            _ = try Activity.request(attributes: attributes, content: ActivityContent(state: state, staleDate: state.staleDate), pushType: nil)
+            _ = try Activity.request(attributes: attributes, content: ActivityContent(state: state, staleDate: staleDate), pushType: nil)
             log.info("charge now: started")
         } catch {
             log.error("charge now: could not start: \(error.localizedDescription, privacy: .public)")
@@ -97,12 +94,13 @@ final class ChargeNowActivities: ChargeNowHost {
 
     #if DEBUG
     /// For screenshots: `-FTWDemoStaleActivity YES` starts the Live
-    /// Activity as if the box last confirmed it 16 minutes ago, so the
-    /// system shows its stale face at once.
+    /// Activity as if Charge now had been on for 25 minutes, and lets it go
+    /// stale 20 seconds later instead of 15 minutes, with no read to
+    /// confirm it again. The system shows a Live Activity that starts stale
+    /// not at all, so it has to become stale on screen, as it would.
     private static func screenshotState(_ state: ChargeNowActivity.State) -> ChargeNowActivity.State {
         guard UserDefaults.standard.bool(forKey: "FTWDemoStaleActivity") else { return state }
-        let confirmed = state.confirmedAtMs - ChargeNowActivity.vouchMs - 60_000
-        return ChargeNowActivity.State(startedAtMs: confirmed - 25 * 60_000, confirmedAtMs: confirmed)
+        return ChargeNowActivity.State(startedAtMs: state.startedAtMs - 25 * 60_000, confirmedAtMs: state.confirmedAtMs)
     }
     #endif
 }

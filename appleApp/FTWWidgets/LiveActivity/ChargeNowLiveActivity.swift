@@ -163,6 +163,14 @@ private struct Elapsed: View {
             .monospacedDigit()
             .multilineTextAlignment(.trailing)
             .foregroundStyle(face.dimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(Tone.accent))
+            // A stopped timer is a fixed figure: it keeps its width beside
+            // the longer stale headline.
+            .fixedSize(horizontal: isStopped, vertical: false)
+    }
+
+    private var isStopped: Bool {
+        if case .stopped = face.timer { return true }
+        return false
     }
 
     private var timer: Text {
