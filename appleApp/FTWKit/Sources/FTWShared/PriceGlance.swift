@@ -69,6 +69,8 @@ public enum PriceGlance {
         public let emptyText: String?
         /// "Fetched 13:05"
         public let fetchedText: String?
+        /// The zone the clock in this moment is read in.
+        public let timeZone: TimeZone
 
         /// Whether the widget should go grey: no price for this moment.
         public var isEmpty: Bool { state != .price }
@@ -85,7 +87,8 @@ public enum PriceGlance {
 
     /// The timeline: one moment now and one at every boundary ahead, the
     /// last where the prices end.
-    public static func moments(_ read: CacheRead<PriceEntry>?, nowMs: Double, calendar: Calendar = .current) -> [Moment] {
+    public static func moments(_ read: CacheRead<PriceEntry>?, nowMs: Double, calendar given: Calendar? = nil) -> [Moment] {
+        let calendar = given ?? .household(read?.value.timeZone)
         guard let read else { return [moment(nil, atMs: nowMs, calendar: calendar)] }
         // Sorted and read once, not once per moment.
         let slots = usable(read.value.prices)
@@ -100,13 +103,14 @@ public enum PriceGlance {
     }
 
     /// The widget at one moment.
-    public static func moment(_ read: CacheRead<PriceEntry>?, atMs t: Double, calendar: Calendar = .current) -> Moment {
+    public static func moment(_ read: CacheRead<PriceEntry>?, atMs t: Double, calendar given: Calendar? = nil) -> Moment {
+        let calendar = given ?? .household(read?.value.timeZone)
         guard let read else {
             return Moment(
                 atMs: t, state: .nothing, carrier: .none, srcState: .never, readAtMs: nil,
                 currency: "", current: nil, cheapest: nil, curve: [], meanMinor: nil, included: .spotOnly,
                 priceText: nil, unitText: "", unitLabel: "", includedText: "", cheapestText: nil, cheapestStartText: nil,
-                emptyText: GlanceWord.openToSee.text, fetchedText: nil
+                emptyText: GlanceWord.openToSee.text, fetchedText: nil, timeZone: calendar.timeZone
             )
         }
         let slots = usable(read.value.prices)
@@ -166,7 +170,8 @@ public enum PriceGlance {
             cheapestText: cheapest.map { clock.cheapest($0, from: t) },
             cheapestStartText: cheapest.map { clock.cheapestStart($0, from: t) },
             emptyText: emptyText,
-            fetchedText: GlanceWord.fetched.format(clock.at(read.record.readAtMs, asEnd: false, from: t))
+            fetchedText: GlanceWord.fetched.format(clock.at(read.record.readAtMs, asEnd: false, from: t)),
+            timeZone: calendar.timeZone
         )
     }
 

@@ -10,6 +10,7 @@ private let signposter = OSSignposter(subsystem: "energy.ftw.app", category: "wi
 struct FTWWidgets: WidgetBundle {
     var body: some Widget {
         PriceWidget()
+        PlanWidget()
     }
 }
 

@@ -10,7 +10,7 @@ import FTWKit
 @MainActor
 public final class SimulatedBox {
     public let house: SimulatedHouse
-    private let scheduler: Scheduler
+    let scheduler: Scheduler
     private let requireStepUp: Bool
     private let bootedAtMs: Double
 
@@ -30,6 +30,11 @@ public final class SimulatedBox {
     /// How long the box takes from ack to result: the demo waits as a
     /// charger write does, so the receipt has a moment to show.
     public var resultDelayMs: Double = 0
+    /// Holds one closed tile of the first history answer back this long,
+    /// then sends it, as a slow box would: the app bridges the gap with an
+    /// estimate meanwhile and the data grows into it. 0 sends all at once.
+    public var holdTileMs: Double = 0
+    private var heldTile = false
     /// A Core with srcfl/ftw#1586 reads and sends the ready time as
     /// `time_of_day_min` on the household clock. Off, it is a Core that
     /// knows only `time_of_day_min_utc`.
@@ -101,6 +106,33 @@ public final class SimulatedBox {
             // fraction in one, answering nothing. So does this.
             guard let from = Self.wholeMs(body["fromMs"]), let to = Self.wholeMs(body["toMs"]) else { return }
             sendBulk(Envelope(t: "price", id: env.id, b: pricesCBOR(from: from, to: to)))
+        case "hist.query":
+            // The box refuses a malformed query by name and answers the rest
+            // tile by tile, then once more to say it is done.
+            guard let q = HistQuery(cbor: body), !q.series.isEmpty, q.toMs > q.fromMs else {
+                refuse(env.id, "E_UNKNOWN_OP", [("t", .text("hist.query"))])
+                return
+            }
+            var chunks = historyTiles(q)
+            var held: HistChunk?
+            if holdTileMs > 0, !heldTile, chunks.count >= 3 {
+                // A closed tile in the middle, so measured data sits on
+                // both sides of it.
+                heldTile = true
+                held = chunks.remove(at: chunks.count - 2)
+            }
+            for chunk in chunks { sendBulk(Envelope(t: "hist.chunk", id: env.id, b: chunk.wire)) }
+            let end = Envelope(t: "hist.end", id: env.id, b: HistEnd(resActual: q.res, gaps: []).wire)
+            if let held {
+                scheduler.after(holdTileMs) { [weak self] in
+                    self?.sendBulk(Envelope(t: "hist.chunk", id: env.id, b: held.wire))
+                    self?.sendBulk(end)
+                }
+            } else {
+                sendBulk(end)
+            }
+        case "plan.get":
+            sendBulk(Envelope(t: "plan", id: env.id, b: sessionPlan().wire))
         case "api.req": onAPI(env.id, body)
         case "cmd": onCommand(body)
         default: break
@@ -151,7 +183,9 @@ public final class SimulatedBox {
             Contract.FID.pvW: house.pvW,
             Contract.FID.batteryW: house.batteryW,
             Contract.FID.batterySoc: (house.socFraction * 1000).rounded(),
-            Contract.FID.loadW: house.baseLoadW + house.evWatts,
+            // The house alone, as Core sends it: grid − battery − solar −
+            // car. The car is its own field.
+            Contract.FID.loadW: house.baseLoadW,
         ]
         f[Contract.FID.evW] = house.evWatts
         return f
@@ -162,7 +196,9 @@ public final class SimulatedBox {
         func src(_ kind: String, _ name: String) -> CBOR {
             .map([("kind", .text(kind)), ("name", .text(name)), ("lastOkMs", .number(now - 400)), ("staleAfterMs", .int(10_000)), ("state", .text("live"))])
         }
-        return .map([("meter", src("meter", "sdm630")), ("inverter", src("inverter", "sungrow")), ("charger", src("charger", "easee"))])
+        // Keyed by driver, as Core keys them: a meter, a hybrid inverter with
+        // the battery, a second inverter on the garage roof, and the charger.
+        return .map([("sdm630", src("meter", "sdm630")), ("sungrow", src("inverter", "sungrow")), ("fronius", src("inverter", "fronius")), ("easee", src("charger", "easee"))])
     }
 
     private func sendSnap() {
@@ -170,12 +206,12 @@ public final class SimulatedBox {
         lastSent = f
         let dict: [(String, CBOR)] = [
             ("1", .map([("name", .text("mode")), ("unit", .null), ("srcId", .null)])),
-            ("2", .map([("name", .text("grid_w")), ("unit", .text("W")), ("srcId", .text("meter"))])),
-            ("3", .map([("name", .text("pv_w")), ("unit", .text("W")), ("srcId", .text("inverter"))])),
-            ("4", .map([("name", .text("battery_w")), ("unit", .text("W")), ("srcId", .text("inverter"))])),
-            ("5", .map([("name", .text("battery_soc")), ("unit", .text("permille")), ("srcId", .text("inverter"))])),
-            ("6", .map([("name", .text("load_w")), ("unit", .text("W")), ("srcId", .text("meter"))])),
-            ("10", .map([("name", .text("ev_w")), ("unit", .text("W")), ("srcId", .text("charger"))])),
+            ("2", .map([("name", .text("grid_w")), ("unit", .text("W")), ("srcId", .text("sdm630"))])),
+            ("3", .map([("name", .text("pv_w")), ("unit", .text("W")), ("srcId", .text("sungrow"))])),
+            ("4", .map([("name", .text("battery_w")), ("unit", .text("W")), ("srcId", .text("sungrow"))])),
+            ("5", .map([("name", .text("battery_soc")), ("unit", .text("permille")), ("srcId", .text("sungrow"))])),
+            ("6", .map([("name", .text("load_w")), ("unit", .text("W")), ("srcId", .text("sdm630"))])),
+            ("10", .map([("name", .text("ev_w")), ("unit", .text("W")), ("srcId", .text("easee"))])),
         ]
         sendBulk(Envelope(t: "snap", b: .map([
             ("uptimeMs", .number(uptimeMs)),
@@ -271,8 +307,29 @@ public final class SimulatedBox {
                 return
             }
             house.modeKey = mode
+            // Choosing one of the two plans says whether the battery sells.
+            if mode == "planner_arbitrage" { house.batteryExport = "allowed" }
+            if mode == "planner_passive_arbitrage" { house.batteryExport = "not_allowed" }
             controlRev += 1
             result(cmdId, "applied", observed: Double(Self.modes.firstIndex { $0.key == mode } ?? 0))
+            // Core sends the plan after an applied command on the session.
+            sendBulk(Envelope(t: "plan", b: sessionPlan().wire))
+        case Contract.opPlannerPrefsSet:
+            let k = args["safety_k"]?.double
+            let export = args["battery_export"]?.string
+            guard k != nil || export != nil, export.map({ ["unknown", "not_allowed", "allowed"].contains($0) }) ?? true else {
+                result(cmdId, "rejected", error: ("E_UNKNOWN_OP", [("op", .text(op))]))
+                return
+            }
+            if let k { house.safetyK = max(0, min(2, k)) }
+            if let export { house.batteryExport = export }
+            // A planner mode follows the prefs; a manual one is left alone.
+            if house.modeKey.hasPrefix("planner_") {
+                house.modeKey = house.batteryExport == "allowed" ? "planner_arbitrage" : "planner_passive_arbitrage"
+            }
+            controlRev += 1
+            result(cmdId, "applied", observed: house.safetyK)
+            sendBulk(Envelope(t: "plan", b: sessionPlan().wire))
         case Contract.opLoadpointHold:
             if args["clear"]?.bool == true {
                 house.manualHoldW = nil
@@ -327,6 +384,9 @@ public final class SimulatedBox {
         ("GET", "/api/savings/daily", .read, nil),
         ("GET", "/api/loadpoints", .read, nil),
         ("GET", "/api/mpc/plan", .read, nil),
+        ("GET", "/api/planner/prefs", .read, nil),
+        ("GET", "/api/energy/history", .read, nil),
+        ("POST", "/api/planner/prefs", .actuate, Contract.opPlannerPrefsSet),
         ("POST", "/api/loadpoints/{id}/vehicle", .configure, nil),
         ("PUT", "/api/loadpoints/{id}/schedule", .configure, nil),
         ("DELETE", "/api/loadpoints/{id}/schedule", .configure, nil),
@@ -391,14 +451,16 @@ public final class SimulatedBox {
             let perPhase = house.gridW / 3
             return (200, [
                 "grid_w": .number(house.gridW), "pv_w": .number(house.pvW), "bat_w": .number(house.batteryW),
-                "load_w": .number(house.baseLoadW + house.evWatts),
+                "load_w": .number(house.baseLoadW),
                 "energy": ["today": [
                     "import_wh": .number(house.todayImportWh), "export_wh": .number(house.todayExportWh),
                     "pv_wh": .number(house.todayPVWh), "load_wh": .number(house.todayLoadWh),
                     "bat_charged_wh": .number(house.todayChargedWh), "bat_discharged_wh": .number(house.todayDischargedWh),
                 ]],
                 "drivers": [
-                    "sungrow": ["status": "ok", "pv_w": .number(house.pvW), "bat_w": .number(house.batteryW), "bat_soc": .number(house.socFraction)],
+                    "sdm630": ["status": "ok", "meter_w": .number(house.gridW)],
+                    "sungrow": ["status": "ok", "pv_w": .number((house.pvW * 0.62).rounded()), "bat_w": .number(house.batteryW), "bat_soc": .number(house.socFraction)],
+                    "fronius": ["status": "ok", "pv_w": .number(house.pvW - (house.pvW * 0.62).rounded())],
                     "easee": ["status": "ok", "ev_w": .number(house.evWatts)],
                 ],
                 "fuse": ["max_amps": .number(house.fuseAmps), "phases": 3, "voltage": 230],
@@ -424,8 +486,21 @@ public final class SimulatedBox {
             return (200, ["days": .array(rows)])
         case ("GET", "/api/loadpoints"):
             return (200, ["enabled": true, "loadpoints": [loadpointJSON()]])
+        case ("GET", "/api/planner/prefs"):
+            let mapped = house.batteryExport == "allowed" ? "planner_arbitrage" : "planner_passive_arbitrage"
+            return (200, [
+                "forecast_trust": .string(house.safetyK <= 0.25 ? "bold" : house.safetyK < 1.5 ? "balanced" : "cautious"),
+                "battery_export": .string(house.batteryExport),
+                "safety_k": .number(house.safetyK),
+                "mapped_k": .number(house.safetyK),
+                "mapped_mode": .string(mapped),
+            ])
+        case ("GET", "/api/energy/history"):
+            let until = min(now, Double(query["until"] ?? "") ?? now)
+            let since = Double(query["since"] ?? "") ?? until - 86_400_000
+            return (200, ["scope": "system", "since_ms": .number(since), "until_ms": .number(until), "truncated": false, "points": .array(carEnergyRows(sinceMs: since, untilMs: until))])
         case ("GET", "/api/mpc/plan"):
-            var plan: JSON = ["actions": []]
+            var plan: JSON = ["actions": .array(mpcActions())]
             if let p = house.carPlan(now) { plan = plan.setting("loadpoint_shortfall_wh", ["garage": .number(p.shortfallWh)]) }
             return (200, ["plan": plan, "meta": ["replanning": false, "outdated": false]])
         case ("POST", "/api/loadpoints/{id}/vehicle"):
@@ -653,6 +728,8 @@ extension SimulatedBox {
         if let name = UserDefaults.standard.string(forKey: "FTWDemoCar"), let car = DemoCar(rawValue: name) {
             car.apply(to: box.house, nowMs: scheduler.nowMs)
         }
+        // For recordings: `-FTWDemoGap YES` holds a tile back for 2 s.
+        if UserDefaults.standard.bool(forKey: "FTWDemoGap") { box.holdTileMs = 2_000 }
         #endif
         current = box
         return LoopbackCarrier(box: box, scheduler: scheduler)

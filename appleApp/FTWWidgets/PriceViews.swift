@@ -206,7 +206,7 @@ struct Curve: View {
         .chartXAxis {
             AxisMarks(values: hours) { value in
                 AxisValueLabel {
-                    if let d = value.as(Date.self) { Text(Self.hour(d)) }
+                    if let d = value.as(Date.self) { Text(Self.hour(d, moment)) }
                 }
             }
         }
@@ -244,15 +244,22 @@ struct Curve: View {
         var t = (start / hour).rounded(.up) * hour
         var out: [Date] = []
         while t < end - hour {
-            if Calendar.current.component(.hour, from: date(t)) % 3 == 0 { out.append(date(t)) }
+            if Self.calendar(moment).component(.hour, from: date(t)) % 3 == 0 { out.append(date(t)) }
             t += hour
         }
         return out
     }
 
-    /// "02", on the 24-hour clock the rest of the widget uses.
-    private static func hour(_ d: Date) -> String {
-        String(format: "%02d", Calendar.current.component(.hour, from: d))
+    /// "02", on the 24-hour clock the rest of the widget uses, in the
+    /// household's zone.
+    private static func hour(_ d: Date, _ moment: PriceGlance.Moment) -> String {
+        String(format: "%02d", calendar(moment).component(.hour, from: d))
+    }
+
+    private static func calendar(_ moment: PriceGlance.Moment) -> Calendar {
+        var c = Calendar.current
+        c.timeZone = moment.timeZone
+        return c
     }
 
     private func date(_ ms: Double) -> Date { Date(timeIntervalSince1970: ms / 1000) }
@@ -267,7 +274,9 @@ enum Tone {
     static let dear = Pair(0xCC243D, 0xFF6E74)
     static let negative = Pair(0xD48500, 0xFFB000)
     static let flat = Pair(0x686862, 0x858585)
-    static let accent = Pair(0xDA7F00, 0xFFAC41)
+    /// Text and glyphs: the app's darker accent in light, so it reads on
+    /// the widget's surface.
+    static let accent = Pair(0x9C5800, 0xFFAC41)
 
     static func of(_ tone: PriceStrip.Tone) -> Pair {
         switch tone {

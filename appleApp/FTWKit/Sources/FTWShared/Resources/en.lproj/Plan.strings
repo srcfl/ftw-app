@@ -1,0 +1,22 @@
+/* The plan ahead, on Now and in its widget. English is the key (PlanWord). */
+"Plan ahead" = "Plan ahead";
+"What FTW plans to do over the next hours, and when power is cheapest." = "What FTW plans to do over the next hours, and when power is cheapest.";
+"Open FTW to see the plan" = "Open FTW to see the plan";
+"No plan from your box yet" = "No plan from your box yet";
+"Your box couldn't plan ahead · it runs on safe defaults" = "Your box couldn't plan ahead · it runs on safe defaults";
+"Nothing planned for 12 hours" = "Nothing planned for 12 hours";
+"%@ car charges to %@" = "%@ car charges to %@";
+"%@ car charges" = "%@ car charges";
+"%@ battery charges" = "%@ battery charges";
+"%@ battery gives power" = "%@ battery gives power";
+"cheapest %@" = "cheapest %@";
+"Now" = "Now";
+"now" = "now";
+"until %@" = "until %@";
+"Car charges to %@" = "Car charges to %@";
+"Car charges" = "Car charges";
+"Battery charges" = "Battery charges";
+"Battery gives power" = "Battery gives power";
+"Cheapest power" = "Cheapest power";
+"Planned %@" = "Planned %@";
+"Plan from %@ · open FTW" = "Plan from %@ · open FTW";

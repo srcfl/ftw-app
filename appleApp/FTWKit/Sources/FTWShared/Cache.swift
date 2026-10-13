@@ -206,10 +206,24 @@ public struct PriceEntry: CacheValue {
     /// Local midnight the window starts at.
     public var fromMs: Double
     public var prices: Prices
+    /// The household's time zone, as the box names it, so a widget reads the
+    /// clock the way the home does. Nil in a record from before it was kept.
+    public var timeZone: String?
 
-    public init(fromMs: Double, prices: Prices) {
+    public init(fromMs: Double, prices: Prices, timeZone: String? = nil) {
         self.fromMs = fromMs
         self.prices = prices
+        self.timeZone = timeZone
+    }
+}
+
+extension Calendar {
+    /// The household's calendar: the box's zone when a record names one,
+    /// else the phone's.
+    public static func household(_ identifier: String?) -> Calendar {
+        var calendar = Calendar.current
+        if let identifier, let zone = TimeZone(identifier: identifier) { calendar.timeZone = zone }
+        return calendar
     }
 }
 

@@ -47,6 +47,7 @@ public enum Contract {
         "cloud.link",
     ]
 
+    public static let capHistory5m = "history.5m"
     public static let capPlanDispatch = "plan.dispatch"
     public static let capDerEV = "der.ev"
     public static let capPriceSpot = "price.spot"

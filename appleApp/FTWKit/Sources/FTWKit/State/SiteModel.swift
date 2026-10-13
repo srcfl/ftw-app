@@ -418,6 +418,13 @@ public final class SiteModel {
         write(CacheRecord(siteId: siteId, carrier: session.carrier, srcState: answering ? .live : .stale, readAtMs: now, value: entry), to: shared)
     }
 
+    /// Leave the plan for the plan widget. `sentAtMs` is when the box sent
+    /// it, which is what the widget dates it by.
+    func sharePlan(_ entry: PlanEntry, sentAtMs: Double) {
+        guard let siteId, let shared else { return }
+        write(CacheRecord(siteId: siteId, carrier: session.carrier, srcState: entry.boxStale ? .stale : .live, readAtMs: sentAtMs, value: entry), to: shared)
+    }
+
     /// Encoding and the file write run off the main actor. A sign-out
     /// asked for meanwhile wins: the write is dropped rather than putting
     /// the home back (`AppGroupFiles.clearCount`).

@@ -45,6 +45,9 @@ public struct SessionState: Sendable {
     public var truncated = false
     /// Every mode the box accepts, in its order. Field 1 indexes this list.
     public var modes: [ModeInfo] = []
+    /// What the box means to do, as it last said. Kept here because a plan
+    /// also arrives unasked, right after a command this phone sent.
+    public var plan: Plan?
 
     public init() {}
 }
@@ -88,6 +91,11 @@ public struct CommandError: Error, Equatable, HelpfulError {
 public final class Session {
     public static let apiTimeoutMs: Double = 20_000
     public static let priceTimeoutMs: Double = 8_000
+    /// History over a relay can be dozens of bulk frames; this is the wait
+    /// between two of them, not for the whole answer.
+    public static let historyTimeoutMs: Double = 20_000
+    /// A plan is one bulk message.
+    public static let planTimeoutMs: Double = 8_000
     /// A box that is starting refuses a subscription and does not announce
     /// when it is ready, so the session asks again on its own.
     public static let bootRetryMs: Double = 5_000
@@ -136,7 +144,15 @@ public final class Session {
         var onAck: (@MainActor () -> Void)?
     }
 
+    private struct PendingHistory {
+        var onChunk: @MainActor (HistChunk) -> Void
+        var continuation: CheckedContinuation<HistEnd, Error>
+        var timer: Cancellable?
+    }
+
     private var pendingPrices: [UInt32: PendingSingle<Prices>] = [:]
+    private var pendingHistory: [UInt32: PendingHistory] = [:]
+    private var pendingPlan: [UInt32: PendingSingle<Plan>] = [:]
     private var pendingAPI: [UInt32: PendingAPI] = [:]
     private var pendingCommands: [String: PendingCommand] = [:]
 
@@ -265,6 +281,34 @@ public final class Session {
                 p.continuation.resume(throwing: SessionError.timedOut("prices"))
             }
             pendingPrices[id] = PendingSingle(continuation: cont, timer: timer)
+            carrier?.send(frame)
+        }
+    }
+
+    /// A history window. Tiles arrive as they land; the call returns on
+    /// `hist.end`. Bulk lane: a query carrying a `have` list varies in length.
+    public func history(_ query: HistQuery, onChunk: @escaping @MainActor (HistChunk) -> Void) async throws -> HistEnd {
+        guard carrier != nil else { throw SessionError.noCarrier }
+        let id = takeRequestID()
+        let frame = try Frame.encodeBulk(envelope: Envelope(t: "hist.query", id: id, b: query.cbor))
+        return try await withCheckedThrowingContinuation { cont in
+            pendingHistory[id] = PendingHistory(onChunk: onChunk, continuation: cont, timer: nil)
+            armHistory(id)
+            carrier?.send(frame)
+        }
+    }
+
+    /// What the box means to do. The answer also lands on `state.plan`.
+    public func plan() async throws -> Plan {
+        guard carrier != nil else { throw SessionError.noCarrier }
+        let id = takeRequestID()
+        let frame = try Frame.encodeBulk(envelope: Envelope(t: "plan.get", id: id))
+        return try await withCheckedThrowingContinuation { cont in
+            let timer = scheduler.after(Self.planTimeoutMs) { [weak self] in
+                guard let p = self?.pendingPlan.removeValue(forKey: id) else { return }
+                p.continuation.resume(throwing: SessionError.timedOut("plan"))
+            }
+            pendingPlan[id] = PendingSingle(continuation: cont, timer: timer)
             carrier?.send(frame)
         }
     }
@@ -438,6 +482,25 @@ public final class Session {
             guard let id = env.id, let pending = pendingPrices.removeValue(forKey: id) else { return }
             pending.timer?.cancel()
             pending.continuation.resume(returning: Prices(body))
+        case "hist.chunk":
+            guard let id = env.id, let chunk = HistChunk(body), let pending = pendingHistory[id] else { return }
+            armHistory(id)
+            pending.onChunk(chunk)
+        case "hist.end":
+            guard let id = env.id, let pending = pendingHistory.removeValue(forKey: id) else { return }
+            pending.timer?.cancel()
+            pending.continuation.resume(returning: HistEnd(body))
+        case "plan":
+            // Asked for, or pushed after a command: either way the box's
+            // latest word on what it means to do.
+            let plan = Plan(body)
+            var s = state
+            s.plan = plan
+            state = s
+            if let id = env.id, let pending = pendingPlan.removeValue(forKey: id) {
+                pending.timer?.cancel()
+                pending.continuation.resume(returning: plan)
+            }
         case "api.head": onAPIHead(env.id, body)
         case "api.chunk": onAPIChunk(env.id, body)
         case "api.end": onAPIEnd(env.id, body)
@@ -586,6 +649,16 @@ public final class Session {
                 p.continuation.resume(throwing: BoxRefusal(detail: b))
                 return
             }
+            if let p = pendingHistory.removeValue(forKey: id) {
+                p.timer?.cancel()
+                p.continuation.resume(throwing: BoxRefusal(detail: b))
+                return
+            }
+            if let p = pendingPlan.removeValue(forKey: id) {
+                p.timer?.cancel()
+                p.continuation.resume(throwing: BoxRefusal(detail: b))
+                return
+            }
         }
         var s = state
         s.lastError = b
@@ -627,6 +700,16 @@ public final class Session {
         pendingAPI[id] = p
     }
 
+    private func armHistory(_ id: UInt32) {
+        guard var p = pendingHistory[id] else { return }
+        p.timer?.cancel()
+        p.timer = scheduler.after(Self.historyTimeoutMs) { [weak self] in
+            guard let p = self?.pendingHistory.removeValue(forKey: id) else { return }
+            p.continuation.resume(throwing: SessionError.timedOut("history"))
+        }
+        pendingHistory[id] = p
+    }
+
     private func detach() {
         bootRetry?.cancel()
         if let carrier {
@@ -646,6 +729,10 @@ public final class Session {
         pendingPrices = [:]
         for (_, p) in pendingAPI { p.timer?.cancel(); p.continuation.resume(throwing: SessionError.carrierClosed) }
         pendingAPI = [:]
+        for (_, p) in pendingHistory { p.timer?.cancel(); p.continuation.resume(throwing: SessionError.carrierClosed) }
+        pendingHistory = [:]
+        for (_, p) in pendingPlan { p.timer?.cancel(); p.continuation.resume(throwing: SessionError.carrierClosed) }
+        pendingPlan = [:]
         let commands = pendingCommands
         pendingCommands = [:]
         for (cmdId, p) in commands {
