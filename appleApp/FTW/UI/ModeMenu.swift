@@ -15,13 +15,14 @@ import SwiftUI
 /// change the mode sees the name and no button.
 struct ModeMenu: View {
     let mode: ModeModel
-    var plan: PlanShare?
-    @State private var open = false
+    /// Opens the mode sheet. The root view presents it: a sheet held by a
+    /// view in the bar does not open again after it closed itself.
+    let open: () -> Void
 
     var body: some View {
         Group {
             if mode.mayControl {
-                Button { open = true } label: {
+                Button(action: open) {
                     label(chevron: true)
                 }
                 .disabled(!mode.canControl)
@@ -37,9 +38,6 @@ struct ModeMenu: View {
         // the sheet was closed first. With the sheet open the two play as
         // one.
         .sensoryFeedback(trigger: mode.outcome?.tone) { _, tone in ModeSheet.feedback(tone) }
-        .sheet(isPresented: $open) {
-            ModeSheet(mode: mode, plan: plan)
-        }
     }
 
     /// The name on the button: the planning style while the plan runs, else
