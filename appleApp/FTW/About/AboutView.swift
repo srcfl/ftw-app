@@ -115,7 +115,7 @@ struct AboutView: View {
                     Section(AboutWords.text("This phone")) {
                         NavigationLink(value: Route.remove) {
                             Text(AboutWords.text("Remove this phone"))
-                                .foregroundStyle(Theme.importing)
+                                .foregroundStyle(Theme.alarm)
                         }
                     }
                 }

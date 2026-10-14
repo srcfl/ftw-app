@@ -171,7 +171,7 @@ struct FreshnessLine: View {
     private var line: Line {
         if app.isDemo {
             let streaming = site.session.phase == .streaming
-            return Line(color: streaming ? Theme.accentFill : Theme.fgMuted, message: L(streaming ? "Live demo · simulated home" : "Starting the demo"), tail: nil, beats: streaming)
+            return Line(color: streaming ? Theme.live : Theme.fgMuted, message: L(streaming ? "Live demo · simulated home" : "Starting the demo"), tail: nil, beats: streaming)
         }
         let band = site.freshness(noCarrier: app.connectHelp != nil)
         let age = band.age.flatMap { $0 == "—" ? nil : $0 }

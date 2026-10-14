@@ -85,7 +85,7 @@ private struct StatusSection: View {
                     Hint(session).contentTransition(.numericText())
                 }
                 if let note {
-                    Hint(note.text, tone: note.warn ? Theme.generation : Theme.fgMuted)
+                    Hint(note.text, tone: note.warn ? Theme.alarm : Theme.fgMuted)
                 }
             }
             .padding(.vertical, 4)
@@ -175,7 +175,7 @@ private struct LevelSection: View {
                 .foregroundStyle(Theme.onAccent)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(Theme.generation, in: Capsule())
+                .background(Theme.ink2, in: Capsule())
                 .fixedSize()
         }
     }
@@ -296,7 +296,7 @@ private struct GoalSection: View {
                 }
             }
             if let save = model.goalSave[lp.id], !editing {
-                Hint(LoadpointsModel.goalText(save), tone: { if case .failed = save { return Theme.importing }; return Theme.fgDim }())
+                Hint(LoadpointsModel.goalText(save), tone: { if case .failed = save { return Theme.alarm }; return Theme.fgDim }())
             }
         } header: {
             Text(L("Goal"))
@@ -325,7 +325,7 @@ struct Readiness: View {
                 .fixedSize(horizontal: false, vertical: true)
         } icon: {
             Image(systemName: short ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                .foregroundStyle(short ? Theme.generation : Theme.exporting)
+                .foregroundStyle(short ? Theme.alarm : Theme.live)
                 .contentTransition(.symbolEffect(.replace))
         }
         .accessibilityElement(children: .combine)
@@ -584,19 +584,19 @@ struct ReceiptView: View {
 
     private func tint(_ state: EVText.Outcome.Mark) -> Color {
         switch state {
-        case .done: return Theme.exporting
+        case .done: return Theme.live
         case .active: return Theme.accent
         case .waiting: return Theme.fgMuted
-        case .failed: return Theme.importing
+        case .failed: return Theme.alarm
         }
     }
 
     private var color: Color {
         switch outcome.tone {
         case .working: return Theme.fgDim
-        case .done: return Theme.exporting
-        case .warning: return Theme.generation
-        case .failed: return Theme.importing
+        case .done: return Theme.live
+        case .warning: return Theme.alarm
+        case .failed: return Theme.alarm
         }
     }
 }

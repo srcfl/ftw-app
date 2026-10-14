@@ -212,7 +212,7 @@ private struct HeroLine: View, Equatable {
                             Circle().fill(d.live ? Theme.freshLive : Theme.freshStale).frame(width: 6, height: 6)
                             Text(d.name).font(.caption).foregroundStyle(Theme.fgDim)
                             Text(AppWords.power(d.watts))
-                                .font(Theme.number(13, weight: .semibold))
+                                .font(Theme.figure(13))
                                 .foregroundStyle(d.live ? color : Theme.fgMuted)
                                 .contentTransition(.numericText(value: d.watts))
                         }
@@ -249,7 +249,7 @@ private struct HeroFreshness: View {
                 .frame(width: 7, height: 7)
             Text(line)
                 .font(.footnote)
-                .foregroundStyle(freshness.live ? Theme.fgDim : Theme.generation)
+                .foregroundStyle(freshness.live ? Theme.fgDim : Theme.freshStale)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }
@@ -303,7 +303,7 @@ private struct DeviceRows: View {
                 Circle().fill(f.live ? Theme.freshLive : Theme.freshStale).frame(width: 6, height: 6)
                 Text(d.name).font(.footnote.weight(.medium)).foregroundStyle(Theme.fg)
                 Text(AppWords.power(d.watts))
-                    .font(Theme.number(13, weight: .semibold))
+                    .font(Theme.figure(13))
                     .foregroundStyle(f.live ? tint : Theme.fgMuted)
                     .contentTransition(.numericText(value: d.watts))
                 if let level = d.levelPct {
@@ -588,7 +588,7 @@ private struct ModeSection: View {
                 Label {
                     Text(doubt).foregroundStyle(Theme.fg)
                 } icon: {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.generation)
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.alarm)
                 }
                 .font(.caption.weight(.medium))
                 .fixedSize(horizontal: false, vertical: true)
@@ -702,9 +702,9 @@ extension NodeLook {
         }
         switch node {
         case .battery:
-            return ChartLook(up: Theme.storage, down: Theme.storage.opacity(0.5), line: Theme.storage, upWord: words?.up, downWord: words?.down)
+            return ChartLook(up: Theme.stores, down: Theme.gives, line: Theme.ink2, upWord: words?.up, downWord: words?.down)
         case .grid:
-            return ChartLook(up: Theme.importing, down: Theme.exporting, line: Theme.fgDim, upWord: words?.up, downWord: words?.down)
+            return ChartLook(up: Theme.grid, down: Theme.grid, line: Theme.grid, upWord: words?.up, downWord: words?.down)
         default:
             let c = Theme.color(tone(node))
             return ChartLook(up: c, down: c, line: c)

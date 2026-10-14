@@ -27,7 +27,7 @@ struct PlanCard: View, Equatable {
                 }
                 Spacer(minLength: 8)
                 if let priceNow {
-                    Text("\(Text(L("Price now")).font(.caption2).foregroundStyle(Theme.fgMuted)) \(Text(AppWords.decimal(priceNow)).font(Theme.number(13, weight: .bold)).foregroundStyle(Theme.fg)) \(Text(unit).font(.caption2).foregroundStyle(Theme.fgMuted))")
+                    Text("\(Text(L("Price now")).font(.caption2).foregroundStyle(Theme.fgMuted)) \(Text(AppWords.decimal(priceNow)).font(Theme.figure(13)).foregroundStyle(Theme.fg)) \(Text(unit).font(.caption2).foregroundStyle(Theme.fgMuted))")
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                         .contentTransition(.numericText())
@@ -93,7 +93,7 @@ struct PlanLanes: View, Equatable {
                     yStart: .value("Bottom", 0),
                     yEnd: .value("Price", Self.priceFloor + Self.priceRise * max(0, bar.minor) / top)
                 )
-                .foregroundStyle(grey ? Theme.fgMuted : PriceBars.color(bar.tone))
+                .foregroundStyle(grey ? Theme.fgMuted : Theme.price(bar.tone))
                 .opacity(0.4)
             }
             ForEach(moment.events) { e in
@@ -110,7 +110,7 @@ struct PlanLanes: View, Equatable {
                     if !compact || e.endMs - e.startMs >= 90 * 60_000, let pct = e.targetPct, e.kind == .car {
                         Text(AppWords.percent(pct))
                             .font(.system(size: 9, weight: .bold).monospacedDigit())
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Theme.ground)
                     }
                 }
             }
@@ -139,10 +139,10 @@ struct PlanLanes: View, Equatable {
 
     static func color(_ kind: PlanGlance.Kind) -> Color {
         switch kind {
-        case .car: return Theme.mobility
-        case .charge: return Theme.storage
-        case .discharge: return Theme.generation
-        case .cheap: return Theme.exporting
+        case .car: return Theme.car
+        case .charge: return Theme.stores
+        case .discharge: return Theme.gives
+        case .cheap: return Theme.ink2
         }
     }
 

@@ -99,7 +99,8 @@ struct ModeSheet: View {
             .disabled(!canSet || mode.prefs == nil || !onPlan)
             Toggle(L("Let the battery sell to the grid when it pays"), isOn: exportBinding)
                 .disabled(!canSet || mode.prefs == nil || !onPlan)
-                .tint(Theme.accentFill)
+                // On is a state: lime, where the ink tint would hide the knob.
+                .tint(Theme.live)
         } header: {
             Text(L("How your home is run"))
         } footer: {

@@ -22,7 +22,7 @@ struct LicenseView: View {
             LazyVStack(alignment: .leading, spacing: 12) {
                 if raw == nil {
                     Text(AboutWords.text("This text is missing from this build."))
-                        .foregroundStyle(Theme.importing)
+                        .foregroundStyle(Theme.alarm)
                 }
                 ForEach(blocks) { block in
                     row(block)

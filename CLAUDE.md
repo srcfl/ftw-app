@@ -87,7 +87,7 @@ native, and smooth enough to impress.
 - **Modern Swift.** Swift 6 strict concurrency, `@Observable`,
   async/await and structured concurrency. No Combine, no GCD, no
   `ObservableObject`, and no UIKit except the camera. Colours live in
-  asset catalogs, not `UIColor`.
+  one asset catalog, not in code (see The look).
 - **iOS 26's design.** System components (`List`, `Form`,
   `NavigationStack`, system button styles), so Liquid Glass appears where
   the system puts it. SF Symbols with symbol effects.
@@ -125,20 +125,101 @@ native, and smooth enough to impress.
 - **Evidence for feel work:** a screen recording, and an Animation Hitches
   measurement from a device.
 
+## The look: Phosphor
+
+Fredrik chose this look for the polish release on 13 Oct 2026. Read it
+before you change a colour, a font or a mark.
+
+His standing rules from that day outlive the release:
+
+1. The phone keeps its own cache of the whole home and opens on it. FTW
+   Cloud only speeds things up and holds state; the app works when the
+   cloud is gone. Robust, fast, smooth.
+2. The fastest live path wins. Which path does not matter, only that it is
+   fast. Push, never poll.
+3. Freshness has no ticking seconds. A quiet mark says live the moment you
+   lift the phone: light means live.
+4. "FTW in control" is a small mark: green when FTW controls, a warning
+   when it does not. One tap gives the full detail, as the box's own page
+   does. Never a big banner.
+5. Charts are never angular and never hairlines; they have volume. On/off
+   loads (0 ↔ 1 kW) draw as bucket means with a range, and the scrub still
+   gives exact values.
+6. The flow on Now is small and smooth: continuous light, not jumping dots.
+7. TUI and retro are welcome, never bloated: Swedish simplicity.
+
+The rules below put these into practice.
+
+- **Light means live.** Only a reading the box has confirmed live glows or
+  moves: a live carrier (relay, WebRTC or graded-live FTW Cloud) and
+  `srcState` live. The cache, the past, the plan and a quiet stream are
+  ink and hold still. Light mode has no glow; motion and full colour alone
+  say live. Every glow call takes `isLive`, and a test proves that a cache
+  never glows.
+- **Three tenses, one grammar.** A glowing line is now. A solid line with a
+  filled body is what the box measured. A ghost (low fill, thin cap, dashed
+  line) is what it plans or forecasts. A hatch means "on its way"; a dotted
+  baseline means the box confirms nothing was there. Bars only where a
+  value holds across its slot (price, plan). No other marks.
+- **Colour is energy; the interface is ink.** One hue per kind: `solar`;
+  the battery's `gives` (gold) and `stores` (cyan); `grid`, magenta both
+  ways, where the side of zero and the word say buying or selling; `car`
+  (violet). The home is ink. `live` and `alarm` are states, never levels.
+  A price is ink by its level, never red and green. No orange anywhere;
+  the system tint is ink.
+- **Space, not boxes.** No cards and no borders: 24 to 32 pt between
+  groups, and a hairline only where two lists meet. `Card` keeps its
+  spacing and draws nothing.
+- **Type.** Figures are SF Pro with even digits (`Theme.figure`), never
+  mono. `Theme.mono` (SF Mono) is the terminal layer alone: the status
+  line, kickers, axis labels, footers, receipts and the scrub tag. Sizes
+  follow Dynamic Type; mono caps stop growing at accessibility1.
+- **Six TUI details, no more.** A pull request that adds a seventh names
+  the reading it carries, or it goes. Out: scanlines, glitch, grain,
+  braille dots, typed-in text and any pulsing icon.
+
+  | Detail | Where | The reading it carries |
+  |---|---|---|
+  | Mono status line, `● LIVE · FTW IN CONTROL` | Under every title | Whether this is now, and who controls the home |
+  | 8-level block price bars (▁▂▃▄▅▆▇█) | Now's strip, dial ticks, lock-screen widget | Price per slot at a glance |
+  | Lock-on: corner brackets and an inverse-video tag | Under a finger, on a pressed node | What the finger is on, and its value |
+  | 10-cell meter | Battery and car level | Level in tenths, readable at 4 pt |
+  | Receipt log `SENT ▸ ACCEPTED ▸ MEASURED ▸ CONFIRMED` | Car commands | How far the box has confirmed a command |
+  | Phosphor ignite and decay | Beams, the trace's head, the status dot | When live starts and when it stops |
+
+- **One palette source.** The roles live in `appleApp/FTWCharts/Theme.xcassets`,
+  in Display P3, one colour set per role with its dark variant: `ground`,
+  `raised`, `hairline`; `ink`, `ink2`, `ink3`; `solar`, `gives`, `stores`,
+  `grid`, `car`; `live`, `alarm`. The app and the widgets both build that
+  folder, and `Theme` in `FTWCharts/Palette.swift` names them for both.
+  `ThemeTests` holds the contrast (text 4.5:1 on ground and raised; energy
+  4.5:1 in light and 7:1 in dark) and fails on any colour written in code.
+  Increase Contrast turns ink3 into ink2 and hairlines into 2 px; Reduce
+  Transparency drops the glow.
+- The 0.3 names in `FTW/UI/Theme.swift` (`fg`, `surface`, `accent` and the
+  rest) point at these roles until each screen is rebuilt. New code reads
+  the roles.
+- The app's palette leaves the web tokens (`ftw-webapp/src/styles/tokens.css`
+  and the box's `theme.css`) for now. The role names stay, so the web and
+  the box can follow in paired PRs.
+
 ## Design references
 
-Borrow patterns from the best iOS apps, never their graphics or brands.
+Borrow patterns from the best iOS apps, and from terminals and instruments,
+never their graphics or brands.
 
 | Pattern | From | Where in FTW |
 |---|---|---|
 | Scrub a chart: the header gives way to the value under the finger, and comes back on release | Stocks | Every chart: price, node history, ahead |
-| Hourly strip with a now marker and a soft band for a range | Weather | Price chart, plan lanes |
-| Bars and rings that fill with a spring; one colour per metric | Fitness | Battery and car levels, one colour pair per node |
-| Big state, three fixed controls, receipt under them | Tesla, Rivian | The car view's Plan · Charge now · Pause bar |
-| A plain "what happens next" timeline with times | Flighty | Plan card, plan view, plan widget |
-| Price as a line coloured by level, with the cheap window marked | Tibber, Octopus | Price chart |
+| Hourly strip with a now marker | Weather | Now's plan strip, the price chart |
+| A level that fills with a spring, one hue per kind | Fitness | Battery and car levels, as the 10-cell meter |
+| Big state, three fixed controls, receipt under them | Tesla, Rivian | The car view's Plan · Charge now · Pause bar and its receipt log |
+| A plain "what happens next" timeline with times | Flighty | Now's plan sentence, plan view, plan widget |
+| Price as bars by level, with the cheap window marked | Tibber, Octopus | Price chart: ink bars by thirds and a cheapest bracket, never red and green |
 | Calm lists, one prominent action, a quiet second one | Things, Apple Home | Pairing, mode sheet |
 | Liquid Glass only where the system puts it (bars, sheets, buttons) | iOS 26 | Toolbars, sheets, glass buttons; no custom glass panels |
+| A trace that burns at its head and fades when the signal stops | Oscilloscopes, CRT terminals | Beams on Now, the live trace, the status dot |
+| One mono status line, and an inverse-video tag for what is selected | Terminal tools | The status line under each title, the scrub tag |
 
 ## Non-negotiable invariants
 

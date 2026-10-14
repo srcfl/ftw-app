@@ -466,7 +466,7 @@ struct PriceStripChart: View, Equatable {
                     yStart: .value("Zero", 0),
                     yEnd: .value("Price", PriceUnits.display(p.minor, currency))
                 )
-                .foregroundStyle(p.minor > mean * 1.05 ? Theme.importing.opacity(0.7) : p.minor < mean * 0.95 ? Theme.exporting.opacity(0.7) : Theme.fgMuted.opacity(0.5))
+                .foregroundStyle(Theme.price(p.minor > mean * 1.05 ? .dear : p.minor < mean * 0.95 ? .cheap : .flat))
                 .accessibilityLabel(AppWords.clock(p.startMs, zone: .current))
                 .accessibilityValue("\(AppWords.decimal(PriceStrip.text(p.minor, currency))) \(PriceUnits.unit(currency).perKwh)")
             }

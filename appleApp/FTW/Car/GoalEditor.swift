@@ -115,7 +115,7 @@ struct GoalEditor: View {
                 Section {
                     Text(preview).font(.subheadline).foregroundStyle(Theme.fgDim)
                     if let failure {
-                        Text(failure).font(.subheadline).foregroundStyle(Theme.importing)
+                        Text(failure).font(.subheadline).foregroundStyle(Theme.alarm)
                     }
                 }
                 if lp.schedule != nil {

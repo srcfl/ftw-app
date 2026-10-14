@@ -53,7 +53,7 @@ struct ChargeNowLiveActivity: Widget {
                 Bolt(face: face)
             }
             // The island is always dark.
-            .keylineTint(face.dimmed ? Color.secondary : Tone.accent.dark)
+            .keylineTint(face.dimmed ? Color.secondary : Theme.fixed(Theme.car, .dark))
         }
         .supplementalActivityFamilies([.small])
     }
@@ -178,7 +178,7 @@ private struct Elapsed: View {
         timer
             .monospacedDigit()
             .multilineTextAlignment(.trailing)
-            .foregroundStyle(face.dimmed || face.timer == .waiting ? AnyShapeStyle(.secondary) : AnyShapeStyle(Tone.accent))
+            .foregroundStyle(face.dimmed || face.timer == .waiting ? AnyShapeStyle(.secondary) : AnyShapeStyle(Theme.car))
             .lineLimit(1)
             .contentTransition(.numericText(countsDown: false))
             // Plain text has its own width; the stale headline beside it
@@ -224,7 +224,7 @@ private struct StepBand: View {
 
     private func fill(_ step: Int) -> AnyShapeStyle {
         guard step < face.steps else { return AnyShapeStyle(.quaternary) }
-        return face.dimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(Tone.accent)
+        return face.dimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(Theme.car)
     }
 }
 
@@ -236,7 +236,7 @@ private struct Bolt: View {
 
     var body: some View {
         Image(systemName: face.dimmed ? "bolt.car" : "bolt.car.fill")
-            .foregroundStyle(dim || face.dimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(Tone.accent))
+            .foregroundStyle(dim || face.dimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(Theme.car))
             .contentTransition(.symbolEffect(.replace))
     }
 }

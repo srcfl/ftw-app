@@ -38,6 +38,7 @@ struct CloudConsentView: View {
             case .owner, .ownerLater, .unknown:
                 Section {
                     Toggle(CloudWords.text("Contribute to statistics"), isOn: $consent.contributeStats)
+                        .tint(Theme.live)
                 } footer: {
                     Text(CloudWords.text("Hourly energy totals, without your name or address, help make FTW better. Off unless you turn it on."))
                 }

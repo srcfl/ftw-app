@@ -54,7 +54,7 @@ private struct PlanBody: View {
                 .redacted(reason: moment.placeholder ? .placeholder : [])
             Text(stateLine(moment))
                 .font(.footnote)
-                .foregroundStyle(moment.state == .boxStale ? Theme.generation : Theme.fgDim)
+                .foregroundStyle(moment.state == .boxStale ? Theme.alarm : Theme.fgDim)
         }
         VStack(alignment: .leading, spacing: 6) {
             PlanLanes(moment: moment)
@@ -162,7 +162,7 @@ private struct Events: View {
             }
             Spacer(minLength: 8)
             Text(range(e))
-                .font(Theme.number(13, weight: .medium))
+                .font(Theme.figure(13, weight: .medium))
                 .foregroundStyle(Theme.fgDim)
                 .lineLimit(1)
         }
@@ -212,7 +212,7 @@ private struct PriceRow: View {
                     Kicker(L("Electricity price"))
                     Spacer(minLength: 8)
                     if let current {
-                        Text("\(Text(AppWords.decimal(PriceStrip.text(current.totalMinor, window.currency))).font(Theme.number(15, weight: .bold)).foregroundStyle(Theme.fg)) \(Text(PriceUnits.unit(window.currency).perKwh).font(.caption2).foregroundStyle(Theme.fgMuted))")
+                        Text("\(Text(AppWords.decimal(PriceStrip.text(current.totalMinor, window.currency))).font(Theme.figure(15)).foregroundStyle(Theme.fg)) \(Text(PriceUnits.unit(window.currency).perKwh).font(.caption2).foregroundStyle(Theme.fgMuted))")
                             .lineLimit(1)
                             .contentTransition(.numericText())
                     }
