@@ -282,10 +282,9 @@ public enum NodeWords {
         "That didn't work. Try scanning again.": "Det gick inte. Försök skanna igen.",
         "There is no FTW pairing code in that picture. Try a closer screenshot of the QR.": "Bilden har ingen FTW-kod för parkoppling. Prova en närmare skärmbild av QR-koden.",
 
-        // The status line under Now's title: short words in mono caps
-        "LIVE": "LIVE",
+        // The status line under Now's title: short words in mono caps.
+        // LIVE and AS OF are the node status row's, above.
         "DEMO": "DEMO",
-        "AS OF %@": "PER %@",
         "CONNECTING…": "ANSLUTER…",
         "CAN'T REACH THE BOX": "NÅR INTE BOXEN",
         "PHONE OFFLINE": "TELEFONEN OFFLINE",
