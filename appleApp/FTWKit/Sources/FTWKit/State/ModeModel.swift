@@ -23,15 +23,17 @@ public final class ModeModel {
         public let name: String
         public let k: Double
         public let help: String
+        /// The help in one line, under the style scale's thumb.
+        public let brief: String
         public var id: String { key }
     }
 
     public nonisolated static let styles: [Style] = [
-        Style(key: "very_careful", name: "Very careful", k: 1, help: "Plans for a poor day: much less sun and more use than forecast. Keeps the most in the battery."),
-        Style(key: "careful", name: "Careful", k: 0.6, help: "Plans for less sun and more use than forecast."),
-        Style(key: "balanced", name: "Balanced", k: 0.3, help: "Plans for a little less sun and a little more use than forecast. A good start for most homes."),
-        Style(key: "bold", name: "Bold", k: 0.15, help: "Plans close to the forecast."),
-        Style(key: "very_bold", name: "Very bold", k: 0, help: "Plans on the forecast as it is. Earns the most when it is right and costs more when it is wrong."),
+        Style(key: "very_careful", name: "Very careful", k: 1, help: "Plans for a poor day: much less sun and more use than forecast. Keeps the most in the battery.", brief: "Plans for a poor day."),
+        Style(key: "careful", name: "Careful", k: 0.6, help: "Plans for less sun and more use than forecast.", brief: "Plans for less sun."),
+        Style(key: "balanced", name: "Balanced", k: 0.3, help: "Plans for a little less sun and a little more use than forecast. A good start for most homes.", brief: "Plans with a little margin."),
+        Style(key: "bold", name: "Bold", k: 0.15, help: "Plans close to the forecast.", brief: "Plans close to the forecast."),
+        Style(key: "very_bold", name: "Very bold", k: 0, help: "Plans on the forecast as it is. Earns the most when it is right and costs more when it is wrong.", brief: "Plans on the forecast as it is."),
     ]
 
     /// The stop nearest a place along the scale, 0 at very careful and 1

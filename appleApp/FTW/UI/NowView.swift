@@ -315,13 +315,16 @@ private struct PlanSection: View {
         let window = prices.prices
         let current = window.flatMap { w in w.slots.first { minute >= $0.startMs && minute < $0.startMs + $0.durationMs } }
         let shown = models.planShare.shown(nowMs: minute)
+        let hasCar = !loadpoints.points.isEmpty
+        let strip = PlanStrip.build(shown.entry, moment: shown.moment, hasCar: hasCar)
         NavigationLink(value: HomeRoute.plan) {
             PlanStripView(
-                strip: PlanStrip.build(shown.entry, moment: shown.moment, hasCar: !loadpoints.points.isEmpty),
+                strip: strip,
                 sentence: shown.moment.nextText,
                 placeholder: shown.moment.placeholder,
                 priceNow: current.map { PriceStrip.text($0.totalMinor, window?.currency) },
-                priceUnit: "\(PriceUnits.unit(window?.currency).label.uppercased()) \(PlanGlance.nowWord)"
+                priceUnit: "\(PriceUnits.unit(window?.currency).label.uppercased()) \(PlanGlance.nowWord)",
+                fade: StripFade.make(models.planShare.before, strip: strip, nowMs: minute, hasCar: hasCar)
             )
             .equatable()
         }

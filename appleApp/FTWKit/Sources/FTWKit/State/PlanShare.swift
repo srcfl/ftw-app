@@ -105,12 +105,24 @@ public final class PlanShare {
         return (entry, PlanGlance.waiting(entry, nowMs: nowMs, note: plan.problem))
     }
 
+    /// The plan as it stood before the person's own change, drawn as the
+    /// plan is, and when the change's plan came. `fresh` while that was
+    /// moments ago, so a view drawing it now draws its arrival. Nil once
+    /// the box replans of its own accord.
+    public var before: (entry: PlanEntry, atMs: Double, fresh: Bool)? {
+        guard let move = plan.move else { return nil }
+        let entry = PlanEntry.live(plan: move.before, points: loadpoints.points, windows: loadpoints.windows, prices: prices.prices, timeZone: loadpoints.zone.identifier, daylight: daylight)
+        return (entry, move.atMs, site.scheduler.nowMs - move.atMs < Self.arrivalMs)
+    }
+
+    /// How long a new plan counts as arriving.
+    nonisolated static let arrivalMs: Double = 1_500
+
     /// "New plan 16:53: stores 22:45 instead of 03:45.", after a change of
     /// the person's own, until the next plan.
     public var moved: String? {
-        guard let move = plan.move else { return nil }
-        let before = PlanEntry.live(plan: move.before, points: loadpoints.points, windows: loadpoints.windows, prices: prices.prices, timeZone: loadpoints.zone.identifier)
-        return PlanGlance.moved(from: before, to: entry, atMs: move.atMs)
+        guard let before else { return nil }
+        return PlanGlance.moved(from: before.entry, to: entry, atMs: before.atMs)
     }
 
     /// What would make the record different. Cheap enough for every tick.

@@ -82,7 +82,7 @@ struct HomeView: View {
                         TitleMenu(app: app, sheet: $sheet)
                     }
                     ToolbarItem(placement: .topBarTrailing) {
-                        ModeMenu(mode: home.nodes.mode)
+                        ModeMenu(mode: home.nodes.mode, plan: home.nodes.planShare)
                     }
                 }
                 .navigationDestination(for: HomeRoute.self) { route in
@@ -107,7 +107,7 @@ struct HomeView: View {
         }
         .sheet(item: $sheet) { which in
             switch which {
-            case .settings: ModeSheet(mode: home.nodes.mode, app: app)
+            case .settings: ModeSheet(mode: home.nodes.mode, app: app, plan: home.nodes.planShare)
             case .about(let start): AboutView(app: app, start: start)
             }
         }

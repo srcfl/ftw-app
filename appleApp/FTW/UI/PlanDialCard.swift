@@ -20,6 +20,8 @@ struct PlanDialCard: View {
     let dial: PlanDial
     /// The plan is old or the box could not plan.
     let grey: Bool
+    /// The dial before the person's last change, while its plan stands.
+    var fade: DialFade?
 
     @State private var scrub = ScrubModel()
     /// The quarter the finger was last on, so it cannot wind past the seam.
@@ -33,6 +35,13 @@ struct PlanDialCard: View {
         ZStack {
             PlanDialFace(dial: dial, grey: grey)
                 .equatable()
+            if let fade {
+                MovedFade(fresh: fade.fresh, mask: QuarterWedges(dial: fade.old, quarters: fade.moved)) {
+                    PlanDialFace(dial: fade.old, grey: grey)
+                        .equatable()
+                }
+                .id(fade.atMs)
+            }
             DialHand(dial: dial, model: scrub)
             DialCentre(dial: dial, model: scrub, spoken: spoken)
         }

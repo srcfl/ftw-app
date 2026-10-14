@@ -6,12 +6,16 @@ import SwiftUI
 /// at once; there is no Save. A tap answers with a haptic, the row waits
 /// with a turning mark while the box's mode keeps its tick, and the receipt
 /// sits in a bar of fixed height at the foot, so no row moves under the
-/// finger. A mode the box applied closes the sheet.
+/// finger. A mode the box applied closes the sheet. The style is a scale
+/// with five stops, sent when the finger lets go; the sheet stays, and says
+/// what the new plan moved.
 struct ModeSheet: View {
     let mode: ModeModel
     /// Opened as the home's settings, from the title's menu: the same
     /// choices, with this phone's own settings under them.
     var app: AppModel?
+    /// The plan, to say what a change of style moved.
+    var plan: PlanShare?
     @Environment(\.dismiss) private var dismiss
     /// The sheet's height for its content, measured once laid out.
     @State private var fitted: CGFloat = 520
@@ -93,27 +97,16 @@ struct ModeSheet: View {
                 await mode.usePlan()
             }
             // The plan's own settings stay in place whatever runs, so the
-            // list never changes length under the finger.
-            Picker(L("Planning style"), selection: styleBinding) {
-                ForEach(ModeModel.styles) { style in
-                    Text(L(style.name)).tag(style.key)
-                }
-            }
-            .pickerStyle(.menu)
-            .disabled(!canSet || mode.prefs == nil || !onPlan)
+            // list never changes length under the finger. The scale rests
+            // by itself while a manual mode runs.
+            StyleScale(mode: mode, moved: plan?.moved)
+                .padding(.vertical, 6)
             Toggle(L("Let the battery sell to the grid when it pays"), isOn: exportBinding)
                 .disabled(!canSet || mode.prefs == nil || !onPlan)
                 // On is a state: lime, where the ink tint would hide the knob.
                 .tint(Theme.live)
         } header: {
             Text(L("How your home is run"))
-        } footer: {
-            // The style's own help whatever runs: a footer that changed
-            // with the mode would move the rows below it under the finger.
-            if let style = mode.shownStyle {
-                Text(L(style.help))
-                    .contentTransition(.opacity)
-            }
         }
     }
 
@@ -186,16 +179,6 @@ struct ModeSheet: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityValue(waiting ? L("Sending to your box…") : "")
         .accessibilityIdentifier("mode.choice.\(id)")
-    }
-
-    private var styleBinding: Binding<String> {
-        Binding(
-            get: { mode.shownStyle?.key ?? ModeModel.styles[2].key },
-            set: { key in
-                guard let style = ModeModel.styles.first(where: { $0.key == key }) else { return }
-                Task { await mode.setStyle(style) }
-            }
-        )
     }
 
     private var exportBinding: Binding<Bool> {

@@ -279,6 +279,7 @@ never their graphics or brands.
 | A plain "what happens next" timeline with times | Flighty | Now's plan sentence, plan view, plan widget |
 | Price as bars by level, with the cheap window marked | Tibber, Octopus | Price chart: ink bars by thirds and a cheapest bracket, never red and green |
 | Calm lists, one prominent action, a quiet second one | Things, Apple Home | Pairing, mode sheet |
+| A control with a few stops: a tick at each, one command when the finger lets go | Camera's zoom control | The planning style scale, in the mode sheet and under the plan |
 | Liquid Glass only where the system puts it (bars, sheets, buttons) | iOS 26 | Toolbars, sheets, glass buttons; no custom glass panels |
 | A trace that burns at its head and fades when the signal stops | Oscilloscopes, CRT terminals | Beams on Now, the live trace, the status dot |
 | One mono status line, and an inverse-video tag for what is selected | Terminal tools | The status line under each title, the scrub tag |
