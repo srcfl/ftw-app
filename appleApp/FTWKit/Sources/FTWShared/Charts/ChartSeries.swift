@@ -34,10 +34,12 @@ public struct ChartBucket: Equatable, Sendable {
 }
 
 /// The smallest bucket of 5, 15, 30 or 60 minutes that leaves each point
-/// at least 2.5 pt of width: Today on a phone is 15 minutes, 48 hours 30.
+/// at least 6 pt of width: Today on a phone is 30 minutes and 48 hours 60,
+/// about 48 slots of 7 pt each, the thumb rule of the plan strip. A line
+/// with a point every 1 pt draws every step between neighbours as a tooth.
 public enum DisplayBucket {
     public static let stepsMs: [Double] = [300_000, 900_000, 1_800_000, 3_600_000]
-    public static let minWidth: CGFloat = 2.5
+    public static let minWidth: CGFloat = 6
 
     public static func stepMs(spanMs: Double, width: CGFloat) -> Double {
         guard spanMs > 0, width > 0 else { return stepsMs[0] }
@@ -87,7 +89,7 @@ public enum DisplayBucket {
 }
 
 /// A history chart's geometry, built once per change of data off the main
-/// actor: its slots, its stable domain, the line and body in screen
+/// actor: its slots, its stable domain, the line, band and body in screen
 /// points, where each slot's value sits, and its readout table. A view
 /// only reads it.
 public struct ChartSeries: Equatable, Sendable {
@@ -99,6 +101,10 @@ public struct ChartSeries: Equatable, Sendable {
     public var line: ChartPath
     /// The same curves closed on zero.
     public var body: ChartPath
+    /// How far the five-minute means swung inside each slot: one shape per
+    /// run, from the slot highs' curve over to the slot lows' curve. A
+    /// steady load hides it under the line; an on/off load shows it.
+    public var band: ChartPath
     /// Where each slot's value sits on the line; nil in a gap.
     public var points: [CGPoint?]
     public var readouts: ReadoutTable
@@ -125,19 +131,21 @@ public struct ChartSeries: Equatable, Sendable {
         let buckets = DisplayBucket.buckets(samples, sampleMs: sampleMs, stepMs: stepMs, fromMs: fromMs, toMs: toMs, clock: clock)
         let grid = SlotGrid(firstMs: buckets.first?.startMs ?? fromMs, stepMs: stepMs, count: buckets.count, fromMs: fromMs, toMs: toMs)
 
+        // The domain holds the band, not just the means, so the highest
+        // five-minute mean always fits.
         var low = 0.0, high = 0.0
         for b in buckets {
-            if let m = b.mean {
-                low = min(low, m)
-                high = max(high, m)
+            if let lo = b.low, let hi = b.high {
+                low = min(low, lo)
+                high = max(high, hi)
             }
         }
         let domain = YDomain.stable(low: low, high: high, previous: previous, floor: floor)
         let map = YMap(domain: domain, height: size.height)
 
-        var line = ChartPath(), body = ChartPath()
+        var line = ChartPath(), body = ChartPath(), band = ChartPath()
         var points = [CGPoint?](repeating: nil, count: buckets.count)
-        var run: [CGPoint] = []
+        var run: [CGPoint] = [], highs: [CGPoint] = [], lows: [CGPoint] = []
         run.reserveCapacity(buckets.count)
         let base = map.baseline
         func endRun() {
@@ -149,17 +157,23 @@ public struct ChartSeries: Equatable, Sendable {
                 body.elements.append(.line(CGPoint(x: run[run.count - 1].x, y: base)))
                 body.elements.append(.line(CGPoint(x: run[0].x, y: base)))
                 body.elements.append(.close)
+                band.addBand(highs: highs, lows: lows)
             }
             run.removeAll(keepingCapacity: true)
+            highs.removeAll(keepingCapacity: true)
+            lows.removeAll(keepingCapacity: true)
         }
         for (i, b) in buckets.enumerated() {
-            guard let m = b.mean else {
+            guard let m = b.mean, let lo = b.low, let hi = b.high else {
                 endRun()
                 continue
             }
-            let p = CGPoint(x: grid.x(atMs: b.atMs, width: size.width), y: map.y(m))
+            let x = grid.x(atMs: b.atMs, width: size.width)
+            let p = CGPoint(x: x, y: map.y(m))
             points[i] = p
             run.append(p)
+            highs.append(CGPoint(x: x, y: map.y(hi)))
+            lows.append(CGPoint(x: x, y: map.y(lo)))
         }
         endRun()
 
@@ -200,6 +214,7 @@ public struct ChartSeries: Equatable, Sendable {
             size: size,
             line: line,
             body: body,
+            band: band,
             points: points,
             readouts: ReadoutTable(when: when, what: what, inWh: inWh, outWh: outWh, landmarks: landmarks)
         )

@@ -256,13 +256,13 @@ import Testing
         // readout says so.
         let from = Self.at(13, 0)
         let samples = (0..<12).map { ChartSample(startMs: from + Double($0) * 300_000, value: (3..<6).contains($0) ? nil : 500) }
-        let series = ChartSeries.history(samples, fromMs: from, toMs: from + 3_600_000, size: CGSize(width: 20, height: 100), clock: Self.clock, words: Self.words)
+        let series = ChartSeries.history(samples, fromMs: from, toMs: from + 3_600_000, size: CGSize(width: 40, height: 100), clock: Self.clock, words: Self.words)
         #expect(series.grid.stepMs == 900_000)
         let gap = series.grid.index(atMs: from + 1_200_000)
         #expect(gap == 1)
         #expect(series.points[1] == nil)
         #expect(series.readouts.what[1] == "no data")
-        #expect(series.grid.index(atX: 1_000, width: 20) == 3)
+        #expect(series.grid.index(atX: 1_000, width: 40) == 3)
 
         // The live curve: one binary search, clamped, nearest either way.
         let times: [Double] = [0, 1_000, 2_000, 9_000]
@@ -275,10 +275,12 @@ import Testing
 
     // MARK: Buckets
 
-    @Test func displayBucketsAreTheSmallestThatLeaveTwoAndAHalfPoints() {
+    @Test func displayBucketsAreTheSmallestThatLeaveSixPoints() {
         let day = 86_400_000.0
-        #expect(DisplayBucket.stepMs(spanMs: day, width: 370) == 900_000)
-        #expect(DisplayBucket.stepMs(spanMs: 2 * day, width: 370) == 1_800_000)
+        // About 48 slots of 7 pt across a phone, the plan strip's rule.
+        #expect(DisplayBucket.stepMs(spanMs: day, width: 370) == 1_800_000)
+        #expect(DisplayBucket.stepMs(spanMs: 2 * day, width: 370) == 3_600_000)
+        #expect(DisplayBucket.stepMs(spanMs: day, width: 800) == 900_000)
         #expect(DisplayBucket.stepMs(spanMs: 3_600_000, width: 370) == 300_000)
         #expect(DisplayBucket.stepMs(spanMs: 30 * day, width: 370) == 3_600_000)
     }
@@ -304,7 +306,8 @@ import Testing
             inWh += held.filter { $0 >= 0 }.reduce(0, +) / 12
             outWh -= held.filter { $0 < 0 }.reduce(0, +) / 12
         }
-        let series = ChartSeries.history(samples, fromMs: from, toMs: to, size: CGSize(width: 370, height: 200), clock: Self.clock, words: Self.words)
+        // 15-minute slots need 8 pt each: an iPad's or a landscape width.
+        let series = ChartSeries.history(samples, fromMs: from, toMs: to, size: CGSize(width: 800, height: 200), clock: Self.clock, words: Self.words)
         #expect(series.buckets == buckets)
         let all = series.readouts.soFar(95)
         #expect(abs(all.inWh - inWh) < 1e-6 && abs(all.outWh - outWh) < 1e-6)
@@ -407,11 +410,11 @@ import Testing
         let from = Self.at(13, 0)
         var dice = Dice(state: 5)
         let samples = (0..<720).map { ChartSample(startMs: from + Double($0) * 300_000, value: dice.next() < 0.05 ? nil : (dice.next() - 0.3) * 4_000) }
-        // 2.5 pt a point: 720 five-minute points, more than any phone
-        // chart draws.
+        // 6 pt a point: 720 five-minute points, more than any phone chart
+        // draws.
         var points = 0
         let history = Self.cost {
-            let series = ChartSeries.history(samples, fromMs: from, toMs: from + 720 * 300_000, nowMs: from + 600 * 300_000, size: CGSize(width: 1_800, height: 300), clock: Self.clock, words: Self.words)
+            let series = ChartSeries.history(samples, fromMs: from, toMs: from + 720 * 300_000, nowMs: from + 600 * 300_000, size: CGSize(width: 4_320, height: 300), clock: Self.clock, words: Self.words)
             points = series.points.count
         }
         #expect(points == 720)
@@ -420,5 +423,9 @@ import Testing
         let noisy = Self.heater(720)
         let trace = Self.cost { _ = ChartPaths.trace(noisy) }
         #expect(trace < Self.budget, "trace built in \(trace)")
+        // The live series at 720 frames: readings, Gaussian, Steffen, band.
+        let frames = (0..<720).map { LiveSample(t: Double($0) * 1_000, v: Double(200 - noisy[$0].y) * 6) }
+        let live = Self.cost { _ = LiveSeries.build(frames, sourceGapMs: 3_500, windowMs: 720_000, nowMs: 719_000, size: CGSize(width: 350, height: 300)) }
+        #expect(live < Self.budget, "live series built in \(live)")
     }
 }

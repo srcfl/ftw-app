@@ -124,6 +124,64 @@ extension ChartPath {
         elements.append(.close)
     }
 
+    /// A band between two curves at the same x: Steffen through `highs`
+    /// left to right, then back along Steffen through `lows`, closed. Each
+    /// edge is exactly the monotone curve of its own points, so the band
+    /// invents no swing. Both run left to right and have the same count;
+    /// fewer than two points draw nothing.
+    public mutating func addBand(highs: [CGPoint], lows: [CGPoint]) {
+        guard highs.count > 1, lows.count == highs.count, let last = lows.last else { return }
+        addMonotone(highs)
+        elements.append(.line(last))
+        elements.append(contentsOf: ChartPaths.monotone(lows).reversed().elements.dropFirst())
+        elements.append(.close)
+    }
+
+    /// The same path walked backwards: the last point first, each curve
+    /// with its controls swapped, so it draws the same shape the other
+    /// way. A subpath that was closed stays closed.
+    public func reversed() -> ChartPath {
+        var subpaths: [[Element]] = []
+        var start = CGPoint.zero, at = CGPoint.zero
+        var segments: [(from: CGPoint, element: Element)] = []
+        var open = false, closed = false
+        func flush() {
+            guard open else { return }
+            var sub: [Element] = [.move(at)]
+            for (from, e) in segments.reversed() {
+                switch e {
+                case .line: sub.append(.line(from))
+                case let .quad(_, c): sub.append(.quad(from, control: c))
+                case let .curve(_, c1, c2): sub.append(.curve(from, control1: c2, control2: c1))
+                case .move, .close: break
+                }
+            }
+            if closed { sub.append(.close) }
+            subpaths.append(sub)
+            segments.removeAll()
+            open = false
+            closed = false
+        }
+        for e in elements {
+            switch e {
+            case let .move(to):
+                flush()
+                start = to
+                at = to
+                open = true
+            case let .line(to), let .quad(to, _), let .curve(to, _, _):
+                segments.append((at, e))
+                at = to
+            case .close:
+                closed = true
+                if at != start { segments.append((at, .line(start))) }
+                at = start
+            }
+        }
+        flush()
+        return ChartPath(subpaths.reversed().flatMap { $0 })
+    }
+
     /// A polyline with its corners rounded. A corner's arc is cut no
     /// deeper than `maxShift` from its point, starts no further out than
     /// half of either segment, and is no rounder than a circle of

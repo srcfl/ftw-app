@@ -110,8 +110,19 @@ native, and smooth enough to impress.
   empty stays a visible break. Lines use `.monotone`, so they invent no
   peaks. Under Reduce Motion the data shows at once. Animate only what
   changed, and compute the points once per change.
+- **The live trace joins short silences** (Fredrik, 14 Oct 2026). A
+  silence up to three of the device's own read periods is joined; only a
+  longer one, or one the box confirms empty, breaks the line, and no
+  "no data" ever sits over a joined span. What this phone did not see
+  live is drawn in ink on the same curve. No dot travels along a line.
 - **Every chart takes a finger.** The point under it is marked, and the
   line under the chart says what was there. Two fingers give the span.
+- **Charts draw on the engine.** Geometry is a value built once per data
+  change (`FTWShared/Charts`, tested). A chart is one Canvas
+  (`ChartSurface`) that never sees the finger and a small `ScrubOverlay`
+  that alone redraws under it, reading a `ScrubModel`. About one point
+  per 6 pt of width, and every stroke joins round (`ChartStrokeTests`).
+  Widgets draw the same shapes as still paths.
 - **Haptics are sparse.** `.selection` per slot while scrubbing, at most
   about 25 a second. `.impact(weight: .light)` at now, the edges of the
   cheapest window, the day's high and low, the car's goal and the ends of

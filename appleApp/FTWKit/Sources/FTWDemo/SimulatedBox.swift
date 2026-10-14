@@ -271,7 +271,9 @@ public final class SimulatedBox {
     // MARK: Prices
 
     func pricesCBOR(from: Double, to: Double) -> CBOR {
-        let slotMs: Double = 3_600_000
+        // Quarter hours, as the Nordic day-ahead market has priced since
+        // October 2025.
+        let slotMs: Double = 900_000
         // Tomorrow's rates publish at 13:00 local.
         let midnight = scheduler.nowMs - house.hourOfDay(scheduler.nowMs) * 3_600_000
         let published = midnight + (house.hourOfDay(scheduler.nowMs) >= 13 ? 48 : 24) * 3_600_000

@@ -60,6 +60,22 @@ public enum EnergyNode: String, CaseIterable, Hashable, Sendable, Identifiable, 
         }
     }
 
+    /// The least its chart's scale reaches, in watts, so a quiet node's
+    /// noise stays small: a grid held at 0 ± 60 W by the battery spreads
+    /// 40 pt on a scale fitted to the noise and 3 pt on 3 kW. A known
+    /// rating (the inverter, the panels' peak, the charger's maximum, the
+    /// main fuse) takes the place of the default.
+    public func scaleFloorW(rating: Double? = nil) -> Double {
+        if let rating, rating.isFinite, rating > 0 { return rating }
+        switch self {
+        case .home: return 2_000
+        case .grid: return 3_000
+        case .battery: return 3_000
+        case .solar: return 3_000
+        case .car: return 3_700
+        }
+    }
+
     /// Which way is up on its curve, for the two whose curve crosses zero.
     public var directions: (up: String, down: String)? {
         switch self {
