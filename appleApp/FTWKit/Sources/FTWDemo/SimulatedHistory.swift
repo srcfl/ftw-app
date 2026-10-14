@@ -132,6 +132,9 @@ extension SimulatedHouse {
         let mean = prices.reduce(0, +) / Double(max(1, prices.count))
         let car = carPlan(nowMs)
         var soc = socFraction
+        // The demo leaves the battery near where it found it by the end of
+        // its day, so what its plan is worth compares honestly.
+        let endFloor = socFraction - 0.02
         var out = [Step]()
         while t < end {
             let start = max(t, nowMs)
@@ -144,6 +147,7 @@ extension SimulatedHouse {
             var b = decide(price: price, mean: mean, pv: pv, base: base, ev: ev, soc: soc, mode: modeKey)
             if b > 0, soc >= 0.98 { b = 0 }
             if b < 0, soc <= Self.minSoc { b = 0 }
+            if b < 0, t >= end - 8 * 3_600_000, soc <= endFloor { b = 0 }
             b = b.rounded()
             soc = max(0, min(1, soc + b * len / 3_600_000 * (b > 0 ? 0.95 : 1 / 0.95) / batteryCapacityWh))
             let grid = (base + ev + b + pv).rounded()
