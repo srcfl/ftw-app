@@ -35,7 +35,10 @@ struct CarView: View {
                     NodeHero(site: home.site, node: .car, home: home, trace: trace, scrub: scrub, timebase: .ahead, text: text)
                         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                         .padding(.horizontal, 20)
+                    // A scaled metric reads the size where it is placed:
+                    // the caps sit here, as in the node view.
                     NodeStatusRow(site: home.site, node: .car)
+                        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
                     StatusLines(lp: lp, model: model, site: home.site)
@@ -162,6 +165,7 @@ private struct CarPlan: View {
             Kicker(L("Plan"))
                 .padding(.horizontal, 20)
             AheadChartArea(site: home.site, node: .car, home: home, scrub: scrub, text: text)
+                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                 .frame(height: 170)
                 .padding(.horizontal, 4)
             ZStack(alignment: .topLeading) {
