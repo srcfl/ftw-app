@@ -173,18 +173,22 @@ struct StyleScale: View {
     }
 
     /// The style's name and its help in one line, which change as the thumb
-    /// moves. The room they take is the largest of the five, so nothing
-    /// below moves. VoiceOver reads the whole help.
+    /// moves: the old words fade out before the new fade in, so the two
+    /// never sit on top of each other. The room they take is the largest of
+    /// the five, so nothing below moves. VoiceOver reads the whole help.
     private var caption: some View {
         ZStack(alignment: .topLeading) {
             ForEach(Self.styles) { s in describe(s).hidden() }
             if let stop {
                 describe(Self.styles[stop])
                     .id(stop)
-                    .transition(.opacity)
+                    .transition(.asymmetric(
+                        insertion: .opacity.animation(.easeIn(duration: 0.1).delay(0.08)),
+                        removal: .opacity.animation(.easeOut(duration: 0.08))
+                    ))
             }
         }
-        .animation(.easeOut(duration: 0.15), value: stop)
+        .animation(.default, value: stop)
     }
 
     private func describe(_ s: ModeModel.Style) -> some View {
