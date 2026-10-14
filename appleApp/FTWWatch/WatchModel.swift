@@ -161,6 +161,12 @@ final class WatchModel {
     /// A command is on its way for this target.
     func sending(_ target: String) -> Bool { receipts[target].map { !$0.settled } ?? false }
 
+    /// Leaving the car page lets its settled receipts go, so the page shows
+    /// the car's state on return. A command still under way keeps its receipt.
+    func leaveCars() {
+        receipts = receipts.filter { $0.key == Self.modeTarget || !$0.value.settled }
+    }
+
     /// The receipt shows at once; every mark after "sending" is the box's
     /// answer as the path brings it back.
     func send(_ op: WatchCommand.Op) {

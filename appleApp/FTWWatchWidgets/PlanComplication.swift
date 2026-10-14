@@ -102,7 +102,7 @@ struct PlanComplicationView: View {
                 }
             }
             if let dial = face.dial {
-                PlanStrip(dial: dial, quarters: 48, grey: face.plan.isGrey)
+                DialStrip(dial: dial, quarters: 48, grey: face.plan.isGrey)
                     .frame(maxHeight: .infinity)
             }
         }

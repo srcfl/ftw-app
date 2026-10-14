@@ -2,10 +2,10 @@ import FTWShared
 import SwiftUI
 
 /// The car on one screen: its level as the 10-cell meter, what it does,
-/// its goal and next window, when that was read, the receipt of the last
-/// command, and the three commands as one row of buttons. Each asks once
-/// more and names itself in full there; the box's answers come back as the
-/// receipt.
+/// when that was read, its goal and next window, and the three commands as
+/// one row of buttons. Each asks once more and names itself in full there.
+/// The box's answers come back as the receipt, which takes the place of
+/// what the car does until the page is left.
 ///
 /// With more than one charger, the one with a car plugged in shows.
 struct CarPage: View {
@@ -42,6 +42,7 @@ struct CarPage: View {
             }
         }
         .navigationTitle(WatchWord.car.text)
+        .onDisappear { model.leaveCars() }
         .sheet(item: $asking) { a in
             Confirm(question: a.question, action: a.action) { model.send(a.op) }
         }
@@ -67,7 +68,34 @@ private struct CarBlock: View {
                     Meter(cells: cells, hue: Theme.car)
                 }
             }
-            // What it does, and when the box said so.
+            // One room for what the car does or, after a command, the box's
+            // receipt, so nothing moves when the receipt lands.
+            ZStack(alignment: .topLeading) {
+                ReceiptLine(receipt: WatchReceipt(commandID: "", op: .mode(""), sent: .waiting, accepted: .waiting, confirmed: .waiting, text: "\n", tone: .working))
+                    .hidden()
+                    .accessibilityHidden(true)
+                if let r = model.receipt(for: car.loadpointID) {
+                    ReceiptLine(receipt: r)
+                } else {
+                    state
+                }
+            }
+            Spacer(minLength: 0)
+            let off = !model.canSend || model.sending(car.loadpointID)
+            HStack(spacing: 6) {
+                command("bolt.fill", WatchWord.chargeNow.text, .chargeNow(loadpointID: car.loadpointID), WatchWord.chargeNowAsk.text, off: off, on: car.holding)
+                    .accessibilityIdentifier("watch.car.chargeNow")
+                command("pause.fill", WatchWord.pause.text, .pause(loadpointID: car.loadpointID), WatchWord.pauseAsk.text, off: off, on: false)
+                command("arrow.uturn.backward", WatchWord.backToPlan.text, .backToPlan(loadpointID: car.loadpointID), WatchWord.backToPlanAsk.text, off: off, on: false)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// What it does and when the box said so, then its goal and next
+    /// window, or why the buttons are off.
+    private var state: some View {
+        VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(car.state)
                     .font(.footnote.weight(.semibold))
@@ -81,35 +109,23 @@ private struct CarBlock: View {
                     .lineLimit(1)
                     .fixedSize()
             }
-            Text([car.goal, car.next].compactMap { $0 }.joined(separator: " · "))
-                .font(.caption2)
-                .foregroundStyle(Theme.ink2)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            Spacer(minLength: 0)
-            // Room for the receipt, above the buttons, so nothing moves
-            // when it lands.
-            ZStack(alignment: .topLeading) {
-                ReceiptLine(receipt: WatchReceipt(commandID: "", op: .mode(""), sent: .waiting, accepted: .waiting, confirmed: .waiting, text: "\n", tone: .working))
-                    .hidden()
-                    .accessibilityHidden(true)
-                if let r = model.receipt(for: car.loadpointID) {
-                    ReceiptLine(receipt: r)
-                } else if !model.canSend {
-                    Text(WatchWord.phoneUnreachable.text)
-                        .font(.footnote)
-                        .foregroundStyle(Theme.ink2)
-                }
-            }
-            let off = !model.canSend || model.sending(car.loadpointID)
-            HStack(spacing: 6) {
-                command("bolt.fill", WatchWord.chargeNow.text, .chargeNow(loadpointID: car.loadpointID), WatchWord.chargeNowAsk.text, off: off, on: car.holding)
-                    .accessibilityIdentifier("watch.car.chargeNow")
-                command("pause.fill", WatchWord.pause.text, .pause(loadpointID: car.loadpointID), WatchWord.pauseAsk.text, off: off, on: false)
-                command("arrow.uturn.backward", WatchWord.backToPlan.text, .backToPlan(loadpointID: car.loadpointID), WatchWord.backToPlanAsk.text, off: off, on: false)
+            // Goal and next window on a line each; one line for both when
+            // the second says why the buttons are off.
+            if model.canSend {
+                ForEach([car.goal, car.next].compactMap { $0 }, id: \.self) { line($0) }
+            } else {
+                line([car.goal, car.next].compactMap { $0 }.joined(separator: " · "))
+                line(WatchWord.phoneUnreachable.text)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func line(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2)
+            .foregroundStyle(Theme.ink2)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
     }
 
     /// One command: a glyph on the button, its full name in the question
@@ -119,14 +135,18 @@ private struct CarBlock: View {
         Button {
             ask(CarPage.Ask(op: op, question: question, action: title))
         } label: {
+            // Lower than the system's bordered button, so the page needs no
+            // scrolling; still a whole third of the width to hit.
             Image(systemName: glyph)
-                .font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(on ? Theme.car : Theme.ink)
-                .frame(maxWidth: .infinity, minHeight: 26)
+                .frame(maxWidth: .infinity, minHeight: 30)
+                .background(Theme.raised, in: RoundedRectangle(cornerRadius: 9))
+                .contentShape(RoundedRectangle(cornerRadius: 9))
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        .buttonStyle(.plain)
         .disabled(off)
+        .opacity(off ? 0.4 : 1)
         .accessibilityLabel(title)
     }
 }

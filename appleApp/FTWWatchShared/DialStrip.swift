@@ -7,7 +7,7 @@ import WidgetKit
 /// battery does (cyan stores, ink gives, ink3 waits), the car's charging as
 /// dots under it. A quarter with no price yet is a stub. Still paths, one
 /// fill each, for a complication.
-struct PlanStrip: View {
+struct DialStrip: View {
     let dial: WatchDial
     /// How many quarters to draw: 48 is twelve hours.
     var quarters = 48
