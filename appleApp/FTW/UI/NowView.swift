@@ -152,7 +152,7 @@ private struct PlanSlot: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            PlanSection(site: site, models: home.nodes, prices: home.prices, zoom: zoom)
+            PlanSection(site: site, models: home.nodes, prices: home.prices, loadpoints: home.loadpoints, zoom: zoom)
                 .opacity(nothingYet ? 0 : 1)
                 .allowsHitTesting(!nothingYet)
                 .accessibilityHidden(nothingYet)
@@ -305,6 +305,7 @@ private struct PlanSection: View {
     let site: SiteModel
     let models: NodeModels
     let prices: PriceModel
+    let loadpoints: LoadpointsModel
     let zoom: Namespace.ID
 
     var body: some View {
@@ -313,16 +314,22 @@ private struct PlanSection: View {
         let minute = site.minuteMs
         let window = prices.prices
         let current = window.flatMap { w in w.slots.first { minute >= $0.startMs && minute < $0.startMs + $0.durationMs } }
+        let shown = models.planShare.shown(nowMs: minute)
         NavigationLink(value: HomeRoute.plan) {
-            PlanCard(
-                moment: models.planShare.moment(nowMs: minute),
+            PlanStripView(
+                strip: PlanStrip.build(shown.entry, moment: shown.moment, hasCar: !loadpoints.points.isEmpty),
+                sentence: shown.moment.nextText,
+                placeholder: shown.moment.placeholder,
                 priceNow: current.map { PriceStrip.text($0.totalMinor, window?.currency) },
-                unit: PriceUnits.unit(window?.currency).perKwh
+                priceUnit: "\(PriceUnits.unit(window?.currency).label.uppercased()) \(PlanGlance.nowWord)"
             )
             .equatable()
         }
         .buttonStyle(.plain)
         .matchedTransitionSource(id: HomeRoute.plan, in: zoom)
         .accessibilityIdentifier("now.plan")
+        // Capped where it is placed, so the strip's scaled sizes read the
+        // cap too.
+        .fitCap(.xLarge)
     }
 }
