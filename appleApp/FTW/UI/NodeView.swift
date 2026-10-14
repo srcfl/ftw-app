@@ -177,6 +177,10 @@ struct NodeView: View {
                 CarRow(loadpoints: home.loadpoints, zoom: zoom)
                     .padding(.horizontal, 20)
                     .padding(.top, 4)
+            } else if node == .grid, let phases = site.gridPhases {
+                GridPhasesRow(phases: phases)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
             }
             if fill { Spacer(minLength: 8) }
             NodeFooter(site: site, node: node, live: models.live)
@@ -275,7 +279,8 @@ final class NodeTraceModel {
 /// "1,8 kW" at 60 pt, the way it flows under it in its colour, and the
 /// node's second fact on the right. Under a finger on the live trace it
 /// gives the reading there and its time, and comes back with the spring.
-private struct NodeHero: View {
+/// The car view opens on it too.
+struct NodeHero: View {
     let site: SiteModel
     let node: EnergyNode
     let home: HomeModels
@@ -367,7 +372,7 @@ private struct NodeHero: View {
 /// The fact beside the figure that only this node has: the battery's level
 /// as the 10-cell meter, the car's level and where it comes from, what the
 /// grid costs an hour, the sun against its forecast, or the home's sources.
-private struct SecondFact: View {
+struct SecondFact: View {
     let site: SiteModel
     let node: EnergyNode
     let home: HomeModels
@@ -388,11 +393,17 @@ private struct SecondFact: View {
                         .frame(width: 74, height: 4)
                 }
             case .car:
+                // Never worked out from power: the level as the car, this
+                // phone or the box last gave it, with where from and how old.
                 if let lp = home.loadpoints.points.first, let level = home.loadpoints.level(lp) {
+                    let guessed = level.origin == .assumed || level.origin == .unconfirmed
                     Text(AppWords.percent(level.pct))
                         .font(Theme.figure(levelSize))
-                        .foregroundStyle(level.origin == .assumed || level.origin == .unconfirmed ? Theme.ink3 : Theme.ink)
-                    Text(EVText.originShort(level, zone: home.loadpoints.zone))
+                        .foregroundStyle(guessed ? Theme.ink3 : Theme.ink)
+                        .contentTransition(.numericText(value: level.pct))
+                    CellMeter(pct: level.pct, tint: Theme.car, live: !guessed, glows: false)
+                        .frame(width: 74, height: 4)
+                    Text(EVText.originAged(level, nowMs: site.minuteMs, zone: home.loadpoints.zone))
                         .font(.footnote)
                         .foregroundStyle(Theme.ink2)
                 }
@@ -460,7 +471,7 @@ private struct ShareBar: View {
 /// Over the chart: whether this node's reading is live, and from which
 /// device. `● LIVE · SUNGROW`, or `○ AS OF 14:05`: a clock time, never a
 /// count of seconds.
-private struct NodeStatusRow: View {
+struct NodeStatusRow: View {
     let site: SiteModel
     let node: EnergyNode
     @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 10.5

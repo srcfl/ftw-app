@@ -775,6 +775,16 @@ public enum EVText {
         }
     }
 
+    /// "from the car · 2 min ago": where the level comes from and how old it
+    /// is, under the car's level. Minutes, never seconds; a level with no
+    /// time of its own says only where it comes from.
+    public static func originAged(_ l: Level, nowMs: Double, zone: TimeZone) -> String {
+        let from = originShort(l, zone: zone)
+        guard let at = l.atMs, l.origin == .car || l.origin == .you else { return from }
+        let age = max(0, nowMs - at)
+        return from + " · " + PowerFormat.age(age < 60_000 ? 0 : (age / 60_000).rounded(.down) * 60_000)
+    }
+
     /// The chips, and a step of five from wherever the level stands.
     public static let levelPresets: [Double] = [20, 40, 60, 80]
 
@@ -927,12 +937,17 @@ public enum EVText {
         public var ask: Ask
         /// The box said it has the intent (`cmd.ack`).
         public var acked: Bool
+        /// After that, lane 0 showed the car doing what was asked: drawing
+        /// for Charge now, still for Pause, as the plan says for Back to the
+        /// plan. Never for a level.
+        public var measured: Bool
         /// What the box said happened (`cmd.result`), or why not.
         public var result: Result?
 
-        public init(ask: Ask, acked: Bool = false, result: Result? = nil) {
+        public init(ask: Ask, acked: Bool = false, measured: Bool = false, result: Result? = nil) {
             self.ask = ask
             self.acked = acked
+            self.measured = measured
             self.result = result
         }
 
@@ -978,6 +993,22 @@ public enum EVText {
             tone = .failed
         }
         return Outcome(sent: .done, received: received, done: done, text: outcomeText(step, lp), tone: tone)
+    }
+
+    /// The receipt log for one command: SENT at once, ACCEPTED on the box's
+    /// `cmd.ack`, MEASURED once lane 0 shows the car doing what was asked,
+    /// CONFIRMED on `cmd.result`. A refusal, or a change that came first,
+    /// takes the last slot with the reason. A level has no MEASURED.
+    public static func receipt(_ step: Step, _ lp: Loadpoint?) -> ReceiptLog {
+        var r = ReceiptLog(accepted: step.acked, measured: step.measured)
+        if case .level = step.ask { r.slots = [.sent, .accepted, .confirmed] }
+        switch step.result {
+        case .applied?: r.confirmed = true
+        case .refused(let why)?: r.refused = why
+        case .superseded?: r.refused = outcomeText(step, lp)
+        case .unconfirmed?, nil: break
+        }
+        return r
     }
 
     static func outcomeText(_ step: Step, _ lp: Loadpoint?) -> String {

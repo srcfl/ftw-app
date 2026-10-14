@@ -8,6 +8,10 @@ import SwiftUI
 enum TraceInk {
     /// The line's width.
     static let line: CGFloat = 2.5
+    /// The glow: two strokes under the line, as wide as these times the
+    /// line and as strong as these, with no blur.
+    static let glowWide: (width: CGFloat, alpha: Double) = (2.8, 0.12)
+    static let glowNear: (width: CGFloat, alpha: Double) = (1.8, 0.25)
     /// A second series on the same chart: thinner, under the node's own.
     static let otherLine: CGFloat = 2
     /// A new value slides in over this long.
@@ -62,11 +66,24 @@ enum TraceInk {
             if glows {
                 var glow = s
                 if let glowClip { glow.clip(to: glowClip) }
-                glow.stroke(line, with: .color(color.opacity(0.12)), style: StrokeStyle(lineWidth: 7, lineCap: .round, lineJoin: .round))
-                glow.stroke(line, with: .color(color.opacity(0.25)), style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
+                Self.glow(line, color: color, width: width, in: glow)
             }
             s.stroke(line, with: .color(color.opacity(opacity)), style: StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round))
         }
+    }
+
+    /// The glow under a line of `width`, at `strength` (1 while live; less
+    /// as it decays). Callers check `glows` first.
+    static func glow(_ line: Path, color: Color, width: CGFloat, strength: Double = 1, in g: GraphicsContext) {
+        for (k, alpha) in [glowWide, glowNear] {
+            g.stroke(line, with: .color(color.opacity(alpha * strength)), style: StrokeStyle(lineWidth: width * k, lineCap: .round, lineJoin: .round))
+        }
+    }
+
+    /// The dotted baseline: the box confirms nothing was there. A silence
+    /// on a trace, a node at rest on Now.
+    static func dotted(_ path: Path, px: CGFloat, opacity: Double = 1, in g: GraphicsContext) {
+        g.stroke(path, with: .color(Theme.ink.opacity(0.35 * opacity)), style: StrokeStyle(lineWidth: px, lineCap: .butt, lineJoin: .round, dash: [1, 3]))
     }
 
     /// Values on scale `a` to the same values on scale `b`, in plot points.

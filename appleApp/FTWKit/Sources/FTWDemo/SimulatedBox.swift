@@ -199,6 +199,20 @@ public final class SimulatedBox {
             Contract.FID.loadW: house.baseLoadW,
         ]
         f[Contract.FID.evW] = house.evWatts
+        f.merge(phases) { $1 }
+        return f
+    }
+
+    /// The grid's phases as Core sends them, in tenths of an ampere and
+    /// signed by the site convention, under a 20 A fuse. The inverter and
+    /// the car spread over all three; the house leans on L1.
+    var phases: [Int: Double] {
+        let even = (house.batteryW + house.pvW + house.evWatts) / 3
+        let house = [0.45, 0.33, 0.22].map { $0 * self.house.baseLoadW }
+        var f = [Contract.FID.gridFuseDA: 200.0]
+        for (fid, load) in zip(Contract.FID.gridPhases, house) {
+            f[fid] = ((load + even) / 230 * 10).rounded()
+        }
         return f
     }
 
@@ -223,6 +237,10 @@ public final class SimulatedBox {
             ("5", .map([("name", .text("battery_soc")), ("unit", .text("permille")), ("srcId", .text("sungrow"))])),
             ("6", .map([("name", .text("load_w")), ("unit", .text("W")), ("srcId", .text("sdm630"))])),
             ("10", .map([("name", .text("ev_w")), ("unit", .text("W")), ("srcId", .text("easee"))])),
+            ("11", .map([("name", .text("grid_l1_da")), ("unit", .text("dA")), ("srcId", .text("sdm630"))])),
+            ("12", .map([("name", .text("grid_l2_da")), ("unit", .text("dA")), ("srcId", .text("sdm630"))])),
+            ("13", .map([("name", .text("grid_l3_da")), ("unit", .text("dA")), ("srcId", .text("sdm630"))])),
+            ("14", .map([("name", .text("grid_fuse_da")), ("unit", .text("dA")), ("srcId", .null)])),
         ]
         sendBulk(Envelope(t: "snap", b: .map([
             ("uptimeMs", .number(uptimeMs)),
@@ -786,6 +804,17 @@ extension SimulatedBox {
         // `-FTWDemoPartial YES` leaves a fifth of it unpriced.
         if UserDefaults.standard.bool(forKey: "FTWDemoSunny") { box.house.sunny = true }
         if UserDefaults.standard.bool(forKey: "FTWDemoPartial") { box.pricedShare = 0.8 }
+        // For recordings of light and its decay: `-FTWDemoQuiet 8` keeps
+        // the box quiet for 8 s in every 16, so Now goes from live to quiet
+        // and back.
+        let quiet = UserDefaults.standard.double(forKey: "FTWDemoQuiet")
+        if quiet > 0 {
+            func flip() {
+                box.mute.toggle()
+                scheduler.after(quiet * 1_000) { flip() }
+            }
+            scheduler.after(quiet * 1_000) { flip() }
+        }
         #endif
         current = box
         return LoopbackCarrier(box: box, scheduler: scheduler)

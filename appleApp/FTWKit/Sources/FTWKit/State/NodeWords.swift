@@ -54,6 +54,11 @@ public enum NodeWords {
         "VIA FTW CLOUD": "VIA FTW CLOUD",
         "SAVED ON THIS PHONE": "SPARAD PÅ TELEFONEN",
         "NOT CONNECTED": "INTE ANSLUTEN",
+        // The grid's phases against the main fuse.
+        "PHASES": "FASER",
+        "PHASES · FUSE %@": "FASER · SÄKRING %@",
+        "nearest the fuse": "närmast säkringen",
+        "The phases are not live.": "Faserna är inte live.",
         "READS EVERY %@ S": "LÄSER VAR %@ S",
         "LAST 5 MIN": "SENASTE 5 MIN",
         "LIVE · LAST 5 MIN": "LIVE · SENASTE 5 MIN",
@@ -132,6 +137,10 @@ public enum NodeWords {
 
         // The plan view
         "Opens the plan.": "Öppnar planen.",
+        "Dial": "Tavla",
+        "Lanes": "Banor",
+        "Show the plan as": "Visa planen som",
+        "Swipe up or down to move an hour.": "Svep uppåt eller nedåt för att flytta en timme.",
         "Battery charges": "Batteriet laddar",
         "Battery gives power": "Batteriet laddar ur",
         "Cheapest": "Billigast",
@@ -188,6 +197,7 @@ public enum NodeWords {
         "idle": "vilar",
         "dark": "mörkt",
         "using": "använder",
+        "%@ · home": "%@ · hemmet",
         "no reading": "ingen mätning",
         "not live": "inte live",
         "live": "live",

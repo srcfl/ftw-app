@@ -104,6 +104,16 @@ public enum Contract {
         public static let srcBattery = 9
         /// Present only on a site with a charger.
         public static let evW = 10
+
+        /// The registry's extra fields: depth for a node's own view, sent
+        /// only while the box has the reading. The grid's current on L1,
+        /// L2 and L3 in tenths of an ampere, signed by the site convention,
+        /// and the main fuse per phase as their scale.
+        public static let gridL1DA = 11
+        public static let gridL2DA = 12
+        public static let gridL3DA = 13
+        public static let gridFuseDA = 14
+        public static let gridPhases = [gridL1DA, gridL2DA, gridL3DA]
     }
 
     /// Whether a code is worth retrying, from the registry's `errors` and

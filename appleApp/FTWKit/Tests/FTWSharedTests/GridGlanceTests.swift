@@ -68,25 +68,23 @@ import AppKit
         #expect(big.inOutText == "in 14,0 · ut 2,0 kWh")
     }
 
-    /// Net is a magnitude with an arrow, never a signed figure: ↓ when the
-    /// home took more than it gave, ↑ when it gave more.
-    @Test func theArrowSaysWhichWayAndTheFigureNeverCarriesASign() {
+    /// Net is a magnitude with a word, never a signed figure: bought when
+    /// the home took more than it gave, sold when it gave more.
+    @Test func theWordSaysWhichWayAndTheFigureNeverCarriesASign() {
         let selling = moment(entry(importWh: 6_500, exportWh: 8_300), .sv)
         #expect(selling.direction == .toGrid)
-        #expect(selling.direction.arrow == "↑")
-        #expect(selling.direction.symbol == "arrow.up")
+        #expect(selling.netWord == "sålt netto")
 
         let buying = moment(entry(importWh: 8_300, exportWh: 6_500, costMinor: 1_240), .sv)
         #expect(buying.direction == .fromGrid)
-        #expect(buying.direction.arrow == "↓")
-        #expect(buying.direction.symbol == "arrow.down")
+        #expect(buying.netWord == "köpt netto")
         #expect(buying.netText == "1,8")
+        #expect(moment(entry(importWh: 8_300, exportWh: 6_500), .en).netWord == "bought, net")
 
-        // Even to the tenth: no arrow at all.
+        // Even to the tenth.
         let even = moment(entry(importWh: 5_000, exportWh: 5_040), .en)
         #expect(even.direction == .even)
-        #expect(even.direction.arrow.isEmpty)
-        #expect(even.direction.symbol == nil)
+        #expect(even.netWord == "even, net")
         #expect(even.netText == "0.0")
 
         for m in [selling, buying, even] {
@@ -94,6 +92,8 @@ import AppKit
             // Both sides are always there beside the net.
             #expect(m.inOutText != nil)
         }
+        #expect(GridGlance.upWord(.sv) == "↑ KÖPER")
+        #expect(GridGlance.downWord(.en) == "↓ SELLING")
     }
 
     /// The box's `actual_cost_ore / 100`. Money earned carries a minus sign,
@@ -205,80 +205,79 @@ import AppKit
 
     // MARK: The chart
 
-    @Test func importIsBarsAndExportACurveBelowZeroThatBreaksAtAHole() {
+    /// Subpaths in a path: one per run of data.
+    func runs(_ p: ChartPath) -> Int {
+        p.elements.filter { if case .move = $0 { return true } else { return false } }.count
+    }
+
+    /// One signed line, as the app draws the grid's Today: each quarter's
+    /// net power, bought above zero and sold below, in slots of 30 minutes
+    /// on the medium widget and 60 on the small one. The hole from 10:00
+    /// breaks it, and nothing is drawn after the read.
+    @Test func theDayIsOneSignedLineThatBreaksAtAHole() {
         let m = moment(entry(), .sv)
-        // Every quarter that bought: the night and from 16:00, not the hole,
-        // not noon.
-        #expect(m.bars.count == 40 + 2 + 8)
-        #expect(m.bars.allSatisfy { $0.watts >= 400 && $0.endMs - $0.startMs == Self.quarter })
-        #expect(!m.bars.contains { $0.startMs == at(13, 10) })
-        #expect(!m.bars.contains { $0.startMs == at(13, 13) })
+        #expect(m.samples.count == 68)
+        #expect(m.samples[0].value == 400)
+        #expect(m.samples[40].value == nil && m.samples[41].value == nil)
+        #expect(m.samples[52].value == -3_000)
+        #expect(m.samples[60].value == 900)
+        #expect(m.hasChart)
 
-        // One run: off zero at 10:45, down to 3 kW, back on zero at 15:00.
-        let curve = m.curve
-        #expect(Set(curve.map(\.run)).count == 1)
-        #expect(curve.first?.watts == 0)
-        #expect(curve.first?.t == at(13, 10, 45) + Self.quarter / 2)
-        #expect(curve.last?.watts == 0)
-        #expect(curve.last?.t == at(13, 15) + Self.quarter / 2)
-        #expect(curve.map(\.watts).min() == -3_000)
-        #expect(curve.allSatisfy { $0.watts <= 0 })
+        let medium = m.series(size: CGSize(width: 300, height: 80))
+        #expect(medium.grid.stepMs == 1_800_000)
+        #expect(medium.grid.count == 48)
+        #expect(runs(medium.line) == 2)
+        #expect(medium.missing.map(\.lowerBound) == [20])
+        // Buying above zero, selling below, on a scale with room for both.
+        #expect(medium.domain.upper >= GridGlance.floorW)
+        #expect(medium.domain.lower <= -3_000)
+        #expect(medium.points[1]!.y < YMap(domain: medium.domain, height: 80).baseline)
+        #expect(medium.points[26]!.y > YMap(domain: medium.domain, height: 80).baseline)
+        // Nothing after 16:55: the slot from 17:00 on has not happened, and
+        // it is not a hole.
+        #expect(medium.points[34] == nil)
+        #expect(medium.lastData == 33)
+        #expect(!medium.missing.contains { $0.contains(34) })
 
-        // A quiet axis: one round value each way and zero, never signed.
-        #expect(m.yTicks.map(\.label) == ["1 kW", "0", "3 kW"])
-        #expect(m.yTop == 1_000 && m.yBottom == -3_000)
+        let small = m.series(size: CGSize(width: 130, height: 50))
+        #expect(small.grid.stepMs == 3_600_000)
+        #expect(small.grid.count == 24)
         #expect(m.xTicks.map(\.label) == ["00", "06", "12", "18", "24"])
     }
 
-    @Test func aHoleWhileSellingEndsTheCurveOffZero() {
+    /// A hole while selling breaks the line in two; neither run lands on
+    /// zero to close the gap.
+    @Test func aHoleWhileSellingBreaksTheLine() {
         var e = entry()
         // The box lost the meter at 12:00 for half an hour.
         for i in e.quarters.indices where e.quarters[i].startMs >= at(13, 12) && e.quarters[i].startMs < at(13, 12, 30) {
             e.quarters[i] = .init(startMs: e.quarters[i].startMs, importW: nil, exportW: nil)
         }
-        let curve = moment(e, .sv).curve
-        let runs = Dictionary(grouping: curve, by: \.run)
-        #expect(runs.count == 2)
-        // The first run stops at its last record, not on zero; the second
-        // picks up at its first, and only lands on zero at the end.
-        let first = runs.keys.sorted().map { runs[$0]! }
-        #expect(first[0].last?.watts != 0)
-        #expect(first[0].last?.t == at(13, 11, 45) + Self.quarter / 2)
-        #expect(first[1].first?.watts != 0)
-        #expect(first[1].first?.t == at(13, 12, 30) + Self.quarter / 2)
-        #expect(first[1].last?.watts == 0)
+        let series = moment(e, .sv).series(size: CGSize(width: 300, height: 80))
+        #expect(runs(series.line) == 3)
+        #expect(series.missing.map(\.lowerBound) == [20, 24])
+        #expect(series.points[23]!.y > YMap(domain: series.domain, height: 80).baseline)
+        #expect(series.points[25]!.y > YMap(domain: series.domain, height: 80).baseline)
     }
 
-    /// A cloud for one quarter: the curve lands on zero and leaves it again
-    /// from the same point, and each point keeps an identity of its own.
-    @Test func twoRunsCanShareTheZeroBetweenThem() {
+    /// A quarter that bought some and sold some is drawn as its net.
+    @Test func aQuarterThatBoughtAndSoldIsItsNet() {
         var e = entry()
-        e.quarters[50] = .init(startMs: e.quarters[50].startMs, importW: 0, exportW: 0)
-        let curve = moment(e, .sv).curve
-        #expect(Set(curve.map(\.run)).count == 2)
-        #expect(Set(curve.map(\.id)).count == curve.count)
-        #expect(curve.filter { $0.t == at(13, 12, 30) + Self.quarter / 2 }.map(\.watts) == [0, 0])
+        e.quarters[10] = .init(startMs: e.quarters[10].startMs, importW: 1_200, exportW: 300)
+        #expect(moment(e, .en).samples[10].value == 900)
     }
 
-    @Test func aDayThatOnlyBoughtHasNoLowerValue() {
+    /// A day that only bought has nothing under zero: the scale ends there.
+    @Test func aDayThatOnlyBoughtHasNoLowerSide() {
         var e = entry()
         e.quarters = e.quarters.map { .init(startMs: $0.startMs, importW: $0.importW.map { max($0, 2_300) }, exportW: $0.exportW.map { _ in 0 }) }
-        let m = moment(e, .en)
-        #expect(m.curve.isEmpty)
-        #expect(m.yTicks.map(\.label) == ["3 kW", "0"])
-        // Zero sits just off the bottom edge.
-        #expect(m.yBottom < 0 && m.yBottom > -1_000)
-        // A sliver of export under a night of car charging keeps its
-        // curve but not its label, which would sit on zero's.
-        var car = entry()
-        car.quarters[4] = .init(startMs: car.quarters[4].startMs, importW: 11_400, exportW: 0)
-        let crowded = moment(car, .en)
-        #expect(crowded.yTicks.map(\.label) == ["15 kW", "0"])
-        #expect(crowded.yBottom == -3_000)
-        #expect(!crowded.curve.isEmpty)
-        #expect(GridGlance.roundUp(300) == 500)
-        #expect(GridGlance.roundUp(9_100) == 10_000)
-        #expect(GridGlance.roundUp(11_000) == 15_000)
+        let series = moment(e, .en).series(size: CGSize(width: 300, height: 80))
+        #expect(series.domain.lower == 0)
+        #expect(series.domain.upper >= 2_300)
+        // A quiet day keeps the floor, so its noise stays small.
+        var quiet = entry()
+        quiet.quarters = quiet.quarters.map { .init(startMs: $0.startMs, importW: $0.importW.map { _ in 60 }, exportW: $0.exportW.map { _ in 0 }) }
+        #expect(moment(quiet, .en).series(size: CGSize(width: 300, height: 80)).domain.upper == GridGlance.floorW)
     }
 
     // MARK: Quarters from history
@@ -351,7 +350,7 @@ import AppKit
     /// The symbols the widget draws exist. macOS shares iOS's names for
     /// these; the iOS 26 runtime lists them in `name_availability.plist`.
     @Test func theSymbolsExist() {
-        for name in [GridGlance.symbol, "arrow.up", "arrow.down"] {
+        for name in [GridGlance.symbol] {
             #expect(NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil, "\(name)")
         }
     }

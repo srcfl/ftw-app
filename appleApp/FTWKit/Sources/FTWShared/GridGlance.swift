@@ -1,8 +1,11 @@
+import CoreGraphics
 import Foundation
 
 /// The grid widget at one moment, worked out from a `GridTodayEntry` alone:
 /// today's net energy with its direction and both sides of it, today's cost
-/// as the box priced it, and the day as a chart on a fixed 00–24 axis.
+/// as the box priced it, and the day as a chart on a fixed 00–24 axis, in
+/// the app's grammar: one signed line with its body, buying above zero and
+/// selling below, magenta both ways.
 ///
 /// Net alone is never shown as if it were the bill: the line under it
 /// always holds what was bought and what was sold. After local midnight a
@@ -14,10 +17,9 @@ public enum GridGlance {
     public static let symbol = "bolt.fill"
     /// Below this share of the day priced, the cost is marked partial.
     public static let fullCoverage = 0.95
-    /// Below this a quarter's mean is sensor noise, as on Now.
-    static let noiseW = PowerFormat.noiseW
-    /// A side of the chart narrower than this share of it has no label.
-    static let labelRoom = 0.2
+    /// The chart's scale never shrinks below a kilowatt each way it has,
+    /// so a quiet day's noise stays small.
+    public static let floorW: Double = 1_000
 
     public enum State: Equatable, Sendable {
         /// The app has left nothing: not paired, or signed out.
@@ -37,42 +39,6 @@ public enum GridGlance {
         case toGrid
         /// Even, to the tenth of a kWh.
         case even
-
-        public var arrow: String {
-            switch self {
-            case .fromGrid: return "↓"
-            case .toGrid: return "↑"
-            case .even: return ""
-            }
-        }
-
-        /// The SF Symbol for the arrow. Nil when even.
-        public var symbol: String? {
-            switch self {
-            case .fromGrid: return "arrow.down"
-            case .toGrid: return "arrow.up"
-            case .even: return nil
-            }
-        }
-    }
-
-    /// One import bar: a quarter hour of mean power bought.
-    public struct Bar: Equatable, Sendable, Identifiable {
-        public let startMs: Double
-        public let endMs: Double
-        public let watts: Double
-        public var id: Double { startMs }
-    }
-
-    /// One point of the export curve, at the middle of its quarter, in
-    /// chart units: negative watts, so it sits below zero. `run` breaks the
-    /// curve where the box has no record.
-    public struct CurvePoint: Equatable, Sendable, Identifiable {
-        public let t: Double
-        public let watts: Double
-        public let run: Int
-        /// Two runs can share the zero between them.
-        public var id: String { "\(run)/\(Int64(t))" }
     }
 
     /// A label on an axis, at a value in chart units.
@@ -88,9 +54,11 @@ public enum GridGlance {
         public let readAtMs: Double?
 
         public let direction: Direction
-        /// "1,8": net, never signed; the arrow says which way.
+        /// "1,8": net, never signed; the word under it says which way.
         public let netText: String?
         public let unit: String
+        /// "köpt netto", "sålt netto": which way the day leans, in words.
+        public let netWord: String?
         /// "in 6,5 · ut 8,3 kWh"
         public let inOutText: String?
         /// "12,40" or "−4,20". Nil when the box had no prices.
@@ -111,13 +79,10 @@ public enum GridGlance {
         /// The fixed axis: local midnight to the next.
         public let dayStartMs: Double
         public let dayEndMs: Double
-        public let bars: [Bar]
-        public let curve: [CurvePoint]
-        /// The chart's value range: top above zero, bottom below.
-        public let yTop: Double
-        public let yBottom: Double
-        /// 0 and at most one round value each way.
-        public let yTicks: [Tick]
+        /// The grid's net power each quarter the box has, signed as the
+        /// site's watts: positive bought, negative sold. Nil where the box
+        /// has no record. Nothing after the read: it has not happened.
+        public let samples: [ChartSample]
         /// 00, 06, 12, 18, 24 on the household's clock.
         public let xTicks: [Tick]
         public let timeZone: TimeZone
@@ -125,8 +90,33 @@ public enum GridGlance {
         public let spoken: String
 
         public var isGrey: Bool { state != .today }
-        public var hasChart: Bool { !bars.isEmpty || !curve.isEmpty }
+        public var hasChart: Bool { samples.contains { $0.value != nil } }
+
+        /// The day's geometry on a plot of `size`, as the app draws a
+        /// node's Today: one point per slot of at least 6 pt (60 minutes on
+        /// the small widget, 30 on the medium), each the exact mean of its
+        /// quarters, through a Steffen curve that never overshoots, with
+        /// its body and the band of the quarters it holds. A hole the box
+        /// has no record for stays a break.
+        public func series(size: CGSize) -> ChartSeries {
+            ChartSeries.history(
+                samples,
+                sampleMs: GridTodayEntry.quarterMs,
+                fromMs: dayStartMs,
+                toMs: dayEndMs,
+                nowMs: readAtMs.map { min($0, dayEndMs) },
+                size: size,
+                floor: GridGlance.floorW,
+                clock: ZoneClock.of(timeZone),
+                words: ReadoutWords(value: { _ in "" }, range: { _, _ in "" }, none: "")
+            )
+        }
     }
+
+    /// "↑ BUYING" over zero and "↓ SELLING" under it, where the chart has
+    /// room on that side.
+    public static func upWord(_ language: GridLanguage = .current) -> String { "↑ " + language.text(.buying) }
+    public static func downWord(_ language: GridLanguage = .current) -> String { "↓ " + language.text(.selling) }
 
     // MARK: The timeline
 
@@ -165,7 +155,6 @@ public enum GridGlance {
         let note: String? = e.costMinor == nil ? language.text(.noPrices) : (partial ? language.text(.partial) : nil)
         let unit = currencyUnit(e.currency)
 
-        let chart = chart(e.quarters, dayStartMs: e.dayStartMs, dayEndMs: e.dayEndMs)
         let time = language.format(.at, clockText(read.record.readAtMs, from: t, calendar: calendar, language: language))
 
         var spoken = [String]()
@@ -181,13 +170,20 @@ public enum GridGlance {
         if let note { spoken.append(note) }
         spoken.append(time)
 
+        let word: GridWord
+        switch direction {
+        case .fromGrid: word = .boughtNet
+        case .toGrid: word = .soldNet
+        case .even: word = .evenNet
+        }
+
         return Moment(
             atMs: t, state: .today, readAtMs: read.record.readAtMs,
-            direction: direction, netText: netText, unit: "kWh", inOutText: inOut,
+            direction: direction, netText: netText, unit: "kWh", netWord: language.text(word), inOutText: inOut,
             costText: cost?.shown, costUnit: unit, earned: cost?.isNegative ?? false,
             partial: partial, costNote: note, timeText: time, emptyText: nil,
             dayStartMs: e.dayStartMs, dayEndMs: e.dayEndMs,
-            bars: chart.bars, curve: chart.curve, yTop: chart.top, yBottom: chart.bottom, yTicks: chart.ticks,
+            samples: samples(e.quarters, dayStartMs: e.dayStartMs, dayEndMs: e.dayEndMs),
             xTicks: xTicks(dayStartMs: e.dayStartMs, dayEndMs: e.dayEndMs, calendar: calendar),
             timeZone: calendar.timeZone, spoken: spoken.joined(separator: ". ")
         )
@@ -195,9 +191,9 @@ public enum GridGlance {
 
     private static func empty(atMs t: Double, state: State, readAtMs: Double?, text: String, time: String?, day: (Double, Double), calendar: Calendar, language: GridLanguage) -> Moment {
         Moment(
-            atMs: t, state: state, readAtMs: readAtMs, direction: .even, netText: nil, unit: "kWh", inOutText: nil,
+            atMs: t, state: state, readAtMs: readAtMs, direction: .even, netText: nil, unit: "kWh", netWord: nil, inOutText: nil,
             costText: nil, costUnit: "", earned: false, partial: false, costNote: nil, timeText: time, emptyText: text,
-            dayStartMs: day.0, dayEndMs: day.1, bars: [], curve: [], yTop: 1, yBottom: -1, yTicks: [],
+            dayStartMs: day.0, dayEndMs: day.1, samples: [],
             xTicks: xTicks(dayStartMs: day.0, dayEndMs: day.1, calendar: calendar), timeZone: calendar.timeZone,
             spoken: [text, time].compactMap { $0 }.joined(separator: ". ")
         )
@@ -211,68 +207,13 @@ public enum GridGlance {
 
     // MARK: The chart
 
-    /// Bars for what was bought, a curve below zero for what was sold. A
-    /// quarter without a record breaks the curve and has no bar; the curve
-    /// is drawn only around export, resting on zero at each end of a run.
-    static func chart(_ quarters: [GridTodayEntry.Quarter], dayStartMs: Double, dayEndMs: Double) -> (bars: [Bar], curve: [CurvePoint], top: Double, bottom: Double, ticks: [Tick]) {
-        let q = GridTodayEntry.quarterMs
-        let inDay = quarters.filter { $0.startMs >= dayStartMs && $0.startMs < dayEndMs }
-        let bars = inDay.compactMap { r -> Bar? in
-            guard let w = r.importW, w >= noiseW else { return nil }
-            return Bar(startMs: r.startMs, endMs: min(dayEndMs, r.startMs + q), watts: w)
+    /// Each quarter's net power, site-signed: what it bought less what it
+    /// sold, both means over the part of the quarter the box recorded. A
+    /// quarter without a record stays empty, so the line breaks there.
+    static func samples(_ quarters: [GridTodayEntry.Quarter], dayStartMs: Double, dayEndMs: Double) -> [ChartSample] {
+        quarters.filter { $0.startMs >= dayStartMs && $0.startMs < dayEndMs }.map { q in
+            ChartSample(startMs: q.startMs, value: q.measured ? (q.importW ?? 0) - (q.exportW ?? 0) : nil)
         }
-
-        var curve = [CurvePoint]()
-        var run = 0
-        var open = false
-        var previous: GridTodayEntry.Quarter?
-        for r in inDay {
-            // The quarter before has a record and touches this one.
-            let joined = previous.map { $0.measured && $0.startMs + q == r.startMs } ?? false
-            if !r.measured || !joined, open {
-                // A hole: the run ends where the record does, off zero.
-                open = false
-                run += 1
-            }
-            if r.measured, (r.exportW ?? 0) >= noiseW {
-                // A run leaves zero from the quarter before, when the box
-                // has a record for it.
-                if !open, joined, let p = previous { curve.append(CurvePoint(t: p.startMs + q / 2, watts: 0, run: run)) }
-                open = true
-                curve.append(CurvePoint(t: r.startMs + q / 2, watts: -(r.exportW ?? 0), run: run))
-            } else if open {
-                // and lands on zero at the first quarter that sold nothing.
-                curve.append(CurvePoint(t: r.startMs + q / 2, watts: 0, run: run))
-                open = false
-                run += 1
-            }
-            previous = r
-        }
-
-        let peakIn = bars.map(\.watts).max() ?? 0
-        let peakOut = curve.map { -$0.watts }.max() ?? 0
-        let top = peakIn > 0 ? roundUp(peakIn) : 0
-        let bottom = peakOut > 0 ? -roundUp(peakOut) : 0
-        // A side with nothing on it keeps a sliver, so zero is not the edge.
-        let span = max(top, -bottom, 1_000)
-        let high = top > 0 ? top : span * 0.12
-        let low = bottom < 0 ? bottom : -span * 0.12
-        // A side too thin for its own label would print it on top of zero's.
-        let room = labelRoom * (high - low)
-        var ticks = [Tick]()
-        if top > 0, top >= room { ticks.append(Tick(value: top, label: PowerFormat.scale(top))) }
-        ticks.append(Tick(value: 0, label: "0"))
-        if bottom < 0, -bottom >= room { ticks.append(Tick(value: bottom, label: PowerFormat.scale(bottom))) }
-        return (bars, curve, high, low, ticks)
-    }
-
-    /// The next round value up: half a kilowatt below one, whole kilowatts
-    /// to ten, then fives.
-    static func roundUp(_ w: Double) -> Double {
-        let kw = w / 1000
-        if kw <= 0.5 { return 500 }
-        if kw <= 10 { return kw.rounded(.up) * 1000 }
-        return (kw / 5).rounded(.up) * 5000
     }
 
     /// 00, 06, 12, 18 and 24, on the household's clock, so a day that
@@ -391,6 +332,11 @@ enum GridWord: String, CaseIterable {
     case noPrices = "no prices"
     case openToSee = "Open FTW to see today's grid"
     case newDay = "Today's figures aren't here yet · open FTW"
+    case boughtNet = "bought, net"
+    case soldNet = "sold, net"
+    case evenNet = "even, net"
+    case buying = "BUYING"
+    case selling = "SELLING"
     case spokenFrom = "%@ kWh net from the grid today"
     case spokenTo = "%@ kWh net to the grid today"
     case spokenEven = "%@ kWh net with the grid today"

@@ -95,9 +95,10 @@ struct GoalEditor: View {
             Form {
                 Section(L("Charge to")) {
                     Stepper(value: $socPct, in: 10...100, step: 5) {
-                        Text(AppWords.percent(socPct)).font(Theme.percent(.title2))
+                        Text(AppWords.percent(socPct)).font(Theme.figure(22))
                     }
                 }
+                .listRowBackground(Theme.raised)
                 Section(L("Ready by")) {
                     DatePicker(L("Ready by"), selection: $time, displayedComponents: .hourAndMinute)
                         .datePickerStyle(.wheel)
@@ -105,6 +106,7 @@ struct GoalEditor: View {
                         .environment(\.timeZone, model.zone)
                         .frame(maxWidth: .infinity)
                 }
+                .listRowBackground(Theme.raised)
                 Section(L("Repeat")) {
                     Picker(L("Repeat"), selection: $days) {
                         ForEach(choices, id: \.self) { Text($0.label).tag($0) }
@@ -112,12 +114,14 @@ struct GoalEditor: View {
                     .pickerStyle(.inline)
                     .labelsHidden()
                 }
+                .listRowBackground(Theme.raised)
                 Section {
-                    Text(preview).font(.subheadline).foregroundStyle(Theme.fgDim)
+                    Text(preview).font(.subheadline).foregroundStyle(Theme.ink2)
                     if let failure {
                         Text(failure).font(.subheadline).foregroundStyle(Theme.alarm)
                     }
                 }
+                .listRowBackground(Theme.raised)
                 if lp.schedule != nil {
                     Section {
                         Button(L("Remove goal"), role: .destructive) {
@@ -130,8 +134,12 @@ struct GoalEditor: View {
                         }
                         .disabled(saving)
                     }
+                    .listRowBackground(Theme.raised)
                 }
             }
+            // FTW's ground under the sheet, its rows raised.
+            .scrollContentBackground(.hidden)
+            .background(Theme.ground)
             .navigationTitle(L("Goal"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

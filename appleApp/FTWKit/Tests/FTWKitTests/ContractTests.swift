@@ -79,6 +79,19 @@ import FTWDemo
         }
     }
 
+    @Test func extraFieldIDsAreTheRegistrys() {
+        typealias F = Contract.FID
+        let ids: [(Int, String)] = [
+            (F.gridL1DA, "grid_l1_da"), (F.gridL2DA, "grid_l2_da"), (F.gridL3DA, "grid_l3_da"),
+            (F.gridFuseDA, "grid_fuse_da"),
+        ]
+        let extra = section("extra_fields").filter { $0.contains("{ name:") }
+        #expect(extra.count == ids.count)
+        for (id, name) in ids {
+            #expect(extra.contains { $0.trimmingCharacters(in: .whitespaces).hasPrefix("\(id): { name: \(name),") }, "\(id) \(name)")
+        }
+    }
+
     /// The demo box is not the box, but it may not invent the box's names.
     @Test func theDemoBoxSpeaksOnlyRegistryNames() {
         let modes = Set(Contract.modes.map(\.key))

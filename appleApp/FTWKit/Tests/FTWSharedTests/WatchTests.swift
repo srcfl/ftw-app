@@ -195,7 +195,7 @@ import Testing
 
     @Test func theFaceIsTheNextDayInQuarters() {
         let t = at(14, 12, 7)
-        let dial = WatchDial(plan: plan(), prices: prices(), nowMs: t)
+        let dial = PlanDial(plan: plan(), prices: prices(), nowMs: t)
         #expect(dial.quarters.count == 96)
         #expect(dial.quarters[0].startMs == at(14, 12))
         #expect(dial.quarters[95].startMs == at(15, 11, 45))
@@ -206,7 +206,7 @@ import Testing
 
     /// 00 at the bottom, 06 on the left, 12 at the top, 18 on the right.
     @Test func midnightSitsAtTheBottomAndNoonAtTheTop() {
-        let dial = WatchDial(plan: nil, prices: prices(), nowMs: at(14, 12))
+        let dial = PlanDial(plan: nil, prices: prices(), nowMs: at(14, 12))
         func near(_ a: Double, _ b: Double) -> Bool { abs(a - b) < 1e-9 || abs(abs(a - b) - 2 * .pi) < 1e-9 }
         #expect(near(dial.angle(at(14, 0)), .pi))
         #expect(near(dial.angle(at(14, 6)), 1.5 * .pi))
@@ -217,8 +217,8 @@ import Testing
     }
 
     @Test func eachTickHoldsItsPriceLevelAndWhatTheBatteryDoes() {
-        let dial = WatchDial(plan: plan(), prices: prices(), nowMs: at(14, 12))
-        func q(_ day: Int, _ h: Int, _ m: Int = 0) -> WatchDial.Quarter { dial.quarters[dial.grid.index(atMs: at(day, h, m))!] }
+        let dial = PlanDial(plan: plan(), prices: prices(), nowMs: at(14, 12))
+        func q(_ day: Int, _ h: Int, _ m: Int = 0) -> PlanDial.Quarter { dial.quarters[dial.grid.index(atMs: at(day, h, m))!] }
         #expect(q(14, 18).level == 7)
         #expect(q(15, 2).level == 0)
         #expect(q(14, 13).level == 2)
@@ -234,7 +234,7 @@ import Testing
     /// A tick never shows without a price: before tomorrow's prices come,
     /// those quarters have no level.
     @Test func unpricedQuartersHaveNoLevel() {
-        let dial = WatchDial(plan: plan(), prices: prices(days: 1), nowMs: at(14, 12))
+        let dial = PlanDial(plan: plan(), prices: prices(days: 1), nowMs: at(14, 12))
         let tomorrow = dial.grid.index(atMs: at(15, 3))!
         #expect(dial.quarters[tomorrow].minor == nil && dial.quarters[tomorrow].level == nil)
         #expect(dial.price(tomorrow) == "—")
@@ -242,7 +242,7 @@ import Testing
     }
 
     @Test func theCrownTapsAtNowTheCheapestEdgesAndTheCarsGoal() {
-        let dial = WatchDial(plan: plan(), prices: prices(), nowMs: at(14, 12))
+        let dial = PlanDial(plan: plan(), prices: prices(), nowMs: at(14, 12))
         let cheap = try! #require(dial.cheapest)
         #expect(dial.grid.startMs(cheap.lowerBound) == at(15, 2))
         #expect(dial.grid.startMs(cheap.upperBound) == at(15, 3, 45))
@@ -250,9 +250,9 @@ import Testing
     }
 
     @Test func aFlatDaySitsInTheMiddle() {
-        #expect(WatchDial.level(50, lo: 50, hi: 50) == 3)
-        #expect(WatchDial.level(50, lo: 0, hi: 100) == 4)
-        #expect(WatchDial.level(100, lo: 0, hi: 100) == 7)
+        #expect(PlanDial.level(50, lo: 50, hi: 50) == 3)
+        #expect(PlanDial.level(50, lo: 0, hi: 100) == 4)
+        #expect(PlanDial.level(100, lo: 0, hi: 100) == 7)
     }
 
     // MARK: The car, cheap power and the complication

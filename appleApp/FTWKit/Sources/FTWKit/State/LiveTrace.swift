@@ -141,19 +141,19 @@ public final class LiveTrace {
         lastFrameAtMs = at
         guard let stamp = site.readingStampMs else { return }
         var live = [Int: Double]()
-        for (fid, v) in site.session.fields where !Self.notReadings.contains(fid) && site.freshness(fid: fid).live {
+        for (fid, v) in site.session.fields where !Self.untraced.contains(fid) && site.freshness(fid: fid).live {
             live[fid] = v
         }
         guard !live.isEmpty else { return }
         record(live, atMs: stamp, gapMs: site.readingGapMs)
     }
 
-    /// One reading's values, taken by the box at `atMs`. The mode and the
-    /// source references are not readings and are not kept. A value no
-    /// newer than what the ring holds is not a new reading.
+    /// One reading's values, taken by the box at `atMs`. Only what a trace
+    /// draws is kept (`untraced`). A value no newer than what the ring
+    /// holds is not a new reading.
     func record(_ fields: [Int: Double], atMs: Double, gapMs: Double = LiveTrace.gapMs) {
         var any = false
-        for (fid, v) in fields where !Self.notReadings.contains(fid) {
+        for (fid, v) in fields where !Self.untraced.contains(fid) {
             var ring = rings[fid] ?? RingBuffer(capacity: Self.capacity)
             let last = ring.last
             if let last, atMs <= last.t { continue }
@@ -200,7 +200,7 @@ public final class LiveTrace {
     func restore(_ file: RingFile) {
         var newest: Double?
         for (key, lane) in file.lanes {
-            guard let fid = Int(key), !Self.notReadings.contains(fid), lane.dt.count == lane.v.count, !lane.v.isEmpty else { continue }
+            guard let fid = Int(key), !Self.untraced.contains(fid), lane.dt.count == lane.v.count, !lane.v.isEmpty else { continue }
             var ring = RingBuffer<Point>(capacity: Self.capacity)
             var t = lane.t0
             for i in lane.v.indices {
@@ -214,7 +214,10 @@ public final class LiveTrace {
         if let newest { resumed = Resumed(fromMs: newest, toMs: nil) }
     }
 
-    nonisolated static let notReadings: Set<Int> = [Contract.FID.mode, Contract.FID.srcGrid, Contract.FID.srcPV, Contract.FID.srcBattery]
+    /// Not kept: the mode and the source references are not readings, the
+    /// fuse is config, and the phases are drawn as meters of now, never as
+    /// a trace.
+    nonisolated static let untraced: Set<Int> = Set([Contract.FID.mode, Contract.FID.srcGrid, Contract.FID.srcPV, Contract.FID.srcBattery, Contract.FID.gridFuseDA] + Contract.FID.gridPhases)
 
     /// The time the app missed, while restored points still show in the
     /// window that ends at `nowMs`.

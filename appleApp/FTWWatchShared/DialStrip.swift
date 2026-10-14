@@ -8,7 +8,7 @@ import WidgetKit
 /// dots under it. A quarter with no price yet is a stub. Still paths, one
 /// fill each, for a complication.
 struct DialStrip: View {
-    let dial: WatchDial
+    let dial: PlanDial
     /// How many quarters to draw: 48 is twelve hours.
     var quarters = 48
     var grey = false
@@ -34,12 +34,12 @@ struct DialStrip: View {
         .accessibilityHidden(true)
     }
 
-    private func bars(_ action: WatchDial.Battery, n: Int, w: CGFloat, h: CGFloat) -> Path {
+    private func bars(_ action: PlanDial.Battery, n: Int, w: CGFloat, h: CGFloat) -> Path {
         var p = Path()
         for i in 0..<n {
             let q = dial.quarters[i]
             guard q.battery == action, let level = q.level else { continue }
-            let bh = h * CGFloat(level + 1) / CGFloat(WatchDial.levels)
+            let bh = h * CGFloat(level + 1) / CGFloat(PlanDial.levels)
             p.addRect(CGRect(x: CGFloat(i) * w, y: h - bh, width: max(0.6, w - 0.6), height: bh))
         }
         return p
@@ -48,7 +48,7 @@ struct DialStrip: View {
     private func stubs(n: Int, w: CGFloat, h: CGFloat) -> Path {
         var p = Path()
         for i in 0..<n where dial.quarters[i].minor == nil {
-            let bh = max(1, h / CGFloat(WatchDial.levels) * 0.6)
+            let bh = max(1, h / CGFloat(PlanDial.levels) * 0.6)
             p.addRect(CGRect(x: CGFloat(i) * w, y: h - bh, width: max(0.6, w - 0.6), height: bh))
         }
         return p

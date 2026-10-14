@@ -82,8 +82,8 @@ import FTWShared
         #expect(e.quarters.allSatisfy { $0.measured })
         #expect((e.quarters.last?.startMs ?? 0) <= s.nowMs)
 
-        // The totals and the chart are one day: the bars and the curve add
-        // up to what the box counted, within the quarter still filling.
+        // The totals and the chart are one day: the quarters add up to what
+        // the box counted, within the quarter still filling.
         let bought = e.quarters.reduce(0) { $0 + ($1.importW ?? 0) * 0.25 }
         let sold = e.quarters.reduce(0) { $0 + ($1.exportW ?? 0) * 0.25 }
         #expect(abs(bought - e.importWh) / e.importWh < 0.03, "\(bought) vs \(e.importWh)")
@@ -94,7 +94,8 @@ import FTWShared
         #expect(m.state == .today)
         #expect(m.netText != nil && m.inOutText != nil && m.costText != nil)
         #expect(m.costNote == nil)
-        #expect(!m.bars.isEmpty)
+        #expect(m.hasChart)
+        #expect(m.samples.contains { ($0.value ?? 0) > 0 })
         #expect(m.timeText?.hasPrefix("kl ") == true)
         // An October evening buys more than it sells.
         #expect(m.direction == .fromGrid)
@@ -102,7 +103,7 @@ import FTWShared
     }
 
     /// `-FTWDemoSunny YES`: a long clear day that sells more than it buys,
-    /// so the arrow points up and the cost is money earned.
+    /// so the word says sold and the cost is money earned.
     @Test func aSunnyDemoDayIsANetExportDay() async throws {
         let files = shared()
         _ = await demo(sunny: true, files: files)
@@ -112,8 +113,10 @@ import FTWShared
         #expect(m.direction == .toGrid)
         #expect(m.earned)
         #expect(m.costText?.hasPrefix("−") == true)
-        #expect(!m.curve.isEmpty)
-        #expect(m.yTicks.count == 3)
+        #expect(m.netWord == "sålt netto")
+        // Selling under zero and buying over it: the scale has both sides.
+        let series = m.series(size: CGSize(width: 300, height: 80))
+        #expect(series.domain.lower < 0 && series.domain.upper > 0)
     }
 
     @Test func aPartlyPricedDemoDayIsMarked() async throws {

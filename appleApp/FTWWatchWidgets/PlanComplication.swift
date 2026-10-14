@@ -66,7 +66,7 @@ struct PlanComplicationView: View {
     private var circular: some View {
         ZStack {
             if let dial = face.dial {
-                DialFace(dial: dial, grey: face.plan.isGrey, size: .complication)
+                PlanDialView(dial: dial, grey: face.plan.isGrey, size: .small)
             } else {
                 Circle().stroke(Theme.ink3, lineWidth: 1)
             }

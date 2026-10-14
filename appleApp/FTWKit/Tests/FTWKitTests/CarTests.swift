@@ -466,6 +466,78 @@ import FTWDemo
         }
     }
 
+    /// Charge now walks the receipt log in the order its evidence comes:
+    /// SENT at the tap, ACCEPTED on the box's ack, CONFIRMED on its result,
+    /// and MEASURED only once lane 0 shows the car drawing, here four
+    /// seconds later as the charger ramps. It fades 20 s after its last
+    /// slot lit.
+    @Test func chargeNowWalksTheReceiptOnItsEvidence() async throws {
+        try await AppWords.$language.withValue(.en) {
+            let rig = Rig()
+            rig.app.startDemo()
+            let home = try #require(rig.app.home)
+            let box = try #require(rig.box)
+            box.setCarPluggedIn(true)
+            home.loadpoints.activate()
+            await rig.run(1_500)
+            let car = try #require(home.loadpoints.points.first)
+            #expect(car.pluggedIn)
+            #expect(box.house.evWatts == 0)
+            @MainActor func marks() -> [ReceiptLog.Mark.State]? { home.loadpoints.receipt(hold: car)?.marks.map(\.state) }
+
+            let charge = Task { await home.loadpoints.chargeNow(car) }
+            for _ in 0..<10 { await Task.yield() }
+            #expect(marks() == [.lit, .waiting, .waiting, .waiting])
+            await rig.run(400)
+            #expect(marks() == [.lit, .lit, .waiting, .waiting])
+            await rig.run(1_500)
+            await charge.value
+            #expect(marks() == [.lit, .lit, .waiting, .lit])
+            await rig.run(5_000, step: 100)
+            #expect(marks() == [.lit, .lit, .lit, .lit])
+            #expect(home.loadpoints.receipt(hold: car)?.line == "SENT ▸ ACCEPTED ▸ MEASURED ▸ CONFIRMED")
+            await rig.run(LoadpointsModel.doneShownMs + 1_500, step: 500)
+            #expect(home.loadpoints.holdStep[car.id] == nil)
+        }
+    }
+
+    /// The box's refusal takes the last slot with its reason, and a level's
+    /// receipt has no MEASURED.
+    @Test func aRefusedLevelSaysWhyInTheLastSlot() async throws {
+        try await AppWords.$language.withValue(.en) {
+            let rig = Rig()
+            rig.app.startDemo()
+            let home = try #require(rig.app.home)
+            let box = try #require(rig.box)
+            box.setCarPluggedIn(false)
+            home.loadpoints.activate()
+            await rig.run(1_500)
+            let out = try #require(home.loadpoints.points.first)
+            let refused = Task { await home.loadpoints.setLevel(out, pct: 60) }
+            await rig.run(2_000)
+            await refused.value
+            let receipt = try #require(home.loadpoints.receipt(level: out))
+            #expect(receipt.line == "SENT ▸ ACCEPTED ▸ REFUSED")
+            #expect(receipt.refused == "Plug the car in first. FTW takes a level only while the car is plugged in.")
+            #expect(receipt.marks.last?.state == .refused)
+        }
+    }
+
+    /// MEASURED means lane 0 shows what was asked: drawing for Charge now,
+    /// still for Pause, the plan's own for Back to the plan; never a level.
+    @Test func measuredMeansWhatWasAsked() {
+        #expect(LoadpointsModel.measures(.chargeNow, evW: 7_400, planCharges: false))
+        #expect(!LoadpointsModel.measures(.chargeNow, evW: 42, planCharges: false))
+        #expect(LoadpointsModel.measures(.pause, evW: 0, planCharges: true))
+        #expect(!LoadpointsModel.measures(.pause, evW: 7_400, planCharges: false))
+        #expect(LoadpointsModel.measures(.resume, evW: 0, planCharges: false))
+        #expect(LoadpointsModel.measures(.resume, evW: 11_000, planCharges: true))
+        #expect(!LoadpointsModel.measures(.resume, evW: 0, planCharges: true))
+        #expect(!LoadpointsModel.measures(.level(60), evW: 7_400, planCharges: true))
+        let step = EVText.Step(ask: .chargeNow, acked: true, result: .superseded(observed: nil))
+        #expect(EVText.receipt(step, nil).refused == "Something else changed charging first. Try again.")
+    }
+
     /// The demo answers "Is FTW in control?" from the stream alone.
     @Test func theDemoSaysFTWIsInControl() async throws {
         let rig = Rig()

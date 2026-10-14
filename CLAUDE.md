@@ -113,10 +113,17 @@ native, and smooth enough to impress.
   `.contentTransition(.numericText(value:))`, new points animate in, and
   everything that moves uses one spring, `Theme.spring`. The car row on
   Now zooms into the car view (`navigationTransition(.zoom)`).
-- **The flow moves at the display's rate** while Now is on screen in an
-  active app. Under Reduce Motion it stops and a still arrow shows the
-  direction; in Low Power Mode it drops to 20 fps. The live curve glides
-  over each second, except under Reduce Motion or in Low Power Mode.
+- **The flow is beams of light** (Fredrik, 13 Oct 2026: "smaller and
+  smoother, flowing, not dots"). Straight beams whose width says the power
+  and whose soft wave of light runs from source to sink, faster with more
+  power (`Flow.beamWidth`, `Flow.waveSpeed`, `Flow.BeamMotion`, tested). The
+  light runs at the display's rate while a beam is live and Now is on
+  screen in an active app, ignites on the first live frame and decays when
+  live ends; otherwise the timeline rests. Under Reduce Motion it holds
+  still and a still chevron shows the direction; in Low Power Mode it drops
+  to 20 fps. A node at 42 W or less is a still dotted hairline. The live
+  curve glides over each second, except under Reduce Motion or in Low
+  Power Mode.
 - **No layout jumps.** Reserve room for receipts, labels and pending
   marks, so a row never moves under the finger. Freshness and state
   changes cross-fade, and a transition can be interrupted.
@@ -238,6 +245,19 @@ The rules below put these into practice.
   Transparency drops the glow. watchOS compiles no dark appearance and a
   watch is always dark, so each set also has a `watch` variant that equals
   its dark one; `ThemeTests` holds them equal.
+- **Widgets and the Live Activity** are the app's material, held still.
+  They read the same roles and draw the same geometry as still paths,
+  never a Canvas or Swift Charts. They never glow and always say when:
+  `AS OF 13:05`, `PLANNED 16:45`, `kl 16:55`. Grid today is one signed
+  line with its body, as the grid's Today. The lock screen writes the price
+  as block glyphs from `PriceBlocks`. Tinted and clear home screens draw in
+  `.primary`, with the line or the now bar marked `.widgetAccentable()`.
+- **The receipt log** (`ReceiptLog`, drawn by `ReceiptRow`) keeps four
+  slots on one line and lights each on its own evidence: SENT on the local
+  send, ACCEPTED on `cmd.ack`, MEASURED once the box has the command and
+  lane 0 shows what it asked for while live (the car above 42 W for
+  Charge now), CONFIRMED on `cmd.result`. A refusal takes the last slot in
+  alarm red, with the box's reason.
 - The 0.3 names in `FTW/UI/Theme.swift` (`fg`, `surface`, `accent` and the
   rest) point at these roles until each screen is rebuilt. New code reads
   the roles.
@@ -262,6 +282,40 @@ never their graphics or brands.
 | Liquid Glass only where the system puts it (bars, sheets, buttons) | iOS 26 | Toolbars, sheets, glass buttons; no custom glass panels |
 | A trace that burns at its head and fades when the signal stops | Oscilloscopes, CRT terminals | Beams on Now, the live trace, the status dot |
 | One mono status line, and an inverse-video tag for what is selected | Terminal tools | The status line under each title, the scrub tag |
+
+### Plan dial
+
+FTW's own form, from Fredrik's film (srcfl/sourceful-films,
+`product/ftw-confirmed`). His rules, as he settled them on 2026-10-13:
+
+1. One turn is the next 24 hours. Midnight sits at the bottom and noon at
+   the top, so the day's light fills the upper half. It never reads as a
+   12-hour clock.
+2. One tick per quarter hour, as long as the price in eight levels. Its
+   colour is what the plan does with the battery: `Theme.stores` stores,
+   `Theme.ink` gives power, `Theme.ink3` waits. On the dial, gold is the
+   sun's and never the battery's.
+3. A dotted arc in `Theme.car` marks when the car charges, with its goal
+   at the end.
+4. A hand marks now. A 2° gap in the rim marks the seam where +24 h meets
+   now, and the ticks fade toward it.
+5. Never a tick without a price: a quarter the market has not priced is a
+   stub.
+6. The sun's arc on the rim comes from the box's own solar forecast, never
+   from astronomy or the phone's location. No forecast, no arc.
+7. The middle holds the time and the price, and a third line kept for
+   what the plan does under a finger. No battery ring and no glass disc in
+   the app; the widget keeps a dark ground so it reads on any wallpaper.
+
+`FTWShared/Charts/PlanDial.swift` holds the quarters, the sun, the words
+and the rule for a finger; `FTWCharts/PlanDialFace.swift` draws. The
+phone's plan view, its `energy.ftw.plan-dial` widget (StandBy small and
+the lock screen's circle), the watch app and the watch's complication all
+draw that one face. The plan view opens on the dial; the lanes are one
+tap away in the toolbar, and the phone keeps the viewer's choice. A drag
+round the ring costs one lookup per event, and only a change of quarter
+redraws, and then only the hand and the middle. Now keeps its straight
+strip, with gold for the battery giving power.
 
 ## Non-negotiable invariants
 

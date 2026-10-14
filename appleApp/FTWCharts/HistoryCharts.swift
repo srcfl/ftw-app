@@ -116,7 +116,7 @@ struct HistoryDrawing: ChartDrawing {
                     dotted.move(to: CGPoint(x: series.grid.x(atMs: series.grid.startMs(r.lowerBound), width: plot.width), y: base))
                     dotted.addLine(to: CGPoint(x: series.grid.x(atMs: series.grid.endMs(r.upperBound), width: plot.width), y: base))
                 }
-                p.stroke(dotted, with: .color(Theme.ink.opacity(0.35)), style: StrokeStyle(lineWidth: px, lineCap: .butt, lineJoin: .round, dash: [1, 3]))
+                TraceInk.dotted(dotted, px: px, in: p)
             }
             p.stroke(Path(series.estimate.cgPath).applying(toShown), with: .color(look.up.opacity(0.6)), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round, dash: [3, 4]))
             TraceInk.line(line, look: look, width: own ? TraceInk.line : TraceInk.otherLine, opacity: own ? 1 : 0.85, glows: own && filling != nil, glowClip: filling, above: above, below: below, in: p)

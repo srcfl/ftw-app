@@ -216,7 +216,7 @@ struct LiveTraceSurface: View {
         TraceInk.body(p.bodyUnseen, look: look, ink: true, baseline: baseline, height: series.size.height, above: above, below: below, in: plotting)
 
         // A silence the line does not join: a dotted baseline across it.
-        plotting.stroke(p.gaps, with: .color(Theme.ink.opacity(0.35)), style: StrokeStyle(lineWidth: px, lineCap: .butt, lineJoin: .round, dash: [1, 3]))
+        TraceInk.dotted(p.gaps, px: px, in: plotting)
 
         // What this phone did not see live: ink, no glow.
         plotting.stroke(p.lineUnseen, with: .color(Theme.ink2), style: StrokeStyle(lineWidth: TraceInk.line, lineCap: .round, lineJoin: .round))

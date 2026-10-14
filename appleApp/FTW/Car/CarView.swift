@@ -2,16 +2,23 @@ import FTWDemo
 import FTWKit
 import SwiftUI
 
-/// The car: how full it is and who says so, the goal and whether it makes
-/// it, and Plan, Charge now and Pause in a bar at the foot, where the thumb
-/// is and in the same places whatever the car does. Every tap shows "Sent"
-/// at once, then the box's receipt, then the outcome; the screen shows
-/// intent at once and a result only once the box has confirmed it.
+/// The car, in the node view's material: the power now as the hero, with
+/// the car's level, its meter and where the level comes from beside it;
+/// whether that is live and from which charger; the car's plan for the
+/// hours ahead with the price under it; then the level and the goal. Plan,
+/// Charge now and Pause sit in a glass bar at the foot, where the thumb is
+/// and in the same places whatever the car does, with the receipt log
+/// under them: SENT ▸ ACCEPTED ▸ MEASURED ▸ CONFIRMED, each slot lit on
+/// its own evidence. The screen shows intent at once and a result only
+/// once the box has confirmed it.
 struct CarView: View {
     let app: AppModel
     let home: HomeModels
     let id: String?
     @State private var editingGoal = false
+    @State private var scrub = ScrubModel()
+    @State private var trace = NodeTraceModel()
+    @State private var text = PeriodText()
 
     private var model: LoadpointsModel { home.loadpoints }
 
@@ -20,26 +27,55 @@ struct CarView: View {
     }
 
     var body: some View {
-        List {
-            if let lp {
-                StatusSection(lp: lp, model: model, site: home.site)
-                // Drawn from what the last launch kept; inert until the box
-                // has spoken in this session.
-                LevelSection(lp: lp, model: model, canControl: home.site.canConfigure)
-                    .disabled(!home.site.heardFromBox)
-                GoalSection(lp: lp, model: model, site: home.site, canControl: home.site.canConfigure, editing: $editingGoal)
-                    .disabled(!home.site.heardFromBox)
-                if app.isDemo { DemoSection(lp: lp, model: model) }
-            } else if model.loaded {
-                Section { Text(L("This box has no charger.")) }
-                    .listRowBackground(Theme.surfaceRaised)
-            } else {
-                PlaceholderSections()
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                if let lp {
+                    // The hours ahead are a plan, not a reading: a finger on
+                    // the plan leaves the hero on now.
+                    NodeHero(site: home.site, node: .car, home: home, trace: trace, scrub: scrub, timebase: .ahead, text: text)
+                        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                        .padding(.horizontal, 20)
+                    // A scaled metric reads the size where it is placed:
+                    // the caps sit here, as in the node view.
+                    NodeStatusRow(site: home.site, node: .car)
+                        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
+                    StatusLines(lp: lp, model: model, site: home.site)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 6)
+                    CarPlan(lp: lp, model: model, home: home, scrub: scrub, text: text)
+                        .padding(.top, 24)
+                    // Drawn from what the last launch kept; inert until the
+                    // box has spoken in this session.
+                    LevelBlock(lp: lp, model: model, canControl: home.site.canConfigure)
+                        .disabled(!home.site.heardFromBox)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 28)
+                    GoalBlock(lp: lp, model: model, site: home.site, canControl: home.site.canConfigure, editing: $editingGoal)
+                        .disabled(!home.site.heardFromBox)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 28)
+                    if app.isDemo {
+                        DemoBlock(lp: lp, model: model)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 28)
+                    }
+                } else if model.loaded {
+                    Text(L("This box has no charger."))
+                        .foregroundStyle(Theme.ink2)
+                        .padding(20)
+                } else {
+                    Placeholder()
+                        .padding(.horizontal, 20)
+                }
             }
+            .padding(.top, 8)
+            .padding(.bottom, 24)
+            .frame(maxWidth: 640, alignment: .leading)
+            .frame(maxWidth: .infinity)
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(Theme.surface)
+        .background(Theme.ground)
         .safeAreaBar(edge: .bottom) {
             if let lp, lp.pluggedIn, home.site.canConfigure {
                 ControlBar(lp: lp, model: model)
@@ -54,11 +90,13 @@ struct CarView: View {
         .onAppear {
             model.activate()
             model.watchPlan()
+            home.prices.activate()
             LaunchClock.mark("first content")
         }
         .onDisappear {
             model.unwatchPlan()
             model.deactivate()
+            home.prices.deactivate()
         }
         .sheet(isPresented: $editingGoal) {
             if let lp { GoalEditor(model: model, lp: lp) }
@@ -68,30 +106,34 @@ struct CarView: View {
 
 // MARK: What it does now
 
-private struct StatusSection: View {
+/// Under the status line: what the charger does in words, this plug-in's
+/// energy, and when the box last said so once that is old.
+private struct StatusLines: View {
     let lp: Loadpoint
     let model: LoadpointsModel
     let site: SiteModel
 
     var body: some View {
-        Section {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(EVText.status(lp, zone: model.zone))
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(Theme.fg)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(EVText.status(lp, zone: model.zone))
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(Theme.ink)
+                .contentTransition(.opacity)
+                .fixedSize(horizontal: false, vertical: true)
+            if let session = EVText.session(lp) {
+                Text(session)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.ink2)
                     .contentTransition(.numericText())
-                    .fixedSize(horizontal: false, vertical: true)
-                if let session = EVText.session(lp) {
-                    Hint(session).contentTransition(.numericText())
-                }
-                if let note {
-                    Hint(note.text, tone: note.warn ? Theme.alarm : Theme.fgMuted)
-                }
             }
-            .padding(.vertical, 4)
-            .accessibilityElement(children: .combine)
+            if let note {
+                Text(note.text)
+                    .font(.footnote)
+                    .foregroundStyle(note.warn ? Theme.alarm : Theme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .listRowBackground(Theme.surfaceRaised)
+        .accessibilityElement(children: .combine)
     }
 
     /// When the box said it: plainly when out of date, quietly when it is
@@ -99,14 +141,58 @@ private struct StatusSection: View {
     private var note: (text: String, warn: Bool)? {
         guard let at = model.readAtMs else { return model.stale ? (L("Waiting for your box."), true) : nil }
         if model.stale { return (model.error ?? AppWords.format("Last known %@.", AppWords.clock(at, zone: model.zone)), true) }
-        if site.nowMs - at > 60_000 { return (AppWords.format("Read at %@", AppWords.clock(at, zone: model.zone)), false) }
+        if site.minuteMs - at > 60_000 { return (AppWords.format("Read at %@", AppWords.clock(at, zone: model.zone)), false) }
         return nil
+    }
+}
+
+// MARK: The plan
+
+/// The car's plan for the hours ahead, as the car node's Ahead draws it:
+/// its charging as ghost bars, the price under the same slots in eight
+/// levels, and a finger that reads each slot. Under it, the plan in one
+/// sentence, or the slot under the finger.
+private struct CarPlan: View {
+    let lp: Loadpoint
+    let model: LoadpointsModel
+    let home: HomeModels
+    let scrub: ScrubModel
+    let text: PeriodText
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Kicker(L("Plan"))
+                .padding(.horizontal, 20)
+            AheadChartArea(site: home.site, node: .car, home: home, scrub: scrub, text: text)
+                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                .frame(height: 170)
+                .padding(.horizontal, 4)
+            ZStack(alignment: .topLeading) {
+                Text(verbatim: "\n")
+                Text(line).accessibilityIdentifier("car.plan.line")
+            }
+            .font(.subheadline)
+            .foregroundStyle(Theme.ink2)
+            .lineLimit(typeSize.isAccessibilitySize ? 5 : 2, reservesSpace: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .transaction { $0.animation = nil }
+            .padding(.horizontal, 20)
+        }
+    }
+
+    private var line: String {
+        if let under = text.text(scrub) { return under }
+        return PlanText.car(model.windows[lp.id] ?? lp.planWindows, nowMs: home.site.minuteMs, zone: model.zone)
     }
 }
 
 // MARK: How full is it?
 
-private struct LevelSection: View {
+/// How full the car is, told by tap. The level itself is the hero's; here
+/// is where it comes from, the chips that tell FTW, and the level's
+/// receipt.
+private struct LevelBlock: View {
     let lp: Loadpoint
     let model: LoadpointsModel
     let canControl: Bool
@@ -115,26 +201,20 @@ private struct LevelSection: View {
     var body: some View {
         let level = model.level(lp)
         let assumed = level?.origin == .assumed || level?.origin == .unconfirmed
-        Section {
+        VStack(alignment: .leading, spacing: 10) {
+            Kicker(L("How full is the car?"))
             if let level {
-                VStack(alignment: .leading, spacing: 6) {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .firstTextBaseline, spacing: 10) { figure(level, assumed: assumed) }
-                        VStack(alignment: .leading, spacing: 6) { figure(level, assumed: assumed) }
-                    }
-                    // The badge says FTW assumes; the line says what to do.
-                    Text(level.origin == .assumed && canControl ? L("Nobody has told FTW the car's level yet. Choose it below.") : EVText.origin(level, zone: model.zone))
-                        .font(.subheadline)
-                        .foregroundStyle(assumed ? Theme.fg : Theme.fgDim)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(.vertical, 4)
-                .accessibilityElement(children: .combine)
+                // The hero says FTW assumes; the line says what to do.
+                Text(level.origin == .assumed && canControl ? L("Nobody has told FTW the car's level yet. Choose it below.") : EVText.origin(level, zone: model.zone))
+                    .font(.subheadline)
+                    .foregroundStyle(assumed ? Theme.ink : Theme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
                 if canControl {
                     if level.origin == .car, !correcting {
                         Button(L("Correct the level")) {
                             withAnimation(Theme.spring) { correcting = true }
                         }
+                        .buttonStyle(.glass)
                     } else {
                         LevelChips(current: model.chosenLevel(lp) ?? level.pct) { pct in
                             Task { await model.setLevel(lp, pct: pct) }
@@ -144,40 +224,23 @@ private struct LevelSection: View {
             } else if !lp.pluggedIn {
                 Text(L("Plug in the car to tell FTW its level."))
                     .font(.subheadline)
-                    .foregroundStyle(Theme.fg)
+                    .foregroundStyle(Theme.ink)
             } else {
-                Text(L("Level unknown")).font(.headline)
+                Text(L("Level unknown")).font(.headline).foregroundStyle(Theme.ink)
             }
-            if let outcome = model.outcome(level: lp) {
-                ReceiptView(outcome: outcome)
+            if let receipt = model.receipt(level: lp), let outcome = model.outcome(level: lp) {
+                CommandReceipt(receipt: receipt, text: outcome.text, tone: outcome.tone)
+                    .transition(.opacity)
             }
-        } header: {
-            Text(L("How full is the car?"))
-        } footer: {
             if level?.origin == .car, !correcting, canControl {
                 Text(L("Only correct it if the car shows something else."))
+                    .font(.footnote)
+                    .foregroundStyle(Theme.ink3)
             }
         }
-        .listRowBackground(Theme.surfaceRaised)
+        .animation(Theme.spring, value: model.receipt(level: lp))
         .sensoryFeedback(.selection, trigger: model.chosenLevel(lp))
         .sensoryFeedback(trigger: model.outcome(level: lp)?.tone) { _, tone in Self.feedback(tone) }
-    }
-
-    @ViewBuilder private func figure(_ level: EVText.Level, assumed: Bool) -> some View {
-        Text(AppWords.percent(level.pct))
-            .font(Theme.percent(.largeTitle, weight: .bold))
-            .foregroundStyle(assumed ? Theme.fgMuted : Theme.fg)
-            .contentTransition(.numericText(value: level.pct))
-            .animation(Theme.spring, value: level.pct)
-        if assumed {
-            Text(L("FTW assumes"))
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(Theme.onAccent)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Theme.ink2, in: Capsule())
-                .fixedSize()
-        }
     }
 
     static func feedback(_ tone: EVText.Outcome.Tone?) -> SensoryFeedback? {
@@ -218,23 +281,22 @@ struct LevelChips: View {
 
     @ViewBuilder private func chip(_ text: String, selected: Bool, label: String, action: @escaping () -> Void) -> some View {
         let title = Text(text)
-            .font(Theme.percent(.body))
+            .font(.body.weight(.semibold).monospacedDigit())
             .lineLimit(1)
             .minimumScaleFactor(0.6)
-            .padding(.vertical, 6)
+            .padding(.vertical, 4)
             .frame(maxWidth: .infinity)
+        // The chosen one prominent, in ink; the others in plain glass.
         Group {
             if selected {
-                Button(action: action) { title.foregroundStyle(Theme.onAccent) }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Theme.accentFill)
+                Button(action: action) { title.foregroundStyle(Theme.ground) }
+                    .buttonStyle(.glassProminent)
+                    .tint(Theme.ink)
             } else {
-                Button(action: action) { title.foregroundStyle(Theme.fg) }
-                    .buttonStyle(.bordered)
-                    .tint(Theme.fgMuted)
+                Button(action: action) { title.foregroundStyle(Theme.ink) }
+                    .buttonStyle(.glass)
             }
         }
-        .buttonBorderShape(.roundedRectangle(radius: Theme.radiusSmall))
         .accessibilityLabel(label)
         .accessibilityAddTraits(selected ? .isSelected : [])
     }
@@ -242,7 +304,7 @@ struct LevelChips: View {
 
 // MARK: The goal
 
-private struct GoalSection: View {
+private struct GoalBlock: View {
     let lp: Loadpoint
     let model: LoadpointsModel
     let site: SiteModel
@@ -250,58 +312,55 @@ private struct GoalSection: View {
     @Binding var editing: Bool
 
     var body: some View {
-        Section {
+        VStack(alignment: .leading, spacing: 8) {
+            Kicker(L("Goal"))
             if model.fromCache {
                 // The cache keeps no goal; say nothing rather than "none".
                 Text(EVText.suggestedGoalText())
                     .font(.headline)
                     .redacted(reason: .placeholder)
             } else if let s = lp.schedule {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(EVText.goal(s, at: Date(timeIntervalSince1970: site.nowMs / 1000), zone: model.zone))
-                        .font(.headline)
-                        .foregroundStyle(Theme.fg)
-                        .fixedSize(horizontal: false, vertical: true)
-                    if let next = EVText.nextGoal(lp, nowMs: site.nowMs, zone: model.zone) {
-                        Hint(next)
-                    }
+                Text(EVText.goal(s, at: Date(timeIntervalSince1970: site.minuteMs / 1000), zone: model.zone))
+                    .font(.headline)
+                    .foregroundStyle(Theme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let next = EVText.nextGoal(lp, nowMs: site.minuteMs, zone: model.zone) {
+                    Hint(next, tone: Theme.ink2)
                 }
-                .padding(.vertical, 2)
                 if lp.pluggedIn, let r = model.readiness(lp) {
-                    Readiness(readiness: r, text: EVText.readiness(r, level: model.level(lp), nowMs: site.nowMs, zone: model.zone))
-                }
-                if lp.pluggedIn, let plan = EVText.plan(lp, windows: model.windows[lp.id] ?? lp.planWindows, nowMs: site.nowMs, zone: model.zone) {
-                    Hint(plan)
+                    Readiness(readiness: r, text: EVText.readiness(r, level: model.level(lp), nowMs: site.minuteMs, zone: model.zone))
                 }
                 if canControl {
                     Button(L("Change")) { editing = true }
+                        .buttonStyle(.glass)
                 }
             } else {
                 Text(L("No goal yet. Without one, FTW only charges from spare solar."))
                     .font(.subheadline)
-                    .foregroundStyle(Theme.fg)
+                    .foregroundStyle(Theme.ink)
                     .fixedSize(horizontal: false, vertical: true)
                 if canControl {
-                    Button {
-                        let g = EVText.suggestedGoal
-                        Task { await model.saveGoal(lp, socPct: g.socPct, clock: g.clock, recurring: true, days: g.days, zone: model.zone) }
-                    } label: {
-                        Text(AppWords.format("Use %@", EVText.suggestedGoalText()))
-                            .frame(maxWidth: .infinity)
-                            .foregroundStyle(Theme.onAccent)
+                    HStack(spacing: 8) {
+                        Button {
+                            let g = EVText.suggestedGoal
+                            Task { await model.saveGoal(lp, socPct: g.socPct, clock: g.clock, recurring: true, days: g.days, zone: model.zone) }
+                        } label: {
+                            Text(AppWords.format("Use %@", EVText.suggestedGoalText()))
+                                .lineLimit(2)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.glassProminent)
+                        .tint(Theme.ink)
+                        Button(L("Change")) { editing = true }
+                            .buttonStyle(.glass)
                     }
-                    .buttonStyle(.borderedProminent)
                     .controlSize(.large)
-                    Button(L("Change")) { editing = true }
                 }
             }
             if let save = model.goalSave[lp.id], !editing {
-                Hint(LoadpointsModel.goalText(save), tone: { if case .failed = save { return Theme.alarm }; return Theme.fgDim }())
+                Hint(LoadpointsModel.goalText(save), tone: { if case .failed = save { return Theme.alarm }; return Theme.ink2 }())
             }
-        } header: {
-            Text(L("Goal"))
         }
-        .listRowBackground(Theme.surfaceRaised)
         .sensoryFeedback(trigger: model.goalSave[lp.id]) { _, save in
             switch save {
             case .saved?, .removed?: return .success
@@ -321,11 +380,13 @@ struct Readiness: View {
         Label {
             Text(text)
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(Theme.fg)
+                .foregroundStyle(Theme.ink)
                 .fixedSize(horizontal: false, vertical: true)
         } icon: {
-            Image(systemName: short ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                .foregroundStyle(short ? Theme.alarm : Theme.live)
+            // A plan is not a confirmation: in ink when it makes it, alarm
+            // when it does not.
+            Image(systemName: short ? "exclamationmark.triangle.fill" : "checkmark.circle")
+                .foregroundStyle(short ? Theme.alarm : Theme.ink2)
                 .contentTransition(.symbolEffect(.replace))
         }
         .accessibilityElement(children: .combine)
@@ -339,10 +400,10 @@ struct Readiness: View {
 
 // MARK: Charge now, Pause, Back to the plan
 
-/// Plan · Charge now · Pause, always in these places. The one the box
-/// reports is chosen; the one asked for turns while it travels; a tap on
-/// the chosen one does nothing. Under them, the receipt has a row of its
-/// own, of fixed height, so nothing moves when it arrives.
+/// Plan · Charge now · Pause, always in these places, in one glass group.
+/// The one the box reports is chosen; the one asked for turns while it
+/// travels; a tap on the chosen one does nothing. Under them the receipt
+/// log has room of its own, reserved, so nothing moves when it arrives.
 private struct ControlBar: View {
     let lp: Loadpoint
     let model: LoadpointsModel
@@ -389,48 +450,55 @@ private struct ControlBar: View {
     var body: some View {
         let current = self.current
         let asked = self.asked
-        VStack(alignment: .leading, spacing: 8) {
+        let receipt = model.receipt(hold: lp)
+        let outcome = model.outcome(hold: lp)
+        let shown = receipt != nil && outcome != nil
+        VStack(alignment: .leading, spacing: 10) {
             // Side by side; at the accessibility sizes one under the other,
             // so no name is cut.
             let stacked = typeSize.isAccessibilitySize
             let layout = stacked ? AnyLayout(VStackLayout(spacing: 6)) : AnyLayout(HStackLayout(spacing: 8))
-            layout {
-                ForEach(Choice.allCases) { c in
-                    button(c, chosen: asked == nil && c == current, waiting: asked == c, stacked: stacked)
+            GlassEffectContainer(spacing: 8) {
+                layout {
+                    ForEach(Choice.allCases) { c in
+                        button(c, chosen: asked == nil && c == current, waiting: asked == c, stacked: stacked)
+                    }
                 }
             }
+            // Both stay in place and only fade, so a receipt that changes
+            // four times in a few seconds never leaves a half-removed hint
+            // behind it.
             ZStack(alignment: .topLeading) {
-                ReceiptRoom()
-                if let outcome = model.outcome(hold: lp) {
-                    ReceiptView(outcome: outcome)
-                        .transition(.opacity)
-                } else {
-                    Text(L("Charge now runs until you go back to the plan or unplug."))
-                        .font(.footnote)
-                        .foregroundStyle(Theme.fgMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .transition(.opacity)
-                }
+                ReceiptSpace()
+                Text(L("Charge now runs until you go back to the plan or unplug."))
+                    .font(.footnote)
+                    .foregroundStyle(Theme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .opacity(shown ? 0 : 1)
+                    .accessibilityHidden(shown)
+                CommandReceipt(receipt: receipt ?? ReceiptLog(), text: outcome?.text ?? " ", tone: outcome?.tone ?? .working)
+                    .opacity(shown ? 1 : 0)
+                    .accessibilityHidden(!shown)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 4)
+            .animation(Theme.spring, value: shown)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .animation(Theme.spring, value: model.outcome(hold: lp))
         .animation(Theme.spring, value: current)
         // Commands answer once, when the box says what it did.
-        .sensoryFeedback(trigger: model.outcome(hold: lp)?.tone) { _, tone in LevelSection.feedback(tone) }
+        .sensoryFeedback(trigger: model.outcome(hold: lp)?.tone) { _, tone in LevelBlock.feedback(tone) }
         // A bar of controls: whole words before the largest letters.
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
     }
 
     @ViewBuilder private func button(_ c: Choice, chosen: Bool, waiting: Bool, stacked: Bool) -> some View {
-        // The chosen one in the brand fill; the others in plain glass.
+        // The chosen one prominent, in ink; the others in plain glass.
         if chosen {
             plain(c, chosen: true, waiting: waiting, stacked: stacked)
                 .buttonStyle(.glassProminent)
-                .tint(Theme.accentFill)
+                .tint(Theme.ink)
         } else {
             plain(c, chosen: false, waiting: waiting, stacked: stacked)
                 .buttonStyle(.glass)
@@ -460,7 +528,7 @@ private struct ControlBar: View {
                     .minimumScaleFactor(0.6)
             }
             .font(.subheadline.weight(.semibold))
-            .foregroundStyle(chosen ? Theme.onAccent : Theme.fg)
+            .foregroundStyle(chosen ? Theme.ground : Theme.ink)
             .frame(maxWidth: .infinity, minHeight: 44)
             .padding(.vertical, 4)
         }
@@ -471,132 +539,80 @@ private struct ControlBar: View {
     }
 }
 
+/// The receipt log and one sentence under it: what the box did, or, in
+/// alarm red, why not.
+struct CommandReceipt: View {
+    let receipt: ReceiptLog
+    let text: String
+    let tone: EVText.Outcome.Tone
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ReceiptRow(receipt: receipt)
+                .accessibilityIdentifier("car.receipt")
+            Text(text)
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(color)
+                .contentTransition(.opacity)
+                .fixedSize(horizontal: false, vertical: true)
+                .animation(.easeInOut(duration: 0.2), value: text)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    private var color: Color {
+        switch tone {
+        case .working: return Theme.ink2
+        case .done: return Theme.live
+        case .warning, .failed: return Theme.alarm
+        }
+    }
+}
+
+/// The room a receipt takes, its line and two lines of text, laid out as
+/// `CommandReceipt` lays them out and left empty.
+private struct ReceiptSpace: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ReceiptRow(receipt: ReceiptLog())
+            Text(verbatim: "\n").font(.footnote.weight(.medium))
+        }
+        .hidden()
+        .accessibilityHidden(true)
+    }
+}
+
 // MARK: The demo's own cable
 
-private struct DemoSection: View {
+private struct DemoBlock: View {
     let lp: Loadpoint
     let model: LoadpointsModel
 
     var body: some View {
-        Section {
+        VStack(alignment: .leading, spacing: 8) {
+            Kicker(L("Demo"))
             Button(L(lp.pluggedIn ? "Unplug the car" : "Plug in the car")) {
                 SimulatedBox.current?.setCarPluggedIn(!lp.pluggedIn)
                 model.reread()
             }
-        } header: {
-            Text(L("Demo"))
-        } footer: {
+            .buttonStyle(.glass)
             Text(L("The demo plugs in a car FTW cannot read, so FTW assumes 20 %."))
+                .font(.footnote)
+                .foregroundStyle(Theme.ink3)
         }
-        .listRowBackground(Theme.surfaceRaised)
     }
 }
 
 /// Before the first answer and with nothing cached: the shape of the
 /// screen, not a spinner.
-private struct PlaceholderSections: View {
+private struct Placeholder: View {
     var body: some View {
-        Group {
-            Section { Text("Plugged in · charges at 01:00").font(.title3.weight(.semibold)) }
-            Section { Text("20 %").font(Theme.percent(.largeTitle, weight: .bold)) }
-            Section { Text("80 % by 07:00 on weekdays").font(.headline) }
+        VStack(alignment: .leading, spacing: 24) {
+            Text("0,0 kW").font(Theme.figure(60))
+            Text("Plugged in · charges at 01:00").font(.subheadline)
+            Text("80 % by 07:00 on weekdays").font(.headline)
         }
-        .listRowBackground(Theme.surfaceRaised)
+        .foregroundStyle(Theme.ink3)
         .redacted(reason: .placeholder)
-    }
-}
-
-/// The room a receipt takes, its marks and two lines of text, laid out as
-/// `ReceiptView` lays them out and left empty, so a receipt that arrives
-/// moves nothing.
-struct ReceiptRoom: View {
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) { marks }
-                VStack(alignment: .leading, spacing: 4) { marks }
-            }
-            Text(verbatim: "\n")
-                .font(.footnote.weight(.medium))
-        }
-        .padding(.vertical, 4)
-        .hidden()
-        .accessibilityHidden(true)
-    }
-
-    @ViewBuilder private var marks: some View {
-        ForEach([L("Sent"), L("Received"), L("Done")], id: \.self) { label in
-            HStack(spacing: 4) {
-                Image(systemName: "checkmark.circle.fill")
-                Text(label).font(.caption.weight(.semibold))
-            }
-        }
-    }
-}
-
-/// The receipt under a control: sent, received, done, and one sentence.
-struct ReceiptView: View {
-    let outcome: EVText.Outcome
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 12) { marks }
-                VStack(alignment: .leading, spacing: 4) { marks }
-            }
-            Text(outcome.text)
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(color)
-                .contentTransition(.opacity)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.vertical, 4)
-        .animation(Theme.spring, value: outcome)
-        .accessibilityElement(children: .combine)
-    }
-
-    @ViewBuilder private var marks: some View {
-        mark(L("Sent"), outcome.sent)
-        mark(L("Received"), outcome.received)
-        mark(L("Done"), outcome.done)
-    }
-
-    private func mark(_ label: String, _ state: EVText.Outcome.Mark) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: symbol(state))
-                .foregroundStyle(tint(state))
-                .contentTransition(.symbolEffect(.replace))
-                .symbolEffect(.pulse, options: .repeating, isActive: state == .active)
-            Text(label)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(state == .waiting ? Theme.fgMuted : Theme.fg)
-        }
-    }
-
-    private func symbol(_ state: EVText.Outcome.Mark) -> String {
-        switch state {
-        case .done: return "checkmark.circle.fill"
-        case .active: return "circle.dotted.circle"
-        case .waiting: return "circle"
-        case .failed: return "xmark.circle.fill"
-        }
-    }
-
-    private func tint(_ state: EVText.Outcome.Mark) -> Color {
-        switch state {
-        case .done: return Theme.live
-        case .active: return Theme.accent
-        case .waiting: return Theme.fgMuted
-        case .failed: return Theme.alarm
-        }
-    }
-
-    private var color: Color {
-        switch outcome.tone {
-        case .working: return Theme.fgDim
-        case .done: return Theme.live
-        case .warning: return Theme.alarm
-        case .failed: return Theme.alarm
-        }
     }
 }
