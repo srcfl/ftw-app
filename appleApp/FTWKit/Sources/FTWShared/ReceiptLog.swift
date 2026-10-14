@@ -25,13 +25,17 @@ public struct ReceiptLog: Equatable, Hashable, Codable, Sendable {
     public var confirmed: Bool
     /// The box's reason, ready to show. Set, it takes the last slot.
     public var refused: String?
+    /// The slots this command has. A level is not measured on lane 0, so
+    /// its receipt has no MEASURED.
+    public var slots: [Slot]
 
-    public init(sent: Bool = true, accepted: Bool = false, measured: Bool = false, confirmed: Bool = false, refused: String? = nil) {
+    public init(sent: Bool = true, accepted: Bool = false, measured: Bool = false, confirmed: Bool = false, refused: String? = nil, slots: [Slot] = Slot.allCases) {
         self.sent = sent
         self.accepted = accepted
         self.measured = measured
         self.confirmed = confirmed
         self.refused = refused
+        self.slots = slots
     }
 
     /// Above this the car draws power: the threshold Now uses for a beam.
@@ -57,7 +61,7 @@ public struct ReceiptLog: Equatable, Hashable, Codable, Sendable {
     /// padded to the width its slot reserves, so a slot that lights or
     /// turns to REFUSED never moves the others.
     public var marks: [Mark] {
-        Slot.allCases.map { slot in
+        slots.map { slot in
             if slot == .confirmed, refused != nil {
                 return Mark(slot: slot, text: Self.reserved(.confirmed, ReceiptWord.refused.text), state: .refused)
             }

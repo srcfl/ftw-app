@@ -36,6 +36,14 @@ import Testing
         #expect(ReceiptLog().marks.map(\.text).joined().count == ReceiptLog(refused: "no").marks.map(\.text).joined().count)
     }
 
+    /// A level has no MEASURED: lane 0 says nothing about a car's level.
+    @Test func aLevelHasThreeSlots() {
+        let level = ReceiptLog(accepted: true, confirmed: true, slots: [.sent, .accepted, .confirmed])
+        #expect(level.line == "SENT ▸ ACCEPTED ▸ CONFIRMED")
+        #expect(level.marks.map(\.state) == [.lit, .lit, .lit])
+        #expect(ReceiptLog(refused: "Plug the car in first.", slots: [.sent, .accepted, .confirmed]).line == "SENT ▸ ACCEPTED ▸ REFUSED")
+    }
+
     /// Lane 0 is evidence only while live and above the beam threshold.
     @Test func measuredNeedsALiveReadingAboveTheThreshold() {
         #expect(ReceiptLog.drawingW == 42)
