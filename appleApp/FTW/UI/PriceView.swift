@@ -1,18 +1,27 @@
-import Charts
 import FTWKit
 import SwiftUI
 
-/// The price: what power costs now, in one header row, and the hours ahead
-/// as one line coloured by level, with now, the cheapest hours and the
-/// average marked. A finger on the line says the price there and what the
-/// plan does then. One screen.
+/// The price: what power costs now as the hero, the next 24 hours as a bar
+/// per slot, and what the plan does in each. A finger on the bars gives
+/// the hero the slot's price and time, and the lines under the chart what
+/// the plan does then. One screen, no cards.
 struct PriceView: View {
     let home: HomeModels
+    @State private var scrub = ScrubModel()
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        FitScreen(spacing: 10) { fill in
-            PriceBody(site: home.site, prices: home.prices, plan: home.nodes.planShare, fill: fill)
+        Group {
+            // The accessibility sizes scroll; every other size is one fixed
+            // page. Chosen by the size, never by a fit, so the page never
+            // swaps branches under a finger.
+            if typeSize.isAccessibilitySize {
+                ScrollView { page(fill: false) }
+            } else {
+                page(fill: true)
+            }
         }
+        .background(Theme.ground)
         .navigationTitle(L("Electricity price"))
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
@@ -25,176 +34,199 @@ struct PriceView: View {
             home.nodes.plan.deactivate()
         }
     }
+
+    private func page(fill: Bool) -> some View {
+        PriceBody(site: home.site, prices: home.prices, plan: home.nodes.planShare, scrub: scrub, fill: fill)
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+            .padding(.bottom, 16)
+            .frame(maxWidth: 640, alignment: .topLeading)
+            .frame(maxWidth: .infinity, maxHeight: fill ? .infinity : nil, alignment: .top)
+    }
 }
 
+/// Reads the minute, the prices and the plan, and hands them on as values,
+/// so the page below redraws once a minute at most.
 private struct PriceBody: View {
     let site: SiteModel
     let prices: PriceModel
     let plan: PlanShare
+    let scrub: ScrubModel
     let fill: Bool
-    @State private var readout: ChartReadout?
 
     var body: some View {
-        // The chart marks the minute: the now dot moves once a minute.
-        let minute = (site.nowMs / 60_000).rounded(.down) * 60_000
         if let window = prices.prices {
-            let summary = PriceStrip.summary(window, nowMs: minute)
-            PriceHeader(window: window, current: summary.current)
-            VStack(alignment: .leading, spacing: 8) {
-                if summary.bars.isEmpty {
-                    Text(L("No prices ahead yet."))
-                        .font(.footnote)
-                        .foregroundStyle(Theme.fgMuted)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    PriceChart(bars: summary.bars, mean: summary.meanMinor, cheapest: summary.cheapest, currency: window.currency, nowMs: minute, plan: plan.entry, onScrub: { readout = $0 })
-                        .equatable()
-                        .frame(minHeight: fill ? 160 : 220)
-                        .accessibilityIdentifier("price.chart")
-                }
-                ReadoutLine(readout: readout, otherwise: line(summary, window.currency))
-            }
-            .padding(.vertical, 10)
-            .padding(.horizontal, 12)
-            .frame(maxHeight: fill ? .infinity : nil)
-            .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
-            .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
+            PricePage(window: window, minuteMs: site.minuteMs, plan: plan.entry, scrub: scrub, fill: fill)
+                .equatable()
         } else {
             Text(L("Reading the prices from your box…"))
-                .font(.footnote)
-                .foregroundStyle(Theme.fgMuted)
+                .font(.subheadline)
+                .foregroundStyle(Theme.ink2)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    /// "Cheapest 02–04 · 59.0 öre/kWh on average"
-    private func line(_ summary: PriceStrip.Summary, _ currency: String) -> String {
-        guard let c = summary.cheapest else { return " " }
-        return NodeWords.format("Cheapest %@ · %@ on average", Readouts.span(c.startMs, c.endMs), Readouts.price(c.meanMinor, currency))
     }
 }
 
-/// "Elpris 82,0 öre/kWh" in one row, and the zone and what the price holds
-/// under it.
-private struct PriceHeader: View {
+private struct PricePage: View, Equatable {
     let window: Prices
-    let current: PriceSlot?
+    let minuteMs: Double
+    let plan: PlanEntry?
+    let scrub: ScrubModel
+    let fill: Bool
+
+    nonisolated static func == (a: Self, b: Self) -> Bool {
+        a.window == b.window && a.minuteMs == b.minuteMs && a.plan == b.plan && a.fill == b.fill && a.scrub === b.scrub
+    }
 
     var body: some View {
-        let unit = PriceUnits.unit(window.currency)
+        // Built once per minute or change of prices or plan.
+        let chart = PriceChart.build(window.slots, currency: window.currency, nowMs: minuteMs, plan: plan, clock: ZoneClock.of(.current))
+        let included = PriceGlance.text(PriceGlance.included(window.slots))
+        VStack(alignment: .leading, spacing: 0) {
+            PriceHero(chart: chart, zone: window.zone, scrub: scrub)
+            if chart.isEmpty {
+                Text(L("No prices ahead yet."))
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.ink2)
+                    .padding(.top, 24)
+            } else {
+                // 240 pt on an SE, up to 340 on a tall phone.
+                PriceBarsChart(chart: chart, scrub: scrub)
+                    .containerRelativeFrame(.vertical) { height, _ in min(max(height * 0.38, 240), 340) }
+                    .padding(.top, 24)
+                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                    .accessibilityElement()
+                    .accessibilityLabel(L("Electricity price"))
+                    .accessibilityChartDescriptor(PriceDescriptor(chart: chart))
+                    .accessibilityIdentifier("price.chart")
+                PriceReadout(chart: chart, included: included, planned: plan != nil, scrub: scrub)
+                    .padding(.top, 16)
+            }
+            if fill { Spacer(minLength: 0) }
+        }
+    }
+}
+
+/// "128 öre/kWh", and under it "Now · SE3". Under a finger it gives way to
+/// the slot's price and time with no animation; on lift it comes back with
+/// the spring.
+private struct PriceHero: View {
+    let chart: PriceChart
+    let zone: String
+    let scrub: ScrubModel
+    @ScaledMetric(relativeTo: .largeTitle) private var figureSize: CGFloat = 60
+    @ScaledMetric(relativeTo: .title2) private var unit: CGFloat = 22
+
+    var body: some View {
+        let i = scrub.index ?? (scrub.span == nil ? chart.nowIndex : nil)
+        let spanMean = scrub.span.flatMap(chart.mean)
+        // A slot with no price yet says so in quiet ink, never a figure.
+        let priced = spanMean != nil || (i.map { chart.minor[$0] != nil } ?? false)
+        let figure = spanMean.map(chart.figure) ?? i.map { chart.figure[$0] } ?? "—"
+        let word = scrub.span.map(chart.when) ?? scrub.index.map { chart.when[$0] } ?? (zone.isEmpty ? L("Now") : NodeWords.format("Now · %@", zone))
         VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(L("Electricity price"))
-                    .font(.headline)
-                    .foregroundStyle(Theme.fg)
-                Spacer(minLength: 8)
-                Text(current.map { AppWords.decimal(PriceStrip.text($0.totalMinor, window.currency)) } ?? "—")
-                    .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
-                    .foregroundStyle(Theme.fg)
+                Text(figure)
+                    .font(Theme.figure(figureSize))
+                    .tracking(-1)
+                    .foregroundStyle(priced ? Theme.ink : Theme.ink3)
                     .contentTransition(.numericText())
                     .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                    .layoutPriority(1)
+                Text(chart.unit)
+                    .font(.system(size: unit, weight: .medium))
+                    .foregroundStyle(Theme.ink2)
+                    .lineLimit(1)
                     .minimumScaleFactor(0.6)
-                Text(unit.perKwh)
-                    .font(.footnote)
-                    .foregroundStyle(Theme.fgDim)
             }
-            Text([window.zone.isEmpty ? nil : window.zone, PriceGlance.text(PriceGlance.included(window.slots))].compactMap { $0 }.joined(separator: " · "))
-                .font(.footnote)
-                .foregroundStyle(Theme.fgDim)
+            Text(word)
+                .font(.headline)
+                .foregroundStyle(Theme.ink2)
+                .monospacedDigit()
                 .lineLimit(1)
-                .minimumScaleFactor(0.85)
         }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
+        .transaction { $0.animation = scrub.isDown ? nil : Theme.spring }
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
         .accessibilityElement(children: .combine)
     }
 }
 
-/// The app's price chart: the shared line, a finger that reads it, and
-/// the line growing into shape when prices change.
-struct PriceChart: View, Equatable {
-    let bars: [PriceStrip.Bar]
-    let mean: Double?
-    let cheapest: PriceStrip.Block?
-    let currency: String
-    let nowMs: Double
-    let plan: PlanEntry?
-    var onScrub: (ChartReadout?) -> Void = { _ in }
-    @State private var selected: Date?
-    @State private var range: ClosedRange<Date>?
-
-    nonisolated static func == (a: Self, b: Self) -> Bool {
-        a.bars == b.bars && a.mean == b.mean && a.cheapest == b.cheapest && a.currency == b.currency && a.nowMs == b.nowMs && a.plan == b.plan
-    }
+/// The surface and the finger's overlay on the same frame. Mono labels are
+/// sized with the text and stop growing at accessibility1.
+private struct PriceBarsChart: View {
+    let chart: PriceChart
+    let scrub: ScrubModel
+    @ScaledMetric(relativeTo: .caption2) private var axis: CGFloat = 10
+    @ScaledMetric(relativeTo: .caption2) private var kicker: CGFloat = 10.5
+    @ScaledMetric(relativeTo: .caption) private var tag: CGFloat = 11
 
     var body: some View {
-        let points = bars.map { HistoryPlot.Point(t: $0.startMs, v: PriceUnits.display($0.minor, currency), kind: .measured, run: 0, id: $0.startMs) }
-        let ends = Dictionary(bars.map { ($0.startMs, $0.endMs) }, uniquingKeysWith: { a, _ in a })
-        MovingPoints(points: points) { drawn, _, _ in
-            PriceLineChart(
-                points: drawn.map { PricePoint(startMs: $0.id, endMs: ends[$0.id] ?? $0.id, value: $0.v) },
-                nowMs: nowMs,
-                mean: mean.map { PriceUnits.display($0, currency) },
-                cheapest: cheapest.map { $0.startMs...$0.endMs },
-                cheapestLabel: L("Cheapest"),
-                meanLabel: mean.map { NodeWords.format("avg %@", AppWords.decimal(PriceStrip.text($0, currency))) },
-                palette: .ink,
-                zone: .current,
-                selected: selected
+        let frame = PriceBarsDrawing.frame(axis: axis, kicker: kicker, tag: tag)
+        ZStack {
+            ChartSurface(drawing: PriceBarsDrawing(chart: chart, frame: frame, axis: axis, kicker: kicker))
+                .equatable()
+            ScrubOverlay(
+                track: ScrubTrack(grid: chart.grid, domain: chart.domain, values: chart.shown, tags: chart.tag, landmarks: chart.landmarks, bars: true),
+                frame: frame,
+                model: scrub,
+                tagSize: tag,
+                spanTag: { [chart] r in chart.when(r) + "  " + (chart.mean(r).map { NodeWords.format("avg %@", chart.figure($0)) } ?? "—") }
             )
         }
-        .chartScrub(selected: $selected, range: $range, slot: { d in
-            SlotLookup.clamped(bars, at: d.timeIntervalSince1970 * 1000, start: \.startMs).map { bars[$0].startMs }
-        }, landmark: { slot in landmarks.contains(slot) })
-        .onChange(of: selected) { _, _ in report() }
-        .onChange(of: range) { _, _ in report() }
-        .dynamicTypeSize(...chartTextCap)
-        .accessibilityChartDescriptor(PriceDescriptor(bars: bars, currency: currency))
+    }
+}
+
+/// Two reserved lines under the chart: what the price holds, or under a
+/// finger what the plan does in that slot. The page never moves.
+private struct PriceReadout: View {
+    let chart: PriceChart
+    let included: String
+    let planned: Bool
+    let scrub: ScrubModel
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            // Two lines held open, so a longer readout pushes nothing.
+            Text(verbatim: "\n")
+            Text(text)
+                .accessibilityIdentifier("chart.readout")
+        }
+        .font(.subheadline)
+        .foregroundStyle(Theme.ink2)
+        .lineLimit(2, reservesSpace: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .transaction { $0.animation = nil }
     }
 
-    private var chartPrices: [ChartPrice] { bars.map { ChartPrice(startMs: $0.startMs, endMs: $0.endMs, minor: $0.minor) } }
-
-    /// Now, the edges of the cheapest hours, the dearest and the cheapest.
-    private var landmarks: Set<Double> {
-        var out = Set<Double>()
-        if let now = bars.first(where: { $0.current }) { out.insert(now.startMs) }
-        if let c = cheapest {
-            out.insert(c.startMs)
-            if let last = bars.last(where: { $0.startMs < c.endMs }) { out.insert(last.startMs) }
+    private var text: String {
+        if let r = scrub.span {
+            guard let mean = chart.mean(r) else { return included }
+            let average = NodeWords.format("average %@", chart.figure(mean) + " " + chart.unit)
+            return mean < 0 ? PriceChart.paidWord + " · " + average : average
         }
-        if let hi = bars.max(by: { $0.minor < $1.minor }) { out.insert(hi.startMs) }
-        if let lo = bars.min(by: { $0.minor < $1.minor }) { out.insert(lo.startMs) }
-        return out
-    }
-
-    private func report() {
-        if let range {
-            onScrub(Readouts.price(chartPrices, currency: currency, range: range.lowerBound.timeIntervalSince1970 * 1000...range.upperBound.timeIntervalSince1970 * 1000))
-        } else if let selected {
-            onScrub(Readouts.price(chartPrices, currency: currency, plan: plan, at: selected.timeIntervalSince1970 * 1000))
-        } else {
-            onScrub(nil)
-        }
+        guard let i = scrub.index else { return included }
+        let doing = chart.doing[i]
+        if !doing.isEmpty { return doing }
+        return planned ? L("Nothing planned then") : included
     }
 }
 
 /// The prices as VoiceOver reads them: a slot a step.
 struct PriceDescriptor: AXChartDescriptorRepresentable {
-    let bars: [PriceStrip.Bar]
-    let currency: String
+    let chart: PriceChart
 
     func makeChartDescriptor() -> AXChartDescriptor {
-        let values = bars.map { PriceUnits.display($0.minor, currency) }
+        let values = chart.shown.compactMap { $0 }
         let lo = min(0, values.min() ?? 0), hi = max(lo + 1, values.max() ?? 1)
-        let start = bars.first?.startMs ?? 0, end = max(start + 1, bars.last?.endMs ?? 1)
-        let unit = PriceUnits.unit(currency).perKwh
+        let start = chart.grid.fromMs, end = max(start + 1, chart.grid.toMs)
         let x = AXNumericDataAxisDescriptor(title: L("Time"), range: start...end, gridlinePositions: []) { Readouts.clock($0) }
-        let y = AXNumericDataAxisDescriptor(title: L("Electricity price"), range: lo...hi, gridlinePositions: []) { "\(AppWords.decimal(PowerFormat.fixed($0, 1))) \(unit)" }
-        let series = AXDataSeriesDescriptor(name: L("Electricity price"), isContinuous: false, dataPoints: bars.map {
-            AXDataPoint(x: $0.startMs, y: PriceUnits.display($0.minor, currency))
-        })
-        return AXChartDescriptor(title: L("Electricity price"), summary: nil, xAxis: x, yAxis: y, additionalAxes: [], series: [series])
+        let y = AXNumericDataAxisDescriptor(title: L("Electricity price"), range: lo...hi, gridlinePositions: []) { "\(AppWords.decimal(PowerFormat.fixed($0, 1))) \(chart.unit)" }
+        let points = chart.shown.indices.compactMap { i in
+            chart.shown[i].map { AXDataPoint(x: chart.grid.startMs(i), y: $0, additionalValues: [], label: chart.doing[i].isEmpty ? nil : chart.doing[i]) }
+        }
+        let series = AXDataSeriesDescriptor(name: L("Electricity price"), isContinuous: false, dataPoints: points)
+        return AXChartDescriptor(title: L("Electricity price"), summary: chart.cheapestText.isEmpty ? nil : chart.cheapestText, xAxis: x, yAxis: y, additionalAxes: [], series: [series])
     }
 }

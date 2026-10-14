@@ -74,9 +74,3 @@ enum Theme {
         return Color(color.resolve(in: environment))
     }
 }
-
-extension PriceChartPalette {
-    /// The price line in ink, stronger as it gets dearer, for the app and
-    /// the widget alike.
-    static let ink = PriceChartPalette(cheap: Theme.ink3, flat: Theme.ink2, dear: Theme.ink, now: Theme.ink, quiet: Theme.ink3, labelBackground: Theme.raised)
-}

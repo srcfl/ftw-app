@@ -213,6 +213,8 @@ public enum NodeWords {
         "Reading the prices from your box…": "Läser priserna från boxen …",
         "Cheapest %@ · %@ on average": "Billigast %@ · %@ i snitt",
         "avg %@": "snitt %@",
+        "Nothing planned then": "Inget planerat då",
+        "Now · %@": "Nu · %@",
         "not charging": "laddar inte",
         "Time": "Tid",
         "Power": "Effekt",
