@@ -19,6 +19,16 @@ public struct WatchNow: CacheValue {
 
     public enum Node: String, Codable, Sendable, CaseIterable {
         case solar, battery, home, grid, car
+
+        /// The least a trace's scale reaches, as the phone's node view has
+        /// it (`EnergyNode.scaleFloorW`), so a quiet node draws flat.
+        public var floorW: Double {
+            switch self {
+            case .home: return 2_000
+            case .grid, .battery, .solar: return 3_000
+            case .car: return 3_700
+            }
+        }
     }
 
     /// The word beside a figure. The sign is in the word, never a minus.
@@ -38,6 +48,18 @@ public struct WatchNow: CacheValue {
         /// The phone saw this reading live: a live carrier and its own
         /// source live. The watch adds its own rule on arrival.
         public var live: Bool
+
+        /// The watts with their direction as a trace draws them: the sun's
+        /// output, the home's use and the car's draw up; the battery up
+        /// while it stores and down while it gives; the grid up while the
+        /// home buys and down while it sells.
+        public var signedW: Double? {
+            guard let watts else { return nil }
+            switch way {
+            case .giving, .selling: return -watts
+            default: return watts
+            }
+        }
 
         public init(node: Node, watts: Double?, way: Way, levelPct: Double? = nil, levelAssumed: Bool = false, live: Bool) {
             self.node = node

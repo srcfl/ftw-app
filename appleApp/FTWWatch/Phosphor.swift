@@ -126,3 +126,16 @@ extension Theme {
     /// as the app does.
     static let spring = Animation.spring(duration: 0.35, bounce: 0.15)
 }
+
+/// A page on one screen. At text sizes too large for the watch it scrolls
+/// rather than cut a reading off.
+struct OnePage<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        ViewThatFits(in: .vertical) {
+            content
+            ScrollView { content }
+        }
+    }
+}

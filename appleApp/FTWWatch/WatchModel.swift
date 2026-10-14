@@ -30,6 +30,20 @@ final class WatchModel {
 
     static let modeTarget = "mode"
 
+    /// Now's live trace, fed by the frames the phone passes on.
+    let trace = WatchTrace(node: WatchModel.heroNode)
+
+    /// The node Now traces, as the wrist last chose it. The home's use by
+    /// default: it moves whenever something in the house switches.
+    static var heroNode: WatchNow.Node {
+        UserDefaults.standard.string(forKey: "FTWWatchHero").flatMap(WatchNow.Node.init(rawValue:)) ?? .home
+    }
+
+    func follow(_ node: WatchNow.Node) {
+        UserDefaults.standard.set(node.rawValue, forKey: "FTWWatchHero")
+        trace.follow(node)
+    }
+
     @ObservationIgnored private let read: any ReadPath
     @ObservationIgnored private let command: any CommandPath
     @ObservationIgnored private let cache: WatchCache?
@@ -100,6 +114,8 @@ final class WatchModel {
             now = ctx.now
             nowArrivedAtMs = nil
             relight()
+            // A kept reading joins the trace in ink: seen, but not live.
+            if let record = ctx.now { trace.add(record, lit: false) }
         }
         if let r = ctx.receipt { receipt(r) }
         if keep { self.keep(ctx) }
@@ -115,6 +131,7 @@ final class WatchModel {
         now = record
         nowArrivedAtMs = nowMs
         relight()
+        trace.add(record, lit: lit)
     }
 
     /// Glow while the last frame is fresh, then cool once: one wake per

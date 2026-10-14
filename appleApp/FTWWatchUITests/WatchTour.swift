@@ -57,16 +57,13 @@ final class WatchTour: XCTestCase {
         shoot("charge-now-receipt")
     }
 
-    /// Now from top to bottom, the modes, and a change of mode with its
-    /// receipt, then back to the plan.
+    /// Now, the modes behind its toolbar button, and a change of mode with
+    /// its receipt.
     func testNowAndMode() throws {
         let app = launch("now")
         XCTAssertTrue(app.staticTexts.firstMatch.waitForExistence(timeout: 15))
         sleep(4)
         shoot("now")
-        app.swipeUp()
-        sleep(1)
-        shoot("now-bottom")
         let mode = app.buttons["watch.mode"]
         XCTAssertTrue(mode.waitForExistence(timeout: 5))
         mode.tap()
@@ -84,6 +81,39 @@ final class WatchTour: XCTestCase {
         app.swipeUp()
         sleep(1)
         shoot("mode-receipt")
+    }
+
+    /// The four pages one after another, as a wrist moves through them:
+    /// the Crown pages from Now to the plan, steps the hand there, and a
+    /// swipe goes on to the car and the price, then back.
+    func testPagingAndCrown() throws {
+        let app = launch("now")
+        XCTAssertTrue(app.staticTexts.firstMatch.waitForExistence(timeout: 15))
+        sleep(5)
+        // On Now the Crown turns the pages.
+        XCUIDevice.shared.rotateDigitalCrown(delta: 0.5)
+        sleep(2)
+        // On the plan it turns the hand.
+        for _ in 0..<16 {
+            XCUIDevice.shared.rotateDigitalCrown(delta: 0.06)
+            usleep(200_000)
+        }
+        sleep(1)
+        for _ in 0..<16 {
+            XCUIDevice.shared.rotateDigitalCrown(delta: -0.06)
+            usleep(120_000)
+        }
+        sleep(1)
+        app.swipeUp()
+        sleep(2)
+        app.swipeUp()
+        sleep(2)
+        app.swipeDown()
+        sleep(1)
+        app.swipeDown()
+        sleep(1)
+        app.swipeDown()
+        sleep(2)
     }
 
     func testPriceAndPlan() throws {

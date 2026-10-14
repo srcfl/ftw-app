@@ -106,6 +106,9 @@ struct LiveTraceSurface: View {
     /// when it lifted: the window springs from there back to now.
     var catchUp: (fromMs: Double, at: Date)?
     var axisSize: CGFloat = 10
+    /// Hold still at the last reading: a trace that is not live has
+    /// nothing to scroll toward (the watch, whose redraws cost battery).
+    var paused = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var phase
@@ -119,7 +122,7 @@ struct LiveTraceSurface: View {
     var body: some View {
         let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
         let moving = settledAt.map { $0 < max(frame.arrivedAt, catchUp?.at ?? .distantPast) } ?? true
-        let still = reduceMotion || frozenAtMs != nil || phase != .active
+        let still = reduceMotion || frozenAtMs != nil || phase != .active || paused
         TimelineView(.animation(minimumInterval: lowPower ? 1.0 / 10 : (moving ? nil : 1.0 / 15), paused: still)) { tick in
             Canvas(rendersAsynchronously: false) { g, size in
                 #if DEBUG

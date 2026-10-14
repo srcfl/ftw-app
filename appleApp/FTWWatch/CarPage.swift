@@ -1,9 +1,13 @@
 import FTWShared
 import SwiftUI
 
-/// The car as the box last described it, dated, and the three commands:
-/// Charge now, Pause and Back to the plan. Each asks once more, goes
-/// through the phone, and shows the box's receipt under the buttons.
+/// The car on one screen: its level as the 10-cell meter, what it does,
+/// its goal and next window, when that was read, the receipt of the last
+/// command, and the three commands as one row of buttons. Each asks once
+/// more and names itself in full there; the box's answers come back as the
+/// receipt.
+///
+/// With more than one charger, the one with a car plugged in shows.
 struct CarPage: View {
     let model: WatchModel
     @State private var asking: Ask?
@@ -19,24 +23,22 @@ struct CarPage: View {
         TimelineView(.everyMinute) { timeline in
             let nowMs = timeline.date.timeIntervalSince1970 * 1000
             let cars = WatchGlance.cars(model.context?.cars, plan: model.context?.plan?.value, nowMs: nowMs, zone: model.zone)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
-                    if model.context?.cars == nil {
-                        // Nothing read yet is not "no charger": the shape of
-                        // the page until the phone says.
-                        CarBlock(car: .shape, model: model, ask: { _ in })
-                            .redacted(reason: .placeholder)
-                            .disabled(true)
-                    } else if cars.isEmpty {
-                        Text(WatchWord.noCharger.text)
-                            .font(.footnote)
-                            .foregroundStyle(Theme.ink2)
-                    }
-                    ForEach(cars) { car in
-                        CarBlock(car: car, model: model, ask: { asking = $0 })
-                    }
+            let car = cars.first(where: \.pluggedIn) ?? cars.first
+            Group {
+                if let car {
+                    OnePage { CarBlock(car: car, model: model, ask: { asking = $0 }) }
+                } else if model.context?.cars == nil {
+                    // Nothing read yet is not "no charger": the shape of the
+                    // page until the phone says.
+                    CarBlock(car: .shape, model: model, ask: { _ in })
+                        .redacted(reason: .placeholder)
+                        .disabled(true)
+                } else {
+                    Text(WatchWord.noCharger.text)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.ink2)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .navigationTitle(WatchWord.car.text)
@@ -52,13 +54,14 @@ private struct CarBlock: View {
     let ask: (CarPage.Ask) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
+                // "20 % antaget": a level FTW assumed says so.
                 Text(car.levelText ?? "—")
                     .font(Theme.figure(26))
                     .foregroundStyle(Theme.ink)
-                    .minimumScaleFactor(0.7)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 Spacer(minLength: 0)
                 if let cells = car.cells {
                     Meter(cells: cells, hue: Theme.car)
@@ -67,17 +70,20 @@ private struct CarBlock: View {
             Text(car.state)
                 .font(.footnote.weight(.semibold))
                 .foregroundStyle(Theme.ink)
-            if let line = [car.goal, car.next].compactMap({ $0 }).nilIfEmpty?.joined(separator: " · ") {
-                Text(line)
-                    .font(.caption2)
-                    .foregroundStyle(Theme.ink2)
-            }
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text([car.goal, car.next].compactMap { $0 }.joined(separator: " · "))
+                .font(.caption2)
+                .foregroundStyle(Theme.ink2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             Text(car.asOf)
                 .font(Theme.mono(.caption2))
                 .foregroundStyle(Theme.ink3)
-
+                .lineLimit(1)
+            Spacer(minLength: 2)
             // Room for the receipt, above the buttons, so nothing moves
-            // when it lands and it shows where the tap was.
+            // when it lands.
             ZStack(alignment: .topLeading) {
                 ReceiptLine(receipt: WatchReceipt(commandID: "", op: .mode(""), sent: .waiting, accepted: .waiting, confirmed: .waiting, text: "\n", tone: .working))
                     .hidden()
@@ -90,25 +96,31 @@ private struct CarBlock: View {
                         .foregroundStyle(Theme.ink2)
                 }
             }
-            let sending = model.sending(car.loadpointID)
-            let off = !model.canSend || sending
-            VStack(spacing: 4) {
-                command(WatchWord.chargeNow.text, .chargeNow(loadpointID: car.loadpointID), WatchWord.chargeNowAsk.text, off: off)
+            let off = !model.canSend || model.sending(car.loadpointID)
+            HStack(spacing: 6) {
+                command("bolt.fill", WatchWord.chargeNow.text, .chargeNow(loadpointID: car.loadpointID), WatchWord.chargeNowAsk.text, off: off, on: car.holding)
                     .accessibilityIdentifier("watch.car.chargeNow")
-                command(WatchWord.pause.text, .pause(loadpointID: car.loadpointID), WatchWord.pauseAsk.text, off: off)
-                command(WatchWord.backToPlan.text, .backToPlan(loadpointID: car.loadpointID), WatchWord.backToPlanAsk.text, off: off)
+                command("pause.fill", WatchWord.pause.text, .pause(loadpointID: car.loadpointID), WatchWord.pauseAsk.text, off: off, on: false)
+                command("arrow.uturn.backward", WatchWord.backToPlan.text, .backToPlan(loadpointID: car.loadpointID), WatchWord.backToPlanAsk.text, off: off, on: false)
             }
-            .padding(.top, 2)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func command(_ title: String, _ op: WatchCommand.Op, _ question: String, off: Bool) -> some View {
-        Button(title) { ask(CarPage.Ask(op: op, question: question, action: title)) }
-            .buttonStyle(.bordered)
-            .disabled(off)
+    /// One command: a glyph on the button, its full name in the question
+    /// and to VoiceOver. `on` marks the one the box last confirmed as
+    /// holding.
+    private func command(_ glyph: String, _ title: String, _ op: WatchCommand.Op, _ question: String, off: Bool, on: Bool) -> some View {
+        Button {
+            ask(CarPage.Ask(op: op, question: question, action: title))
+        } label: {
+            Image(systemName: glyph)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(on ? Theme.car : Theme.ink)
+                .frame(maxWidth: .infinity, minHeight: 34)
+        }
+        .buttonStyle(.bordered)
+        .disabled(off)
+        .accessibilityLabel(title)
     }
-}
-
-extension Array {
-    var nilIfEmpty: [Element]? { isEmpty ? nil : self }
 }
