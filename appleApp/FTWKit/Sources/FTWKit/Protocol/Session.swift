@@ -1,5 +1,11 @@
 import Foundation
 import FTWShared
+import os
+
+/// Every request frame the session puts on the wire, so a log can count
+/// what a return from the background costs. Read with
+/// `log show --predicate 'subsystem == "energy.ftw.app" AND category == "asks"'`.
+private let askLog = Logger(subsystem: "energy.ftw.app", category: "asks")
 
 /// The session: handshake, subscription and the field register.
 ///
@@ -112,6 +118,10 @@ public final class Session {
     public private(set) var state = SessionState() {
         didSet { onChange?(state) }
     }
+
+    /// Request frames sent since the session was made: history, the plan,
+    /// prices and API reads. Commands are not counted; a person asked.
+    public private(set) var requestsSent = 0
 
     /// One listener: the site model. Called after every change.
     public var onChange: (@MainActor (SessionState) -> Void)?
@@ -289,6 +299,7 @@ public final class Session {
                 p.continuation.resume(throwing: SessionError.timedOut("prices"))
             }
             pendingPrices[id] = PendingSingle(continuation: cont, timer: timer)
+            sent("price.get")
             carrier?.send(frame)
         }
     }
@@ -302,6 +313,7 @@ public final class Session {
         return try await withCheckedThrowingContinuation { cont in
             pendingHistory[id] = PendingHistory(onChunk: onChunk, continuation: cont, timer: nil)
             armHistory(id)
+            sent("hist.query")
             carrier?.send(frame)
         }
     }
@@ -317,6 +329,7 @@ public final class Session {
                 p.continuation.resume(throwing: SessionError.timedOut("plan"))
             }
             pendingPlan[id] = PendingSingle(continuation: cont, timer: timer)
+            sent("plan.get")
             carrier?.send(frame)
         }
     }
@@ -388,6 +401,7 @@ public final class Session {
         return try await withCheckedThrowingContinuation { cont in
             pendingAPI[id] = PendingAPI(continuation: cont)
             armAPI(id)
+            sent("api.req \(req.method.rawValue) \(req.path)")
             carrier.send(frame)
         }
     }
@@ -452,6 +466,11 @@ public final class Session {
         let h = bytes.hex
         let c = Array(h)
         return "\(String(c[0..<8]))-\(String(c[8..<12]))-\(String(c[12..<16]))-\(String(c[16..<20]))-\(String(c[20...]))"
+    }
+
+    private func sent(_ what: String) {
+        requestsSent += 1
+        askLog.notice("ask \(what, privacy: .public)")
     }
 
     // MARK: Frames in

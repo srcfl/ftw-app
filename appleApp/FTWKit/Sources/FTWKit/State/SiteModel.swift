@@ -9,6 +9,8 @@ private let log = Logger(subsystem: "energy.ftw.app", category: "widgets")
 /// `log show --predicate 'subsystem == "energy.ftw.app" AND category == "reading"'`.
 private let readingLog = Logger(subsystem: "energy.ftw.app", category: "reading")
 private let signposter = OSSignposter(subsystem: "energy.ftw.app", category: "reading")
+/// How many requests each stay in front cost, logged when the app hides.
+private let askLog = Logger(subsystem: "energy.ftw.app", category: "asks")
 
 /// The bridge between the session and the screens.
 ///
@@ -158,6 +160,9 @@ public final class SiteModel {
     /// Where the readings on screen came from at the last change.
     @ObservationIgnored private(set) var source: ReadingSource = .relay
     @ObservationIgnored private var startedAtMs: Double = 0
+    /// Which stay in front this is, and the session's request count when it
+    /// began.
+    @ObservationIgnored private var visit = (number: 1, fromRequests: 0)
     @ObservationIgnored private var firsts: Set<String> = []
     /// The cloud session, for the About screen. Nil while there is none.
     public private(set) var cloudStatus: CloudCarrier.Status?
@@ -268,6 +273,7 @@ public final class SiteModel {
         core.setTelemetryHz(1)
         cloud?.setLooking(true)
         if !was {
+            visit = (visit.number + 1, core.requestsSent)
             // A start passes through inactive on its way to the front; its
             // own interval keeps running.
             if liveSpan == nil { beginLiveSpan("foreground to live") }
@@ -277,12 +283,18 @@ public final class SiteModel {
     }
 
     private func hide() {
+        if documentVisible {
+            askLog.notice("visit \(self.visit.number, privacy: .public): \(self.requestsThisVisit, privacy: .public) requests")
+        }
         documentVisible = false
         core.setTelemetryHz(0.2)
         cloud?.setLooking(false)
         cancelResume()
         scheduleClock()
     }
+
+    /// Request frames sent since the app last came to the front.
+    public var requestsThisVisit: Int { core.requestsSent - visit.fromRequests }
 
     /// A new network path should replace the old one without waiting.
     public func networkOnline() {

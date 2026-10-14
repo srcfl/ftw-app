@@ -54,6 +54,9 @@ public final class SimulatedBox {
     public private(set) var receivedCommands: [String] = []
     /// Every API request, as "METHOD /path", so a test can count reads.
     public private(set) var receivedRequests: [String] = []
+    /// Every request frame in the order it came: `hist.query`, `plan.get`,
+    /// `price.get`, and each API request as "METHOD /path".
+    public private(set) var asks: [String] = []
     public private(set) var stepUpsSeen = 0
 
     public nonisolated static let modes: [ModeInfo] = [
@@ -101,6 +104,7 @@ public final class SimulatedBox {
         guard let frame = try? Frame.decode(bytes) else { return }
         let env = frame.envelope
         let body = env.b ?? CBOR.emptyMap
+        if ["price.get", "hist.query", "plan.get"].contains(env.t) { asks.append(env.t) }
         switch env.t {
         case "hello": onHello(body)
         case "sub":
@@ -426,6 +430,7 @@ public final class SimulatedBox {
         for e in body["query"]?.entries ?? [] { if let k = e.key.string, let v = e.value.string { query[k] = v } }
         let requestBody = body["body"]?.byteString.flatMap { try? JSON(parsing: $0) }
         receivedRequests.append("\(method) \(path)")
+        asks.append("\(method) \(path)")
 
         guard path.hasPrefix("/api/"), let route = Self.match(method, path) else {
             refuse(id, "E_UNKNOWN_OP", [])
