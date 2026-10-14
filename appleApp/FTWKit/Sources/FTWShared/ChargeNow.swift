@@ -30,11 +30,15 @@ public enum ChargeNowActivity {
         public var phase: Phase
         public var startedAtMs: Double
         public var confirmedAtMs: Double
+        /// When lane 0 first showed the car drawing power after this
+        /// command, on this phone's clock. Nil until it has.
+        public var measuredAtMs: Double?
 
-        public init(phase: Phase = .on, startedAtMs: Double, confirmedAtMs: Double) {
+        public init(phase: Phase = .on, startedAtMs: Double, confirmedAtMs: Double, measuredAtMs: Double? = nil) {
             self.phase = phase
             self.startedAtMs = startedAtMs
             self.confirmedAtMs = confirmedAtMs
+            self.measuredAtMs = measuredAtMs
         }
 
         public init(from decoder: Decoder) throws {
@@ -42,6 +46,7 @@ public enum ChargeNowActivity {
             phase = try c.decodeIfPresent(Phase.self, forKey: .phase) ?? .on
             startedAtMs = try c.decode(Double.self, forKey: .startedAtMs)
             confirmedAtMs = try c.decode(Double.self, forKey: .confirmedAtMs)
+            measuredAtMs = try c.decodeIfPresent(Double.self, forKey: .measuredAtMs)
         }
 
         public var startedAt: Date { Date(timeIntervalSince1970: startedAtMs / 1000) }
@@ -55,13 +60,25 @@ public enum ChargeNowActivity {
 
         public func isStale(atMs nowMs: Double) -> Bool { nowMs >= confirmedAtMs + window }
 
-        private var window: Double { phase == .on ? ChargeNowActivity.vouchMs : ChargeNowActivity.answerMs }
+        private var window: Double { phase == .on ? ChargeNowActivity.staleMs : ChargeNowActivity.answerMs }
+
+        /// The receipt log as far as this card knows it. A card that reads
+        /// as on has been sent, accepted and confirmed.
+        public var receipt: ReceiptLog {
+            ReceiptLog(sent: true, accepted: phase != .sent, measured: measuredAtMs != nil, confirmed: phase == .on)
+        }
     }
 
-    /// How long one confirmation is shown as current. The app confirms it
-    /// again on every read of the chargers and whenever it comes to the
-    /// front; until the box can push to the Live Activity (M7), nothing
-    /// confirms it while the app sleeps.
+    /// How long one confirmation is shown as current on the Live Activity.
+    /// The app confirms it again on every read of the chargers, once a
+    /// minute while someone looks; until the box can push to the Live
+    /// Activity (M7), nothing confirms it while the app sleeps, so two
+    /// minutes after the last read it says when that was.
+    public static let staleMs: Double = 2 * 60_000
+
+    /// How long the Control trusts the car record the app left: Charge now
+    /// on or off as the box last confirmed it. A switch in Control Center
+    /// is a way in, not a reading, so it stays useful for longer.
     public static let vouchMs: Double = 15 * 60_000
 
     /// How long a command on its way is shown as on its way. The box has
@@ -77,6 +94,8 @@ public enum ChargeNowActivity {
         /// The box confirmed Charge now: its `cmd.result`, or, when the
         /// result never came, a read of the charger after this phone asked.
         case started(atMs: Double)
+        /// Lane 0 shows the car drawing power.
+        case measured(atMs: Double)
         /// The box refused it, or nothing confirmed it.
         case refused
         /// The box confirmed Back to the plan or Pause.
@@ -109,10 +128,19 @@ public enum ChargeNowActivity {
             // A second press while it is on changes nothing on the card.
             return s.phase == .on ? .none : .update(State(phase: .sent, startedAtMs: at, confirmedAtMs: at))
         case (let s?, .received(let at)):
-            return s.phase == .sent ? .update(State(phase: .received, startedAtMs: s.startedAtMs, confirmedAtMs: at)) : .none
+            return s.phase == .sent ? .update(State(phase: .received, startedAtMs: s.startedAtMs, confirmedAtMs: at, measuredAtMs: s.measuredAtMs)) : .none
         case (let s?, .started(let at)):
-            if s.phase == .on { return .update(State(phase: .on, startedAtMs: s.startedAtMs, confirmedAtMs: max(s.confirmedAtMs, at))) }
-            return .update(State(phase: .on, startedAtMs: at, confirmedAtMs: at))
+            if s.phase == .on { return .update(State(phase: .on, startedAtMs: s.startedAtMs, confirmedAtMs: max(s.confirmedAtMs, at), measuredAtMs: s.measuredAtMs)) }
+            return .update(State(phase: .on, startedAtMs: at, confirmedAtMs: at, measuredAtMs: s.measuredAtMs))
+        case (let s?, .measured(let at)):
+            // Lit once, from the first reading that shows it after the box
+            // has the command: a car that was already drawing says nothing
+            // about a command still on its way. A reading confirms nothing
+            // about Charge now itself.
+            guard s.measuredAtMs == nil, s.phase != .sent else { return .none }
+            var next = s
+            next.measuredAtMs = at
+            return .update(next)
         case (let s?, .refused):
             // A refused second press leaves Charge now as it was.
             return s.phase == .on ? .none : .end
@@ -121,7 +149,7 @@ public enum ChargeNowActivity {
         case (let s?, .seen(let holding, let at)):
             // While the command is on its way, its own answer decides.
             guard s.phase == .on else { return .none }
-            return holding ? .update(State(phase: .on, startedAtMs: s.startedAtMs, confirmedAtMs: max(s.confirmedAtMs, at))) : .end
+            return holding ? .update(State(phase: .on, startedAtMs: s.startedAtMs, confirmedAtMs: max(s.confirmedAtMs, at), measuredAtMs: s.measuredAtMs)) : .end
         }
     }
 
@@ -144,30 +172,30 @@ public enum ChargeNowActivity {
         public var headline: String
         public var subtitle: String
         public var timer: Timer
-        /// How many of the band's three steps are done: sent, received, on.
-        public var steps: Int
+        /// `SENT ▸ ACCEPTED ▸ MEASURED ▸ CONFIRMED`, each lit on its evidence.
+        public var receipt: ReceiptLog
         public var dimmed: Bool
     }
 
     public static func face(_ state: State, stale: Bool, zone: TimeZone) -> Face {
-        let steps = State.Phase.allCases.firstIndex(of: state.phase).map { $0 + 1 } ?? 3
+        let receipt = state.receipt
         switch (state.phase, stale) {
         case (.on, false):
-            return Face(headline: since(state, zone: zone), subtitle: noTimeLimit, timer: .running(from: state.startedAt), steps: steps, dimmed: false)
+            return Face(headline: since(state, zone: zone), subtitle: noTimeLimit, timer: .running(from: state.startedAt), receipt: receipt, dimmed: false)
         case (.on, true):
             return Face(
                 headline: confirmed(state, zone: zone),
                 subtitle: ChargeNowWord.mayHaveChanged.text,
                 timer: .stopped(from: state.startedAt, at: state.confirmedAt),
-                steps: steps,
+                receipt: receipt,
                 dimmed: true
             )
         case (.sent, false):
-            return Face(headline: ChargeNowWord.sending.text, subtitle: ChargeNowWord.waitingForFTW.text, timer: .waiting, steps: steps, dimmed: false)
+            return Face(headline: ChargeNowWord.sending.text, subtitle: ChargeNowWord.waitingForFTW.text, timer: .waiting, receipt: receipt, dimmed: false)
         case (.received, false):
-            return Face(headline: ChargeNowWord.received.text, subtitle: ChargeNowWord.waitingForCharger.text, timer: .waiting, steps: steps, dimmed: false)
+            return Face(headline: ChargeNowWord.received.text, subtitle: ChargeNowWord.waitingForCharger.text, timer: .waiting, receipt: receipt, dimmed: false)
         case (_, true):
-            return Face(headline: ChargeNowWord.noAnswer.text, subtitle: ChargeNowWord.mayNotHaveStarted.text, timer: .waiting, steps: steps, dimmed: true)
+            return Face(headline: ChargeNowWord.noAnswer.text, subtitle: ChargeNowWord.mayNotHaveStarted.text, timer: .waiting, receipt: receipt, dimmed: true)
         }
     }
 
@@ -223,7 +251,7 @@ public struct ChargeNowControlState: Equatable, Sendable {
     }
 
     /// The car with a cable, else the first; its hold as the box confirmed
-    /// it, if the record is no older than a Live Activity would vouch for.
+    /// it, if the record is no older than `ChargeNowActivity.vouchMs`.
     public static func from(_ read: CacheRead<CarEntry>?, nowMs: Double) -> ChargeNowControlState {
         guard let read else { return ChargeNowControlState(known: .unknown) }
         let cars = read.value.cars

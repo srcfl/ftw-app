@@ -104,6 +104,30 @@ import FTWShared
         }
     }
 
+    /// MEASURED lights once lane 0 shows the car drawing power, which here
+    /// comes after the box confirmed: the charger ramps for ten seconds.
+    @Test func lane0LightsMeasuredOnTheLiveActivity() async throws {
+        try await AppWords.$language.withValue(.en) {
+            let rig = Rig()
+            let loadpoints = try rig.start()
+            // A slow car: the box confirms long before it draws.
+            rig.box?.house.chargerRampMs = 10_000
+            _ = await rig.perform(.chargeNow, loadpoints)
+            let confirmed = try #require(rig.activities.states["demo/garage"])
+            #expect(confirmed.phase == .on)
+            #expect(confirmed.measuredAtMs == nil)
+            #expect(confirmed.receipt.marks.map(\.state) == [.lit, .lit, .waiting, .lit])
+            await rig.run(8_000)
+            let measured = try #require(rig.activities.states["demo/garage"])
+            let at = try #require(measured.measuredAtMs)
+            #expect(at > confirmed.confirmedAtMs)
+            #expect(measured.receipt.marks.allSatisfy { $0.state == .lit })
+            // Lit once: later readings do not move it.
+            await rig.run(3_000)
+            #expect(rig.activities.states["demo/garage"]?.measuredAtMs == at)
+        }
+    }
+
     /// Back to the plan from the Live Activity's button: a clear, and the
     /// Live Activity ends on the box's result.
     @Test func backToThePlanClearsTheHoldAndEndsTheLiveActivity() async throws {

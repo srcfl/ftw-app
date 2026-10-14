@@ -13,3 +13,8 @@
 "%@ kWh net with the grid today" = "%@ kWh net with the grid today";
 "cost %@" = "cost %@";
 "earned %@" = "earned %@";
+"bought, net" = "bought, net";
+"sold, net" = "sold, net";
+"even, net" = "even, net";
+"BUYING" = "BUYING";
+"SELLING" = "SELLING";

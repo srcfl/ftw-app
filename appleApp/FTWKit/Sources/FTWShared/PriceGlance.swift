@@ -11,6 +11,8 @@ import Foundation
 public enum PriceGlance {
     /// How far ahead the medium widget's curve reaches.
     public static let curveMs: Double = 12 * 3_600_000
+    /// The block strip's hours, on the small widget and the lock screen.
+    public static let stripHours = 12
 
     /// What the box's total holds besides the market price. The wire has
     /// spot and total but not the settings between them, so this is read off
@@ -50,6 +52,9 @@ public enum PriceGlance {
         public let cheapest: PriceStrip.Block?
         /// Slots from the current one to `curveMs` ahead.
         public let curve: [PriceStrip.Bar]
+        /// The next twelve hours as the block-glyph scale, from the hour
+        /// that holds this moment.
+        public let hours: [PriceBlocks.Hour]
         public let meanMinor: Double?
         public let included: Included
 
@@ -69,11 +74,17 @@ public enum PriceGlance {
         public let emptyText: String?
         /// "Fetched 13:05"
         public let fetchedText: String?
+        /// "AS OF 13:05": when the app fetched these prices, in the
+        /// terminal's caps. A widget always says it.
+        public let asOfText: String?
         /// The zone the clock in this moment is read in.
         public let timeZone: TimeZone
 
         /// Whether the widget should go grey: no price for this moment.
         public var isEmpty: Bool { state != .price }
+
+        /// "▃▃▂▁▁▂▅▇█▆▅▄"
+        public var glyphs: String { PriceBlocks.text(hours) }
 
         /// One line for the lock screen's inline slot, which shares its
         /// width with the date. Without a price it only sends the reader to
@@ -108,9 +119,9 @@ public enum PriceGlance {
         guard let read else {
             return Moment(
                 atMs: t, state: .nothing, carrier: .none, srcState: .never, readAtMs: nil,
-                currency: "", current: nil, cheapest: nil, curve: [], meanMinor: nil, included: .spotOnly,
+                currency: "", current: nil, cheapest: nil, curve: [], hours: [], meanMinor: nil, included: .spotOnly,
                 priceText: nil, unitText: "", unitLabel: "", includedText: "", cheapestText: nil, cheapestStartText: nil,
-                emptyText: GlanceWord.openToSee.text, fetchedText: nil, timeZone: calendar.timeZone
+                emptyText: GlanceWord.openToSee.text, fetchedText: nil, asOfText: nil, timeZone: calendar.timeZone
             )
         }
         let slots = usable(read.value.prices)
@@ -161,6 +172,7 @@ public enum PriceGlance {
             current: current,
             cheapest: cheapest,
             curve: curve,
+            hours: PriceBlocks.hours(curve, nowMs: t, count: stripHours, clock: ZoneClock.of(calendar.timeZone)),
             meanMinor: mean,
             included: included,
             priceText: current.map { Words.decimal(PriceStrip.text($0.totalMinor, prices.currency)) },
@@ -171,6 +183,7 @@ public enum PriceGlance {
             cheapestStartText: cheapest.map { clock.cheapestStart($0, from: t) },
             emptyText: emptyText,
             fetchedText: GlanceWord.fetched.format(clock.at(read.record.readAtMs, asEnd: false, from: t)),
+            asOfText: GlanceWord.asOf.format(clock.at(read.record.readAtMs, asEnd: false, from: t).uppercased()),
             timeZone: calendar.timeZone
         )
     }
@@ -237,6 +250,7 @@ enum GlanceWord: String, CaseIterable {
     case openToSee = "Open FTW to see prices"
     case noPricesShort = "No prices · open FTW"
     case fetched = "Fetched %@"
+    case asOf = "AS OF %@"
     case inclGridFeeAndVAT = "incl. grid fee and VAT"
     case inclVAT = "incl. VAT"
     case inclGridFee = "incl. grid fee"

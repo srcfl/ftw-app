@@ -72,15 +72,40 @@ import Testing
         #expect(ChargeNowActivity.next(on, .seen(holding: false, atMs: Self.t + 1)) == .end)
     }
 
-    /// The phone vouches for 15 minutes after the box last confirmed it;
-    /// every read confirms it again.
-    @Test func itGoesStaleFifteenMinutesAfterTheLastConfirmation() {
+    /// The card is current for two minutes after the box last confirmed
+    /// it; every read confirms it again. The Control trusts its record for
+    /// fifteen.
+    @Test func itGoesStaleTwoMinutesAfterTheLastConfirmation() {
         let s = ChargeNowActivity.State(startedAtMs: Self.t, confirmedAtMs: Self.t + 600_000)
+        #expect(ChargeNowActivity.staleMs == 2 * 60_000)
         #expect(ChargeNowActivity.vouchMs == 15 * 60_000)
-        #expect(s.staleDate.timeIntervalSince1970 * 1000 == Self.t + 600_000 + 900_000)
-        #expect(!s.isStale(atMs: Self.t + 600_000 + 899_999))
-        #expect(s.isStale(atMs: Self.t + 600_000 + 900_000))
+        #expect(s.staleDate.timeIntervalSince1970 * 1000 == Self.t + 600_000 + 120_000)
+        #expect(!s.isStale(atMs: Self.t + 600_000 + 119_999))
+        #expect(s.isStale(atMs: Self.t + 600_000 + 120_000))
         #expect(s.startedAt.timeIntervalSince1970 * 1000 == Self.t)
+    }
+
+    /// MEASURED lights from the first reading that shows the car drawing
+    /// after the box has the command, once, and stays through every later
+    /// step; a new Charge now clears it. A reading alone never starts a
+    /// card.
+    @Test func measuredLightsOnceAndStays() {
+        let t = Self.t
+        let received = ChargeNowActivity.State(phase: .received, startedAtMs: t, confirmedAtMs: t + 300)
+        let measured = ChargeNowActivity.State(phase: .received, startedAtMs: t, confirmedAtMs: t + 300, measuredAtMs: t + 900)
+        #expect(ChargeNowActivity.next(nil, .measured(atMs: t)) == .none)
+        // Not before the box has the command.
+        #expect(ChargeNowActivity.next(.init(phase: .sent, startedAtMs: t, confirmedAtMs: t), .measured(atMs: t + 100)) == .none)
+        #expect(ChargeNowActivity.next(received, .measured(atMs: t + 900)) == .update(measured))
+        #expect(ChargeNowActivity.next(measured, .measured(atMs: t + 2_000)) == .none)
+        #expect(ChargeNowActivity.next(measured, .started(atMs: t + 1_200)) == .update(.init(phase: .on, startedAtMs: t + 1_200, confirmedAtMs: t + 1_200, measuredAtMs: t + 900)))
+        let on = ChargeNowActivity.State(startedAtMs: t, confirmedAtMs: t, measuredAtMs: t + 900)
+        #expect(ChargeNowActivity.next(on, .seen(holding: true, atMs: t + 60_000)) == .update(.init(startedAtMs: t, confirmedAtMs: t + 60_000, measuredAtMs: t + 900)))
+        let again = ChargeNowActivity.State(phase: .sent, startedAtMs: t, confirmedAtMs: t, measuredAtMs: t + 900)
+        #expect(ChargeNowActivity.next(again, .sent(atMs: t + 5_000)) == .update(.init(phase: .sent, startedAtMs: t + 5_000, confirmedAtMs: t + 5_000)))
+        // A card from before MEASURED reads back with nothing measured.
+        let old = try? JSONDecoder().decode(ChargeNowActivity.State.self, from: Data(#"{"phase":"on","startedAtMs":1,"confirmedAtMs":2}"#.utf8))
+        #expect(old?.measuredAtMs == nil)
     }
 
     /// It names the state, not power, on the household's clock.
@@ -136,13 +161,18 @@ import Testing
         #expect(a.headline == "Sending Charge now…")
         #expect(a.subtitle == "Waiting for FTW")
         #expect(a.timer == .waiting)
-        #expect(a.steps == 1)
+        #expect(a.receipt == ReceiptLog(sent: true))
         let b = ChargeNowActivity.face(.init(phase: .received, startedAtMs: t, confirmedAtMs: t), stale: false, zone: Self.stockholm)
         #expect(b.headline == "FTW received Charge now")
         #expect(b.subtitle == "Waiting for the charger")
-        #expect(b.steps == 2)
+        #expect(b.receipt == ReceiptLog(sent: true, accepted: true))
         let c = ChargeNowActivity.face(.init(startedAtMs: t, confirmedAtMs: t), stale: false, zone: Self.stockholm)
-        #expect(c.steps == 3)
+        #expect(c.receipt == ReceiptLog(sent: true, accepted: true, confirmed: true))
+        #expect(c.receipt.line == "SENT ▸ ACCEPTED ▸ MEASURED ▸ CONFIRMED")
+        #expect(c.receipt.marks.map(\.state) == [.lit, .lit, .waiting, .lit])
+        let d = ChargeNowActivity.face(.init(startedAtMs: t, confirmedAtMs: t, measuredAtMs: t), stale: true, zone: Self.stockholm)
+        #expect(d.receipt.marks.allSatisfy { $0.state == .lit })
+        #expect(d.dimmed)
         #expect(sent.staleDate.timeIntervalSince1970 * 1000 == t + ChargeNowActivity.answerMs)
         let lost = ChargeNowActivity.face(sent, stale: true, zone: Self.stockholm)
         #expect(lost.headline == "No answer from FTW · open FTW")

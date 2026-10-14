@@ -4,20 +4,23 @@ import SwiftUI
 import WidgetKit
 
 /// Charge now outside the app, in the manner of the best travel apps: one
-/// line that says what is happening now, a large time in even digits, and a
-/// band of three steps (sent, received, on). On the Lock Screen and in the
-/// Dynamic Island, and through `.small` on a paired Apple Watch's Smart
-/// Stack and in CarPlay.
+/// line that says what is happening now, a large time in even digits, and
+/// the receipt log `SENT ▸ ACCEPTED ▸ MEASURED ▸ CONFIRMED`, each slot lit
+/// on its own evidence. On the Lock Screen and in the Dynamic Island, and
+/// through `.small` on a paired Apple Watch's Smart Stack and in CarPlay.
 ///
 /// It names the state the box confirmed, not power: the hold can be on
-/// while the car draws nothing. Past the stale date it says when the box
-/// last confirmed it, the time stops there, and everything dims. Every
-/// state has the same layout, so a change fades in place: the island keeps
-/// its size and nothing jumps.
+/// while the car draws nothing, and MEASURED says when it did. Two minutes
+/// after the last confirmation it says when that was, the time stops
+/// there, and everything dims. Every state has the same layout, so a
+/// change fades in place: the island keeps its size and nothing jumps. It
+/// sits on FTW's ground, never glows: a card is not a live reading.
 struct ChargeNowLiveActivity: Widget {
     var body: some WidgetConfiguration {
         ActivityConfiguration(for: ChargeNowAttributes.self) { context in
             ChargeNowBanner(attributes: context.attributes, face: Self.face(context))
+                .activityBackgroundTint(Theme.ground)
+                .activitySystemActionForegroundColor(Theme.ink)
         } dynamicIsland: { context in
             let face = Self.face(context)
             return DynamicIsland {
@@ -30,13 +33,13 @@ struct ChargeNowLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.trailing) {
                     Elapsed(face: face)
-                        .font(.system(.title, design: .rounded, weight: .semibold))
+                        .font(Theme.figure(28))
                         .padding(.trailing, 6)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(alignment: .leading, spacing: 6) {
                         Headline(face: face)
-                        StepBand(face: face)
+                        ReceiptRow(receipt: face.receipt, dimmed: face.dimmed)
                             .padding(.vertical, 2)
                         BackToPlan(attributes: context.attributes, face: face)
                             .padding(.top, 4)
@@ -53,7 +56,7 @@ struct ChargeNowLiveActivity: Widget {
                 Bolt(face: face)
             }
             // The island is always dark.
-            .keylineTint(face.dimmed ? Color.secondary : Theme.fixed(Theme.car, .dark))
+            .keylineTint(Theme.fixed(face.dimmed ? Theme.ink3 : Theme.car, .dark))
         }
         .supplementalActivityFamilies([.small])
     }
@@ -93,11 +96,11 @@ struct ChargeNowBanner: View {
                 // A stopped time is smaller, so the stale words fit beside
                 // it on a narrow phone.
                 Elapsed(face: face)
-                    .font(.system(face.dimmed ? .title2 : .largeTitle, design: .rounded, weight: .semibold))
+                    .font(Theme.figure(face.dimmed ? 22 : 34))
                     .minimumScaleFactor(0.6)
                     .frame(maxWidth: 120, alignment: .trailing)
             }
-            StepBand(face: face)
+            ReceiptRow(receipt: face.receipt, dimmed: face.dimmed)
             if !dim {
                 BackToPlan(attributes: attributes, face: face)
             }
@@ -119,17 +122,17 @@ struct ChargeNowSmall: View {
             HStack(spacing: 6) {
                 Bolt(face: face)
                 Elapsed(face: face)
-                    .font(.system(.headline, design: .rounded))
+                    .font(Theme.figure(17))
                     .lineLimit(1)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
             Text(face.headline)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Theme.ink2)
                 .lineLimit(2)
                 .minimumScaleFactor(0.85)
                 .contentTransition(.interpolate)
-            StepBand(face: face)
+            ReceiptRow(receipt: face.receipt, dimmed: face.dimmed, size: 9)
             if !dim {
                 BackToPlan(attributes: attributes, face: face)
                     .font(.caption)
@@ -147,7 +150,7 @@ private struct Headline: View {
     var body: some View {
         Text(face.headline)
             .font(.headline)
-            .foregroundStyle(face.dimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+            .foregroundStyle(face.dimmed ? Theme.ink2 : Theme.ink)
             .lineLimit(face.dimmed ? 2 : 1)
             .minimumScaleFactor(0.8)
             .contentTransition(.interpolate)
@@ -161,7 +164,7 @@ private struct Subtitle: View {
     var body: some View {
         Text(face.subtitle)
             .font(.subheadline)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Theme.ink2)
             .lineLimit(1)
             .minimumScaleFactor(0.8)
             .contentTransition(.interpolate)
@@ -178,7 +181,7 @@ private struct Elapsed: View {
         timer
             .monospacedDigit()
             .multilineTextAlignment(.trailing)
-            .foregroundStyle(face.dimmed || face.timer == .waiting ? AnyShapeStyle(.secondary) : AnyShapeStyle(Theme.car))
+            .foregroundStyle(face.dimmed || face.timer == .waiting ? Theme.ink3 : Theme.car)
             .lineLimit(1)
             .contentTransition(.numericText(countsDown: false))
             // Plain text has its own width; the stale headline beside it
@@ -206,28 +209,6 @@ private struct Elapsed: View {
     }
 }
 
-/// The three steps of Charge now, filled as the box answers: sent,
-/// received, on. Dimmed with the rest once stale.
-private struct StepBand: View {
-    let face: ChargeNowActivity.Face
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(0..<3, id: \.self) { step in
-                Capsule()
-                    .fill(fill(step))
-                    .frame(height: 5)
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
-    private func fill(_ step: Int) -> AnyShapeStyle {
-        guard step < face.steps else { return AnyShapeStyle(.quaternary) }
-        return face.dimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(Theme.car)
-    }
-}
-
 /// The car with a bolt: filled while Charge now is on or on its way, an
 /// outline once stale. The change is the symbol's own.
 private struct Bolt: View {
@@ -236,7 +217,7 @@ private struct Bolt: View {
 
     var body: some View {
         Image(systemName: face.dimmed ? "bolt.car" : "bolt.car.fill")
-            .foregroundStyle(dim || face.dimmed ? AnyShapeStyle(.secondary) : AnyShapeStyle(Theme.car))
+            .foregroundStyle(dim || face.dimmed ? Theme.ink3 : Theme.car)
             .contentTransition(.symbolEffect(.replace))
     }
 }
@@ -254,7 +235,7 @@ private struct BackToPlan: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(.bordered)
-        .tint(Tone.accent)
-        .opacity(face.steps < 3 ? 0.5 : 1)
+        .tint(Theme.ink)
+        .opacity(face.receipt.confirmed ? 1 : 0.5)
     }
 }
