@@ -6,10 +6,15 @@ import Observation
 /// at five minutes serves every node, so opening the battery after the sun
 /// asks nothing new.
 ///
-/// Closed tiles never change, so they are kept for the session and the box
-/// is told which it already sent; only the tile still filling crosses the
-/// wire again. The window is asked for again when the five minutes turn,
-/// and only while a node's view is open.
+/// Closed tiles never change. They are sealed as `tiles-<site>` with the
+/// tile still filling, so a node's history draws in frame one after a
+/// kill, and the box is told which it already sent: only the tile still
+/// filling crosses the wire again. That open tile stays on screen until
+/// its replacement lands, so the right edge never pulls back.
+///
+/// The window is primed once after the first live frame, newest tile
+/// first, and asked for again when the five minutes turn while a node's
+/// view is open.
 @Observable
 @MainActor
 public final class HistoryModel {
@@ -22,7 +27,7 @@ public final class HistoryModel {
 
     public private(set) var frame: HistoryGeometry.Frame?
     public private(set) var gaps: [HistGap] = []
-    /// The box answered at least once for this home.
+    /// The box answered at least once for this home since launch.
     public private(set) var loaded = false
     public private(set) var loading = false
     /// A sentence about the wire, never about the home.
@@ -34,11 +39,35 @@ public final class HistoryModel {
     @ObservationIgnored private var token = 0
     /// Closed tiles, by id. Immutable once closed.
     @ObservationIgnored private var tiles: [String: HistChunk] = [:]
+    /// The tile still filling, as last sent: drawn until its replacement
+    /// lands, never offered to the box as held.
+    @ObservationIgnored private var open: HistChunk?
+    /// The window has been asked for once since launch.
+    @ObservationIgnored private var primed = false
+    /// Tiles that land within one display frame are drawn as one change.
+    @ObservationIgnored private var drawing: Cancellable?
+    /// The load on the wire. A second caller waits for it rather than
+    /// asking again.
+    @ObservationIgnored private var running: Task<Void, Error>?
     @ObservationIgnored let calendar: Calendar
 
     public init(site: SiteModel, calendar: Calendar = .current) {
         self.site = site
         self.calendar = calendar
+        if let kept = site.keptFile(TileFile.self, "tiles"), kept.version == TileFile.version {
+            for tile in kept.tiles.map(\.chunk) {
+                if tile.partial { open = tile } else { tiles[tile.tileId] = tile }
+            }
+            let (plan, from, to) = window()
+            show(plan, from, to)
+        }
+        site.keepFile("tiles") { [weak self] in self?.file }
+        ask = LiveAsk(site: site, want: { [weak self] in
+            guard let self, self.site.documentVisible, self.available, self.active > 0 || !self.primed else { return nil }
+            // The window ends now, so which five minutes "now" is belongs
+            // in the name; otherwise the right edge says "now" all day.
+            return "history \(Int(self.site.nowMs / Self.stepMs))"
+        }, ask: { [weak self] in try await self?.load() })
     }
 
     /// Whether this box keeps history at all. Unknown until its hello.
@@ -48,15 +77,6 @@ public final class HistoryModel {
 
     public func activate() {
         active += 1
-        if ask == nil {
-            ask = LiveAsk(site: site, want: { [weak self] in
-                guard let self, self.active > 0, self.site.documentVisible, self.available else { return nil }
-                // The window ends now, so which five minutes "now" is
-                // belongs in the name; otherwise the right edge says "now"
-                // all day.
-                return "history \(Int(self.site.nowMs / Self.stepMs))"
-            }, ask: { [weak self] in try await self?.load() })
-        }
         ask?.evaluate()
     }
 
@@ -65,33 +85,49 @@ public final class HistoryModel {
         ask?.evaluate()
     }
 
-    func load() async throws {
-        token += 1
-        let mine = token
+    /// The 48 hours that end now, as tiles.
+    private func window() -> (HistoryGeometry.TilePlan, Double, Double) {
         let to = site.nowMs
         let from = to - Self.spanMs
-        let plan = HistoryGeometry.plan(.fiveMinutes, fromMs: from, toMs: to, maxPoints: Self.maxPoints)
-        var have = tiles.filter { id, _ in plan.tiles.contains { $0.tileId == id } }
-        if frame == nil, !have.isEmpty { show(plan, have, from, to) }
+        return (HistoryGeometry.plan(.fiveMinutes, fromMs: from, toMs: to, maxPoints: Self.maxPoints), from, to)
+    }
+
+    /// Ask for the window, or wait for the ask already on the wire.
+    func load() async throws {
+        if let running { return try await running.value }
+        let task = Task { @MainActor in try await self.fetchWindow() }
+        running = task
+        defer { running = nil }
+        try await task.value
+    }
+
+    private func fetchWindow() async throws {
+        token += 1
+        let mine = token
+        let (plan, from, to) = window()
+        if frame == nil, !tiles.isEmpty || open != nil { show(plan, from, to) }
         loading = true
         defer { if mine == token { loading = false } }
         do {
-            let query = HistQuery(series: Self.series, res: .fiveMinutes, fromMs: from, toMs: to, have: have.values.map { ($0.tileId, $0.etag) }, maxPoints: Self.maxPoints)
-            let end = try await site.core.history(query) { [weak self] chunk in
-                guard let self, mine == self.token else { return }
-                have[chunk.tileId] = chunk
-                if !chunk.partial { self.tiles[chunk.tileId] = chunk }
-                // Drawn as the tiles arrive: a tile still on its way is a
-                // bridge the next one grows into.
-                self.show(plan, have, from, to)
+            // With older tiles missing too, the tile still filling comes
+            // first, so the right edge draws before the rest.
+            if let newest = plan.tiles.last, plan.tiles.dropLast().contains(where: { tiles[$0.tileId] == nil }) {
+                _ = try await fetch(HistQuery(series: Self.series, res: .fiveMinutes, fromMs: newest.startMs, toMs: to, maxPoints: Self.maxPoints), plan, from, to, mine)
+                guard mine == token else { return }
             }
+            let held = plan.tiles.compactMap { tiles[$0.tileId] }.map { ($0.tileId, $0.etag) }
+            let end = try await fetch(HistQuery(series: Self.series, res: .fiveMinutes, fromMs: from, toMs: to, have: held, maxPoints: Self.maxPoints), plan, from, to, mine)
             guard mine == token else { return }
-            show(plan, have, from, to)
+            drawing?.cancel()
+            drawing = nil
+            // Tiles that fell out of the window are not kept.
+            tiles = tiles.filter { id, _ in plan.tiles.contains { $0.tileId == id } }
+            if let o = open, !plan.tiles.contains(where: { $0.tileId == o.tileId }) { open = nil }
+            show(plan, from, to)
             gaps = end.gaps
             loaded = true
+            primed = true
             problem = nil
-            // Tiles that fell out of the window are not asked for again.
-            tiles = tiles.filter { id, _ in plan.tiles.contains { $0.tileId == id } }
         } catch {
             guard mine == token else { return }
             problem = Self.failure(error, hadSome: frame != nil)
@@ -99,8 +135,51 @@ public final class HistoryModel {
         }
     }
 
-    private func show(_ plan: HistoryGeometry.TilePlan, _ have: [String: HistChunk], _ from: Double, _ to: Double) {
-        frame = HistoryGeometry.clip(HistoryGeometry.assemble(plan, names: Self.series, tiles: have), fromMs: from, toMs: to)
+    private func fetch(_ query: HistQuery, _ plan: HistoryGeometry.TilePlan, _ from: Double, _ to: Double, _ mine: Int) async throws -> HistEnd {
+        try await site.core.history(query) { [weak self] chunk in
+            guard let self, mine == self.token else { return }
+            if chunk.partial {
+                self.open = chunk
+            } else {
+                self.tiles[chunk.tileId] = chunk
+                if self.open?.tileId == chunk.tileId { self.open = nil }
+            }
+            // Drawn as the tiles arrive, a display frame at a time: a tile
+            // still on its way is a bridge the next one grows into.
+            guard self.drawing == nil else { return }
+            self.drawing = self.site.scheduler.after(SiteModel.coalesceMs) { [weak self] in
+                guard let self else { return }
+                self.drawing = nil
+                self.show(plan, from, to)
+            }
+        }
+    }
+
+    /// The closed tiles and the open one, laid on the window. Past the open
+    /// tile's newest value nothing is known yet: those steps have not
+    /// arrived, so they read as on their way, not as a hole the box has.
+    private func show(_ plan: HistoryGeometry.TilePlan, _ from: Double, _ to: Double) {
+        var have = tiles.filter { id, _ in plan.tiles.contains { $0.tileId == id } }
+        if let open, have[open.tileId] == nil, plan.tiles.contains(where: { $0.tileId == open.tileId }) { have[open.tileId] = open }
+        var assembled = HistoryGeometry.assemble(plan, names: Self.series, tiles: have)
+        if let open, have[open.tileId] == open, let index = plan.tiles.firstIndex(where: { $0.tileId == open.tileId }) {
+            let perTile = plan.tiles.first?.points ?? 0
+            let base = index * perTile
+            let filled = assembled.columns.map { column in
+                (base..<min(column.count, base + perTile)).last { column[$0] != missingSample } ?? (base - 1)
+            }.max() ?? (base - 1)
+            let end = min(assembled.arrived.count, base + perTile)
+            if filled + 1 < end { for i in (filled + 1)..<end { assembled.arrived[i] = false } }
+        }
+        let next = HistoryGeometry.clip(assembled, fromMs: from, toMs: to)
+        if next != frame { frame = next }
+    }
+
+    /// What `tiles-<site>` keeps: the closed tiles in the window and the
+    /// open one.
+    var file: TileFile? {
+        let kept = tiles.values.sorted { $0.startMs < $1.startMs } + (open.map { [$0] } ?? [])
+        return kept.isEmpty ? nil : TileFile(tiles: kept.map(TileFile.Tile.init))
     }
 
     static func failure(_ error: Error, hadSome: Bool) -> String {
@@ -116,8 +195,12 @@ public final class HistoryModel {
     /// with a hole where the box recorded nothing.
     public func samples(_ node: EnergyNode, fromMs: Double) -> [HistorySample] {
         guard let frame else { return [] }
-        return Self.samples(frame, node: node, fromMs: fromMs, fetching: loading)
+        return Self.samples(frame, node: node, fromMs: fromMs, fetching: pending)
     }
+
+    /// A tile not here yet is on its way: while the box is asked, or
+    /// before it has answered once and nothing has failed.
+    var pending: Bool { loading || (!loaded && problem == nil) }
 
     /// `fetching`: a hole whose tile has not arrived is on its way, not
     /// known to be empty.
@@ -348,4 +431,39 @@ public final class CarEnergyModel {
             return sum + h.wh * min(1, covered / max(1, h.lenMs))
         }
     }
+}
+
+/// The history tiles as `tiles-<site>` keeps them: about 11.5 KB of closed
+/// tiles for 48 hours, and the tile still filling, marked partial.
+struct TileFile: Codable, Equatable, Sendable {
+    static let version = 1
+
+    struct Tile: Codable, Equatable, Sendable {
+        var tileId: String
+        var etag: String
+        var res: String
+        var startMs: Double
+        var stepMs: Double
+        var series: [String]
+        var data: Data
+        var partial: Bool
+
+        init(_ c: HistChunk) {
+            tileId = c.tileId
+            etag = c.etag
+            res = c.res.rawValue
+            startMs = c.startMs
+            stepMs = c.stepMs
+            series = c.series
+            data = Data(c.data)
+            partial = c.partial
+        }
+
+        var chunk: HistChunk {
+            HistChunk(tileId: tileId, etag: etag, res: Resolution(rawValue: res) ?? .fiveMinutes, startMs: startMs, stepMs: stepMs, series: series, data: data.byteArray, partial: partial)
+        }
+    }
+
+    var version = TileFile.version
+    var tiles: [Tile]
 }

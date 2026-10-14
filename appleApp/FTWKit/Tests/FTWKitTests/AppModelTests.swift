@@ -34,7 +34,7 @@ import FTWDemo
         #expect(home.site.carrier == .relay)
         #expect(home.site.isLive)
         #expect(home.site.explanation.situation != .noData)
-        #expect(home.site.recentField(Contract.FID.gridW).count >= 2)
+        #expect(home.nodes.live.points(Contract.FID.gridW, sinceMs: 0).count >= 2)
     }
 
     @Test func pricesSavingsAndStatusFill() async {
@@ -285,6 +285,41 @@ import FTWDemo
         #expect(site.isLive || site.srcState == .live)
         #expect(world.relay.dialled.count == 2)
         #expect(world.passkeys.assertions.isEmpty)
+    }
+
+    /// Coming back, iOS passes through inactive before active. The dial
+    /// starts there, so the handshake runs beside the app switch, and a
+    /// glance at Control Center keeps the session and its rate.
+    @Test func theReturnDialsAtInactive() async throws {
+        let world = World()
+        let app = world.app()
+        let pair = PairModel(app: app)
+        let t = Task { await pair.pair(world.pairingURL) }
+        await world.run(500)
+        await t.value
+        let site = try #require(app.site)
+
+        // A glance from the front: nothing closes, nothing slows.
+        app.glance()
+        await world.run(100)
+        #expect(site.documentVisible)
+        #expect(site.core.hasCarrier)
+        #expect(world.relay.dialled.count == 1)
+
+        app.setVisible(false)
+        app.suspend()
+        await world.run(100)
+        #expect(!site.core.hasCarrier)
+
+        // Inactive on the way back: the new carrier dials now.
+        app.glance()
+        await world.run(1_000)
+        #expect(world.relay.dialled.count == 2)
+        #expect(site.session.phase == .streaming)
+        #expect(site.documentVisible)
+        app.setVisible(true)
+        await world.run(100)
+        #expect(world.relay.dialled.count == 2)
     }
 
     /// Widgets read what the app leaves in the App Group, never the relay.

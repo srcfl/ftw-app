@@ -33,8 +33,6 @@ import Testing
             #expect(relay.split(separator: "·").dropFirst() == cloud.split(separator: "·").dropFirst())
             #expect(NodeLive.footer(.relay, periodMs: 5_200) == "VIA RELAY · READS EVERY 5 S")
             #expect(NodeLive.footer(.cache, periodMs: 1_000) == "SAVED ON THIS PHONE")
-            // The gap rule does not hang on the path's name either.
-            #expect(NodeLive.sourceGapMs(.relay) == NodeLive.sourceGapMs(.webrtc))
         }
         AppWords.$language.withValue(.sv) {
             #expect(NodeLive.footer(.cloud, periodMs: 60_000) == "VIA FTW CLOUD · LÄSER VAR 60 S")

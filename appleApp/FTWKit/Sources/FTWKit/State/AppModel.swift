@@ -230,6 +230,16 @@ public final class AppModel {
         }
     }
 
+    /// Inactive: a glance at Control Center or the app switcher, or the app
+    /// on its way back to the front. The stream keeps its rate, a return
+    /// from the background dials at once, so the handshake runs beside the
+    /// app switch, and what is on screen is written in case the app is
+    /// closed from the switcher.
+    public func glance() {
+        setVisible(true)
+        site?.persistNow()
+    }
+
     /// The app went to the background: close the session and keep what is
     /// on screen. The demo has no socket to free and keeps running.
     public func suspend() {

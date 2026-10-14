@@ -224,15 +224,16 @@ final class NodeTraceModel {
     /// What the chart and the hero read: held still while a finger is down.
     var shown: TraceFrame? { held ?? frame }
 
-    func build(_ points: [LiveTrace.Point], node: EnergyNode, carrier: CarrierKind, size: CGSize) {
+    /// `gapMs` is the silence the source in use allows before the line
+    /// breaks.
+    func build(_ samples: [LiveSample], node: EnergyNode, gapMs: Double, size: CGSize) {
         guard size.width > 0, size.height > 0 else { return }
         let resized = size != self.size
         self.size = size
-        let samples = points.map { LiveSample(t: $0.t, v: node.shown($0.v)) }
         let now = Date()
         let series = LiveSeries.build(
             samples,
-            sourceGapMs: NodeLive.sourceGapMs(carrier),
+            sourceGapMs: gapMs,
             windowMs: LiveTrace.windowMs,
             nowMs: now.timeIntervalSince1970 * 1000,
             size: size,
@@ -684,7 +685,7 @@ private struct LiveChartArea: View {
         let began = ContinuousClock.now
         defer { TraceCost.log.debug("trace built in \((ContinuousClock.now - began) / .microseconds(1), format: .fixed(precision: 0)) µs") }
         #endif
-        trace.build(live.points(node.fid, sinceMs: Date().timeIntervalSince1970 * 1000 - LiveTrace.windowMs - 10_000), node: node, carrier: site.carrier, size: plot)
+        trace.build(live.samples(node, sinceMs: Date().timeIntervalSince1970 * 1000 - LiveTrace.windowMs - 10_000), node: node, gapMs: site.readingGapMs, size: plot)
     }
 
 }

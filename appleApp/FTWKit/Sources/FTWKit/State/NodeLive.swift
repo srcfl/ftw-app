@@ -33,12 +33,6 @@ public enum NodeLive {
         return via + " · " + NodeWords.format("READS EVERY %@ S", String(seconds))
     }
 
-    /// The longest silence the way the readings come allows before the line
-    /// breaks; the device's own read period can only lengthen it.
-    public static func sourceGapMs(_ carrier: CarrierKind) -> Double {
-        LiveTrace.gapMs
-    }
-
     /// Energy in and out of the site over the runs, up to `untilMs`, by
     /// joining readings with straight lines. A silence that broke the line
     /// counts for nothing.

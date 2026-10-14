@@ -204,6 +204,10 @@ public final class PriceModel: Activatable {
     @ObservationIgnored private let calendar: Calendar
     /// FTW Cloud's window as last taken, so it is taken once.
     @ObservationIgnored private var cloudTaken: Stamped<PriceEntry>?
+    /// The name asked under after the publish hour. It stays once
+    /// tomorrow's rates are here, so their arrival is no reason to ask
+    /// again.
+    @ObservationIgnored private var publishedName: String?
 
     /// `cache` is what the app left for its widgets: the window a launch
     /// opens on when the sealed home file has none.
@@ -236,12 +240,26 @@ public final class PriceModel: Activatable {
         calendar.startOfDay(for: Date(timeIntervalSince1970: ms / 1000)).timeIntervalSince1970 * 1000
     }
 
-    /// The window, named by what would make it out of date.
+    /// The window, named by what would make it out of date: a new day, the
+    /// hour tomorrow's rates publish, and, while they are late, each
+    /// quarter hour until they come.
     var wanted: String? {
         guard active > 0, site.session.caps.contains(Contract.capPriceSpot) else { return nil }
         let now = Date(timeIntervalSince1970: site.nowMs / 1000)
         let hour = calendar.component(.hour, from: now)
-        return "\(midnight(site.nowMs))/\(hour >= Self.publishHour ? "published" : "pending")"
+        let day = midnight(site.nowMs)
+        guard hour >= Self.publishHour else { return "\(day)/pending" }
+        let here = hasTomorrow(after: day)
+        if here, let publishedName, publishedName.hasPrefix("\(day)/") { return publishedName }
+        let name = here ? "\(day)/published" : "\(day)/late \(Int(site.nowMs / 900_000))"
+        publishedName = name
+        return name
+    }
+
+    /// Whether the window on screen holds tomorrow's rates.
+    func hasTomorrow(after day: Double) -> Bool {
+        let tomorrow = midnight(day + 36 * 3_600_000)
+        return prices?.slots.contains { $0.startMs >= tomorrow } ?? false
     }
 
     public func activate() {

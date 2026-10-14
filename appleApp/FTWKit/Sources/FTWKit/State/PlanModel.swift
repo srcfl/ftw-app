@@ -91,7 +91,7 @@ public final class PlanModel {
     public func activate(forecast: Bool = false) {
         active += 1
         if ask == nil {
-            ask = LiveAsk(site: site, want: { [weak self] in
+            ask = LiveAsk(site: site, order: .plan, want: { [weak self] in
                 guard let self, self.active > 0, self.site.documentVisible else { return nil }
                 return "plan \(self.want) \(Int(self.site.nowMs / Self.reaskMs))"
             }, ask: { [weak self] in try await self?.load() })
@@ -100,7 +100,7 @@ public final class PlanModel {
         guard forecast else { return }
         forecastActive += 1
         if forecastAsk == nil {
-            forecastAsk = LiveAsk(site: site, want: { [weak self] in
+            forecastAsk = LiveAsk(site: site, order: .plan, want: { [weak self] in
                 guard let self, self.forecastActive > 0, self.site.documentVisible, self.site.hasPassthrough else { return nil }
                 return "forecast \(self.want) \(Int(self.site.nowMs / Self.reaskMs))"
             }, ask: { [weak self] in try await self?.loadForecast() })

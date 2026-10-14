@@ -1,5 +1,11 @@
 import Foundation
 import FTWShared
+import os
+
+/// Every request frame the session puts on the wire, so a log can count
+/// what a return from the background costs. Read with
+/// `log show --predicate 'subsystem == "energy.ftw.app" AND category == "asks"'`.
+private let askLog = Logger(subsystem: "energy.ftw.app", category: "asks")
 
 /// The session: handshake, subscription and the field register.
 ///
@@ -90,6 +96,18 @@ public struct CommandError: Error, Equatable, HelpfulError {
     public let help: String
 }
 
+/// Which read goes first when several wait for the box's one API slot: what
+/// Now's car needs, then the mode, then the plan, then the device status,
+/// then the rest. Anything a person asked for goes before all of them.
+/// `LiveAsk` sets it for the reads it makes.
+public enum ReadOrder: Int, Sendable, Comparable {
+    case person, loadpoints, prefs, plan, status, later
+
+    @TaskLocal public static var current: ReadOrder = .person
+
+    public static func < (a: ReadOrder, b: ReadOrder) -> Bool { a.rawValue < b.rawValue }
+}
+
 @MainActor
 public final class Session {
     public static let apiTimeoutMs: Double = 20_000
@@ -112,6 +130,10 @@ public final class Session {
     public private(set) var state = SessionState() {
         didSet { onChange?(state) }
     }
+
+    /// Request frames sent since the session was made: history, the plan,
+    /// prices and API reads. Commands are not counted; a person asked.
+    public private(set) var requestsSent = 0
 
     /// One listener: the site model. Called after every change.
     public var onChange: (@MainActor (SessionState) -> Void)?
@@ -160,11 +182,16 @@ public final class Session {
     private var pendingCommands: [String: PendingCommand] = [:]
 
     // The api queue: one call on the wire at a time, because that is how
-    // many the box serves.
+    // many the box serves. Waiting calls go in `ReadOrder`, then in turn.
     private var apiBusy = false
-    private var apiWaiters: [(id: Int, continuation: CheckedContinuation<Void, Error>, timer: Cancellable)] = []
+    private var apiWaiters: [(id: Int, order: ReadOrder, continuation: CheckedContinuation<Void, Error>, timer: Cancellable)] = []
     private var apiWaiterSeq = 0
     private var apiGeneration = 0
+    private var apiGrant: Cancellable?
+    /// An idle slot waits one display frame before a read gets it, so reads
+    /// asked for in the same moment go in their order, not in the order
+    /// their tasks happened to start. What a person asked for never waits.
+    static let apiGatherMs: Double = 16
 
     public init(build: String, ua: String = "native", locales: [String] = ["en"], subscription: Subscription = Subscription(), scheduler: Scheduler) {
         self.build = build
@@ -289,6 +316,7 @@ public final class Session {
                 p.continuation.resume(throwing: SessionError.timedOut("prices"))
             }
             pendingPrices[id] = PendingSingle(continuation: cont, timer: timer)
+            sent("price.get")
             carrier?.send(frame)
         }
     }
@@ -302,6 +330,7 @@ public final class Session {
         return try await withCheckedThrowingContinuation { cont in
             pendingHistory[id] = PendingHistory(onChunk: onChunk, continuation: cont, timer: nil)
             armHistory(id)
+            sent("hist.query")
             carrier?.send(frame)
         }
     }
@@ -317,6 +346,7 @@ public final class Session {
                 p.continuation.resume(throwing: SessionError.timedOut("plan"))
             }
             pendingPlan[id] = PendingSingle(continuation: cont, timer: timer)
+            sent("plan.get")
             carrier?.send(frame)
         }
     }
@@ -328,7 +358,7 @@ public final class Session {
     /// success, and a call never crosses a disconnect into a new session.
     public func api(_ req: APIRequest) async throws -> APIResponse {
         let generation = apiGeneration
-        try await acquireAPISlot()
+        try await acquireAPISlot(ReadOrder.current)
         defer { releaseAPISlot() }
         for attempt in 0... {
             if generation != apiGeneration { throw SessionError.carrierClosed }
@@ -353,11 +383,7 @@ public final class Session {
         }
     }
 
-    private func acquireAPISlot() async throws {
-        if !apiBusy {
-            apiBusy = true
-            return
-        }
+    private func acquireAPISlot(_ order: ReadOrder) async throws {
         apiWaiterSeq += 1
         let mine = apiWaiterSeq
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
@@ -366,18 +392,30 @@ public final class Session {
                 self.apiWaiters.remove(at: i)
                 cont.resume(throwing: SessionError.queueTimedOut)
             }
-            apiWaiters.append((mine, cont, timer))
+            apiWaiters.append((mine, order, cont, timer))
+            if order == .person {
+                grantAPISlot()
+            } else if !apiBusy, apiGrant == nil {
+                apiGrant = scheduler.after(Self.apiGatherMs) { [weak self] in
+                    self?.apiGrant = nil
+                    self?.grantAPISlot()
+                }
+            }
         }
     }
 
     private func releaseAPISlot() {
-        if apiWaiters.isEmpty {
-            apiBusy = false
-            return
-        }
-        let next = apiWaiters.removeFirst()
-        next.timer.cancel()
-        next.continuation.resume()
+        apiBusy = false
+        grantAPISlot()
+    }
+
+    /// The slot to the first waiting call in order.
+    private func grantAPISlot() {
+        guard !apiBusy, let next = apiWaiters.indices.min(by: { (apiWaiters[$0].order, apiWaiters[$0].id) < (apiWaiters[$1].order, apiWaiters[$1].id) }) else { return }
+        let waiter = apiWaiters.remove(at: next)
+        waiter.timer.cancel()
+        apiBusy = true
+        waiter.continuation.resume()
     }
 
     private func dispatchAPI(_ req: APIRequest) async throws -> APIResponse {
@@ -388,6 +426,7 @@ public final class Session {
         return try await withCheckedThrowingContinuation { cont in
             pendingAPI[id] = PendingAPI(continuation: cont)
             armAPI(id)
+            sent("api.req \(req.method.rawValue) \(req.path)")
             carrier.send(frame)
         }
     }
@@ -454,6 +493,11 @@ public final class Session {
         let h = bytes.hex
         let c = Array(h)
         return "\(String(c[0..<8]))-\(String(c[8..<12]))-\(String(c[12..<16]))-\(String(c[16..<20]))-\(String(c[20...]))"
+    }
+
+    private func sent(_ what: String) {
+        requestsSent += 1
+        askLog.notice("ask \(what, privacy: .public)")
     }
 
     // MARK: Frames in

@@ -9,6 +9,8 @@ private let log = Logger(subsystem: "energy.ftw.app", category: "widgets")
 /// `log show --predicate 'subsystem == "energy.ftw.app" AND category == "reading"'`.
 private let readingLog = Logger(subsystem: "energy.ftw.app", category: "reading")
 private let signposter = OSSignposter(subsystem: "energy.ftw.app", category: "reading")
+/// How many requests each stay in front cost, logged when the app hides.
+private let askLog = Logger(subsystem: "energy.ftw.app", category: "asks")
 
 /// The bridge between the session and the screens.
 ///
@@ -32,7 +34,6 @@ public final class SiteModel {
     static let streamQuietAfterMs: Double = 3_000
     /// How long a foreground stream gets to prove its socket still works.
     public static let foregroundFrameDeadlineMs: Double = 2_500
-    static let recentWindowMs: Double = 130_000
     static let snapshotIntervalMs: Double = 15_000
 
     public private(set) var session = SessionState()
@@ -43,6 +44,17 @@ public final class SiteModel {
     /// uptime now, which is not the clock those readings were taken on.
     @ObservationIgnored private var cachedUptimeMs: Double?
     public private(set) var lastFrameAtMs: Double?
+    /// When the box took the newest reading on screen, by the phone clock.
+    /// From the box's own stream: its uptime, placed by the smallest gap
+    /// seen this connection between the phone's clock and the box's, so a
+    /// frame a slow network held back lands where it was taken. Through
+    /// FTW Cloud: the send time rule U gives. The live trace stamps by it.
+    @ObservationIgnored public private(set) var readingStampMs: Double?
+    /// How long the newest reading stands before a silence is a gap. The
+    /// box streams at 1 Hz in front and 0.2 Hz hidden, and misses a beat
+    /// now and then; FTW Cloud sends on change and a heartbeat at least
+    /// every H.
+    @ObservationIgnored public private(set) var readingGapMs: Double = LiveTrace.gapMs
     public private(set) var documentVisible = true
     /// The clock screens read for ages. It moves with every reading, and
     /// between readings only when something on screen would change: the
@@ -85,7 +97,6 @@ public final class SiteModel {
     @ObservationIgnored private var clock: Cancellable?
     @ObservationIgnored private var resumeTimer: Cancellable?
     @ObservationIgnored private var resumeWaiting = false
-    @ObservationIgnored private var recent: [(t: Double, v: [Int: Double])] = []
     @ObservationIgnored private var lastSnapshotMs: Double = 0
     @ObservationIgnored private var snapshotTimer: Cancellable?
     /// The last snapshot written, without its time, so the same home is not
@@ -99,6 +110,8 @@ public final class SiteModel {
     /// The home file as last read or written, so the same home is not
     /// written twice.
     @ObservationIgnored private var lastHome: HomeCache?
+    /// The models' own sealed files beside the home file.
+    @ObservationIgnored private var fileKeepers: [FileKeeper] = []
     /// FTW Cloud's price window and chargers as last accepted, for the
     /// models that show them. Each change comes with a `notify`.
     @ObservationIgnored public private(set) var cloudPrices: Stamped<PriceEntry>?
@@ -109,6 +122,9 @@ public final class SiteModel {
     /// When the box session last delivered a reading. Waking after sleep
     /// waits for this one, whatever the cloud does meanwhile.
     @ObservationIgnored private var relayFrameAtMs: Double?
+    /// The phone's clock minus the box's uptime, the smallest seen since
+    /// this carrier's hello: where a frame's uptime sits on the phone clock.
+    @ObservationIgnored private var relayOffsetMs: Double?
     @ObservationIgnored private var listeners: [Int: @MainActor () -> Void] = [:]
     /// A burst of messages within one display frame reaches the screens as
     /// one change: the first goes at once, the rest together after it.
@@ -158,6 +174,9 @@ public final class SiteModel {
     /// Where the readings on screen came from at the last change.
     @ObservationIgnored private(set) var source: ReadingSource = .relay
     @ObservationIgnored private var startedAtMs: Double = 0
+    /// Which stay in front this is, and the session's request count when it
+    /// began.
+    @ObservationIgnored private var visit = (number: 1, fromRequests: 0)
     @ObservationIgnored private var firsts: Set<String> = []
     /// The cloud session, for the About screen. Nil while there is none.
     public private(set) var cloudStatus: CloudCarrier.Status?
@@ -268,6 +287,7 @@ public final class SiteModel {
         core.setTelemetryHz(1)
         cloud?.setLooking(true)
         if !was {
+            visit = (visit.number + 1, core.requestsSent)
             // A start passes through inactive on its way to the front; its
             // own interval keeps running.
             if liveSpan == nil { beginLiveSpan("foreground to live") }
@@ -277,12 +297,18 @@ public final class SiteModel {
     }
 
     private func hide() {
+        if documentVisible {
+            askLog.notice("visit \(self.visit.number, privacy: .public): \(self.requestsThisVisit, privacy: .public) requests")
+        }
         documentVisible = false
         core.setTelemetryHz(0.2)
         cloud?.setLooking(false)
         cancelResume()
         scheduleClock()
     }
+
+    /// Request frames sent since the app last came to the front.
+    public var requestsThisVisit: Int { core.requestsSent - visit.fromRequests }
 
     /// A new network path should replace the old one without waiting.
     public func networkOnline() {
@@ -326,7 +352,11 @@ public final class SiteModel {
         // Only a streaming session is a reading arriving. Restoring the cache
         // and answering hello both move the clock and carry no reading.
         let reading = s.phase == .streaming && (previous.phase != .streaming || s.uptimeMs != previous.uptimeMs)
+        // A new hello, or a box that restarted, starts the clock over.
+        if s.phase == .handshaking, previous.phase != .handshaking { relayOffsetMs = nil }
         if reading {
+            let offset = now - s.uptimeMs
+            if let held = relayOffsetMs, s.uptimeMs >= previous.uptimeMs { relayOffsetMs = min(held, offset) } else { relayOffsetMs = offset }
             relayFrameAtMs = now
             relayDelivered = true
             finishResume()
@@ -391,7 +421,8 @@ public final class SiteModel {
         for fid in times.keys where s.fields[fid] == nil { times[fid] = nil }
         if delivered {
             lastFrameAtMs = now
-            recordRecent(s.fields, now)
+            readingStampMs = readingStamp(source, state: s) ?? at
+            readingGapMs = readingGap(source)
         }
         if times != fieldAtMs { fieldAtMs = times }
         if delivered || readingAtMs == nil || s.fields.isEmpty != session.fields.isEmpty { readingAtMs = s.fields.isEmpty ? nil : at }
@@ -423,6 +454,25 @@ public final class SiteModel {
         case .cloud:
             guard let view = cloudView else { return nil }
             return view.anchorSentMs(nowMs: Int64(scheduler.nowMs)).map(Double.init) ?? cloudArrivalMs
+        }
+    }
+
+    /// When the box took the newest reading from a source, by the phone
+    /// clock.
+    private func readingStamp(_ from: ReadingSource, state s: SessionState) -> Double? {
+        switch from {
+        case .relay: return relayOffsetMs.map { s.uptimeMs + $0 }
+        case .cloud: return readingTime(.cloud)
+        }
+    }
+
+    /// How long a reading from a source stands before a silence is a gap:
+    /// three and a half of the box's beats, or twice FTW Cloud's heartbeat
+    /// and a margin.
+    private func readingGap(_ from: ReadingSource) -> Double {
+        switch from {
+        case .relay: return LiveTrace.gapMs * (documentVisible ? 1 : 5)
+        case .cloud: return max(LiveTrace.gapMs, 2 * Double(cloudView?.heartbeatMs ?? 15_000) + 500)
         }
     }
 
@@ -496,6 +546,12 @@ public final class SiteModel {
             shareCloudHome()
         }
         writeHome(siteId: siteId, files: files, wait: wait)
+        for keeper in fileKeepers {
+            guard let data = keeper.encode(), data != keeper.last else { continue }
+            keeper.last = data
+            let name = "\(keeper.prefix)-\(siteId)"
+            if wait { files.write(name, data.byteArray) } else { files.writeLater(name, data.byteArray) }
+        }
         guard session.phase == .streaming || !session.fields.isEmpty, cachedAtMs == nil else { return }
         // The cloud's ages move with the clock; take them as of now.
         let state = source == .cloud ? composed() : session
@@ -509,6 +565,21 @@ public final class SiteModel {
     /// A model's part of the home file: `fill` adds it at every write.
     public func keep(_ fill: @escaping @MainActor (inout HomeCache) -> Void) {
         keepers.append(fill)
+    }
+
+    /// A model's own sealed file beside the home file, `<prefix>-<site>`,
+    /// written on the same triggers when what `value` gives differs from
+    /// what was written last. Nil writes nothing.
+    public func keepFile<T: Encodable>(_ prefix: String, _ value: @escaping @MainActor () -> T?) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        fileKeepers.append(FileKeeper(prefix: prefix) { value().flatMap { try? encoder.encode($0) } })
+    }
+
+    /// The file `keepFile` wrote for this home, as the last launch left it.
+    public func keptFile<T: Decodable>(_ type: T.Type, _ prefix: String) -> T? {
+        guard let siteId else { return nil }
+        return files?.readJSON(T.self, "\(prefix)-\(siteId)")
     }
 
     /// Write the home file when it says something new. Hello is the box's
@@ -709,20 +780,6 @@ public final class SiteModel {
         session.fields[Contract.FID.batterySoc].map { ($0 / 10).rounded() }
     }
 
-    private func recordRecent(_ fields: [Int: Double], _ now: Double) {
-        var v = [Int: Double]()
-        for fid in Self.nowFids { if let x = fields[fid] { v[fid] = x } }
-        recent.append((now, v))
-        let cutoff = now - Self.recentWindowMs
-        recent.removeAll { $0.t < cutoff }
-    }
-
-    /// The last two minutes of one field, oldest first, so a live line opens
-    /// already drawn.
-    public func recentField(_ fid: Int) -> [(t: Double, v: Double)] {
-        recent.compactMap { r in r.v[fid].map { (r.t, $0) } }
-    }
-
     // MARK: Requests, through this layer
 
     public func prices(fromMs: Double, toMs: Double) async throws -> Prices {
@@ -906,6 +963,19 @@ public final class SiteModel {
         }
         if let token = wait.token { unobserve(token) }
         return ok
+    }
+}
+
+/// One model's sealed file, and what was written to it last.
+@MainActor
+private final class FileKeeper {
+    let prefix: String
+    let encode: @MainActor () -> Data?
+    var last: Data?
+
+    init(prefix: String, encode: @escaping @MainActor () -> Data?) {
+        self.prefix = prefix
+        self.encode = encode
     }
 }
 
