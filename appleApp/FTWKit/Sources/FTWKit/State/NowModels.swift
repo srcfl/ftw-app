@@ -204,6 +204,10 @@ public final class PriceModel: Activatable {
     @ObservationIgnored private let calendar: Calendar
     /// FTW Cloud's window as last taken, so it is taken once.
     @ObservationIgnored private var cloudTaken: Stamped<PriceEntry>?
+    /// The name asked under after the publish hour. It stays once
+    /// tomorrow's rates are here, so their arrival is no reason to ask
+    /// again.
+    @ObservationIgnored private var publishedName: String?
 
     /// `cache` is what the app left for its widgets: the window a launch
     /// opens on when the sealed home file has none.
@@ -245,8 +249,11 @@ public final class PriceModel: Activatable {
         let hour = calendar.component(.hour, from: now)
         let day = midnight(site.nowMs)
         guard hour >= Self.publishHour else { return "\(day)/pending" }
-        if hasTomorrow(after: day) { return "\(day)/published" }
-        return "\(day)/late \(Int(site.nowMs / 900_000))"
+        let here = hasTomorrow(after: day)
+        if here, let publishedName, publishedName.hasPrefix("\(day)/") { return publishedName }
+        let name = here ? "\(day)/published" : "\(day)/late \(Int(site.nowMs / 900_000))"
+        publishedName = name
+        return name
     }
 
     /// Whether the window on screen holds tomorrow's rates.
