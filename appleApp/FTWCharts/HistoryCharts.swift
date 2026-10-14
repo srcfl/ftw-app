@@ -11,16 +11,20 @@ struct ChartLabels: Equatable {
     var now = "NOW"
 }
 
-/// Today or the last two days, in one Canvas: per series its band of the
-/// five-minute means, the chart's own series' body, and a 2.5 pt line
-/// through the exact slot means. A hole on its way is a hatch with a dashed
+/// Today or the last two days, in one Canvas, in the live trace's
+/// material (`TraceInk`): per series its band of the five-minute means,
+/// the chart's own series' body, and the line through the exact slot
+/// means. Glow means live, so only the slot still filling glows, and only
+/// while the node is live. A hole on its way is a hatch with a dashed
 /// estimate across it; a hole the box has no record for is a dotted
-/// baseline. The past does not glow. Axes are drawn here too, so they never
-/// reflow: zero as one device pixel, the scale's ends in the right gutter,
-/// the direction words when both signs show, the hours, and NOW.
+/// baseline. Axes are drawn here too, so they never reflow: zero as one
+/// device pixel, the scale's ends in the right gutter, the direction words
+/// when both signs show, the hours, and NOW.
 ///
-/// When a tile lands in the same window, each slot moves from its old mean
-/// to its new one (`from`, `progress`); a new window cross-fades instead.
+/// When a tile lands in the same window, each slot slides from its old
+/// mean to its new one (`from`, `slide`), as a new reading slides into the
+/// live trace; a new scale and a series coming or going move as one spring
+/// (`spring`). A new window draws at once, on the scale's spring.
 struct HistoryDrawing: ChartDrawing {
     let picture: HistoryPicture
     /// The colours per series key, each side of zero.
@@ -28,50 +32,44 @@ struct HistoryDrawing: ChartDrawing {
     let frame: ChartFrame
     var words = ChartLabels()
     var axis: CGFloat = 10
+    /// Whether the node's reading is live now: the slot still filling glows.
+    var live = false
     var from: HistoryPicture?
-    var progress: Double = 1
-
-    /// Values on scale `a` to the same values on scale `b`, in plot points.
-    static func rescale(_ a: YDomain, _ b: YDomain, height: CGFloat) -> CGAffineTransform {
-        guard a != b, a.span > 0, b.span > 0 else { return .identity }
-        let aa = -height / CGFloat(a.span), ab = height * CGFloat(a.upper / a.span)
-        let ba = -height / CGFloat(b.span), bb = height * CGFloat(b.upper / b.span)
-        let d = ba / aa
-        return CGAffineTransform(a: 1, b: 0, c: 0, d: d, tx: 0, ty: bb - d * ab)
-    }
+    var slide: Double = 1
+    var spring: Double = 1
 
     func draw(in g: inout GraphicsContext, size: CGSize) {
         let plot = frame.plot(in: size)
         let px = 1 / max(g.environment.displayScale, 1)
-        let dark = g.environment.colorScheme == .dark
         let primary = picture.layers.first?.key
 
-        // A series added or taken away re-fits the scale: it moves as one
-        // spring, the new series fades in and the old one out.
-        let k = min(max(progress, 0), 1)
-        var shown = picture.domain
-        if let from, from.domain != picture.domain, k < 1 {
-            shown = YDomain(lower: from.domain.lower + (picture.domain.lower - from.domain.lower) * k, upper: from.domain.upper + (picture.domain.upper - from.domain.upper) * k)
-        }
-        let toShown = Self.rescale(picture.domain, shown, height: plot.height)
+        let k = min(max(spring, 0), 1)
+        let shown = from.map { TraceInk.between($0.domain, picture.domain, k) } ?? picture.domain
+        let toShown = TraceInk.rescale(picture.domain, shown, height: plot.height)
         let base = YMap(domain: shown, height: plot.height).baseline
 
         ChartAxes.draw(in: &g, plot: plot, domain: picture.domain, px: px, axis: axis, look: primary.flatMap { looks[$0] }, shown: shown)
 
         var p = g
-        p.clip(to: Path(CGRect(x: plot.minX, y: plot.minY - 2, width: plot.width, height: plot.height + 4)))
+        p.clip(to: Path(CGRect(x: plot.minX, y: plot.minY - 12, width: plot.width, height: plot.height + 24)))
         p.translateBy(x: plot.minX, y: plot.minY)
-        let above = Path(CGRect(x: -10, y: -10, width: plot.width + 20, height: base + 10))
-        let below = Path(CGRect(x: -10, y: base, width: plot.width + 20, height: plot.height - base + 10))
+        let above = Path(CGRect(x: -10, y: -40, width: plot.width + 20, height: base + 40))
+        let below = Path(CGRect(x: -10, y: base, width: plot.width + 20, height: plot.height - base + 40))
+
+        // The slot still filling, the only part of the day that is live.
+        var filling: Path?
+        if TraceInk.glows(live: live, in: g), let now = picture.nowMs, let i = picture.grid.index(atMs: now) {
+            let x = picture.grid.x(atMs: max(picture.grid.startMs(i), picture.grid.fromMs), width: plot.width)
+            filling = Path(CGRect(x: x, y: -40, width: plot.width - x + 20, height: plot.height + 80))
+        }
 
         // A series taken away, fading out on the moving scale.
         if let from, k < 1 {
             for gone in from.layers where !picture.layers.contains(where: { $0.key == gone.key }) {
                 let look = looks[gone.key] ?? TraceLook(up: Theme.ink2, down: Theme.ink2)
-                let t = Self.rescale(from.domain, shown, height: plot.height)
                 var s = p
                 s.opacity = 1 - k
-                s.stroke(Path(gone.series.line.cgPath).applying(t), with: .color(look.up), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                TraceInk.line(Path(gone.series.line.cgPath).applying(TraceInk.rescale(from.domain, shown, height: plot.height)), look: look, width: TraceInk.otherLine, glows: false, above: above, below: below, in: s)
             }
         }
 
@@ -82,7 +80,7 @@ struct HistoryDrawing: ChartDrawing {
             let own = layer.key == primary
             var line = Path(series.line.cgPath), body = Path(series.body.cgPath), band = Path(series.band.cgPath)
             let before = from?.layers.first(where: { $0.key == layer.key })?.series
-            if let before, let mixed = series.blended(from: before, progress: progress) {
+            if let before, let mixed = series.blended(from: before, progress: slide) {
                 line = Path(mixed.line.cgPath)
                 body = Path(mixed.body.cgPath)
                 band = Path(mixed.band.cgPath)
@@ -95,14 +93,9 @@ struct HistoryDrawing: ChartDrawing {
             var p = p
             // A series just added fades in.
             if from != nil, before == nil, k < 1 { p.opacity = k }
-            for (side, color) in [(above, look.up), (below, look.down)] {
-                var s = p
-                s.clip(to: side)
-                s.fill(band, with: .color(color.opacity(dark ? 0.16 : 0.12)))
-                if own {
-                    let edge = side == above ? CGFloat(0) : plot.height
-                    s.fill(body, with: .linearGradient(Gradient(colors: [color.opacity(0), color.opacity(dark ? 0.24 : 0.16)]), startPoint: CGPoint(x: 0, y: base), endPoint: CGPoint(x: 0, y: edge)))
-                }
+            TraceInk.band(band, look: look, above: above, below: below, in: p)
+            if own {
+                TraceInk.body(body, look: look, baseline: base, height: plot.height, above: above, below: below, in: p)
             }
             // Holes: a hatch on its way with a dashed estimate, a dotted
             // baseline where the box has no record.
@@ -126,11 +119,7 @@ struct HistoryDrawing: ChartDrawing {
                 p.stroke(dotted, with: .color(Theme.ink.opacity(0.35)), style: StrokeStyle(lineWidth: px, lineCap: .butt, lineJoin: .round, dash: [1, 3]))
             }
             p.stroke(Path(series.estimate.cgPath).applying(toShown), with: .color(look.up.opacity(0.6)), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round, dash: [3, 4]))
-            for (side, color) in [(above, look.up), (below, look.down)] {
-                var s = p
-                s.clip(to: side)
-                s.stroke(line, with: .color(own ? color : color.opacity(0.85)), style: StrokeStyle(lineWidth: own ? 2.5 : 2, lineCap: .round, lineJoin: .round))
-            }
+            TraceInk.line(line, look: look, width: own ? TraceInk.line : TraceInk.otherLine, opacity: own ? 1 : 0.85, glows: own && filling != nil, glowClip: filling, above: above, below: below, in: p)
         }
 
         // Now, and where old data ends.
@@ -166,7 +155,9 @@ struct HistoryDrawing: ChartDrawing {
 /// The hours ahead, in one Canvas: a plan's quarters as ghost bars (a
 /// faint fill with a 1 px cap, equal neighbours merged), or a forecast's
 /// dashed line, and the price under the same slots as block bars in ink by
-/// thirds. The now rule sits at the left edge.
+/// thirds. The now rule sits at the left edge. A new plan or forecast for
+/// the same slots slides each slot to its new value, and a new scale
+/// springs, as on the live trace.
 struct AheadDrawing: ChartDrawing {
     let picture: AheadPicture
     let look: TraceLook
@@ -175,20 +166,26 @@ struct AheadDrawing: ChartDrawing {
     var nowWord = "NOW"
     /// The price strip's height inside the frame's bottom.
     var strip: CGFloat = 18
+    var from: AheadPicture?
+    var slide: Double = 1
+    var spring: Double = 1
 
     func draw(in g: inout GraphicsContext, size: CGSize) {
         let plot = frame.plot(in: size)
         let scale = max(g.environment.displayScale, 1)
         let px = 1 / scale
-        let map = YMap(domain: picture.domain, height: plot.height)
+        let shown = from.map { TraceInk.between($0.domain, picture.domain, min(max(spring, 0), 1)) } ?? picture.domain
+        let map = YMap(domain: shown, height: plot.height)
+        let mixed = from.flatMap { picture.blended(from: $0, progress: slide) }
+        let values = mixed?.values ?? picture.values
 
-        ChartAxes.draw(in: &g, plot: plot, domain: picture.domain, px: px, axis: axis, look: look)
+        ChartAxes.draw(in: &g, plot: plot, domain: picture.domain, px: px, axis: axis, look: look, shown: shown)
 
         var p = g
         p.translateBy(x: plot.minX, y: plot.minY)
         switch picture.kind {
         case .plan:
-            for run in ChartPaths.runs(picture.values, grid: picture.grid, width: plot.width, map: map, scale: scale, maxRadius: 4) {
+            for run in ChartPaths.runs(values, grid: picture.grid, width: plot.width, map: map, scale: scale, maxRadius: 4) {
                 let color = run.value >= 0 ? look.up : look.down
                 let r = run.rect
                 let radii = run.value > 0
@@ -202,7 +199,9 @@ struct AheadDrawing: ChartDrawing {
                 p.stroke(cap, with: .color(color.opacity(0.7)), style: StrokeStyle(lineWidth: px, lineCap: .round, lineJoin: .round))
             }
         case .forecast:
-            p.stroke(Path(picture.line.cgPath), with: .color(look.up.opacity(0.5)), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round, dash: [3, 4]))
+            // An estimate, so dashed, like the estimate across a hole.
+            let line = mixed == nil && shown == picture.domain ? picture.line : AheadPicture.forecastLine(values, grid: picture.grid, domain: shown, size: plot.size)
+            p.stroke(Path(line.cgPath), with: .color(look.up.opacity(0.5)), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round, dash: [3, 4]))
         }
 
         // The price strip: block bars in eight steps, ink by thirds.
@@ -279,27 +278,26 @@ enum ChartAxes {
     }
 }
 
-/// A history chart that moves between tiles: when a tile lands in the same
-/// window, each slot slides from its old mean to its new one over 0.35 s,
-/// critically damped, at the display's rate, and then the chart holds
-/// still. Data from the cache starts settled.
-struct HistorySurface: View {
-    let picture: HistoryPicture
-    let looks: [String: TraceLook]
-    let frame: ChartFrame
-    var words = ChartLabels()
-    var axis: CGFloat = 10
-    @State private var old: HistoryPicture?
+/// A chart whose data moves as the live trace's does: a change for the
+/// same slots slides over `TraceInk.slide`, a new scale or a series coming
+/// or going springs over `TraceInk.spring`, at the display's rate, and
+/// then the chart holds still. A new window draws at once, on the scale's
+/// spring. Data from the cache starts settled.
+struct SlidingSurface<Picture: Equatable, Drawing: ChartDrawing>: View {
+    let picture: Picture
+    /// The drawing for the picture on its way from `from`, with the slide's
+    /// and the spring's progress.
+    let drawing: (_ from: Picture?, _ slide: Double, _ spring: Double) -> Drawing
+    @State private var old: Picture?
     @State private var changedAt = Date.distantPast
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    static let spring: TimeInterval = 0.35
 
     var body: some View {
         let moving = old != nil && !reduceMotion
         TimelineView(.animation(paused: !moving)) { tick in
-            let k = LiveTraceSurface.ease(tick.date.timeIntervalSince(changedAt), Self.spring)
-            ChartSurface(drawing: HistoryDrawing(picture: picture, looks: looks, frame: frame, words: words, axis: axis, from: moving && k < 1 ? old : nil, progress: k))
+            let t = tick.date.timeIntervalSince(changedAt)
+            let spring = TraceInk.ease(t, TraceInk.spring)
+            ChartSurface(drawing: drawing(moving && spring < 1 ? old : nil, TraceInk.ease(t, TraceInk.slide), spring))
                 .equatable()
         }
         .onChange(of: picture) { before, _ in

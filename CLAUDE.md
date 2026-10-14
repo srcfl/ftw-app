@@ -122,6 +122,12 @@ native, and smooth enough to impress.
   whole screen, growing out of the small one. Chips add or take away
   series, kept per viewer; the last one stays, and a hidden series never
   changes what the others say.
+- **One material for every power trace** (Fredrik, 14 Oct 2026). Live,
+  Today and 48 h, small and enlarged, draw through `TraceInk` (band,
+  body, line, glow only while live), `ChartAxes`, `LockOn` and
+  `SlidingSurface` (a slide of 0.25 s, a spring of 0.35 s), and the hero
+  follows the finger on each. Going from Live to Today changes the time,
+  never the material. A new chart starts from these.
 - **Charts draw on the engine.** Geometry is a value built once per data
   change (`FTWShared/Charts`, tested). A chart is one Canvas
   (`ChartSurface`) that never sees the finger and a small `ScrubOverlay`

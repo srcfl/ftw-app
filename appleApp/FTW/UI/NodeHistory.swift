@@ -90,16 +90,29 @@ enum NodeChartLook {
 // MARK: - What the line under the chart says
 
 /// The words for every slot of the chart on screen, made once per change of
-/// data, so the line under the chart costs a subscript per slot.
+/// data, so the line under the chart and the hero cost a subscript per
+/// slot.
 @Observable
 @MainActor
 final class PeriodText {
+    /// What the hero says under a finger, as on the live trace: the node's
+    /// own value and "14:30–15:00 · charging". No watts over a hole.
+    struct Hero {
+        var watts: Double?
+        var signed: Double
+        var word: String
+    }
+
     private(set) var slots: [String] = []
     private(set) var spans: (ClosedRange<Int>) -> String = { _ in "" }
+    private(set) var heroes: [Hero] = []
+    private(set) var heroSpans: (ClosedRange<Int>) -> Hero? = { _ in nil }
 
-    func set(_ slots: [String], spans: @escaping (ClosedRange<Int>) -> String) {
+    func set(_ slots: [String], spans: @escaping (ClosedRange<Int>) -> String, heroes: [Hero] = [], heroSpans: @escaping (ClosedRange<Int>) -> Hero? = { _ in nil }) {
         self.slots = slots
         self.spans = spans
+        self.heroes = heroes
+        self.heroSpans = heroSpans
     }
 
     func text(_ scrub: ScrubModel) -> String? {
@@ -107,13 +120,21 @@ final class PeriodText {
         if let r = scrub.span, r.upperBound < slots.count { return spans(r) }
         return nil
     }
+
+    func hero(_ scrub: ScrubModel) -> Hero? {
+        if let i = scrub.index, heroes.indices.contains(i) { return heroes[i] }
+        if let r = scrub.span, r.upperBound < heroes.count { return heroSpans(r) }
+        return nil
+    }
 }
 
 // MARK: - Today and two days
 
-/// Today on its fixed day, or the last two days, on the engine: each chosen
-/// series with its band, the node's own with its body, holes as they are,
-/// and the finger reading one slot at a time with what lies after it dimmed.
+/// Today on its fixed day, or the last two days, on the engine, in the live
+/// trace's material: each chosen series with its band, the node's own with
+/// its body, holes as they are, and the finger reading one slot at a time,
+/// up to the last slot with data. Under the finger the hero and the line
+/// below speak as on Live.
 struct HistoryChartArea: View {
     let site: SiteModel
     let node: EnergyNode
@@ -135,13 +156,12 @@ struct HistoryChartArea: View {
         ZStack {
             Color.clear
             if let picture, let own {
-                HistorySurface(
-                    picture: picture,
-                    looks: Dictionary(uniqueKeysWithValues: picture.layers.compactMap { l in EnergyNode(rawValue: l.key).map { (l.key, NodeChartLook.look($0)) } }),
-                    frame: frame,
-                    words: ChartLabels(fetching: L("FETCHING…"), asOf: picture.asOfMs.map { NodeWords.format("AS OF %@", AppWords.clock($0, zone: .current)) }, now: NodeWords.text("NOW")),
-                    axis: axis
-                )
+                let looks = Dictionary(uniqueKeysWithValues: picture.layers.compactMap { l in EnergyNode(rawValue: l.key).map { (l.key, NodeChartLook.look($0)) } })
+                let labels = ChartLabels(fetching: L("FETCHING…"), asOf: picture.asOfMs.map { NodeWords.format("AS OF %@", AppWords.clock($0, zone: .current)) }, now: NodeWords.text("NOW"))
+                let live = site.freshness(node).live
+                SlidingSurface(picture: picture) { from, slide, spring in
+                    HistoryDrawing(picture: picture, looks: looks, frame: frame, words: labels, axis: axis, live: live, from: from, slide: slide, spring: spring)
+                }
                 ScrubOverlay(
                     track: ScrubTrack(
                         grid: picture.grid,
@@ -150,14 +170,20 @@ struct HistoryChartArea: View {
                         atMs: own.series.buckets.map(\.atMs),
                         tags: own.series.readouts.when.indices.map { own.series.readouts.when[$0] + "  " + (own.series.readouts.what[$0].components(separatedBy: " · ").first ?? "") },
                         landmarks: own.series.readouts.landmarks.union([0, max(0, picture.limit ?? 0)]),
-                        color: NodeChartLook.color(node),
-                        dimsAfter: true,
+                        color: NodeChartLook.look(node).up,
+                        downColor: NodeChartLook.look(node).down,
                         limit: picture.limit
                     ),
                     frame: frame,
                     model: scrub,
                     tagSize: tag,
-                    spanTag: { r in own.series.readouts.when[r.lowerBound].components(separatedBy: "–").first! + "–" + (own.series.readouts.when[r.upperBound].components(separatedBy: "–").last ?? "") }
+                    // As on the live trace: "07:30–14:30  avg 522 W".
+                    spanTag: { r in
+                        let readouts = own.series.readouts
+                        let when = (readouts.when[r.lowerBound].components(separatedBy: "–").first ?? "") + "–" + (readouts.when[r.upperBound].components(separatedBy: "–").last ?? "")
+                        let means = own.series.buckets[r].compactMap(\.mean)
+                        return means.isEmpty ? when : when + "  " + NodeWords.format("avg %@", AppWords.power(abs(means.reduce(0, +) / Double(means.count))))
+                    }
                 )
             } else if let problem = home.nodes.history.problem {
                 Text(problem).font(.footnote).foregroundStyle(Theme.ink3).multilineTextAlignment(.center)
@@ -204,26 +230,40 @@ struct HistoryChartArea: View {
         return home.nodes.history.samples(node, fromMs: fromMs).map { ChartSample(startMs: $0.startMs, value: $0.watts, fetching: $0.fetching) }
     }
 
-    /// The line under the chart for each slot: the node's own mean and range,
-    /// then each other series' mean, in its own words. A hidden series
-    /// changes nothing here.
+    /// What a finger says, per slot, in the live trace's words. The hero:
+    /// the node's own mean and "14:30–15:00 · charging". The line under the
+    /// chart: the energy so far, then each other series' mean. Two fingers:
+    /// their mean in the hero, the energy between under the chart. A
+    /// hidden series changes nothing the others say.
     private func words(_ picture: HistoryPicture?) {
         guard let picture, let own = picture.layers.first else { return text.set([], spans: { _ in "" }) }
+        let node = node
         let others = picture.layers.dropFirst().compactMap { l in EnergyNode(rawValue: l.key).map { ($0, l.series) } }
-        let slots = own.series.readouts.when.indices.map { i -> String in
-            var parts = [own.series.readouts.when[i], own.series.readouts.what[i]]
+        let readouts = own.series.readouts
+        let buckets = own.series.buckets
+        let slots = readouts.when.indices.map { i -> String in
+            var parts = [NodeLive.soFar(node, readouts.soFar(i))]
             for (n, s) in others where s.readouts.what.indices.contains(i) {
                 parts.append(n.title + " " + (s.readouts.what[i].components(separatedBy: " · ").first ?? ""))
             }
             return parts.joined(separator: " · ")
         }
-        let readouts = own.series.readouts
-        let directions = node.directions != nil
-        text.set(slots) { r in
-            let e = readouts.between(r.lowerBound, r.upperBound)
-            let span = readouts.when[r.lowerBound].components(separatedBy: "–").first! + "–" + (readouts.when[r.upperBound].components(separatedBy: "–").last ?? "")
-            return span + " · " + (directions ? NodeWords.format("↑ %@ ↓ %@", AppWords.energy(e.inWh), AppWords.energy(e.outWh)) : AppWords.energy(e.inWh))
+        let heroes = buckets.indices.map { i -> PeriodText.Hero in
+            let when = readouts.when[i]
+            guard let m = buckets[i].mean else {
+                return PeriodText.Hero(watts: nil, signed: 0, word: when + " · " + (buckets[i].fetching ? L("FETCHING…").lowercased() : NodeWords.text("no data")))
+            }
+            return PeriodText.Hero(watts: abs(m), signed: m, word: when + " · " + Readouts.word(node, m))
         }
+        func span(_ r: ClosedRange<Int>) -> String {
+            (readouts.when[r.lowerBound].components(separatedBy: "–").first ?? "") + "–" + (readouts.when[r.upperBound].components(separatedBy: "–").last ?? "")
+        }
+        text.set(slots, spans: { r in NodeLive.between(node, readouts.between(r.lowerBound, r.upperBound)) }, heroes: heroes, heroSpans: { r in
+            let means = buckets[r].compactMap(\.mean)
+            guard !means.isEmpty else { return PeriodText.Hero(watts: nil, signed: 0, word: span(r) + " · " + NodeWords.text("no data")) }
+            let mean = means.reduce(0, +) / Double(means.count)
+            return PeriodText.Hero(watts: abs(mean), signed: mean, word: span(r) + " · " + NodeWords.format("average %@", AppWords.power(abs(mean))))
+        })
     }
 }
 
@@ -272,8 +312,10 @@ struct AheadChartArea: View {
             Color.clear
             if let made {
                 let picture = made.picture, bars = made.bars, prices = made.prices, currency = made.currency, forecast = made.forecast
-                ChartSurface(drawing: AheadDrawing(picture: picture, look: NodeChartLook.look(node), frame: frame, axis: axis, nowWord: NodeWords.text("NOW"), strip: strip))
-                    .equatable()
+                let look = NodeChartLook.look(node)
+                SlidingSurface(picture: picture) { from, slide, spring in
+                    AheadDrawing(picture: picture, look: look, frame: frame, axis: axis, nowWord: NodeWords.text("NOW"), strip: strip, from: from, slide: slide, spring: spring)
+                }
                 ScrubOverlay(
                     track: ScrubTrack(
                         grid: picture.grid,
@@ -283,7 +325,8 @@ struct AheadChartArea: View {
                             Readouts.clock(picture.grid.startMs(i)) + (picture.values[i].map { "  " + AppWords.power(abs($0)) } ?? "")
                         },
                         landmarks: [0, max(0, picture.grid.count - 1)],
-                        color: NodeChartLook.color(node),
+                        color: NodeChartLook.look(node).up,
+                        downColor: NodeChartLook.look(node).down,
                         bars: picture.kind == .plan
                     ),
                     frame: frame,

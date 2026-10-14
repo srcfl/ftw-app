@@ -66,20 +66,7 @@ public struct AheadPicture: Equatable, Sendable {
         let known = values.compactMap { $0 }
         let domain = YDomain.stable(low: min(0, known.min() ?? 0), high: max(0, known.max() ?? 0), previous: previous, floor: floor)
 
-        var line = ChartPath()
-        if kind == .forecast {
-            let map = YMap(domain: domain, height: size.height)
-            var run: [CGPoint] = []
-            for i in 0..<count {
-                guard let v = values[i] else {
-                    line.addMonotone(run)
-                    run = []
-                    continue
-                }
-                run.append(CGPoint(x: grid.midX(i, width: size.width), y: map.y(v)))
-            }
-            line.addMonotone(run)
-        }
+        let line = kind == .forecast ? forecastLine(values, grid: grid, domain: domain, size: size) : ChartPath()
 
         let prices = minor.compactMap { $0 }
         let lo = prices.min() ?? 0, hi = prices.max() ?? 0
@@ -106,5 +93,38 @@ public struct AheadPicture: Equatable, Sendable {
         }
 
         return AheadPicture(kind: kind, grid: grid, domain: domain, size: size, values: values, line: line, priceThirds: thirds, priceLevels: levels, nowMs: nowMs, ticks: ticks)
+    }
+
+    /// A forecast's line through each slot's middle, one monotone subpath
+    /// per run of values.
+    public static func forecastLine(_ values: [Double?], grid: SlotGrid, domain: YDomain, size: CGSize) -> ChartPath {
+        let map = YMap(domain: domain, height: size.height)
+        var line = ChartPath()
+        var run: [CGPoint] = []
+        for i in values.indices {
+            guard let v = values[i] else {
+                line.addMonotone(run)
+                run = []
+                continue
+            }
+            run.append(CGPoint(x: grid.midX(i, width: size.width), y: map.y(v)))
+        }
+        line.addMonotone(run)
+        return line
+    }
+
+    /// A new plan or forecast for the same slots, on its way from `old`:
+    /// each slot moves from its old value to its new one as `progress`
+    /// runs from 0 to 1, drawn on this picture's scale. A slot new to the
+    /// picture starts at zero; one gone is not drawn. Nil when the slots
+    /// differ (a new window draws at once) or the move is over.
+    public func blended(from old: AheadPicture, progress: Double) -> (values: [Double?], line: ChartPath)? {
+        guard progress < 1, old.kind == kind, old.grid == grid, old.size == size, old.values != values else { return nil }
+        let k = max(0, progress)
+        let mixed: [Double?] = zip(old.values, values).map { a, b in
+            guard let b else { return nil }
+            return (a ?? 0) + (b - (a ?? 0)) * k
+        }
+        return (mixed, kind == .forecast ? Self.forecastLine(mixed, grid: grid, domain: domain, size: size) : ChartPath())
     }
 }

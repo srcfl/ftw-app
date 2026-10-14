@@ -34,6 +34,9 @@ import Testing
         // One straight estimate across the hole on its way, from slot 3 to 6.
         #expect(series.estimate.elements == [.move(series.points[3]!), .line(series.points[6]!)])
         #expect(series.points[4] == nil && series.points[12] == nil)
+        // As on the live trace, a finger feels each end of a run of data.
+        #expect(series.readouts.landmarks.isSuperset(of: [0, 3, 6, 11, 14, 47]))
+        #expect(!series.readouts.landmarks.contains(4) && !series.readouts.landmarks.contains(12))
     }
 
     @Test func slotsAfterNowAreNeitherHolesNorData() {
@@ -134,6 +137,23 @@ import Testing
         let forecast = AheadPicture.build(kind: .forecast, slots: made, prices: [], nowMs: now, size: Self.size, clock: Self.clock)
         #expect(!forecast.line.isEmpty)
         #expect(forecast.priceThirds.allSatisfy { (t: PriceChart.Third?) in t == nil })
+    }
+
+    @Test func aNewPlanForTheSameSlotsMovesEachSlotToItsNewValue() throws {
+        let now = ChartGeometryTests.at(14, 10, 7)
+        let start = ChartGeometryTests.at(14, 10)
+        func slots(_ w: @escaping (Int) -> Double?) -> [(startMs: Double, endMs: Double, watts: Double?)] {
+            (0..<48).map { i in (start + Double(i) * 900_000, start + Double(i + 1) * 900_000, w(i)) }
+        }
+        let old = AheadPicture.build(kind: .forecast, slots: slots { _ in 1_000 }, prices: [], nowMs: now, size: Self.size, floor: 3_000, clock: Self.clock)
+        let new = AheadPicture.build(kind: .forecast, slots: slots { $0 == 5 ? nil : 2_000 }, prices: [], nowMs: now, size: Self.size, previous: old.domain, floor: 3_000, clock: Self.clock)
+        let half = try #require(new.blended(from: old, progress: 0.5))
+        #expect(half.values[0] == 1_500 && half.values[5] == nil)
+        #expect(!half.line.isEmpty)
+        #expect(new.blended(from: old, progress: 1) == nil)
+        // A window that moved on draws at once.
+        let later = AheadPicture.build(kind: .forecast, slots: slots { _ in 2_000 }, prices: [], nowMs: now + 900_000, size: Self.size, floor: 3_000, clock: Self.clock)
+        #expect(later.blended(from: old, progress: 0.5) == nil)
     }
 
     // MARK: Calm on the home box's days

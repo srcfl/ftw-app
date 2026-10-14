@@ -1,6 +1,7 @@
 import XCTest
 
-/// Today on a node: the chart small, a second series added by its chip,
+/// A node from Live to Today: a finger on the live trace, then the same
+/// finger on Today, the chart small, a second series added by its chip,
 /// then the chart grown to the whole screen and scrubbed there. For
 /// screenshots and recordings. Skipped unless asked for:
 ///
@@ -11,12 +12,20 @@ final class HistoryTour: XCTestCase {
         let env = ProcessInfo.processInfo.environment
         try XCTSkipUnless(env["FTW_HISTORY"] == "1", "Set TEST_RUNNER_FTW_HISTORY=1 to drive the history.")
         let app = XCUIApplication()
-        app.launchArguments = ["-FTWDemo", "YES", "-FTWNode", env["FTW_NODE"] ?? "battery", "-FTWPeriod", env["FTW_PERIOD"] ?? "today", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments = ["-FTWDemo", "YES", "-FTWNode", env["FTW_NODE"] ?? "battery", "-FTWPeriod", "live", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
+        // Live first, with a finger on it, then Today in the same material.
+        let live = app.descendants(matching: .any)["node.live.chart"].firstMatch
+        XCTAssertTrue(live.waitForExistence(timeout: 15))
+        Thread.sleep(forTimeInterval: 8)
+        shoot(app, "live")
+        drag(live)
+        app.segmentedControls["node.period"].buttons["Today"].tap()
         let chart = app.descendants(matching: .any)["node.period.chart"].firstMatch
         XCTAssertTrue(chart.waitForExistence(timeout: 15))
-        Thread.sleep(forTimeInterval: 3)
+        Thread.sleep(forTimeInterval: 2)
         shoot(app, "compact")
+        drag(chart)
         // A second series, then a third, by their chips.
         let solar = app.buttons["chart.series.solar"]
         XCTAssertTrue(solar.waitForExistence(timeout: 5))

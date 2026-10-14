@@ -232,9 +232,16 @@ public struct ChartSeries: Equatable, Sendable {
             outWh.append(outWh[i] + b.outWh)
         }
 
+        // As on the live trace: the high, the low, and the slots at each end
+        // of a run of data, where a hole begins or ends.
         var landmarks = Set<Int>()
         if let highest { landmarks.insert(highest.i) }
         if let lowest { landmarks.insert(lowest.i) }
+        for (i, b) in buckets.enumerated() where b.mean != nil {
+            let before = i == 0 || buckets[i - 1].mean == nil
+            let after = i == buckets.count - 1 || buckets[i + 1].mean == nil
+            if before || after { landmarks.insert(i) }
+        }
         for ms in (nowMs.map { [$0] } ?? []) + landmarksMs where ms >= fromMs && ms < toMs {
             if let i = grid.index(atMs: ms) { landmarks.insert(i) }
         }

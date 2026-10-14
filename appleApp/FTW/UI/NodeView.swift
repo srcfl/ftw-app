@@ -123,7 +123,7 @@ struct NodeView: View {
 
     private func page(fill: Bool) -> some View {
         return VStack(alignment: .leading, spacing: 0) {
-            NodeHero(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase)
+            NodeHero(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, text: text)
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .padding(.horizontal, 20)
             HStack(spacing: 8) {
@@ -281,6 +281,7 @@ private struct NodeHero: View {
     let trace: NodeTraceModel
     let scrub: ScrubModel
     let timebase: NodeView.Timebase
+    let text: PeriodText
     @ScaledMetric(relativeTo: .largeTitle) private var figureSize: CGFloat = 60
     @ScaledMetric(relativeTo: .title2) private var unitSize: CGFloat = 22
 
@@ -295,8 +296,15 @@ private struct NodeHero: View {
             hasCar: !loadpoints.points.isEmpty
         ).first { $0.node == node }
         let live = reading?.freshness.live ?? false
-        let under = timebase == .live ? fingered : nil
-        let watts = under?.watts ?? reading?.watts
+        // Under a finger the hero says what the finger is on, on Live and
+        // on the measured past alike. The hours ahead are a plan, not a
+        // reading, so there the hero stays on now.
+        let under: (watts: Double?, signed: Double, word: String)? = switch timebase {
+        case .live: fingered.map { ($0.watts, $0.signed, $0.word) }
+        case .today, .twoDays: text.hero(scrub).map { ($0.watts, $0.signed, $0.word) }
+        case .ahead: nil
+        }
+        let watts = under.map(\.watts) ?? reading?.watts
         let word = under?.word ?? reading?.word ?? L("Your box sends no reading for this.")
         let tone = under.map { Readouts.tone(node, $0.signed) } ?? reading?.tone ?? .muted
 
@@ -555,7 +563,7 @@ private struct ChartFullScreen: View {
 
     private func content(chart height: CGFloat?) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            NodeHero(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase)
+            NodeHero(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, text: text)
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .padding(.horizontal, 20)
             NodeStatusRow(site: site, node: node)
@@ -601,7 +609,8 @@ private struct LiveChartArea: View {
     var body: some View {
         let revision = live.revision
         let chartFrame = ChartFrame(top: tag * 1.35 + 8, bottom: 6, trailing: axis * 3.2)
-        let look = Self.look(node)
+        // The same colours as every other chart of this node.
+        let look = NodeChartLook.look(node)
         let isLive = site.freshness(node).live
         ZStack {
             // Takes the whole frame before the first reading, so the
@@ -678,18 +687,6 @@ private struct LiveChartArea: View {
         trace.build(live.points(node.fid, sinceMs: Date().timeIntervalSince1970 * 1000 - LiveTrace.windowMs - 10_000), node: node, carrier: site.carrier, size: plot)
     }
 
-    /// Each side of zero in its direction's colour: the battery cyan
-    /// storing and gold giving, the grid magenta both ways.
-    static func look(_ node: EnergyNode) -> TraceLook {
-        let words = node.directions
-        switch node {
-        case .battery: return TraceLook(up: Theme.stores, down: Theme.gives, upWord: words.map { "↑ " + $0.up.uppercased() }, downWord: words.map { "↓ " + $0.down.uppercased() })
-        case .grid: return TraceLook(up: Theme.grid, down: Theme.grid, upWord: words.map { "↑ " + $0.up.uppercased() }, downWord: words.map { "↓ " + $0.down.uppercased() })
-        default:
-            let c = Theme.color(NodeLook.tone(node))
-            return TraceLook(up: c, down: c)
-        }
-    }
 }
 
 /// The trace as VoiceOver reads it: every reading, in watts.
@@ -914,18 +911,5 @@ enum NodeSummary {
             text += " · " + NodeWords.format("%@ not recorded", minutes < 120 ? "\(minutes) min" : "\(minutes / 60) h")
         }
         return text
-    }
-}
-
-extension NodeLook {
-    /// The colour of a node's curve.
-    static func tone(_ node: EnergyNode) -> Flow.Tone {
-        switch node {
-        case .solar: return .solar
-        case .battery: return .battery
-        case .home: return .house
-        case .grid: return .importing
-        case .car: return .ev
-        }
     }
 }

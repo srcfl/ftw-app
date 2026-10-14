@@ -14,10 +14,10 @@ struct ScrubTrack: Equatable {
     /// "02:15  31,0 öre", per slot.
     var tags: [String]
     var landmarks: Set<Int>
-    /// The dot's colour.
+    /// The dot's colour, and below zero when that differs, as on the live
+    /// trace.
     var color: Color = Theme.ink
-    /// Dims what lies right of the finger, for a history's "so far".
-    var dimsAfter = false
+    var downColor: Color?
     /// A value that holds across its slot (a price, a plan quarter): the
     /// slot under the finger lights up as its whole bar and the rest dims,
     /// in place of a dot on a line.
@@ -54,6 +54,11 @@ struct ScrubOverlay: View {
 
     @GestureState private var touching = false
     @State private var size: CGSize = .zero
+    #if DEBUG
+    /// The newest track, for the debug driver: its task keeps the view
+    /// value it started with, often from before the data came.
+    @State private var newest: ScrubTrack?
+    #endif
 
     var body: some View {
         let down = model.isDown
@@ -91,6 +96,7 @@ struct ScrubOverlay: View {
         .sensoryFeedback(.selection, trigger: model.ticks)
         .sensoryFeedback(.impact(weight: .light), trigger: model.bumps)
         #if DEBUG
+        .onChange(of: track, initial: true) { _, now in newest = now }
         .task { await autoScrub() }
         #endif
     }
@@ -106,18 +112,19 @@ struct ScrubOverlay: View {
         }
     }
 
-    private func slot(_ x: CGFloat) -> Int? {
+    private func slot(_ x: CGFloat, on given: ScrubTrack? = nil) -> Int? {
+        let track = given ?? track
         let plot = frame.plot(in: size)
         guard let i = track.grid.index(atX: x - plot.minX, width: plot.width) else { return nil }
         return track.limit.map { min(i, $0) } ?? i
     }
 
-    private func follow(_ x: CGFloat) {
-        guard let i = slot(x) else {
+    private func follow(_ x: CGFloat, on given: ScrubTrack? = nil) {
+        guard let i = slot(x, on: given) else {
             ScrubModel.log.error("touching with no slot at x \(x)")
             return
         }
-        model.move(to: i, landmark: track.landmarks.contains(i))
+        model.move(to: i, landmark: (given ?? track).landmarks.contains(i))
     }
 
     private func draw(_ i: Int, in g: inout GraphicsContext, size: CGSize) {
@@ -131,15 +138,12 @@ struct ScrubOverlay: View {
             tag(track.tags.indices.contains(i) ? track.tags[i] : "", over: x, plot: plot, in: &g, size: size)
             return
         }
-        if track.dimsAfter {
-            g.fill(Path(CGRect(x: x, y: 0, width: max(0, plot.maxX - x), height: size.height)), with: .color(Theme.ground.opacity(0.55)))
-        }
         rule(at: x, plot: plot, px: px, in: &g)
 
         if track.values.indices.contains(i), let v = track.values[i] {
             let y = plot.minY + YMap(domain: track.domain, height: plot.height).y(v)
             let dot = CGPoint(x: x, y: y)
-            LockOn.dot(at: dot, color: track.color, in: &g)
+            LockOn.dot(at: dot, color: v < 0 ? track.downColor ?? track.color : track.color, in: &g)
         }
         tag(track.tags.indices.contains(i) ? track.tags[i] : "", over: x, plot: plot, in: &g, size: size)
     }
@@ -216,11 +220,11 @@ struct ScrubOverlay: View {
             let t = (ContinuousClock.now - began) / .milliseconds(800)
             let phase = t.truncatingRemainder(dividingBy: 2)
             let along = phase < 1 ? phase : 2 - phase
-            follow(CGFloat(-0.05 + 1.1 * along) * size.width)
+            follow(CGFloat(-0.05 + 1.1 * along) * size.width, on: newest)
             try? await Task.sleep(for: .milliseconds(8))
         }
         // Then two fingers, held for three seconds.
-        if let a = slot(0.3 * size.width), let b = slot(0.55 * size.width) { model.spread(a, b) }
+        if let a = slot(0.3 * size.width, on: newest), let b = slot(0.55 * size.width, on: newest) { model.spread(a, b) }
         try? await Task.sleep(for: .seconds(3))
         model.lift()
     }
