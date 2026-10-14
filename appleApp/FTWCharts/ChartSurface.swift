@@ -51,15 +51,37 @@ enum ChartDraws {
     static var overlayMs = 0.0
     static var worstMs = 0.0
 
-    static func take() -> (surface: Int, overlay: Int, changes: Int, overlayMs: Double, worstMs: Double) {
+    /// The live trace's frames and what they cost.
+    static var traces = 0
+    static var traceMs = 0.0
+    static var traceWorstMs = 0.0
+
+    static func trace(_ d: Duration) {
+        let ms = d / .milliseconds(1)
+        traces += 1
+        traceMs += ms
+        traceWorstMs = max(traceWorstMs, ms)
+    }
+
+    static func overlayDrew(_ d: Duration) {
+        let ms = d / .milliseconds(1)
+        overlay += 1
+        overlayMs += ms
+        worstMs = max(worstMs, ms)
+    }
+
+    static func take() -> (surface: Int, overlay: Int, changes: Int, overlayMs: Double, worstMs: Double, traces: Int, traceMs: Double, traceWorstMs: Double) {
         defer {
             surface = 0
             overlay = 0
             changes = 0
             overlayMs = 0
             worstMs = 0
+            traces = 0
+            traceMs = 0
+            traceWorstMs = 0
         }
-        return (surface, overlay, changes, overlayMs, worstMs)
+        return (surface, overlay, changes, overlayMs, worstMs, traces, traceMs, traceWorstMs)
     }
 }
 #endif

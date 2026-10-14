@@ -44,7 +44,7 @@ final class FrameGaps {
         let late = gaps.filter { $0 > frame * 1.5 }.reduce(0) { $0 + ($1 - frame) } * 1000
         let seconds = t - start
         let draws = ChartDraws.take()
-        Self.log.info("frames \(self.gaps.count) in \(seconds, format: .fixed(precision: 2)) s, late \(late / seconds, format: .fixed(precision: 2)) ms/s, worst gap \((self.gaps.max() ?? 0) * 1000, format: .fixed(precision: 1)) ms, frame \(frame * 1000, format: .fixed(precision: 1)) ms, surface draws \(draws.surface), slot changes \(draws.changes), overlay draws \(draws.overlay), overlay draw \(draws.overlayMs, format: .fixed(precision: 2)) ms, worst \(draws.worstMs, format: .fixed(precision: 2)) ms")
+        Self.log.info("frames \(self.gaps.count) in \(seconds, format: .fixed(precision: 2)) s, late \(late / seconds, format: .fixed(precision: 2)) ms/s, worst gap \((self.gaps.max() ?? 0) * 1000, format: .fixed(precision: 1)) ms, frame \(frame * 1000, format: .fixed(precision: 1)) ms, surface draws \(draws.surface), slot changes \(draws.changes), overlay draws \(draws.overlay), overlay draw \(draws.overlayMs, format: .fixed(precision: 2)) ms, worst \(draws.worstMs, format: .fixed(precision: 2)) ms, trace frames \(draws.traces), trace draw \(draws.traceMs, format: .fixed(precision: 2)) ms, worst \(draws.traceWorstMs, format: .fixed(precision: 2)) ms")
         windowStart = t
         gaps.removeAll(keepingCapacity: true)
     }
