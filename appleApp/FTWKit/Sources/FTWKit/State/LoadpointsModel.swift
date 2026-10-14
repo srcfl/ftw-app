@@ -124,7 +124,10 @@ public final class LoadpointsModel: Activatable {
             guard let self, let stamp = self.stamp else { return }
             home.chargers = Stamped<Chargers>(Chargers(points: stamp.value, windows: self.windows), asOfMs: stamp.asOfMs, origin: stamp.origin)
         }
-        site.observe { [weak self] in self?.takeCloud() }
+        site.observe { [weak self] in
+            self?.takeCloud()
+            self?.noticeDrawing()
+        }
         // A Live Activity from another home, or from the demo, has no
         // business on this phone once this home is open.
         activityHost?.endAll(except: activityHome)
@@ -464,6 +467,17 @@ public final class LoadpointsModel: Activatable {
     /// box ends the hold when the car is unplugged; its flag says so.
     static func holding(_ lp: Loadpoint) -> Bool {
         lp.manualActive && !EVText.isPaused(lp)
+    }
+
+    /// MEASURED on the receipt: lane 0 shows the car drawing power, live.
+    /// Lane 0 has one figure for every charger, so it lights the Live
+    /// Activity only when the home has one up.
+    private func noticeDrawing() {
+        guard ReceiptLog.measures(evW: site.session.fields[Contract.FID.evW], live: site.isLive),
+              let host = activityHost else { return }
+        let ids = host.loadpointIDs(home: activityHome)
+        guard ids.count == 1 else { return }
+        showChargeNow(ids[0], .measured(atMs: site.scheduler.nowMs))
     }
 
     /// The Live Activity's home key: the site, or the demo's own.

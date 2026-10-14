@@ -73,3 +73,10 @@
 "Open FTW to check" = "Öppna FTW för att se";
 "Open FTW to charge now." = "Öppna FTW för att ladda nu.";
 "Open FTW, then try again." = "Öppna FTW och försök igen.";
+
+/* The receipt log under a car command, in the terminal's caps */
+"SENT" = "SKICKAT";
+"ACCEPTED" = "MOTTAGET";
+"MEASURED" = "UPPMÄTT";
+"CONFIRMED" = "BEKRÄFTAT";
+"REFUSED" = "NEKAT";
