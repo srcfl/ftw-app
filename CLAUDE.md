@@ -238,6 +238,19 @@ The rules below put these into practice.
   Transparency drops the glow. watchOS compiles no dark appearance and a
   watch is always dark, so each set also has a `watch` variant that equals
   its dark one; `ThemeTests` holds them equal.
+- **Widgets and the Live Activity** are the app's material, held still.
+  They read the same roles and draw the same geometry as still paths,
+  never a Canvas or Swift Charts. They never glow and always say when:
+  `AS OF 13:05`, `PLANNED 16:45`, `kl 16:55`. Grid today is one signed
+  line with its body, as the grid's Today. The lock screen writes the price
+  as block glyphs from `PriceBlocks`. Tinted and clear home screens draw in
+  `.primary`, with the line or the now bar marked `.widgetAccentable()`.
+- **The receipt log** (`ReceiptLog`, drawn by `ReceiptRow`) keeps four
+  slots on one line and lights each on its own evidence: SENT on the local
+  send, ACCEPTED on `cmd.ack`, MEASURED once the box has the command and
+  lane 0 shows what it asked for while live (the car above 42 W for
+  Charge now), CONFIRMED on `cmd.result`. A refusal takes the last slot in
+  alarm red, with the box's reason.
 - The 0.3 names in `FTW/UI/Theme.swift` (`fg`, `surface`, `accent` and the
   rest) point at these roles until each screen is rebuilt. New code reads
   the roles.
