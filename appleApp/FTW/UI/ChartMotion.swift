@@ -100,7 +100,9 @@ struct ChartChange: Equatable {
 
 /// Holds a chart's points and moves between them: the chart draws what
 /// `content` is handed, at the display's rate while a change moves and not
-/// at all otherwise.
+/// at all otherwise. What the chart already has when it appears starts
+/// settled, so a view opened again never grows from zero; only what
+/// changes while it is on screen moves.
 struct MovingPoints<Content: View>: View {
     let points: [HistoryPlot.Point]
     @ViewBuilder let content: (_ drawn: [HistoryPlot.Point], _ fading: [HistoryPlot.Point], _ fadeLeft: Double) -> Content
@@ -114,8 +116,14 @@ struct MovingPoints<Content: View>: View {
             let now = moving ? context.date : .distantFuture
             content(change.drawn(shown, at: now), change.fading, change.fading.isEmpty ? 0 : change.fadeLeft(at: now))
         }
-        .onAppear { begin(points) }
+        .onAppear { settle(points) }
         .onChange(of: points) { _, new in begin(new) }
+    }
+
+    private func settle(_ new: [HistoryPlot.Point]) {
+        shown = new
+        change = ChartChange()
+        moving = false
     }
 
     private func begin(_ new: [HistoryPlot.Point]) {
