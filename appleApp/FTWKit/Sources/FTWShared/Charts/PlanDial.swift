@@ -36,6 +36,9 @@ public struct PlanDial: Equatable, Sendable {
         public let car: Bool
         /// The goal, on the car's last quarter of a window.
         public let carGoalPct: Double?
+        /// Where the plan leaves the battery by the quarter's end, in
+        /// percent. Nil when the box did not say.
+        public let levelPct: Double?
     }
 
     public let grid: SlotGrid
@@ -90,7 +93,7 @@ public struct PlanDial: Equatable, Sendable {
             return next < items.count && items[next][keyPath: start] < b ? items[next] : nil
         }
         func price(_ q: Int) -> Double? { holding(slots, q, start: \.startMs, length: \.durationMs)?.totalMinor }
-        func batteryW(_ q: Int) -> Double? { holding(battery, q, start: \.startMs, length: \.durationMs)?.batteryW }
+        func planned(_ q: Int) -> PlanEntry.Slot? { holding(battery, q, start: \.startMs, length: \.durationMs) }
 
         let minors = (0..<Self.count).map { price($0) }
         let known = minors.compactMap { $0 }
@@ -103,7 +106,8 @@ public struct PlanDial: Equatable, Sendable {
 
         let quarters = (0..<Self.count).map { i in
             let start = grid.startMs(i), end = grid.endMs(i)
-            let w = batteryW(i)
+            let slot = planned(i)
+            let w = slot?.batteryW
             let action: Battery = w.map { $0 > PlanGlance.idleW ? .stores : ($0 < -PlanGlance.idleW ? .gives : .waits) } ?? .waits
             return Quarter(
                 startMs: start,
@@ -112,7 +116,8 @@ public struct PlanDial: Equatable, Sendable {
                 battery: action,
                 batteryW: w,
                 car: charges.contains { $0.fromMs < end && $0.toMs > start },
-                carGoalPct: goals[i]
+                carGoalPct: goals[i],
+                levelPct: slot?.levelPct
             )
         }
 
@@ -159,6 +164,7 @@ public struct PlanDial: Equatable, Sendable {
             case (.gives, let w?): parts.append(DialWord.gives.format(Words.decimal(PowerFormat.text(w)).uppercased()))
             case (.waits, _): parts.append(DialWord.waits.text)
             }
+            if let level = q.levelPct { parts.append(PlanGlance.percent(level)) }
             if let goal = q.carGoalPct {
                 parts.append(DialWord.carTo.format(PlanGlance.percent(goal)))
             } else if q.car {
@@ -256,6 +262,7 @@ public struct PlanDial: Equatable, Sendable {
         case (.gives, let w?): parts.append("\(WatchWord.batteryGives.text) \(Words.decimal(PowerFormat.text(w)))")
         case (.waits, _): parts.append(WatchWord.batteryWaits.text)
         }
+        if let level = q.levelPct { parts.append(PlanGlance.percent(level)) }
         if let goal = q.carGoalPct {
             parts.append(WatchWord.carGoal.format(PlanGlance.percent(goal)))
         } else if q.car {

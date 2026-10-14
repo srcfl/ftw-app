@@ -49,8 +49,8 @@ public struct PlanStrip: Equatable, Sendable {
     /// Quarters that give a light impact under a finger: now, either end,
     /// the cheapest two hours' edges and each car goal.
     public let landmarks: Set<Int>
-    /// What a finger reads per quarter: "02:15 · 31 öre · stores · car
-    /// charges".
+    /// What a finger reads per quarter: "02:15 · 31 öre · stores · 58 % ·
+    /// car charges".
     public let readouts: [String]
     /// "NEXT 12 H", "PLANNED 14:05" from the cache, "OLD PLAN · 14:05".
     public let kicker: String
@@ -140,12 +140,14 @@ public struct PlanStrip: Equatable, Sendable {
             } else {
                 parts.append(PlanWord.noPrice.text)
             }
-            if planned[i] != nil {
+            if let slot = planned[i] {
                 switch battery[i] {
                 case .stores?: parts.append(PlanWord.stores.text)
                 case .gives?: parts.append(PlanWord.gives.text)
                 case nil: parts.append(PlanWord.waits.text)
                 }
+                // Where the plan leaves the battery by the quarter's end.
+                if let level = slot.levelPct { parts.append(PlanGlance.percent(level)) }
             }
             if let goal = goals[i] {
                 parts.append(PlanWord.carGoal.format(PlanGlance.percent(goal)))

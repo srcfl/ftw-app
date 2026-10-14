@@ -22,6 +22,8 @@ public final class PlanModel {
         public let pvW: Double
         public let loadW: Double
         public let priceMinor: Double?
+        /// The battery's planned level at the end of the slot, in percent.
+        public var levelPct: Double? = nil
         public var id: Double { startMs }
     }
 
@@ -146,7 +148,8 @@ public final class PlanModel {
             let end = slotStart + len * 60_000
             let pv = a["forecast_pv_w"]?.number ?? a["pv_w"]?.number ?? 0
             let load = a["forecast_load_w"]?.number ?? a["load_w"]?.number ?? 0
-            return Forecast(startMs: start, durationMs: max(0, end - start), pvW: abs(pv), loadW: max(0, load), priceMinor: a["price_ore"]?.number)
+            let soc = a["soc"]?.number.flatMap { $0.isFinite && $0 >= 0 && $0 <= 1 ? $0 * 100 : nil }
+            return Forecast(startMs: start, durationMs: max(0, end - start), pvW: abs(pv), loadW: max(0, load), priceMinor: a["price_ore"]?.number, levelPct: soc)
         }
     }
 

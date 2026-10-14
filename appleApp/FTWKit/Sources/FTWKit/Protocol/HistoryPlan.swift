@@ -135,15 +135,19 @@ public struct PlanSlot: Equatable, Sendable, Identifiable, Codable {
     public var priceMinor: Double?
     /// A stable code, never prose. The app owns every word.
     public var reason: String
+    /// The battery's planned level at the end of the slot, in thousandths.
+    /// Nil from a box that does not send it.
+    public var socPermille: Double?
     public var id: Double { startMs }
 
-    public init(startMs: Double, durationMs: Double, batteryW: Double, gridW: Double, priceMinor: Double?, reason: String) {
+    public init(startMs: Double, durationMs: Double, batteryW: Double, gridW: Double, priceMinor: Double?, reason: String, socPermille: Double? = nil) {
         self.startMs = startMs
         self.durationMs = durationMs
         self.batteryW = batteryW
         self.gridW = gridW
         self.priceMinor = priceMinor
         self.reason = reason
+        self.socPermille = socPermille
     }
 
     public var endMs: Double { startMs + durationMs }
@@ -180,7 +184,8 @@ public struct Plan: Equatable, Sendable, Codable {
                 batteryW: s["batteryW"]?.double ?? 0,
                 gridW: s["gridW"]?.double ?? 0,
                 priceMinor: s["priceMinor"]?.double,
-                reason: s["reason"]?.string ?? "idle"
+                reason: s["reason"]?.string ?? "idle",
+                socPermille: s["socPermille"]?.double
             )
         }
         stale = c["stale"]?.bool ?? false
@@ -196,6 +201,7 @@ public struct Plan: Equatable, Sendable, Codable {
                     ("batteryW", .ms(s.batteryW)), ("gridW", .ms(s.gridW)), ("reason", .text(s.reason)),
                 ]
                 slot.append(("priceMinor", s.priceMinor.map { .ms($0) } ?? .null))
+                if let soc = s.socPermille { slot.append(("socPermille", .ms(soc))) }
                 return .map(slot)
             })),
             ("stale", .bool(stale)),

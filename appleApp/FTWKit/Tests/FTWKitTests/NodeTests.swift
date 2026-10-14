@@ -500,7 +500,30 @@ import FTWShared
         #expect(plan.slots.count > 40)
         #expect((plan.slots.first?.startMs ?? .infinity) <= rig.scheduler.nowMs)
         #expect(plan.slots.allSatisfy { $0.priceMinor != nil && PlanText.reasons[$0.reason] != nil })
+        // The box says where each slot leaves the battery, in thousandths.
+        #expect(plan.slots.allSatisfy { ($0.socPermille ?? -1) >= 0 && ($0.socPermille ?? 2_000) <= 1_000 })
         #expect(rig.session.state.plan == plan)
+    }
+
+    /// The level travels on the wire when the box sends it, and stays nil
+    /// from a box that does not.
+    @Test func theLevelRoundTripsOnTheWire() {
+        let slot = PlanSlot(startMs: 1_000, durationMs: 900_000, batteryW: -1_200, gridW: 0, priceMinor: 160, reason: "expensive_import", socPermille: 624)
+        let plan = Plan(rev: 3, uptimeMs: 0, slots: [slot, PlanSlot(startMs: 901_000, durationMs: 900_000, batteryW: 0, gridW: 300, priceMinor: 90, reason: "idle")], stale: false, ceilingW: nil)
+        let back = Plan(plan.wire)
+        #expect(back.slots[0].socPermille == 624)
+        #expect(back.slots[1].socPermille == nil)
+    }
+
+    /// The plan's entry takes the level from the wire, and from the
+    /// planner's own document for a box that sends none on its plan.
+    @Test func theEntryTakesTheLevelFromTheWireOrThePlanner() {
+        let a = PlanSlot(startMs: 0, durationMs: 900_000, batteryW: -1_200, gridW: 0, priceMinor: 160, reason: "expensive_import", socPermille: 624)
+        let b = PlanSlot(startMs: 900_000, durationMs: 900_000, batteryW: -1_200, gridW: 0, priceMinor: 160, reason: "expensive_import")
+        let plan = Plan(rev: 1, uptimeMs: 0, slots: [a, b], stale: false, ceilingW: nil)
+        let entry = PlanEntry.live(plan: plan, points: [], windows: [:], prices: nil, levels: [(startMs: 900_000, endMs: 1_800_000, pct: 58)])
+        #expect(entry.battery?.map(\.levelPct) == [62.4, 58])
+        #expect(PlanEntry.live(plan: plan, points: [], windows: [:], prices: nil).battery?.map(\.levelPct) == [62.4, nil])
     }
 
     @Test func theBatteryInOneSentence() {

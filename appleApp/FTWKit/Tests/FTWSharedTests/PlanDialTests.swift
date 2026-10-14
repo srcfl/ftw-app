@@ -119,6 +119,21 @@ import Testing
         #expect(d.quarters[0].minor == 160)
     }
 
+    /// The middle and the Crown say where the plan leaves the battery.
+    @Test func theMiddleSaysWhereTheBatteryIs() {
+        var plan = watch.plan()
+        plan.battery = plan.battery?.enumerated().map { i, s in
+            var s = s
+            s.levelPct = 50 + Double(i % 40)
+            return s
+        }
+        let d = PlanDial(plan: plan, prices: watch.prices(), nowMs: at(14, 12, 7))
+        let ten = d.grid.index(atMs: at(14, 22))!
+        #expect(d.quarters[ten].levelPct == 50 + Double(ten % 40))
+        #expect(d.doing[ten] == "STORES · 3.0 KW · \(50 + ten % 40)\u{00A0}%")
+        #expect(d.what(ten) == "Battery stores 3.0 kW · \(50 + ten % 40)\u{00A0}%")
+    }
+
     @Test func thePlannedLine() {
         let zone = TimeZone(identifier: WatchTests.zone)!
         #expect(PlanDial.planned(atMs: at(14, 16, 51), old: false, zone: zone) == "PLANNED 16:51 · REPLANS EVERY 15 MIN")

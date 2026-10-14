@@ -16,12 +16,16 @@ public struct PlanEntry: CacheValue {
         public var batteryW: Double
         /// The box's reason code, never prose.
         public var reason: String
+        /// The level the plan leads the battery to by the end of the slot,
+        /// in percent. Nil when the box did not say.
+        public var levelPct: Double?
 
-        public init(startMs: Double, durationMs: Double, batteryW: Double, reason: String) {
+        public init(startMs: Double, durationMs: Double, batteryW: Double, reason: String, levelPct: Double? = nil) {
             self.startMs = startMs
             self.durationMs = durationMs
             self.batteryW = batteryW
             self.reason = reason
+            self.levelPct = levelPct
         }
     }
 
@@ -143,9 +147,11 @@ public enum PlanGlance {
         public let energyWh: Double?
         /// The box's reason code for the battery's first slot in it.
         public let reason: String?
+        /// Where the battery's run leaves it, in percent, when the box said.
+        public let endLevelPct: Double?
         public var id: String { "\(kind.rawValue)-\(Int64(startMs))" }
 
-        public init(kind: Kind, startMs: Double, endMs: Double, peakW: Double? = nil, targetPct: Double? = nil, energyWh: Double? = nil, reason: String? = nil) {
+        public init(kind: Kind, startMs: Double, endMs: Double, peakW: Double? = nil, targetPct: Double? = nil, energyWh: Double? = nil, reason: String? = nil, endLevelPct: Double? = nil) {
             self.kind = kind
             self.startMs = startMs
             self.endMs = endMs
@@ -153,6 +159,7 @@ public enum PlanGlance {
             self.targetPct = targetPct
             self.energyWh = energyWh
             self.reason = reason
+            self.endLevelPct = endLevelPct
         }
     }
 
@@ -176,7 +183,7 @@ public enum PlanGlance {
                 peak = max(peak, abs(slots[j].batteryW))
             }
             if let kind, slots[i].startMs < end {
-                out.append(Event(kind: kind, startMs: max(t, slots[i].startMs), endMs: slots[j].startMs + slots[j].durationMs, peakW: peak, reason: slots[i].reason))
+                out.append(Event(kind: kind, startMs: max(t, slots[i].startMs), endMs: slots[j].startMs + slots[j].durationMs, peakW: peak, reason: slots[i].reason, endLevelPct: slots[j].levelPct))
             }
             i = j + 1
         }
@@ -251,6 +258,9 @@ public enum PlanGlance {
         /// next two moves and the car's charge, each with its reason. The
         /// verbs are marked so they can take their colour.
         public let story: [Phrase]
+        /// The battery's planned level at the end of each slot ahead, for a
+        /// ghost line over the lanes. Empty when the box did not say.
+        public let levels: [LevelPoint]
         /// The zone the clock in this moment is read in.
         public let timeZone: TimeZone
 
@@ -278,7 +288,7 @@ public enum PlanGlance {
         let calendar = given ?? .household(read?.value.timeZone)
         guard let read else {
             return Moment(atMs: t, state: .nothing, readAtMs: nil, events: [], backdrop: [], currency: "", summary: PlanWord.openToSee.text,
-                          next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, nextText: PlanWord.openToSee.text, story: [], timeZone: calendar.timeZone)
+                          next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, nextText: PlanWord.openToSee.text, story: [], levels: [], timeZone: calendar.timeZone)
         }
         let old = t - read.record.readAtMs >= staleAfterMs
         let state: State = read.value.boxStale || read.srcState == .stale ? .boxStale : (old ? .old : .plan)
@@ -303,7 +313,7 @@ public enum PlanGlance {
         let m = moment(entry, state: .waiting, readAtMs: nil, atMs: nowMs, calendar: calendar ?? .household(entry.timeZone))
         guard let note else { return m }
         return Moment(atMs: m.atMs, state: m.state, readAtMs: nil, events: m.events, backdrop: m.backdrop, currency: m.currency, summary: note,
-                      next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, nextText: note, story: [], timeZone: m.timeZone)
+                      next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, nextText: note, story: [], levels: m.levels, timeZone: m.timeZone)
     }
 
     private static func moment(_ entry: PlanEntry, state: State, readAtMs: Double?, atMs t: Double, calendar: Calendar, inApp: Bool = false) -> Moment {
@@ -363,6 +373,8 @@ public enum PlanGlance {
             ageText: age,
             nextText: nextText,
             story: state == .plan || state == .old ? story(list, entry: entry, from: t, clock: clock, ongoingIsNow: state == .plan) : [],
+            levels: (entry.battery ?? []).filter { $0.startMs + $0.durationMs > t && $0.startMs < t + horizonMs }
+                .compactMap { s in s.levelPct.map { LevelPoint(ms: s.startMs + s.durationMs, pct: $0) } },
             timeZone: calendar.timeZone
         )
     }
@@ -392,6 +404,12 @@ public enum PlanGlance {
         return parts.joined(separator: " · ")
     }
 
+    /// The battery's planned level at a moment, in percent.
+    public struct LevelPoint: Equatable, Sendable {
+        public let ms: Double
+        public let pct: Double
+    }
+
     /// One sentence about the plan, with its verb marked: the words in
     /// turns plain and marked, so a screen can colour what the battery or
     /// the car does. "Battery *gives power* until 23:30, when power costs
@@ -417,7 +435,7 @@ public enum PlanGlance {
     static func sentence(_ events: [Event], entry: PlanEntry, from t: Double, clock: Clock, ongoingIsNow: Bool) -> String {
         let actions = events.filter { $0.kind != .cheap }
         guard let first = actions.first else { return PlanWord.nothingPlanned.text }
-        var text = clause(first, entry: entry, from: t, clock: clock, ongoingIsNow: ongoingIsNow).plain
+        var text = clause(first, entry: entry, from: t, clock: clock, ongoingIsNow: ongoingIsNow, level: isNews(first, entry: entry, from: t)).plain
         if let then = actions.dropFirst().first {
             let when = ahead(then.startMs, asEnd: false, from: t, clock: clock)
             let battery = first.kind == .charge || first.kind == .discharge
@@ -443,8 +461,25 @@ public enum PlanGlance {
             .map { clause($0, entry: entry, from: t, clock: clock, ongoingIsNow: ongoingIsNow) }
     }
 
-    /// One event as a sentence with its verb marked and its reason.
-    static func clause(_ e: Event, entry: PlanEntry, from t: Double, clock: Clock, ongoingIsNow: Bool) -> Phrase {
+    /// Whether where a battery run leaves the battery is news on a line
+    /// with no room for more: a run that empties it to the lowest point of
+    /// the hours ahead, or one that fills it.
+    static func isNews(_ e: Event, entry: PlanEntry, from t: Double) -> Bool {
+        guard let end = e.endLevelPct else { return false }
+        switch e.kind {
+        case .charge:
+            return end >= 98
+        case .discharge:
+            let ahead = (entry.battery ?? []).filter { $0.startMs + $0.durationMs > t && $0.startMs < t + horizonMs }.compactMap(\.levelPct)
+            return ahead.min().map { end <= $0 + 2 } ?? false
+        case .car, .cheap:
+            return false
+        }
+    }
+
+    /// One event as a sentence with its verb marked and its reason, and
+    /// for a battery run where it leaves the battery.
+    static func clause(_ e: Event, entry: PlanEntry, from t: Double, clock: Clock, ongoingIsNow: Bool, level: Bool = true) -> Phrase {
         let start = ahead(e.startMs, asEnd: false, from: t, clock: clock)
         let end = ahead(e.endMs, asEnd: true, from: t, clock: clock)
         // "17:15–23:30", or "tomorrow 02:00–05:00": the day once.
@@ -456,7 +491,11 @@ public enum PlanGlance {
         case .discharge: lead = under ? PlanWord.givesUntil.format(end) : PlanWord.givesAt.format(span)
         case .car, .cheap: lead = under ? PlanWord.carUntil.format(end) : PlanWord.carAt.format(span)
         }
-        return Phrase(kind: e.kind, marked: PlanWord.sentence.format(why(e, lead, entry: entry)))
+        var text = why(e, lead, entry: entry)
+        if level, let pct = e.endLevelPct, e.kind == .charge || e.kind == .discharge {
+            text = (e.kind == .charge ? PlanWord.levelUp : PlanWord.levelDown).format(text, percent(pct))
+        }
+        return Phrase(kind: e.kind, marked: PlanWord.sentence.format(text))
     }
 
     /// The box's reason, said as what drives it: the price when power is
@@ -583,6 +622,9 @@ enum PlanWord: String, CaseIterable {
     case whySun = "%@ from spare sun"
     case whySell = "%@, as selling pays"
     case whyLimit = "%@ to hold the grid limit"
+    // Where a battery run leaves the battery.
+    case levelDown = "%@, and leaves %@"
+    case levelUp = "%@, and reaches %@"
     // The strip's header and what a finger reads on it.
     case next12h = "NEXT 12 H"
     case plannedAt = "PLANNED %@"

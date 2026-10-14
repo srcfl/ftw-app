@@ -138,6 +138,7 @@ public enum NodeWords {
         // The plan view
         "Opens the plan.": "Öppnar planen.",
         "Dial": "Tavla",
+        "battery level": "batteriets nivå",
         "Lanes": "Banor",
         "Show the plan as": "Visa planen som",
         "Swipe up or down to move an hour.": "Svep uppåt eller nedåt för att flytta en timme.",

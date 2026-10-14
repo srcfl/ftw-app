@@ -138,7 +138,7 @@ private struct PlanBody: View {
                         PlanLanes(moment: moment)
                             .equatable()
                             .frame(height: 140)
-                        Legend(kinds: Set(moment.events.map(\.kind)))
+                        Legend(kinds: Set(moment.events.map(\.kind)), level: !moment.levels.isEmpty)
                     }
                 }
                 .transition(.opacity)
@@ -232,6 +232,7 @@ private final class DialMemo {
 /// What each colour on the lanes means.
 private struct Legend: View {
     let kinds: Set<PlanGlance.Kind>
+    var level = false
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -248,6 +249,17 @@ private struct Legend: View {
         if kinds.contains(.charge) { item(.charge, L("charging")) }
         if kinds.contains(.discharge) { item(.discharge, L("discharging")) }
         if kinds.contains(.cheap) { item(.cheap, L("Cheapest")) }
+        if level {
+            HStack(spacing: 4) {
+                Path { p in
+                    p.move(to: CGPoint(x: 0, y: 3))
+                    p.addLine(to: CGPoint(x: 12, y: 3))
+                }
+                .stroke(Theme.ink2, style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round, dash: [3, 3]))
+                .frame(width: 12, height: 6)
+                Text(L("battery level")).lineLimit(1)
+            }
+        }
     }
 
     private func item(_ kind: PlanGlance.Kind, _ text: String) -> some View {
@@ -471,6 +483,13 @@ struct PlanLanes: View, Equatable {
                             .foregroundStyle(Theme.ground)
                     }
                 }
+            }
+            // Where the plan leads the battery: a ghost, dashed, because it
+            // is a plan and not a reading. 0 % at the foot, 100 % at the top.
+            ForEach(moment.levels.filter { $0.ms >= from && $0.ms <= to }, id: \.ms) { p in
+                LineMark(x: .value("Time", date(p.ms)), y: .value("Level", p.pct / 100), series: .value("Series", "level"))
+                    .foregroundStyle(grey ? Theme.fgMuted : Theme.ink2)
+                    .lineStyle(StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round, dash: [3, 4]))
             }
             RuleMark(x: .value("Now", date(from)))
                 .foregroundStyle(Theme.accentFill)
