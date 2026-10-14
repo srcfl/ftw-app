@@ -263,6 +263,40 @@ never their graphics or brands.
 | A trace that burns at its head and fades when the signal stops | Oscilloscopes, CRT terminals | Beams on Now, the live trace, the status dot |
 | One mono status line, and an inverse-video tag for what is selected | Terminal tools | The status line under each title, the scrub tag |
 
+### Plan dial
+
+FTW's own form, from Fredrik's film (srcfl/sourceful-films,
+`product/ftw-confirmed`). His rules, as he settled them on 2026-10-13:
+
+1. One turn is the next 24 hours. Midnight sits at the bottom and noon at
+   the top, so the day's light fills the upper half. It never reads as a
+   12-hour clock.
+2. One tick per quarter hour, as long as the price in eight levels. Its
+   colour is what the plan does with the battery: `Theme.stores` stores,
+   `Theme.ink` gives power, `Theme.ink3` waits. On the dial, gold is the
+   sun's and never the battery's.
+3. A dotted arc in `Theme.car` marks when the car charges, with its goal
+   at the end.
+4. A hand marks now. A 2° gap in the rim marks the seam where +24 h meets
+   now, and the ticks fade toward it.
+5. Never a tick without a price: a quarter the market has not priced is a
+   stub.
+6. The sun's arc on the rim comes from the box's own solar forecast, never
+   from astronomy or the phone's location. No forecast, no arc.
+7. The middle holds the time and the price, and a third line kept for
+   what the plan does under a finger. No battery ring and no glass disc in
+   the app; the widget keeps a dark ground so it reads on any wallpaper.
+
+`FTWShared/Charts/PlanDial.swift` holds the quarters, the sun, the words
+and the rule for a finger; `FTWCharts/PlanDialFace.swift` draws. The
+phone's plan view, its `energy.ftw.plan-dial` widget (StandBy small and
+the lock screen's circle), the watch app and the watch's complication all
+draw that one face. The plan view opens on the dial; the lanes are one
+tap away in the toolbar, and the phone keeps the viewer's choice. A drag
+round the ring costs one lookup per event, and only a change of quarter
+redraws, and then only the hand and the middle. Now keeps its straight
+strip, with gold for the battery giving power.
+
 ## Non-negotiable invariants
 
 - **Never fake live.** Every reading carries its age.

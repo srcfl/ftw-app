@@ -55,14 +55,57 @@ public struct PlanEntry: CacheValue {
     /// The household's time zone, as the box names it, so a widget reads the
     /// clock the way the home does. Nil in a record from before it was kept.
     public var timeZone: String?
+    /// Where the box's own solar forecast expects the panels to make power,
+    /// for the plan dial's sky. Nil when the app has not read the forecast.
+    public var daylight: Daylight?
 
-    public init(battery: [Slot]?, charges: [Charge], prices: [PriceSlot], currency: String, boxStale: Bool, timeZone: String? = nil) {
+    /// A stretch of time.
+    public struct Span: Codable, Sendable, Equatable {
+        public var fromMs: Double
+        public var toMs: Double
+
+        public init(fromMs: Double, toMs: Double) {
+            self.fromMs = fromMs
+            self.toMs = toMs
+        }
+    }
+
+    /// The stretch the solar forecast covers, and the runs in it where it
+    /// expects the panels to make power.
+    public struct Daylight: Codable, Sendable, Equatable {
+        public var covered: Span
+        public var sun: [Span]
+
+        public init(covered: Span, sun: [Span]) {
+            self.covered = covered
+            self.sun = sun
+        }
+
+        /// From the forecast's slots: start, length and expected watts.
+        public init?(_ slots: [(startMs: Double, durationMs: Double, pvW: Double)]) {
+            let sorted = slots.filter { $0.durationMs > 0 }.sorted { $0.startMs < $1.startMs }
+            guard let first = sorted.first, let last = sorted.last else { return nil }
+            var runs = [Span]()
+            for s in sorted where s.pvW >= PlanDial.sunW {
+                let end = s.startMs + s.durationMs
+                if let open = runs.last, s.startMs <= open.toMs + 1 {
+                    runs[runs.count - 1].toMs = max(open.toMs, end)
+                } else {
+                    runs.append(Span(fromMs: s.startMs, toMs: end))
+                }
+            }
+            self.init(covered: Span(fromMs: first.startMs, toMs: last.startMs + last.durationMs), sun: runs)
+        }
+    }
+
+    public init(battery: [Slot]?, charges: [Charge], prices: [PriceSlot], currency: String, boxStale: Bool, timeZone: String? = nil, daylight: Daylight? = nil) {
         self.battery = battery
         self.charges = charges
         self.prices = prices
         self.currency = currency
         self.boxStale = boxStale
         self.timeZone = timeZone
+        self.daylight = daylight
     }
 }
 
