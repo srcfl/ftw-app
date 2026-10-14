@@ -330,7 +330,7 @@ private struct LiveSection: View {
 
     var body: some View {
         let now = site.nowMs
-        let points = trace.points(node.fid, sinceMs: now - LiveTrace.windowMs).map { LiveTrace.Point(t: $0.t, v: node.shown($0.v)) }
+        let points = trace.points(node.fid, sinceMs: now - LiveTrace.windowMs).map { $0.with(v: node.shown($0.v)) }
         let live = site.freshness(node).live
         VStack(alignment: .leading, spacing: 4) {
             // The header gives way to the place under the finger.

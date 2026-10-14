@@ -34,7 +34,6 @@ public final class SiteModel {
     static let streamQuietAfterMs: Double = 3_000
     /// How long a foreground stream gets to prove its socket still works.
     public static let foregroundFrameDeadlineMs: Double = 2_500
-    static let recentWindowMs: Double = 130_000
     static let snapshotIntervalMs: Double = 15_000
 
     public private(set) var session = SessionState()
@@ -45,6 +44,17 @@ public final class SiteModel {
     /// uptime now, which is not the clock those readings were taken on.
     @ObservationIgnored private var cachedUptimeMs: Double?
     public private(set) var lastFrameAtMs: Double?
+    /// When the box took the newest reading on screen, by the phone clock.
+    /// From the box's own stream: its uptime, placed by the smallest gap
+    /// seen this connection between the phone's clock and the box's, so a
+    /// frame a slow network held back lands where it was taken. Through
+    /// FTW Cloud: the send time rule U gives. The live trace stamps by it.
+    @ObservationIgnored public private(set) var readingStampMs: Double?
+    /// How long the newest reading stands before a silence is a gap. The
+    /// box streams at 1 Hz in front and 0.2 Hz hidden, and misses a beat
+    /// now and then; FTW Cloud sends on change and a heartbeat at least
+    /// every H.
+    @ObservationIgnored public private(set) var readingGapMs: Double = LiveTrace.gapMs
     public private(set) var documentVisible = true
     /// The clock screens read for ages. It moves with every reading, and
     /// between readings only when something on screen would change: the
@@ -87,7 +97,6 @@ public final class SiteModel {
     @ObservationIgnored private var clock: Cancellable?
     @ObservationIgnored private var resumeTimer: Cancellable?
     @ObservationIgnored private var resumeWaiting = false
-    @ObservationIgnored private var recent: [(t: Double, v: [Int: Double])] = []
     @ObservationIgnored private var lastSnapshotMs: Double = 0
     @ObservationIgnored private var snapshotTimer: Cancellable?
     /// The last snapshot written, without its time, so the same home is not
@@ -111,6 +120,9 @@ public final class SiteModel {
     /// When the box session last delivered a reading. Waking after sleep
     /// waits for this one, whatever the cloud does meanwhile.
     @ObservationIgnored private var relayFrameAtMs: Double?
+    /// The phone's clock minus the box's uptime, the smallest seen since
+    /// this carrier's hello: where a frame's uptime sits on the phone clock.
+    @ObservationIgnored private var relayOffsetMs: Double?
     @ObservationIgnored private var listeners: [Int: @MainActor () -> Void] = [:]
     /// A burst of messages within one display frame reaches the screens as
     /// one change: the first goes at once, the rest together after it.
@@ -338,7 +350,11 @@ public final class SiteModel {
         // Only a streaming session is a reading arriving. Restoring the cache
         // and answering hello both move the clock and carry no reading.
         let reading = s.phase == .streaming && (previous.phase != .streaming || s.uptimeMs != previous.uptimeMs)
+        // A new hello, or a box that restarted, starts the clock over.
+        if s.phase == .handshaking, previous.phase != .handshaking { relayOffsetMs = nil }
         if reading {
+            let offset = now - s.uptimeMs
+            if let held = relayOffsetMs, s.uptimeMs >= previous.uptimeMs { relayOffsetMs = min(held, offset) } else { relayOffsetMs = offset }
             relayFrameAtMs = now
             relayDelivered = true
             finishResume()
@@ -403,7 +419,8 @@ public final class SiteModel {
         for fid in times.keys where s.fields[fid] == nil { times[fid] = nil }
         if delivered {
             lastFrameAtMs = now
-            recordRecent(s.fields, now)
+            readingStampMs = readingStamp(source, state: s) ?? at
+            readingGapMs = readingGap(source)
         }
         if times != fieldAtMs { fieldAtMs = times }
         if delivered || readingAtMs == nil || s.fields.isEmpty != session.fields.isEmpty { readingAtMs = s.fields.isEmpty ? nil : at }
@@ -435,6 +452,25 @@ public final class SiteModel {
         case .cloud:
             guard let view = cloudView else { return nil }
             return view.anchorSentMs(nowMs: Int64(scheduler.nowMs)).map(Double.init) ?? cloudArrivalMs
+        }
+    }
+
+    /// When the box took the newest reading from a source, by the phone
+    /// clock.
+    private func readingStamp(_ from: ReadingSource, state s: SessionState) -> Double? {
+        switch from {
+        case .relay: return relayOffsetMs.map { s.uptimeMs + $0 }
+        case .cloud: return readingTime(.cloud)
+        }
+    }
+
+    /// How long a reading from a source stands before a silence is a gap:
+    /// three and a half of the box's beats, or twice FTW Cloud's heartbeat
+    /// and a margin.
+    private func readingGap(_ from: ReadingSource) -> Double {
+        switch from {
+        case .relay: return LiveTrace.gapMs * (documentVisible ? 1 : 5)
+        case .cloud: return max(LiveTrace.gapMs, 2 * Double(cloudView?.heartbeatMs ?? 15_000) + 500)
         }
     }
 
@@ -719,20 +755,6 @@ public final class SiteModel {
 
     public var socPercent: Double? {
         session.fields[Contract.FID.batterySoc].map { ($0 / 10).rounded() }
-    }
-
-    private func recordRecent(_ fields: [Int: Double], _ now: Double) {
-        var v = [Int: Double]()
-        for fid in Self.nowFids { if let x = fields[fid] { v[fid] = x } }
-        recent.append((now, v))
-        let cutoff = now - Self.recentWindowMs
-        recent.removeAll { $0.t < cutoff }
-    }
-
-    /// The last two minutes of one field, oldest first, so a live line opens
-    /// already drawn.
-    public func recentField(_ fid: Int) -> [(t: Double, v: Double)] {
-        recent.compactMap { r in r.v[fid].map { (r.t, $0) } }
     }
 
     // MARK: Requests, through this layer

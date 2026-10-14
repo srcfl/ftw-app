@@ -34,7 +34,7 @@ import FTWDemo
         #expect(home.site.carrier == .relay)
         #expect(home.site.isLive)
         #expect(home.site.explanation.situation != .noData)
-        #expect(home.site.recentField(Contract.FID.gridW).count >= 2)
+        #expect(home.nodes.live.points(Contract.FID.gridW, sinceMs: 0).count >= 2)
     }
 
     @Test func pricesSavingsAndStatusFill() async {
