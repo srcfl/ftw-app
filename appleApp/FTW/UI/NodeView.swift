@@ -177,6 +177,10 @@ struct NodeView: View {
                 CarRow(loadpoints: home.loadpoints, zoom: zoom)
                     .padding(.horizontal, 20)
                     .padding(.top, 4)
+            } else if node == .grid, let phases = site.gridPhases {
+                GridPhasesRow(phases: phases)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 8)
             }
             if fill { Spacer(minLength: 8) }
             NodeFooter(site: site, node: node, live: models.live)

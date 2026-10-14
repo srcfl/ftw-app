@@ -199,6 +199,20 @@ public final class SimulatedBox {
             Contract.FID.loadW: house.baseLoadW,
         ]
         f[Contract.FID.evW] = house.evWatts
+        f.merge(phases) { $1 }
+        return f
+    }
+
+    /// The grid's phases as Core sends them, in tenths of an ampere and
+    /// signed by the site convention, under a 20 A fuse. The inverter and
+    /// the car spread over all three; the house leans on L1.
+    var phases: [Int: Double] {
+        let even = (house.batteryW + house.pvW + house.evWatts) / 3
+        let house = [0.45, 0.33, 0.22].map { $0 * self.house.baseLoadW }
+        var f = [Contract.FID.gridFuseDA: 200.0]
+        for (fid, load) in zip(Contract.FID.gridPhases, house) {
+            f[fid] = ((load + even) / 230 * 10).rounded()
+        }
         return f
     }
 
@@ -223,6 +237,10 @@ public final class SimulatedBox {
             ("5", .map([("name", .text("battery_soc")), ("unit", .text("permille")), ("srcId", .text("sungrow"))])),
             ("6", .map([("name", .text("load_w")), ("unit", .text("W")), ("srcId", .text("sdm630"))])),
             ("10", .map([("name", .text("ev_w")), ("unit", .text("W")), ("srcId", .text("easee"))])),
+            ("11", .map([("name", .text("grid_l1_da")), ("unit", .text("dA")), ("srcId", .text("sdm630"))])),
+            ("12", .map([("name", .text("grid_l2_da")), ("unit", .text("dA")), ("srcId", .text("sdm630"))])),
+            ("13", .map([("name", .text("grid_l3_da")), ("unit", .text("dA")), ("srcId", .text("sdm630"))])),
+            ("14", .map([("name", .text("grid_fuse_da")), ("unit", .text("dA")), ("srcId", .null)])),
         ]
         sendBulk(Envelope(t: "snap", b: .map([
             ("uptimeMs", .number(uptimeMs)),
