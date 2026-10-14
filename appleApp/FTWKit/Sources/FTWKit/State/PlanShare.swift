@@ -35,7 +35,8 @@ extension PlanEntry {
 
 /// Leaves the plan for the plan widget whenever it changes: a new plan from
 /// the box, the same plan confirmed by a fresh `plan.get`, a car's windows
-/// or goal, or the prices under them.
+/// or goal, or the prices under them. A plan kept from an earlier launch is
+/// never written back: the widget already holds it, dated.
 ///
 /// The record carries when the box last sent its plan, not when the app
 /// wrote the file, so the widget's age is the plan's age.
@@ -45,52 +46,52 @@ public final class PlanShare {
     private unowned let plan: PlanModel
     private unowned let loadpoints: LoadpointsModel
     private unowned let prices: PriceModel
+    /// The plan the app left for its widgets at an earlier launch, for Now
+    /// to open on when the sealed home file holds none.
+    private let kept: CacheRead<PlanEntry>?
     private var token: Int?
     private var lastKey: String?
-    private var lastPlanKey: String?
     private var lastSentAtMs: Double?
-    /// When the plan on the session last changed, for one the box pushed.
-    private var changedAtMs: Double?
 
-    public init(site: SiteModel, plan: PlanModel, loadpoints: LoadpointsModel, prices: PriceModel) {
+    public init(site: SiteModel, plan: PlanModel, loadpoints: LoadpointsModel, prices: PriceModel, cache: CacheReader? = nil) {
         self.site = site
         self.plan = plan
         self.loadpoints = loadpoints
         self.prices = prices
+        kept = site.siteId.flatMap { cache?.read(PlanEntry.self, siteId: $0) }
         token = site.observe { [weak self] in self?.check() }
+        plan.received = { [weak self] in self?.check() }
     }
 
     /// The plan as Now draws it.
     public var entry: PlanEntry {
-        PlanEntry.live(plan: site.session.plan, points: loadpoints.points, windows: loadpoints.windows, prices: prices.prices, timeZone: loadpoints.zone.identifier)
+        PlanEntry.live(plan: plan.plan, points: loadpoints.points, windows: loadpoints.windows, prices: prices.prices, timeZone: loadpoints.zone.identifier)
+    }
+
+    /// The plan at `nowMs` as Now and the plan view show it: the box's own
+    /// once it has answered; else the plan kept from an earlier launch,
+    /// dated; else the card's shape until the box answers. "No plan" is
+    /// said only after the box has answered without one.
+    public func moment(nowMs: Double) -> PlanGlance.Moment {
+        if let s = plan.stamped {
+            return s.fromCache ? PlanGlance.kept(entry, readAtMs: s.asOfMs, nowMs: nowMs) : PlanGlance.live(entry, nowMs: nowMs)
+        }
+        if let kept { return PlanGlance.kept(kept.value, readAtMs: kept.record.readAtMs, nowMs: nowMs) }
+        return PlanGlance.waiting(entry, nowMs: nowMs, note: plan.problem)
     }
 
     /// What would make the record different. Cheap enough for every tick.
     var key: String {
         let w = loadpoints.points.map { lp in "\(lp.id):\((loadpoints.windows[lp.id] ?? lp.planWindows).map { "\($0.fromMs)-\($0.toMs)" }.joined(separator: ",")):\(lp.targetSocPct ?? lp.schedule?.socPct ?? -1)" }
         let p = prices.prices.map { "\($0.slots.count)@\($0.slots.first?.startMs ?? 0)" } ?? "-"
-        return "\(planKey)|\(w.joined(separator: ";"))|\(p)"
-    }
-
-    private var planKey: String {
-        let p = site.session.plan
-        return "\(p?.rev ?? 0)|\(p?.slots.first?.startMs ?? 0)|\(p?.slots.count ?? 0)|\(p?.stale ?? false)"
-    }
-
-    /// When the box last sent the plan: the latest answer to `plan.get`, or
-    /// the moment a plan it pushed landed.
-    var sentAtMs: Double? {
-        [plan.receivedAtMs, changedAtMs].compactMap { $0 }.max()
+        let plan = self.plan.plan
+        return "\(plan?.rev ?? 0)|\(plan?.slots.first?.startMs ?? 0)|\(plan?.slots.count ?? 0)|\(plan?.stale ?? false)|\(w.joined(separator: ";"))|\(p)"
     }
 
     func check() {
-        let planKey = self.planKey
-        if planKey != lastPlanKey {
-            lastPlanKey = planKey
-            if site.session.plan != nil { changedAtMs = site.nowMs }
-        }
-        // Nothing to say until the box has sent a plan.
-        guard site.session.plan != nil, let sent = sentAtMs else { return }
+        plan.sync()
+        // Nothing to say until the box has sent a plan in this session.
+        guard let s = plan.stamped, !s.fromCache, let sent = plan.receivedAtMs else { return }
         let key = self.key
         guard key != lastKey || sent != lastSentAtMs else { return }
         lastKey = key

@@ -217,6 +217,46 @@ final class CloudRig {
         #expect(rig.service.watches == [1, 0])
     }
 
+    /// A launch passes through inactive, so message 1 may say the phone
+    /// looks away. The app comes to the front before message 2: the service
+    /// hears it once the session opens, or the box stays at 5 s.
+    @Test func lookingChangedDuringTheHandshakeIsSaidOnceOpen() async throws {
+        let rig = try CloudRig(looking: false)
+        rig.carrier.start()
+        await rig.run(15)
+        #expect(rig.service.nows == [])
+        #expect(!rig.carrier.status.isOpen)
+        rig.carrier.setLooking(true)
+        await rig.run(50)
+        #expect(rig.service.nows == [CloudWire.hzAway])
+        #expect(rig.carrier.status.isOpen)
+        #expect(rig.service.watches == [1])
+
+        // And the other way: the phone looked when it dialled and looked
+        // away before the session opened.
+        let away = try CloudRig(looking: true)
+        away.carrier.start()
+        await away.run(15)
+        away.carrier.setLooking(false)
+        await away.run(50)
+        #expect(away.service.nows == [CloudWire.hzLooking])
+        #expect(away.service.watches == [0])
+    }
+
+    /// A change while the session is down rides in the next message 1, and
+    /// nothing more is said.
+    @Test func lookingChangedWhileClosedGoesInMessage1() async throws {
+        let rig = try CloudRig(looking: true)
+        rig.carrier.start()
+        await rig.run(50)
+        rig.service.close(code: 1006)
+        rig.carrier.setLooking(false)
+        await rig.run(600)
+        #expect(rig.carrier.status.isOpen)
+        #expect(rig.service.nows == [CloudWire.hzLooking, CloudWire.hzAway])
+        #expect(rig.service.watches == [])
+    }
+
     /// A refusal is asked again slowly, as after a service restart that has
     /// not heard from the box yet, and at once on the next foreground.
     @Test func aRefusalIsAskedAgainSlowly() async throws {

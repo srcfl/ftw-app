@@ -44,23 +44,27 @@ struct ChartScrub: ViewModifier {
     @State private var ticks = 0
     @State private var bumps = 0
     @State private var lastSlot: Double?
-    @State private var lastTick = Date.distantPast
+    @State private var lastTick: ContinuousClock.Instant?
 
     func body(content: Content) -> some View {
+        // The selection never animates: the marker is where the finger is.
         content
-            .chartXSelection(value: $selected.animation(Theme.spring))
-            .chartXSelection(range: $range.animation(Theme.spring))
+            .chartXSelection(value: $selected)
+            .chartXSelection(range: $range)
             .onChange(of: selected) { _, date in
-                guard let date, let s = slot(date) else {
+                guard let date else {
                     lastSlot = nil
                     return
                 }
-                guard s != lastSlot else { return }
+                // A moment with no slot keeps the last one, so coming back
+                // to it does not tick again.
+                guard let s = slot(date), s != lastSlot else { return }
                 lastSlot = s
+                let now = ContinuousClock.now
                 if landmark(s) {
                     bumps += 1
-                } else if Date().timeIntervalSince(lastTick) >= 0.04 {
-                    lastTick = Date()
+                } else if lastTick.map({ now - $0 >= .milliseconds(40) }) ?? true {
+                    lastTick = now
                     ticks += 1
                 }
             }

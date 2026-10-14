@@ -45,12 +45,13 @@ private struct PlanBody: View {
     var body: some View {
         // The plan marks the minute: it redraws once a minute, not a second.
         let minute = (site.nowMs / 60_000).rounded(.down) * 60_000
-        let moment = PlanGlance.live(models.planShare.entry, nowMs: minute)
+        let moment = models.planShare.moment(nowMs: minute)
         VStack(alignment: .leading, spacing: 4) {
             Text(moment.summary)
                 .font(.headline)
-                .foregroundStyle(Theme.fg)
+                .foregroundStyle(moment.isGrey ? Theme.fgDim : Theme.fg)
                 .fixedSize(horizontal: false, vertical: true)
+                .redacted(reason: moment.placeholder ? .placeholder : [])
             Text(stateLine(moment))
                 .font(.footnote)
                 .foregroundStyle(moment.state == .boxStale ? Theme.alarm : Theme.fgDim)
@@ -73,8 +74,8 @@ private struct PlanBody: View {
     /// When the box made it, or that it could not.
     private func stateLine(_ m: PlanGlance.Moment) -> String {
         if m.state == .boxStale { return L("Your box couldn't plan ahead just now, so it runs on safe defaults.") }
-        guard let at = models.plan.receivedAtMs else { return L("Reading the plan from your box…") }
-        return NodeWords.format("Planned by your box at %@. It plans again every quarter of an hour.", AppWords.clock(at, zone: .current))
+        guard let at = models.plan.receivedAtMs ?? m.readAtMs else { return L("Reading the plan from your box…") }
+        return NodeWords.format("Planned by your box at %@. It plans again every quarter of an hour.", AppWords.clock(at, zone: m.timeZone))
     }
 }
 
@@ -245,8 +246,8 @@ private struct CompactMode: View {
                     Spacer(minLength: 8)
                     Text(label)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(mode.canControl ? Theme.accent : Theme.fg)
-                    if mode.canControl {
+                        .foregroundStyle(mode.mayControl ? Theme.accent : Theme.fg)
+                    if mode.mayControl {
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.caption2.weight(.bold))
                             .foregroundStyle(Theme.accent)

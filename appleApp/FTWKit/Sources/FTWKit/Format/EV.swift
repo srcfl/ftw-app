@@ -5,8 +5,8 @@ import FTWShared
 /// sentences that describe it. No sentence claims what the box has not
 /// said: a charger that does not know the car's charge is described by what
 /// it does know, never by an invented percentage.
-public struct Loadpoint: Equatable, Sendable, Identifiable {
-    public struct Schedule: Equatable, Sendable {
+public struct Loadpoint: Equatable, Sendable, Identifiable, Codable {
+    public struct Schedule: Equatable, Sendable, Codable {
         public var socPct: Double
         /// The ready time as the box sends it: the UTC minute of day of that
         /// time on today's date.
@@ -31,7 +31,7 @@ public struct Loadpoint: Equatable, Sendable, Identifiable {
         }
     }
 
-    public struct Manual: Equatable, Sendable {
+    public struct Manual: Equatable, Sendable, Codable {
         public var state: String?
         public var requestedA: Double?
         public var requestedW: Double?
@@ -41,14 +41,14 @@ public struct Loadpoint: Equatable, Sendable, Identifiable {
         public var chargerUpdatedAtMs: Double?
     }
 
-    public struct Charger: Equatable, Sendable {
+    public struct Charger: Equatable, Sendable, Codable {
         public var known: Bool
         public var available: Bool?
         public var updatedAtMs: Double?
         public var reason: String?
     }
 
-    public struct Window: Equatable, Sendable, Identifiable {
+    public struct Window: Equatable, Sendable, Identifiable, Codable {
         public var fromMs: Double
         public var toMs: Double
         public var peakW: Double?
@@ -295,14 +295,11 @@ public enum AppWords {
 
     /// "07:00" in a zone, the 24-hour clock both languages use for FTW.
     public static func clock(_ ms: Double, zone: TimeZone) -> String {
-        var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = zone
-        let c = cal.dateComponents([.hour, .minute], from: Date(timeIntervalSince1970: ms / 1000))
-        return String(format: "%02d:%02d", c.hour ?? 0, c.minute ?? 0)
+        ZoneClock.of(zone).label(ms)
     }
 
     public static func clock(minute: Int) -> String {
-        String(format: "%02d:%02d", (minute / 60) % 24, minute % 60)
+        ZoneClock.label(minute: minute)
     }
 
     /// "today 07:00", "tomorrow 07:00", "Tue 07:00", else "12 Oct 07:00".

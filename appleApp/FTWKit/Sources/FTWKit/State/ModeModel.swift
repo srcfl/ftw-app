@@ -44,7 +44,7 @@ public final class ModeModel {
     public nonisolated static let planFallback = Contract.modes.first { $0.tier == "primary" && $0.key.hasPrefix("planner_") }?.key ?? Contract.modes[0].key
 
     /// The planner preferences as the box answered them.
-    public struct Prefs: Equatable, Sendable {
+    public struct Prefs: Equatable, Sendable, Codable {
         public var safetyK: Double
         /// "allowed", "not_allowed" or "unknown".
         public var batteryExport: String
@@ -87,10 +87,14 @@ public final class ModeModel {
     nonisolated static let doneShownMs: Double = 8_000
 
     public private(set) var change: Change?
-    public private(set) var prefs: Prefs?
+    /// The planner preferences on screen: the box's answer, or what an
+    /// earlier launch kept until the box answers. The same again changes
+    /// nothing.
+    public private(set) var prefsStamp: Stamped<Prefs>?
+    public var prefs: Prefs? { prefsStamp?.value }
     /// When the prefs were last read, so an applied style or sale stands
     /// until the box has been asked again.
-    private var prefsReadAtMs: Double?
+    @ObservationIgnored private var prefsReadAtMs: Double?
 
     /// Runs after the box applied a change, so the plan can be read again.
     @ObservationIgnored public var applied: (@MainActor () -> Void)?
@@ -102,6 +106,8 @@ public final class ModeModel {
 
     public init(site: SiteModel) {
         self.site = site
+        prefsStamp = site.kept?.prefs?.cached
+        site.keep { [weak self] home in home.prefs = self?.prefsStamp }
     }
 
     public func activate() {
@@ -122,7 +128,8 @@ public final class ModeModel {
 
     func loadPrefs() async throws {
         let wire = try await site.callBox(.get, "/api/planner/prefs")
-        prefs = Self.prefs(wire)
+        let next = Stamped(Self.prefs(wire), asOfMs: site.scheduler.nowMs, origin: .relay)
+        if let taken = Stamped.taking(next, over: prefsStamp) { prefsStamp = taken }
         prefsReadAtMs = site.scheduler.nowMs
     }
 
@@ -223,10 +230,15 @@ public final class ModeModel {
 
     /// Both must hold: the box offers dispatch, and this phone's grant
     /// carries the scope the box checks. A control a viewer would be refused
-    /// is not drawn at all.
-    public var canControl: Bool {
+    /// is not drawn at all. From caps kept at an earlier launch this draws
+    /// the control in its place; `canControl` says whether it works yet.
+    public var mayControl: Bool {
         site.session.caps.contains(Contract.capPlanDispatch) && site.session.scopes.contains(Contract.scopeModeWrite)
     }
+
+    /// A control works only once the box has spoken in this session: caps
+    /// kept from an earlier launch never send a command.
+    public var canControl: Bool { site.heardFromBox && mayControl }
 
     public var sending: Bool { change.map { !$0.settled } ?? false }
 

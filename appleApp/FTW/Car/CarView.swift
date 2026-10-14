@@ -23,8 +23,12 @@ struct CarView: View {
         List {
             if let lp {
                 StatusSection(lp: lp, model: model, site: home.site)
+                // Drawn from what the last launch kept; inert until the box
+                // has spoken in this session.
                 LevelSection(lp: lp, model: model, canControl: home.site.canConfigure)
+                    .disabled(!home.site.heardFromBox)
                 GoalSection(lp: lp, model: model, site: home.site, canControl: home.site.canConfigure, editing: $editingGoal)
+                    .disabled(!home.site.heardFromBox)
                 if app.isDemo { DemoSection(lp: lp, model: model) }
             } else if model.loaded {
                 Section { Text(L("This box has no charger.")) }
@@ -39,6 +43,7 @@ struct CarView: View {
         .safeAreaBar(edge: .bottom) {
             if let lp, lp.pluggedIn, home.site.canConfigure {
                 ControlBar(lp: lp, model: model)
+                    .disabled(!home.site.heardFromBox)
             }
         }
         .scrollEdgeEffectStyle(.hard, for: .bottom)

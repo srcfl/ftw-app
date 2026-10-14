@@ -206,15 +206,21 @@ extension SimulatedBox {
     }
 
     /// The plan as `plan.get` answers it.
+    /// The plan as Core sends it: made once a quarter, or when the mode
+    /// or the preferences change, and the same plan until then.
     func sessionPlan() -> Plan {
+        let quarter = (scheduler.nowMs / 900_000).rounded(.down)
+        if let made = madePlan, made.quarter == quarter, made.rev == house.planRev { return made.plan }
         let steps = house.plan(nowMs: scheduler.nowMs)
-        return Plan(
+        let plan = Plan(
             rev: house.planRev,
             uptimeMs: uptimeMs,
             slots: steps.map { PlanSlot(startMs: $0.startMs.rounded(), durationMs: $0.durationMs.rounded(), batteryW: $0.batteryW, gridW: $0.gridW, priceMinor: $0.priceMinor, reason: $0.reason) },
             stale: false,
             ceilingW: nil
         )
+        madePlan = (quarter, house.planRev, plan)
+        return plan
     }
 
     /// The planner's own document's actions, as GET /api/mpc/plan carries

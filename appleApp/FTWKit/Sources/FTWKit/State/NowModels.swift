@@ -183,24 +183,50 @@ public final class ChargingWatch: Activatable {
 
 /// Prices across today and tomorrow, from local midnight, asked for again
 /// when the day turns and when tomorrow's rates publish.
+///
+/// It opens on the last window this phone had, from the sealed home file or
+/// the widgets' record, and keeps it over midnight: yesterday's tomorrow is
+/// today. The box's answer, or FTW Cloud's copy, replaces it only when it
+/// differs.
 @Observable
 @MainActor
 public final class PriceModel: Activatable {
     static let horizonMs: Double = 48 * 3_600_000
     static let publishHour = 14
 
-    public private(set) var prices: Prices?
-    public private(set) var fromMs: Double = 0
+    /// The window on screen, with when and where it came from.
+    public private(set) var window: Stamped<PriceEntry>?
 
     @ObservationIgnored private unowned let site: SiteModel
     @ObservationIgnored private var ask: LiveAsk?
     @ObservationIgnored private var active = 0
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private let calendar: Calendar
+    /// FTW Cloud's window as last taken, so it is taken once.
+    @ObservationIgnored private var cloudTaken: Stamped<PriceEntry>?
 
-    public init(site: SiteModel, calendar: Calendar = .current) {
+    /// `cache` is what the app left for its widgets: the window a launch
+    /// opens on when the sealed home file has none.
+    public init(site: SiteModel, calendar: Calendar = .current, cache: CacheReader? = nil) {
         self.site = site
         self.calendar = calendar
+        let shared = site.siteId.flatMap { cache?.read(PriceEntry.self, siteId: $0) }.map { Stamped($0.value, asOfMs: $0.record.readAtMs, origin: .cache) }
+        window = [site.kept?.prices?.cached, shared].compactMap { $0 }.max { $0.asOfMs < $1.asOfMs }
+        site.keep { [weak self] home in home.prices = self?.window }
+        site.observe { [weak self] in self?.takeCloud() }
+    }
+
+    public var prices: Prices? { window?.value.prices }
+    public var fromMs: Double { window?.value.fromMs ?? 0 }
+
+    private func take(_ next: Stamped<PriceEntry>) {
+        if let taken = Stamped.taking(next, over: window) { window = taken }
+    }
+
+    private func takeCloud() {
+        guard let cloud = site.cloudPrices, cloud != cloudTaken else { return }
+        cloudTaken = cloud
+        take(cloud)
     }
 
     public var currency: String { prices?.currency ?? "SEK" }
@@ -223,10 +249,10 @@ public final class PriceModel: Activatable {
         if ask == nil {
             ask = LiveAsk(site: site, want: { [weak self] in
                 guard let self else { return nil }
-                // A box that stopped offering prices shows none; a window
-                // from yesterday is not today's.
-                if !self.site.session.caps.contains(Contract.capPriceSpot) { self.prices = nil }
-                if self.prices != nil, self.midnight(self.site.nowMs) != self.fromMs { self.prices = nil }
+                // A box that says it no longer offers prices shows none. A
+                // window from yesterday still holds today's prices, so it
+                // stays until the new one lands.
+                if self.site.heardFromBox, !self.site.session.caps.contains(Contract.capPriceSpot), self.window != nil { self.window = nil }
                 return self.wanted
             }, ask: { [weak self] in try await self?.load() })
         }
@@ -245,8 +271,7 @@ public final class PriceModel: Activatable {
         do {
             let wire = try await site.prices(fromMs: from, toMs: from + Self.horizonMs)
             guard mine == generation else { return }
-            prices = wire
-            fromMs = from
+            take(Stamped(PriceEntry(fromMs: from, prices: wire, timeZone: site.session.box?.tz), asOfMs: site.nowMs, origin: .relay))
             site.sharePrices(wire, fromMs: from)
         } catch {
             // A window already drawn stays drawn; today's prices are still

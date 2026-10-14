@@ -38,7 +38,10 @@ struct FTWApp: App {
         #if DEBUG
         // For screenshots: `-FTWDemo YES` opens the simulated home, and
         // `-FTWDemoWidgets YES` lets it leave its records for the widgets.
+        // `-FTWDemoCache YES` lets it keep its sealed cache like a paired
+        // home, to record and time a cold start.
         model.demoSharesWidgets = UserDefaults.standard.bool(forKey: "FTWDemoWidgets")
+        model.demoKeepsCache = UserDefaults.standard.bool(forKey: "FTWDemoCache")
         if UserDefaults.standard.bool(forKey: "FTWDemo") { model.startDemo() }
         // For end-to-end tests: `-FTWPairLink <url>` offers a pairing link
         // as a scanned QR would, where the simulator has no camera.

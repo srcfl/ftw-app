@@ -17,15 +17,23 @@ public final class HomeModels {
     /// Today over the grid, for the grid widget.
     public let gridToday: GridTodayShare
 
-    init(site: SiteModel) {
+    /// `cache` is what the app left for its widgets. Each model opens on
+    /// the sealed home file first, and on these records where it has none.
+    init(site: SiteModel, cache: CacheReader?) {
         self.site = site
-        prices = PriceModel(site: site)
+        prices = PriceModel(site: site, cache: cache)
         status = StatusWatch(site: site)
         charging = ChargingWatch(site: site)
         savings = SavingsModel(site: site)
-        loadpoints = LoadpointsModel(site: site, charging: charging)
-        nodes = NodeModels(site: site, loadpoints: loadpoints, prices: prices)
+        loadpoints = LoadpointsModel(site: site, charging: charging, cache: cache)
+        nodes = NodeModels(site: site, loadpoints: loadpoints, prices: prices, cache: cache)
         gridToday = GridTodayShare(site: site, history: nodes.history, prices: prices)
+        // The nodes Now drew, so the next launch draws them in their places
+        // before its first reading.
+        site.keep { [weak site, weak loadpoints] home in
+            guard let site, let loadpoints else { return }
+            home.nodes = site.lastFrameAtMs == nil ? site.kept?.nodes : NowFlow.nodes(fields: site.session.fields, hasCar: !loadpoints.points.isEmpty)
+        }
     }
 }
 
@@ -61,6 +69,9 @@ public final class AppModel {
     /// Only a Debug build sets it, to photograph the widgets; the demo
     /// otherwise writes nothing.
     public var demoSharesWidgets = false
+    /// The demo keeps its sealed cache like a paired home, so a cold start
+    /// can be recorded and timed. Only a Debug build sets it.
+    public var demoKeepsCache = false
 
     @ObservationIgnored public let vault: Vault
     @ObservationIgnored public let sites: SiteList
@@ -128,7 +139,7 @@ public final class AppModel {
         let site = SiteModel(siteId: siteId, build: build, ua: ua, scheduler: scheduler, files: files, shared: shared)
         site.stepUp = { [weak self] in await self?.stepUp() ?? .unavailable }
         site.sharedWritten = sharedWritten
-        home = HomeModels(site: site)
+        home = HomeModels(site: site, cache: shared.map { CacheReader(sources: [$0]) })
         sites.setCurrent(siteId)
         site.start()
         recovering = false
@@ -266,10 +277,11 @@ public final class AppModel {
         guard let demo else { return }
         home?.site.destroy()
         let shares = demoSharesWidgets && shared != nil
-        let site = SiteModel(siteId: shares ? "demo" : nil, build: build, ua: ua, scheduler: scheduler, files: nil, shared: shares ? shared : nil, isDemo: true, demoShares: shares)
+        let keeps = demoKeepsCache && files != nil
+        let site = SiteModel(siteId: shares || keeps ? "demo" : nil, build: build, ua: ua, scheduler: scheduler, files: keeps ? files : nil, shared: shares ? shared : nil, isDemo: true, demoShares: shares)
         if shares { site.sharedWritten = sharedWritten }
         site.ceilingW = 11_000
-        home = HomeModels(site: site)
+        home = HomeModels(site: site, cache: shares ? shared.map { CacheReader(sources: [$0]) } : nil)
         isDemo = true
         recovering = false
         offeredLink = nil
