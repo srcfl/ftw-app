@@ -18,14 +18,18 @@ struct PlanView: View {
     private var models: NodeModels { home.nodes }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                PlanBody(site: home.site, models: models, loadpoints: home.loadpoints, prices: home.prices, style: style, chooseMode: { choosingMode = true })
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    PlanBody(site: home.site, models: models, loadpoints: home.loadpoints, prices: home.prices, style: style, chooseMode: { choosingMode = true }) { levers in
+                        withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(levers ? PlanBody.leversID : PlanBody.topID, anchor: levers ? .bottom : .top) }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(maxWidth: 640, alignment: .topLeading)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .frame(maxWidth: 640, alignment: .topLeading)
-            .frame(maxWidth: .infinity)
         }
         .scrollBounceBehavior(.basedOnSize)
         .background(Theme.ground)
@@ -59,7 +63,7 @@ struct PlanView: View {
             home.prices.deactivate()
         }
         .sheet(isPresented: $choosingMode) {
-            ModeSheet(mode: models.mode)
+            ModeSheet(mode: models.mode, plan: models.planShare)
         }
     }
 }
@@ -91,29 +95,49 @@ private struct PlanBody: View {
     let prices: PriceModel
     let style: PlanStyle
     let chooseMode: () -> Void
+    /// Scrolls to the levers, or back to the plan, for the style scale's
+    /// recording.
+    let reveal: (Bool) -> Void
     @State private var dials = DialMemo()
+
+    static let topID = "plan.top"
+    static let leversID = "plan.levers"
 
     var body: some View {
         // The plan marks the minute: it redraws once a minute, not a second.
         let minute = site.minuteMs
         let moment = models.planShare.moment(nowMs: minute)
+        let moved = models.planShare.moved
         Group {
             switch style {
             case .dial:
                 let dial = dials.dial(models.planShare.entry, nowMs: minute)
                 VStack(alignment: .leading, spacing: 12) {
-                    PlanDialCard(dial: dial, grey: moment.isGrey)
+                    PlanDialCard(dial: dial, grey: moment.isGrey, fade: DialFade.make(models.planShare.before, dial: dial, nowMs: minute))
                     VStack(alignment: .leading, spacing: 6) {
                         // The words are the dial's legend: each verb takes
                         // the colour its ticks have.
                         PlanStory(moment: moment)
+                        MovedLine(text: moved)
                         // Mono stops growing at accessibility1.
                         Group {
                             if let cheapest = dial.cheapestText {
                                 Text(cheapest).foregroundStyle(Theme.ink2)
                             }
+                            // What the planner reckons the plan saves, only
+                            // where it compares honestly.
+                            if let saving = models.plan.saving?.text(currency: models.planShare.entry.currency, nowMs: minute, zone: dial.zone) {
+                                Text(saving).foregroundStyle(Theme.ink2)
+                            }
                             Text(plannedLine(moment, zone: dial.zone))
                                 .foregroundStyle(moment.state == .boxStale ? Theme.alarm : Theme.ink3)
+                            // What the plan rests on: the prices are known,
+                            // the sun and the home's use are a forecast, and
+                            // a style other than balanced leans on it less or
+                            // more.
+                            if let lean = styleLine {
+                                Text(lean).foregroundStyle(Theme.ink3)
+                            }
                         }
                         .font(Theme.mono())
                         .tracking(0.5)
@@ -133,23 +157,26 @@ private struct PlanBody: View {
                         Text(stateLine(moment))
                             .font(.footnote)
                             .foregroundStyle(moment.state == .boxStale ? Theme.alarm : Theme.fgDim)
+                        MovedLine(text: moved)
                     }
                     VStack(alignment: .leading, spacing: 6) {
                         PlanLanes(moment: moment)
                             .equatable()
                             .frame(height: 140)
-                        Legend(kinds: Set(moment.events.map(\.kind)))
+                        Legend(kinds: Set(moment.events.map(\.kind)), level: !moment.levels.isEmpty)
                     }
                 }
                 .transition(.opacity)
             }
         }
+        .id(Self.topID)
         PriceRow(prices: prices, minute: minute)
         // Under the dial the story already says what each row would.
         if style == .lanes {
             Events(moment: moment, entry: models.planShare.entry, loadpoints: loadpoints, style: style)
         }
-        CompactMode(mode: models.mode, choose: chooseMode)
+        Levers(mode: models.mode, loadpoints: loadpoints, minute: minute, choose: chooseMode, reveal: reveal)
+            .id(Self.leversID)
     }
 
     /// "PLANNED 16:51 · REPLANS EVERY 15 MIN", or that the box could not.
@@ -157,6 +184,13 @@ private struct PlanBody: View {
         if m.state == .boxStale { return L("Your box couldn't plan ahead just now, so it runs on safe defaults.") }
         guard let at = models.plan.receivedAtMs ?? m.readAtMs else { return L("Reading the plan from your box…") }
         return PlanDial.planned(atMs: at, old: m.state == .old, zone: zone)
+    }
+
+    /// "CAREFUL WITH THE FORECAST", when the planning style is not
+    /// balanced. Nothing when it is, or before the box has said.
+    private var styleLine: String? {
+        guard let style = models.mode.shownStyle, style.key != "balanced" else { return nil }
+        return NodeWords.format("%@ with the forecast", NodeWords.text(style.name)).uppercased()
     }
 
     /// When the box made it, or that it could not.
@@ -232,6 +266,7 @@ private final class DialMemo {
 /// What each colour on the lanes means.
 private struct Legend: View {
     let kinds: Set<PlanGlance.Kind>
+    var level = false
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -248,6 +283,17 @@ private struct Legend: View {
         if kinds.contains(.charge) { item(.charge, L("charging")) }
         if kinds.contains(.discharge) { item(.discharge, L("discharging")) }
         if kinds.contains(.cheap) { item(.cheap, L("Cheapest")) }
+        if level {
+            HStack(spacing: 4) {
+                Path { p in
+                    p.move(to: CGPoint(x: 0, y: 3))
+                    p.addLine(to: CGPoint(x: 12, y: 3))
+                }
+                .stroke(Theme.ink2, style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round, dash: [3, 3]))
+                .frame(width: 12, height: 6)
+                Text(L("battery level")).lineLimit(1)
+            }
+        }
     }
 
     private func item(_ kind: PlanGlance.Kind, _ text: String) -> some View {
@@ -385,34 +431,101 @@ private struct PriceRow: View {
     }
 }
 
-/// The mode in one row, for the plan it decides.
-private struct CompactMode: View {
-    let mode: ModeModel
-    let choose: () -> Void
+/// "New plan 16:53: stores 22:45 instead of 03:45.", after a change of the
+/// person's own, until the next plan.
+private struct MovedLine: View {
+    let text: String?
 
     var body: some View {
-        if let label = mode.label {
-            Button(action: choose) {
-                HStack {
-                    Kicker(L("Mode"))
-                    Spacer(minLength: 8)
-                    Text(label)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(mode.mayControl ? Theme.accent : Theme.fg)
-                    if mode.mayControl {
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(Theme.accent)
-                    }
-                }
-                .padding(.vertical, 10)
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
+        Group {
+            if let text {
+                Text(text)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Theme.ink)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
+                    .accessibilityIdentifier("plan.moved")
             }
-            .buttonStyle(.plain)
-            .disabled(!mode.canControl)
-            .accessibilityIdentifier("plan.mode")
         }
+        .animation(.easeOut(duration: 0.2), value: text)
+    }
+}
+
+/// What the person can change, at the foot of the plan: the car's goal,
+/// the mode, and while the plan runs its style as a scale with five stops.
+private struct Levers: View {
+    let mode: ModeModel
+    let loadpoints: LoadpointsModel
+    let minute: Double
+    let choose: () -> Void
+    let reveal: (Bool) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let lp = loadpoints.points.first {
+                NavigationLink(value: HomeRoute.car(lp.id)) {
+                    row(L("Car"), value: goal(lp), tint: Theme.ink, symbol: "chevron.right")
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("plan.car")
+                Divider().overlay(Theme.hairline)
+            }
+            if let label {
+                Button(action: choose) {
+                    row(L("Mode"), value: label, tint: mode.mayControl ? Theme.accent : Theme.ink, symbol: mode.mayControl ? "chevron.up.chevron.down" : nil)
+                }
+                .buttonStyle(.plain)
+                .disabled(!mode.canControl)
+                .accessibilityIdentifier("plan.mode")
+            }
+            if showsScale {
+                #if DEBUG
+                StyleScale(mode: mode, drives: true, reveal: reveal)
+                    .padding(.top, 6)
+                    .padding(.bottom, 12)
+                #else
+                StyleScale(mode: mode)
+                    .padding(.top, 6)
+                    .padding(.bottom, 12)
+                #endif
+            }
+        }
+    }
+
+    /// The scale stands in for the style while the plan runs and this
+    /// phone may change it; else the row names it.
+    private var showsScale: Bool { mode.mayControl && mode.shownStyle != nil && ModeWords.isPlan(mode.shown ?? "") }
+
+    /// "Plan" when the scale below says the style, else "Plan · Balanced"
+    /// or a manual mode's name.
+    private var label: String? {
+        guard let key = mode.shown else { return mode.label }
+        return showsScale && ModeWords.isPlan(key) ? L("Plan") : mode.label
+    }
+
+    /// "80 % by 07:00 on weekdays", the goal the plan charges for.
+    private func goal(_ lp: Loadpoint) -> String {
+        guard let s = lp.schedule else { return L("No goal") }
+        return EVText.goal(s, at: Date(timeIntervalSince1970: minute / 1000), zone: loadpoints.zone)
+    }
+
+    private func row(_ kicker: String, value: String, tint: Color, symbol: String?) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Kicker(kicker)
+            Spacer(minLength: 8)
+            Text(value)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(tint)
+                .multilineTextAlignment(.trailing)
+            if let symbol {
+                Image(systemName: symbol)
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(tint == Theme.ink ? Theme.ink3 : tint)
+            }
+        }
+        .padding(.vertical, 10)
+        .frame(minHeight: 44)
+        .contentShape(Rectangle())
     }
 }
 
@@ -471,6 +584,13 @@ struct PlanLanes: View, Equatable {
                             .foregroundStyle(Theme.ground)
                     }
                 }
+            }
+            // Where the plan leads the battery: a ghost, dashed, because it
+            // is a plan and not a reading. 0 % at the foot, 100 % at the top.
+            ForEach(moment.levels.filter { $0.ms >= from && $0.ms <= to }, id: \.ms) { p in
+                LineMark(x: .value("Time", date(p.ms)), y: .value("Level", p.pct / 100), series: .value("Series", "level"))
+                    .foregroundStyle(grey ? Theme.fgMuted : Theme.ink2)
+                    .lineStyle(StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round, dash: [3, 4]))
             }
             RuleMark(x: .value("Now", date(from)))
                 .foregroundStyle(Theme.accentFill)

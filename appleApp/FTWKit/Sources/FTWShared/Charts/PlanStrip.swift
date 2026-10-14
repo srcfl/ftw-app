@@ -44,13 +44,16 @@ public struct PlanStrip: Equatable, Sendable {
     public let batteryRuns: [Run<Battery>]
     public let carRuns: [Run<Bool>]
     public let priceRuns: [Run<Int>]
+    /// Stretches the market has not priced yet: drawn as hatched stubs,
+    /// never as a level.
+    public let pending: [Run<Bool>]
     /// Local three-hour marks: "18", "21", "00".
     public let hours: [Tick]
     /// Quarters that give a light impact under a finger: now, either end,
     /// the cheapest two hours' edges and each car goal.
     public let landmarks: Set<Int>
-    /// What a finger reads per quarter: "02:15 · 31 öre · stores · car
-    /// charges".
+    /// What a finger reads per quarter: "02:15 · 31 öre · stores · 58 % ·
+    /// car charges".
     public let readouts: [String]
     /// "NEXT 12 H", "PLANNED 14:05" from the cache, "OLD PLAN · 14:05".
     public let kicker: String
@@ -140,12 +143,14 @@ public struct PlanStrip: Equatable, Sendable {
             } else {
                 parts.append(PlanWord.noPrice.text)
             }
-            if planned[i] != nil {
+            if let slot = planned[i] {
                 switch battery[i] {
                 case .stores?: parts.append(PlanWord.stores.text)
                 case .gives?: parts.append(PlanWord.gives.text)
                 case nil: parts.append(PlanWord.waits.text)
                 }
+                // Where the plan leaves the battery by the quarter's end.
+                if let level = slot.levelPct { parts.append(PlanGlance.percent(level)) }
             }
             if let goal = goals[i] {
                 parts.append(PlanWord.carGoal.format(PlanGlance.percent(goal)))
@@ -173,6 +178,7 @@ public struct PlanStrip: Equatable, Sendable {
             batteryRuns: runs(battery),
             carRuns: runs(car.map { $0 ? true : nil }),
             priceRuns: runs(levels),
+            pending: runs(levels.map { $0 == nil ? true : nil }),
             hours: hours,
             landmarks: landmarks,
             readouts: readouts,
@@ -181,6 +187,16 @@ public struct PlanStrip: Equatable, Sendable {
             hasCar: hasCar || !charges.isEmpty
         )
     }
+
+    /// The quarters whose battery or car a new plan changed, on the same
+    /// quarters. A strip that moved on by a quarter compares nothing: that
+    /// is the clock, not a new plan.
+    public func moved(from old: PlanStrip) -> [Int] {
+        guard old.grid == grid else { return [] }
+        return (0..<min(count, Self.count)).filter { old.battery[$0] != battery[$0] || old.car[$0] != car[$0] }
+    }
+
+    private var count: Int { battery.count }
 
     /// The price in eight levels within the window, the dearest at 7. A flat
     /// window sits in the middle rather than at either end.

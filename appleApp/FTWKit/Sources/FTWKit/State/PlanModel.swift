@@ -22,6 +22,8 @@ public final class PlanModel {
         public let pvW: Double
         public let loadW: Double
         public let priceMinor: Double?
+        /// The battery's planned level at the end of the slot, in percent.
+        public var levelPct: Double? = nil
         public var id: Double { startMs }
     }
 
@@ -29,6 +31,8 @@ public final class PlanModel {
     nonisolated static let reaskMs: Double = 15 * 60_000
     nonisolated static let followMs: Double = 3_000
     nonisolated static let followTries = 6
+    /// How long plans after a change still count as that change.
+    nonisolated static let moveHoldMs: Double = 2 * 60_000
 
     /// The plan on screen: the box's latest word, or the plan an earlier
     /// launch kept, dated, until the box answers. The same plan again
@@ -46,6 +50,17 @@ public final class PlanModel {
     /// pushed.
     public private(set) var receivedAtMs: Double?
     public private(set) var problem: String?
+    /// The plan before a change of the person's own and when the new one
+    /// came, so a screen can say what moved. Gone with the next plan.
+    public struct Move: Equatable, Sendable {
+        public let before: Plan
+        public let atMs: Double
+    }
+    public private(set) var move: Move?
+    /// What the planner reckons its plan saves against no battery, from its
+    /// own document, read with the forecast. Nil until then, and when the
+    /// planner gave no baseline.
+    public private(set) var saving: PlanSaving?
 
     @ObservationIgnored private unowned let site: SiteModel
     @ObservationIgnored private var ask: LiveAsk?
@@ -54,6 +69,9 @@ public final class PlanModel {
     @ObservationIgnored private var forecastActive = 0
     @ObservationIgnored private var want = 0
     @ObservationIgnored private var following: Cancellable?
+    /// The plan on screen when the person sent a change, and when, until
+    /// the box replans.
+    @ObservationIgnored private var awaiting: (plan: Plan, atMs: Double)?
     /// The plan on the session as last taken, so a pushed one is taken once.
     @ObservationIgnored private var sessionPlan: Plan?
     /// Runs each time the box has sent its plan, the same or a new one, so
@@ -85,7 +103,22 @@ public final class PlanModel {
     }
 
     private func take(_ p: Plan) {
+        let previous = plan
         if let next = Stamped.taking(Stamped(p, asOfMs: site.nowMs, origin: .relay), over: stamped) { stamped = next }
+        guard let previous, p.rev != previous.rev else { return }
+        // The plan a change of the person's own brought is set beside the
+        // one before it. Plans that follow within a couple of minutes are
+        // the same change settling; a later one is the box's own replan.
+        if let before = awaiting {
+            awaiting = nil
+            if site.nowMs - before.atMs < Self.moveHoldMs {
+                move = Move(before: before.plan, atMs: site.nowMs)
+                return
+            }
+        }
+        if let move, site.nowMs - move.atMs >= Self.moveHoldMs {
+            self.move = nil
+        }
     }
 
     public func activate(forecast: Bool = false) {
@@ -135,8 +168,19 @@ public final class PlanModel {
     func loadForecast() async throws {
         let wire = try await site.callBox(.get, "/api/mpc/plan")
         let next = Stamped(Self.forecast(wire?["plan"]?["actions"]?.array ?? []), asOfMs: site.nowMs, origin: .relay)
+        let worth = Self.saving(wire?["plan"])
+        if worth != saving { saving = worth }
         if let taken = Stamped.taking(next, over: forecastStamp) { forecastStamp = taken }
         if !forecastLoaded { forecastLoaded = true }
+    }
+
+    /// The plan's cost, the same hours with no battery, and the levels at
+    /// either end, from the planner's document.
+    nonisolated static func saving(_ plan: JSON?) -> PlanSaving? {
+        guard let plan, let cost = plan["total_cost_ore"]?.number, let none = plan["baselines"]?["no_battery_ore"]?.number,
+              let start = plan["initial_soc"]?.number, let last = plan["actions"]?.array?.last,
+              let end = last["soc"]?.number, let slotStart = last["slot_start_ms"]?.number, let len = last["slot_len_min"]?.number else { return nil }
+        return PlanSaving(costMinor: cost, noBatteryMinor: none, startLevel: start, endLevel: end, endMs: slotStart + len * 60_000)
     }
 
     static func forecast(_ actions: [JSON]) -> [Forecast] {
@@ -146,8 +190,16 @@ public final class PlanModel {
             let end = slotStart + len * 60_000
             let pv = a["forecast_pv_w"]?.number ?? a["pv_w"]?.number ?? 0
             let load = a["forecast_load_w"]?.number ?? a["load_w"]?.number ?? 0
-            return Forecast(startMs: start, durationMs: max(0, end - start), pvW: abs(pv), loadW: max(0, load), priceMinor: a["price_ore"]?.number)
+            let soc = a["soc"]?.number.flatMap { $0.isFinite && $0 >= 0 && $0 <= 1 ? $0 * 100 : nil }
+            return Forecast(startMs: start, durationMs: max(0, end - start), pvW: abs(pv), loadW: max(0, load), priceMinor: a["price_ore"]?.number, levelPct: soc)
         }
+    }
+
+    /// The person sent a change that moves the plan: the plan now on screen
+    /// is the one to compare the next with. Its plan may come before the
+    /// box's receipt does.
+    public func expectChange() {
+        if let plan { awaiting = (plan, site.nowMs) }
     }
 
     /// The box acknowledges a change before its planner has replanned, so

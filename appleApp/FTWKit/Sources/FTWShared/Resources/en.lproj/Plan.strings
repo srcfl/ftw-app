@@ -42,6 +42,11 @@
 "%@ from spare sun" = "%@ from spare sun";
 "%@, as selling pays" = "%@, as selling pays";
 "%@ to hold the grid limit" = "%@ to hold the grid limit";
+"New plan %@: %@ %@ instead of %@." = "New plan %@: %@ %@ instead of %@.";
+"New plan %@: %@ %@." = "New plan %@: %@ %@.";
+"New plan %@: no longer %@ %@." = "New plan %@: no longer %@ %@.";
+"%@, and leaves %@" = "%@, and leaves %@";
+"%@, and reaches %@" = "%@, and reaches %@";
 
 /* The strip's header and what a finger reads on it. */
 "NEXT 12 H" = "NEXT 12 H";

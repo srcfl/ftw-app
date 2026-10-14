@@ -7,7 +7,8 @@ import WidgetKit
 /// face, so the four never differ.
 ///
 /// From the outside in: the rim, a hairline with a 2° gap at the seam where
-/// +24 h meets now, and the sun's arc on it from the box's forecast; the
+/// +24 h meets now, and the sun's arc on it from the box's forecast, dashed
+/// because it is a guess; the
 /// hours just outside it; 96 price ticks in eight levels, cyan where the
 /// battery stores, ink where it gives power, faint where it waits; stubs
 /// where the market has not priced a quarter yet; the car's dotted arc
@@ -38,7 +39,9 @@ struct PlanDialFace: View, Equatable {
                     rim(g).stroke(Theme.ink.opacity(0.18), style: StrokeStyle(lineWidth: 0.5, lineCap: .butt, lineJoin: .round))
                     HourLabels(g: g)
                 }
-                sun(g).stroke(grey ? Theme.ink3 : Theme.solar, style: StrokeStyle(lineWidth: g.sunWidth, lineCap: .butt, lineJoin: .round))
+                // The sun is the box's forecast, a guess: dashed, where the
+                // prices it plans on are drawn solid.
+                sun(g).stroke(grey ? Theme.ink3 : Theme.solar, style: StrokeStyle(lineWidth: g.sunWidth, lineCap: .butt, lineJoin: .round, dash: g.sunDash))
                 ticks(g, .waits).fill(grey ? Theme.ink3.opacity(0.45) : Theme.ink3.opacity(0.6))
                 ticks(g, .gives).fill(grey ? Theme.ink3.opacity(0.45) : Theme.ink)
                 ticks(g, .stores).fill(grey ? Theme.ink3.opacity(0.45) : Theme.stores)
@@ -215,6 +218,8 @@ struct DialGeometry {
     var carRadius: CGFloat { inner - unit * (size == .app ? 1.6 : 1.4) }
     var dot: CGFloat { max(1.4, side * 0.012) }
     var sunWidth: CGFloat { size == .app ? 2 : max(1.2, side * 0.015) }
+    /// The forecast's dash: short enough to read as a guess at any size.
+    var sunDash: [CGFloat] { size == .app ? [4, 3] : [max(1.5, side * 0.02), max(1.2, side * 0.016)] }
     /// The hours' and the car goal's mono size.
     var label: CGFloat { max(9, (side * 0.03).rounded()) }
 

@@ -6,8 +6,15 @@ extension PlanEntry {
     /// car's charging windows with the level it charges toward, and the
     /// prices under them. Prices come from the price model, or else from the
     /// plan's own slots.
-    public static func live(plan: Plan?, points: [Loadpoint], windows: [String: [Loadpoint.Window]], prices: Prices?, timeZone: String? = nil, daylight: Daylight? = nil) -> PlanEntry {
-        let battery = plan.map { p in p.slots.map { Slot(startMs: $0.startMs, durationMs: $0.durationMs, batteryW: $0.batteryW, reason: $0.reason) } }
+    /// `levels` stands in for a box that sends no level on its plan: the
+    /// planner's own document's levels, by the slot they end.
+    public static func live(plan: Plan?, points: [Loadpoint], windows: [String: [Loadpoint.Window]], prices: Prices?, timeZone: String? = nil, daylight: Daylight? = nil, levels: [(startMs: Double, endMs: Double, pct: Double)] = []) -> PlanEntry {
+        func level(_ s: PlanSlot) -> Double? {
+            if let pm = s.socPermille, pm.isFinite, pm >= 0, pm <= 1000 { return pm / 10 }
+            let end = s.startMs + s.durationMs
+            return levels.first { $0.startMs < end && end <= $0.endMs + 1 }?.pct
+        }
+        let battery = plan.map { p in p.slots.map { Slot(startMs: $0.startMs, durationMs: $0.durationMs, batteryW: $0.batteryW, reason: $0.reason, levelPct: level($0)) } }
         var charges = [Charge]()
         for lp in points {
             for w in windows[lp.id] ?? lp.planWindows {
@@ -66,7 +73,8 @@ public final class PlanShare {
     /// The plan as Now and the plan dial draw it, with the sun the box
     /// forecasts once the app has read the forecast.
     public var entry: PlanEntry {
-        PlanEntry.live(plan: plan.plan, points: loadpoints.points, windows: loadpoints.windows, prices: prices.prices, timeZone: loadpoints.zone.identifier, daylight: daylight)
+        PlanEntry.live(plan: plan.plan, points: loadpoints.points, windows: loadpoints.windows, prices: prices.prices, timeZone: loadpoints.zone.identifier, daylight: daylight,
+                       levels: plan.forecast.compactMap { f in f.levelPct.map { (f.startMs, f.startMs + f.durationMs, $0) } })
     }
 
     /// The box's solar forecast as the dial's sky, from the box's latest
@@ -95,6 +103,26 @@ public final class PlanShare {
         }
         if let kept { return (kept.value, PlanGlance.kept(kept.value, readAtMs: kept.record.readAtMs, nowMs: nowMs)) }
         return (entry, PlanGlance.waiting(entry, nowMs: nowMs, note: plan.problem))
+    }
+
+    /// The plan as it stood before the person's own change, drawn as the
+    /// plan is, and when the change's plan came. `fresh` while that was
+    /// moments ago, so a view drawing it now draws its arrival. Nil once
+    /// the box replans of its own accord.
+    public var before: (entry: PlanEntry, atMs: Double, fresh: Bool)? {
+        guard let move = plan.move else { return nil }
+        let entry = PlanEntry.live(plan: move.before, points: loadpoints.points, windows: loadpoints.windows, prices: prices.prices, timeZone: loadpoints.zone.identifier, daylight: daylight)
+        return (entry, move.atMs, site.scheduler.nowMs - move.atMs < Self.arrivalMs)
+    }
+
+    /// How long a new plan counts as arriving.
+    nonisolated static let arrivalMs: Double = 1_500
+
+    /// "New plan 16:53: stores 22:45 instead of 03:45.", after a change of
+    /// the person's own, until the next plan.
+    public var moved: String? {
+        guard let before else { return nil }
+        return PlanGlance.moved(from: before.entry, to: entry, atMs: before.atMs)
     }
 
     /// What would make the record different. Cheap enough for every tick.

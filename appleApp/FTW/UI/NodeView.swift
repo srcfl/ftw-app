@@ -111,7 +111,7 @@ struct NodeView: View {
             if down { trace.hold(atMs: Date().timeIntervalSince1970 * 1000) } else { trace.release() }
         }
         .sheet(isPresented: $choosingMode) {
-            ModeSheet(mode: models.mode)
+            ModeSheet(mode: models.mode, plan: models.planShare)
         }
         .fullScreenCover(isPresented: $enlarged) {
             ChartFullScreen(site: site, node: node, home: home, timebase: $timebase, series: $series, timebases: timebases)

@@ -42,6 +42,11 @@
 "%@ from spare sun" = "%@ med solens överskott";
 "%@, as selling pays" = "%@ när det lönar sig att sälja";
 "%@ to hold the grid limit" = "%@ för att hålla nätgränsen";
+"New plan %@: %@ %@ instead of %@." = "Ny plan %@: %@ %@ i stället för %@.";
+"New plan %@: %@ %@." = "Ny plan %@: %@ %@.";
+"New plan %@: no longer %@ %@." = "Ny plan %@: %@ inte längre %@.";
+"%@, and leaves %@" = "%@, och lämnar %@";
+"%@, and reaches %@" = "%@, och når %@";
 
 /* The strip's header and what a finger reads on it. */
 "NEXT 12 H" = "NÄSTA 12 H";

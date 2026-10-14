@@ -88,10 +88,12 @@ extension SimulatedHouse {
 
     /// What the battery does for one slot, in the plan's way: cheap hours
     /// fill it, spare sun goes in, dear hours cover the home. The margin the
-    /// household chose keeps more in it.
+    /// household chose keeps more in it: a careful plan buys in more hours
+    /// and gives power in fewer, so a change of style moves quarters.
     func decide(price: Double, mean: Double, pv: Double, base: Double, ev: Double, soc: Double, mode: String) -> Double {
         let net = base + ev + pv
-        let keep = 0.2 + 0.25 * min(1, safetyK)
+        let margin = min(1, safetyK)
+        let keep = 0.2 + 0.25 * margin
         switch mode {
         case "idle": return 0
         case "charge": return soc < 0.995 ? batteryMaxW : 0
@@ -99,9 +101,9 @@ extension SimulatedHouse {
         case "peak_shaving": return net > 6_000 ? -(net - 6_000) : (pv < -500 ? min(batteryMaxW, -net) : 0)
         default:
             if net < -200 { return min(batteryMaxW, -net) }
-            if price < mean * 0.7, soc < 0.9 { return 3_000 }
+            if price < mean * (0.6 + 0.2 * margin), soc < 0.9 { return 3_000 }
             if mode == "planner_arbitrage", price > mean * 1.35, soc > keep + 0.15 { return -batteryMaxW }
-            if price > mean * 1.1, soc > keep { return -min(batteryMaxW, max(0, net)) }
+            if price > mean * (1.02 + 0.3 * margin), soc > keep { return -min(batteryMaxW, max(0, net)) }
             return 0
         }
     }
@@ -132,6 +134,9 @@ extension SimulatedHouse {
         let mean = prices.reduce(0, +) / Double(max(1, prices.count))
         let car = carPlan(nowMs)
         var soc = socFraction
+        // The demo leaves the battery near where it found it by the end of
+        // its day, so what its plan is worth compares honestly.
+        let endFloor = socFraction - 0.02
         var out = [Step]()
         while t < end {
             let start = max(t, nowMs)
@@ -144,6 +149,7 @@ extension SimulatedHouse {
             var b = decide(price: price, mean: mean, pv: pv, base: base, ev: ev, soc: soc, mode: modeKey)
             if b > 0, soc >= 0.98 { b = 0 }
             if b < 0, soc <= Self.minSoc { b = 0 }
+            if b < 0, t >= end - 8 * 3_600_000, soc <= endFloor { b = 0 }
             b = b.rounded()
             soc = max(0, min(1, soc + b * len / 3_600_000 * (b > 0 ? 0.95 : 1 / 0.95) / batteryCapacityWh))
             let grid = (base + ev + b + pv).rounded()
@@ -215,7 +221,7 @@ extension SimulatedBox {
         let plan = Plan(
             rev: house.planRev,
             uptimeMs: uptimeMs,
-            slots: steps.map { PlanSlot(startMs: $0.startMs.rounded(), durationMs: $0.durationMs.rounded(), batteryW: $0.batteryW, gridW: $0.gridW, priceMinor: $0.priceMinor, reason: $0.reason) },
+            slots: steps.map { PlanSlot(startMs: $0.startMs.rounded(), durationMs: $0.durationMs.rounded(), batteryW: $0.batteryW, gridW: $0.gridW, priceMinor: $0.priceMinor, reason: $0.reason, socPermille: ($0.soc * 1000).rounded()) },
             stale: false,
             ceilingW: nil
         )

@@ -21,6 +21,8 @@ struct PlanStripView: View, Equatable {
     let priceNow: String?
     /// "ÖRE NU", after the price.
     let priceUnit: String
+    /// The strip before the person's last change, while its plan stands.
+    var fade: StripFade?
 
     @State private var scrub = ScrubModel()
     @State private var width: CGFloat = 0
@@ -30,7 +32,7 @@ struct PlanStripView: View, Equatable {
     @ScaledMetric(relativeTo: .subheadline) private var figure: CGFloat = 13
 
     nonisolated static func == (a: Self, b: Self) -> Bool {
-        a.strip == b.strip && a.sentence == b.sentence && a.placeholder == b.placeholder && a.priceNow == b.priceNow && a.priceUnit == b.priceUnit
+        a.strip == b.strip && a.sentence == b.sentence && a.placeholder == b.placeholder && a.priceNow == b.priceNow && a.priceUnit == b.priceUnit && a.fade == b.fade
     }
 
     /// Mono stops growing at accessibility1.
@@ -43,6 +45,13 @@ struct PlanStripView: View, Equatable {
             ZStack {
                 ChartSurface(drawing: PlanStripDrawing(strip: strip, layout: layout))
                     .equatable()
+                if let fade {
+                    MovedFade(fresh: fade.fresh, mask: QuarterColumns(grid: fade.old.grid, quarters: fade.moved)) {
+                        ChartSurface(drawing: PlanStripDrawing(strip: fade.old, layout: layout))
+                            .equatable()
+                    }
+                    .id(fade.atMs)
+                }
                 PlanStripOverlay(strip: strip, model: scrub, layout: layout)
             }
             .frame(height: layout.height)

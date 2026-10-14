@@ -42,6 +42,9 @@ public final class SimulatedBox {
     /// `priced_coverage_pct`. Below 0.95 the grid widget marks its cost
     /// partial.
     public var pricedShare: Double = 1
+    /// The hour tomorrow's prices publish, local. 24 holds them back all
+    /// day, as on a day the market is late.
+    public var publishHour: Double = 13
     /// A Core with srcfl/ftw#1586 reads and sends the ready time as
     /// `time_of_day_min` on the household clock. Off, it is a Core that
     /// knows only `time_of_day_min_utc`.
@@ -298,7 +301,7 @@ public final class SimulatedBox {
         let slotMs: Double = 900_000
         // Tomorrow's rates publish at 13:00 local.
         let midnight = scheduler.nowMs - house.hourOfDay(scheduler.nowMs) * 3_600_000
-        let published = midnight + (house.hourOfDay(scheduler.nowMs) >= 13 ? 48 : 24) * 3_600_000
+        let published = midnight + (house.hourOfDay(scheduler.nowMs) >= publishHour ? 48 : 24) * 3_600_000
         let end = min(to, published)
         var slots = [CBOR]()
         var t = (from / slotMs).rounded(.down) * slotMs
@@ -359,6 +362,8 @@ public final class SimulatedBox {
                 house.modeKey = house.batteryExport == "allowed" ? "planner_arbitrage" : "planner_passive_arbitrage"
             }
             controlRev += 1
+            // New prefs make a new plan, as Core replans on them.
+            house.planRev += 1
             result(cmdId, "applied", observed: house.safetyK)
             sendBulk(Envelope(t: "plan", b: sessionPlan().wire))
         case Contract.opLoadpointHold:
@@ -568,6 +573,18 @@ public final class SimulatedBox {
             return (200, ["scope": "system", "since_ms": .number(since), "until_ms": .number(until), "truncated": false, "points": .array(carEnergyRows(sinceMs: since, untilMs: until))])
         case ("GET", "/api/mpc/plan"):
             var plan: JSON = ["actions": .array(mpcActions())]
+            // The planner's own reckoning: its cost and the same hours with
+            // no battery, imports at the price and exports at the spot.
+            let steps = house.plan(nowMs: now)
+            func cost(_ grid: (SimulatedHouse.Step) -> Double) -> Double {
+                steps.reduce(0) { sum, s in
+                    let kWh = grid(s) / 1000 * s.durationMs / 3_600_000
+                    return sum + kWh * (kWh >= 0 ? s.priceMinor : s.priceMinor * 0.6)
+                }
+            }
+            plan = plan.setting("total_cost_ore", .number(cost { $0.gridW }.rounded()))
+                .setting("initial_soc", .number(house.socFraction))
+                .setting("baselines", ["no_battery_ore": .number(cost { $0.gridW - $0.batteryW }.rounded())])
             if let p = house.carPlan(now) { plan = plan.setting("loadpoint_shortfall_wh", ["garage": .number(p.shortfallWh)]) }
             return (200, ["plan": plan, "meta": ["replanning": false, "outdated": false]])
         case ("POST", "/api/loadpoints/{id}/vehicle"):
@@ -793,6 +810,9 @@ extension SimulatedBox {
         box.resultDelayMs = 900
         box.house.chargerRampMs = 4_000
         #if DEBUG
+        // For UI tests that look while a command waits: `-FTWDemoResultDelayMs
+        // 2500` answers later than XCTest's wait for the app to settle.
+        if UserDefaults.standard.object(forKey: "FTWDemoResultDelayMs") != nil { box.resultDelayMs = UserDefaults.standard.double(forKey: "FTWDemoResultDelayMs") }
         // For screenshots: `-FTWDemoCar unplugged` and the like.
         if let name = UserDefaults.standard.string(forKey: "FTWDemoCar"), let car = DemoCar(rawValue: name) {
             car.apply(to: box.house, nowMs: scheduler.nowMs)
@@ -804,6 +824,11 @@ extension SimulatedBox {
         // `-FTWDemoPartial YES` leaves a fifth of it unpriced.
         if UserDefaults.standard.bool(forKey: "FTWDemoSunny") { box.house.sunny = true }
         if UserDefaults.standard.bool(forKey: "FTWDemoPartial") { box.pricedShare = 0.8 }
+        // For the plan's pictures: `-FTWDemoUnpublished YES` holds
+        // tomorrow's prices back, and `-FTWDemoSafetyK 0.6` starts on
+        // another planning style.
+        if UserDefaults.standard.bool(forKey: "FTWDemoUnpublished") { box.publishHour = 24 }
+        if UserDefaults.standard.object(forKey: "FTWDemoSafetyK") != nil { box.house.safetyK = UserDefaults.standard.double(forKey: "FTWDemoSafetyK") }
         // For recordings of light and its decay: `-FTWDemoQuiet 8` keeps
         // the box quiet for 8 s in every 16, so Now goes from live to quiet
         // and back.

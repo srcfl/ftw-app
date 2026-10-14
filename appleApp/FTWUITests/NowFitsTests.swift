@@ -168,26 +168,29 @@ final class NowFitsTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Are we in control?"].waitForNonExistence(timeout: 5))
     }
 
-    /// A mode from the menu beside the title: the button names it at once,
-    /// the status line walks the box's receipt, and then returns.
+    /// A mode from the button beside the title: its sheet closes once the
+    /// box applied it, the button names it, the status line walks the box's
+    /// receipt, and then returns.
     @MainActor
     func testTheModeMenuChangesTheModeAndTheLineFollowsTheBox() throws {
         let app = launchDemo()
         let button = app.buttons["now.mode"]
         let line = app.buttons["status.line"]
         XCTAssertTrue(button.waitForExistence(timeout: 10))
-        // The menu rests until the box has spoken.
+        // The button rests until the box has spoken.
         Thread.sleep(forTimeInterval: 3)
         XCTAssertEqual(button.value as? String, "Balanced")
         let frame = button.frame
         button.tap()
-        let own = app.buttons["Own use"]
+        let own = app.buttons["mode.choice.self_consumption"]
         XCTAssertTrue(own.waitForExistence(timeout: 5))
         shoot(app, "mode-menu")
+        reveal(own, in: app)
         own.tap()
         let confirmed = NSPredicate(format: "value CONTAINS 'CONFIRMED'")
         expectation(for: confirmed, evaluatedWith: line)
         waitForExpectations(timeout: 10)
+        XCTAssertTrue(own.waitForNonExistence(timeout: 5), "the sheet stayed open after the box applied the mode")
         shoot(app, "mode-confirmed")
         XCTAssertEqual(button.value as? String, "Own use")
         XCTAssertEqual(button.frame.maxX, frame.maxX, accuracy: 0.5, "the mode button moved its trailing edge")
@@ -196,10 +199,55 @@ final class NowFitsTests: XCTestCase {
         waitForExpectations(timeout: 10)
         // Back to the plan, for the next test.
         button.tap()
-        let plan = app.buttons["Plan"]
+        let plan = app.buttons["mode.choice.plan"]
         XCTAssertTrue(plan.waitForExistence(timeout: 5))
         plan.tap()
-        Thread.sleep(forTimeInterval: 2)
+        XCTAssertTrue(plan.waitForNonExistence(timeout: 10))
+    }
+
+    /// The planning style from Now's button: a finger drags the scale two
+    /// stops and lets go, one command goes, the box confirms it, the sheet
+    /// stays and says what the new plan moved. A second drag goes back.
+    @MainActor
+    func testTheStyleScaleSendsOnceWhenTheFingerLetsGo() throws {
+        let app = launchDemo()
+        let button = app.buttons["now.mode"]
+        let line = app.buttons["status.line"]
+        XCTAssertTrue(button.waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 3)
+        XCTAssertEqual(button.value as? String, "Balanced")
+        button.tap()
+        let scale = app.descendants(matching: .any).matching(identifier: "style.scale").firstMatch
+        XCTAssertTrue(scale.waitForExistence(timeout: 5))
+        XCTAssertTrue((scale.value as? String ?? "").hasPrefix("Balanced."), "\(String(describing: scale.value))")
+        shoot(app, "style-open")
+        // The track sits under the ends' line; its stops are spread across
+        // the width inside the thumb's half.
+        let f = scale.frame
+        let y = f.minY + 14 + 8 + 16
+        func stop(_ i: Int) -> XCUICoordinate {
+            let x = f.minX + 16 + (f.width - 32) * CGFloat(i) / 4
+            return app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: x, dy: y))
+        }
+        stop(2).press(forDuration: 0.2, thenDragTo: stop(4), withVelocity: 300, thenHoldForDuration: 0.3)
+        let confirmed = NSPredicate(format: "value CONTAINS 'CONFIRMED'")
+        expectation(for: confirmed, evaluatedWith: line)
+        waitForExpectations(timeout: 10)
+        XCTAssertTrue((scale.value as? String ?? "").hasPrefix("Very bold."), "\(String(describing: scale.value))")
+        // The sheet stays for the other settings, and says what moved.
+        XCTAssertTrue(scale.exists)
+        XCTAssertTrue(app.staticTexts["style.moved"].waitForExistence(timeout: 5), "no line says what the new plan moved")
+        shoot(app, "style-moved")
+        // VoiceOver reads it as one element with the style's name and help.
+        XCTAssertEqual(scale.label, "Planning style")
+        // Back to where it was, for the next test.
+        Thread.sleep(forTimeInterval: 1)
+        stop(4).press(forDuration: 0.2, thenDragTo: stop(2), withVelocity: 300, thenHoldForDuration: 0.3)
+        expectation(for: NSPredicate(format: "value BEGINSWITH 'Balanced.'"), evaluatedWith: scale)
+        waitForExpectations(timeout: 10)
+        app.buttons["mode.close"].tap()
+        expectation(for: NSPredicate(format: "value == 'Balanced'"), evaluatedWith: button)
+        waitForExpectations(timeout: 10)
     }
 
     /// At the largest accessibility size the drawing gives way to a row
@@ -257,7 +305,11 @@ final class NowFitsTests: XCTestCase {
     /// the finger, and closes once the box applied the mode.
     @MainActor
     func testTheModeSheetFitsWaitsInPlaceAndClosesOnceApplied() throws {
-        let app = launchDemo()
+        // The box answers after 2.5 s, so the look while it waits comes well
+        // before: XCTest's wait for the app to settle after a tap can take a
+        // second, and the turning mark keeps it busy that long.
+        let app = launchDemo(more: ["-FTWDemoResultDelayMs", "2500"])
+        XCTAssertTrue(app.buttons["now.node.home"].waitForExistence(timeout: 15), "Now never drew the home")
         let button = app.buttons["now.mode"]
         // The choices rest until the stream is up.
         openSettings(app)
@@ -271,14 +323,11 @@ final class NowFitsTests: XCTestCase {
         // Every choice the sheet opened with is on screen: the sheet fits
         // its content, or is full height and scrolls.
         let window = app.windows.firstMatch.frame
-        if !window.contains(idle.frame) {
-            app.swipeUp()
-            Thread.sleep(forTimeInterval: 1)
-        }
+        reveal(idle, in: app)
         XCTAssertTrue(window.contains(idle.frame), "\(idle.frame) is outside \(window)")
         let top = idle.frame.minY
         idle.tap()
-        // The demo box answers after 0.9 s; look well before that.
+        // Look well before the box answers.
         Thread.sleep(forTimeInterval: 0.15)
         XCTAssertTrue(plan.isSelected, "the box's mode lost its tick before the box answered")
         XCTAssertEqual(idle.frame.minY, top, accuracy: 1, "the row moved under the finger")
@@ -327,6 +376,21 @@ final class NowFitsTests: XCTestCase {
     }
 
     @MainActor
+    /// Scrolls the mode sheet a little at a time until the middle of a row,
+    /// where a tap lands, clears the receipt bar at its foot: on a small
+    /// phone the sheet is full height and scrolls. The bar and the home
+    /// indicator take less than 100 pt. Short, slow drags keep the rows
+    /// above in place.
+    private func reveal(_ row: XCUIElement, in app: XCUIApplication) {
+        let window = app.windows.firstMatch.frame
+        for _ in 0..<4 where row.frame.midY > window.maxY - 100 {
+            let list = app.collectionViews.firstMatch
+            list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+                .press(forDuration: 0.1, thenDragTo: list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)), withVelocity: .slow, thenHoldForDuration: 0.3)
+            Thread.sleep(forTimeInterval: 0.6)
+        }
+    }
+
     private func shoot(_ app: XCUIApplication, _ name: String) {
         let shot = XCTAttachment(screenshot: app.screenshot())
         shot.name = name

@@ -489,6 +489,19 @@ import FTWShared
 // MARK: The plan
 
 @Suite struct PlanTests {
+    /// What the plan saves comes from the planner's own document: its cost,
+    /// the no-battery baseline, and the levels at either end.
+    @Test func theSavingComesFromThePlannersDocument() {
+        let plan: JSON = [
+            "total_cost_ore": 4350, "initial_soc": 1,
+            "baselines": ["no_battery_ore": 7168],
+            "actions": .array([["slot_start_ms": 1_000, "slot_len_min": 15, "soc": .number(0.98)]]),
+        ]
+        #expect(PlanModel.saving(plan) == PlanSaving(costMinor: 4350, noBatteryMinor: 7168, startLevel: 1, endLevel: 0.98, endMs: 901_000))
+        // A plan without a baseline says nothing.
+        #expect(PlanModel.saving(["total_cost_ore": 4350, "initial_soc": 1]) == nil)
+    }
+
     @MainActor
     @Test func thePlanArrivesAndLandsOnTheSession() async throws {
         let rig = Rig()
@@ -500,7 +513,30 @@ import FTWShared
         #expect(plan.slots.count > 40)
         #expect((plan.slots.first?.startMs ?? .infinity) <= rig.scheduler.nowMs)
         #expect(plan.slots.allSatisfy { $0.priceMinor != nil && PlanText.reasons[$0.reason] != nil })
+        // The box says where each slot leaves the battery, in thousandths.
+        #expect(plan.slots.allSatisfy { ($0.socPermille ?? -1) >= 0 && ($0.socPermille ?? 2_000) <= 1_000 })
         #expect(rig.session.state.plan == plan)
+    }
+
+    /// The level travels on the wire when the box sends it, and stays nil
+    /// from a box that does not.
+    @Test func theLevelRoundTripsOnTheWire() {
+        let slot = PlanSlot(startMs: 1_000, durationMs: 900_000, batteryW: -1_200, gridW: 0, priceMinor: 160, reason: "expensive_import", socPermille: 624)
+        let plan = Plan(rev: 3, uptimeMs: 0, slots: [slot, PlanSlot(startMs: 901_000, durationMs: 900_000, batteryW: 0, gridW: 300, priceMinor: 90, reason: "idle")], stale: false, ceilingW: nil)
+        let back = Plan(plan.wire)
+        #expect(back.slots[0].socPermille == 624)
+        #expect(back.slots[1].socPermille == nil)
+    }
+
+    /// The plan's entry takes the level from the wire, and from the
+    /// planner's own document for a box that sends none on its plan.
+    @Test func theEntryTakesTheLevelFromTheWireOrThePlanner() {
+        let a = PlanSlot(startMs: 0, durationMs: 900_000, batteryW: -1_200, gridW: 0, priceMinor: 160, reason: "expensive_import", socPermille: 624)
+        let b = PlanSlot(startMs: 900_000, durationMs: 900_000, batteryW: -1_200, gridW: 0, priceMinor: 160, reason: "expensive_import")
+        let plan = Plan(rev: 1, uptimeMs: 0, slots: [a, b], stale: false, ceilingW: nil)
+        let entry = PlanEntry.live(plan: plan, points: [], windows: [:], prices: nil, levels: [(startMs: 900_000, endMs: 1_800_000, pct: 58)])
+        #expect(entry.battery?.map(\.levelPct) == [62.4, 58])
+        #expect(PlanEntry.live(plan: plan, points: [], windows: [:], prices: nil).battery?.map(\.levelPct) == [62.4, nil])
     }
 
     @Test func theBatteryInOneSentence() {
@@ -568,6 +604,41 @@ import FTWShared
             #expect(mode.change == nil)
             #expect(mode.shown == "self_consumption")
         }
+    }
+
+    /// A change of the person's own sets the new plan beside the one
+    /// before it, until the next plan; the stops of the style's scale sit
+    /// at even steps.
+    @MainActor
+    @Test func aChangeShowsWhatThePlanMoved() async throws {
+        try await AppWords.$language.withValue(.en) {
+            let rig = DemoRig()
+            rig.app.startDemo()
+            let home = try #require(rig.app.home)
+            let mode = home.nodes.mode, plan = home.nodes.plan
+            mode.activate()
+            plan.activate()
+            await rig.run(1_500)
+            let before = try #require(plan.plan)
+            #expect(plan.move == nil)
+            let change = Task { await mode.setStyle(ModeModel.styles[0]) }
+            await rig.run(2_000)
+            await change.value
+            await rig.run(8_000)
+            let move = try #require(plan.move)
+            #expect(move.before == before)
+            #expect(plan.plan?.rev != before.rev)
+            // Asked again past the hold, the box's next plan is its own.
+            await rig.run(PlanModel.moveHoldMs + 1_000)
+            mode.deactivate()
+            plan.follow()
+            await rig.run(1_000)
+            #expect(plan.move == nil || plan.move == move)
+        }
+        #expect(ModeModel.stop(at: 0) == 0 && ModeModel.stop(at: 1) == 4)
+        #expect(ModeModel.stop(at: 0.6) == 2 && ModeModel.stop(at: 0.63) == 3)
+        #expect(ModeModel.stop(at: -1) == 0 && ModeModel.stop(at: .nan) == 2)
+        #expect(ModeModel.fraction(of: 2) == 0.5 && ModeModel.fraction(of: 9) == 1)
     }
 
     @MainActor

@@ -23,16 +23,30 @@ public final class ModeModel {
         public let name: String
         public let k: Double
         public let help: String
+        /// The help in one line, under the style scale's thumb.
+        public let brief: String
         public var id: String { key }
     }
 
     public nonisolated static let styles: [Style] = [
-        Style(key: "very_careful", name: "Very careful", k: 1, help: "Plans for a poor day: much less sun and more use than forecast. Keeps the most in the battery."),
-        Style(key: "careful", name: "Careful", k: 0.6, help: "Plans for less sun and more use than forecast."),
-        Style(key: "balanced", name: "Balanced", k: 0.3, help: "Plans for a little less sun and a little more use than forecast. A good start for most homes."),
-        Style(key: "bold", name: "Bold", k: 0.15, help: "Plans close to the forecast."),
-        Style(key: "very_bold", name: "Very bold", k: 0, help: "Plans on the forecast as it is. Earns the most when it is right and costs more when it is wrong."),
+        Style(key: "very_careful", name: "Very careful", k: 1, help: "Plans for a poor day: much less sun and more use than forecast. Keeps the most in the battery.", brief: "Plans for a poor day."),
+        Style(key: "careful", name: "Careful", k: 0.6, help: "Plans for less sun and more use than forecast.", brief: "Plans for less sun."),
+        Style(key: "balanced", name: "Balanced", k: 0.3, help: "Plans for a little less sun and a little more use than forecast. A good start for most homes.", brief: "Plans with a little margin."),
+        Style(key: "bold", name: "Bold", k: 0.15, help: "Plans close to the forecast.", brief: "Plans close to the forecast."),
+        Style(key: "very_bold", name: "Very bold", k: 0, help: "Plans on the forecast as it is. Earns the most when it is right and costs more when it is wrong.", brief: "Plans on the forecast as it is."),
     ]
+
+    /// The stop nearest a place along the scale, 0 at very careful and 1
+    /// at very bold.
+    public nonisolated static func stop(at fraction: Double) -> Int {
+        guard fraction.isFinite else { return 2 }
+        return min(styles.count - 1, max(0, Int((fraction * Double(styles.count - 1)).rounded())))
+    }
+
+    /// Where a stop sits along the scale, 0 to 1.
+    public nonisolated static func fraction(of stop: Int) -> Double {
+        Double(min(styles.count - 1, max(0, stop))) / Double(styles.count - 1)
+    }
 
     /// The style nearest a margin, the way the box page picks one.
     public nonisolated static func style(k: Double) -> Style {
@@ -100,6 +114,8 @@ public final class ModeModel {
 
     /// Runs after the box applied a change, so the plan can be read again.
     @ObservationIgnored public var applied: (@MainActor () -> Void)?
+    /// Runs as a change leaves for the box, before any answer.
+    @ObservationIgnored public var willSend: (@MainActor () -> Void)?
     @ObservationIgnored private unowned let site: SiteModel
     @ObservationIgnored private var clearing: Cancellable?
     @ObservationIgnored private var ask: LiveAsk?
@@ -277,6 +293,7 @@ public final class ModeModel {
         guard !sending else { return }
         clearing?.cancel()
         change = Change(ask: ask)
+        willSend?()
         if !connected {
             change?.waiting = true
             let up = await stream(within: Self.streamWaitMs)
