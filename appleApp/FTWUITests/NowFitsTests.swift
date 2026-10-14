@@ -373,10 +373,11 @@ final class NowFitsTests: XCTestCase {
 
     @MainActor
     /// Scrolls the mode sheet until a row clears the receipt bar at its
-    /// foot: on a small phone the sheet is full height and scrolls.
+    /// foot: on a small phone the sheet is full height and scrolls. The bar
+    /// and the home indicator take less than 100 pt.
     private func reveal(_ row: XCUIElement, in app: XCUIApplication) {
-        let bar = app.descendants(matching: .any)["mode.receipt"].firstMatch
-        for _ in 0..<3 where !app.windows.firstMatch.frame.contains(row.frame) || (bar.exists && row.frame.maxY > bar.frame.minY) {
+        let window = app.windows.firstMatch.frame
+        for _ in 0..<3 where row.frame.maxY > window.maxY - 100 {
             app.collectionViews.firstMatch.swipeUp()
             Thread.sleep(forTimeInterval: 1)
         }
