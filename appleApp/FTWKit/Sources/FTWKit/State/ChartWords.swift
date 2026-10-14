@@ -30,6 +30,19 @@ public enum Readouts {
         }
     }
 
+    /// The colour a signed reading of a node takes: the battery storing or
+    /// giving, the grid either way, and each other node its own.
+    public static func tone(_ node: EnergyNode, _ w: Double) -> Flow.Tone {
+        if abs(w) <= Flow.idleW, node != .home { return .muted }
+        switch node {
+        case .solar: return .solar
+        case .battery: return w > 0 ? .charging : .discharging
+        case .home: return .house
+        case .grid: return w > 0 ? .importing : .exporting
+        case .car: return .ev
+        }
+    }
+
     public static func clock(_ ms: Double) -> String { AppWords.clock(ms, zone: .current) }
 
     public static func span(_ a: Double, _ b: Double) -> String { "\(clock(a))–\(clock(b))" }
@@ -116,14 +129,6 @@ public enum Readouts {
     public static func carHour(_ hours: [CarEnergyModel.Hour], at ms: Double) -> ChartReadout? {
         guard let h = hours.first(where: { $0.startMs <= ms && ms < $0.startMs + $0.lenMs }) else { return nil }
         return ChartReadout(when: span(h.startMs, h.startMs + h.lenMs), what: h.wh > 0 ? NodeWords.format("charged %@", AppWords.energy(h.wh)) : NodeWords.text("not charging"))
-    }
-
-    /// A moment of the live curve.
-    public static func live(_ node: EnergyNode, _ points: [LiveTrace.Point], at ms: Double) -> ChartReadout? {
-        guard let p = points.min(by: { abs($0.t - ms) < abs($1.t - ms) }), abs(p.t - ms) < LiveTrace.gapMs else {
-            return ChartReadout(when: seconds(ms), what: NodeWords.text("no data"))
-        }
-        return ChartReadout(when: seconds(p.t), what: "\(AppWords.power(abs(p.v))) \(word(node, p.v))")
     }
 }
 

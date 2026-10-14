@@ -425,7 +425,7 @@ import Testing
         #expect(trace < Self.budget, "trace built in \(trace)")
         // The live series at 720 frames: readings, Gaussian, Steffen, band.
         let frames = (0..<720).map { LiveSample(t: Double($0) * 1_000, v: Double(200 - noisy[$0].y) * 6) }
-        let live = Self.cost { _ = LiveSeries.build(frames, gapMs: 3_500, windowMs: 720_000, nowMs: 719_000, size: CGSize(width: 350, height: 300)) }
+        let live = Self.cost { _ = LiveSeries.build(frames, sourceGapMs: 3_500, windowMs: 720_000, nowMs: 719_000, size: CGSize(width: 350, height: 300)) }
         #expect(live < Self.budget, "live series built in \(live)")
     }
 }

@@ -135,9 +135,7 @@ struct ScrubOverlay: View {
         if track.values.indices.contains(i), let v = track.values[i] {
             let y = plot.minY + YMap(domain: track.domain, height: plot.height).y(v)
             let dot = CGPoint(x: x, y: y)
-            g.fill(Path(ellipseIn: CGRect(x: x - 6, y: y - 6, width: 12, height: 12)), with: .color(Theme.ground))
-            g.fill(Path(ellipseIn: CGRect(x: x - 4, y: y - 4, width: 8, height: 8)), with: .color(track.color))
-            g.stroke(Self.brackets(around: dot, half: 11, arm: 5), with: .color(Theme.ink.opacity(0.8)), style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round))
+            LockOn.dot(at: dot, color: track.color, in: &g)
         }
         tag(track.tags.indices.contains(i) ? track.tags[i] : "", over: x, plot: plot, in: &g, size: size)
     }
@@ -190,35 +188,15 @@ struct ScrubOverlay: View {
     }
 
     private func rule(at x: CGFloat, plot: CGRect, px: CGFloat, in g: inout GraphicsContext) {
-        var rule = Path()
-        rule.move(to: CGPoint(x: x, y: plot.minY))
-        rule.addLine(to: CGPoint(x: x, y: plot.maxY))
-        g.stroke(rule, with: .color(Theme.ink.opacity(0.5)), style: StrokeStyle(lineWidth: px, lineCap: .round, lineJoin: .round))
+        LockOn.rule(at: x, plot: plot, px: px, in: &g)
     }
 
-    /// The tag rides the top of the rule, clear of the thumb, kept inside
-    /// the frame: inverse video, an ink capsule with the ground for words.
     private func tag(_ string: String, over x: CGFloat, plot: CGRect, in g: inout GraphicsContext, size: CGSize) {
-        let text = g.resolve(Text(verbatim: string)
-            .font(.system(size: tagSize, weight: .semibold, design: .monospaced))
-            .foregroundStyle(Theme.ground))
-        let t = text.measure(in: CGSize(width: size.width, height: .infinity))
-        let w = t.width + 8, h = t.height + 3
-        let box = CGRect(x: min(max(x - w / 2, 0), max(0, size.width - w)), y: max(0, plot.minY - h - 2), width: w, height: h)
-        g.fill(Path(roundedRect: box, cornerRadius: 3), with: .color(Theme.ink))
-        g.draw(text, at: CGPoint(x: box.midX, y: box.midY), anchor: .center)
+        LockOn.tag(string, over: x, plot: plot, size: tagSize, in: &g, canvas: size)
     }
 
-    /// Four corners of a square around `p`, each an arm long.
     static func brackets(around p: CGPoint, half: CGFloat, arm: CGFloat) -> Path {
-        var path = Path()
-        for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
-            let corner = CGPoint(x: p.x + sx * half, y: p.y + sy * half)
-            path.move(to: CGPoint(x: corner.x, y: corner.y - sy * arm))
-            path.addLine(to: corner)
-            path.addLine(to: CGPoint(x: corner.x - sx * arm, y: corner.y))
-        }
-        return path
+        LockOn.brackets(around: p, half: half, arm: arm)
     }
 
     #if DEBUG
@@ -243,4 +221,48 @@ struct ScrubOverlay: View {
         model.lift()
     }
     #endif
+}
+
+/// The lock-on, one of the six TUI details: what the finger is on, drawn
+/// the same on every chart. A 1 px rule, a dot in the series colour with a
+/// ring of the ground and corner brackets closing on it, and an
+/// inverse-video tag at the top of the rule.
+enum LockOn {
+    static func rule(at x: CGFloat, plot: CGRect, px: CGFloat, in g: inout GraphicsContext) {
+        var rule = Path()
+        rule.move(to: CGPoint(x: x, y: plot.minY))
+        rule.addLine(to: CGPoint(x: x, y: plot.maxY))
+        g.stroke(rule, with: .color(Theme.ink.opacity(0.5)), style: StrokeStyle(lineWidth: px, lineCap: .round, lineJoin: .round))
+    }
+
+    static func dot(at p: CGPoint, color: Color, in g: inout GraphicsContext) {
+        g.fill(Path(ellipseIn: CGRect(x: p.x - 6, y: p.y - 6, width: 12, height: 12)), with: .color(Theme.ground))
+        g.fill(Path(ellipseIn: CGRect(x: p.x - 4, y: p.y - 4, width: 8, height: 8)), with: .color(color))
+        g.stroke(brackets(around: p, half: 11, arm: 5), with: .color(Theme.ink.opacity(0.8)), style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round))
+    }
+
+    /// The tag rides the top of the rule, clear of the thumb, kept inside
+    /// the canvas: an ink capsule with the ground for words.
+    static func tag(_ string: String, over x: CGFloat, plot: CGRect, size: CGFloat, in g: inout GraphicsContext, canvas: CGSize) {
+        let text = g.resolve(Text(verbatim: string)
+            .font(.system(size: size, weight: .semibold, design: .monospaced))
+            .foregroundStyle(Theme.ground))
+        let t = text.measure(in: CGSize(width: canvas.width, height: .infinity))
+        let w = t.width + 8, h = t.height + 3
+        let box = CGRect(x: min(max(x - w / 2, 0), max(0, canvas.width - w)), y: max(0, plot.minY - h - 2), width: w, height: h)
+        g.fill(Path(roundedRect: box, cornerRadius: 3), with: .color(Theme.ink))
+        g.draw(text, at: CGPoint(x: box.midX, y: box.midY), anchor: .center)
+    }
+
+    /// Four corners of a square around `p`, each an arm long.
+    static func brackets(around p: CGPoint, half: CGFloat, arm: CGFloat) -> Path {
+        var path = Path()
+        for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
+            let corner = CGPoint(x: p.x + sx * half, y: p.y + sy * half)
+            path.move(to: CGPoint(x: corner.x, y: corner.y - sy * arm))
+            path.addLine(to: corner)
+            path.addLine(to: CGPoint(x: corner.x - sx * arm, y: corner.y))
+        }
+        return path
+    }
 }

@@ -120,60 +120,6 @@ private func signedRun(_ t: Double, _ v: Double, run: Int, look: ChartLook, opac
         .interpolationMethod(.monotone)
 }
 
-/// The last five minutes, from the ring buffer lane 0 fills. A break in
-/// the stream is a break in the line.
-struct LiveChart: View, Equatable {
-    let node: EnergyNode
-    let points: [LiveTrace.Point]
-    let nowMs: Double
-    let look: ChartLook
-    var onScrub: (ChartReadout?) -> Void = { _ in }
-    @State private var selected: Date?
-    @State private var range: ClosedRange<Date>?
-
-    nonisolated static func == (a: Self, b: Self) -> Bool {
-        a.node == b.node && a.points == b.points && a.nowMs == b.nowMs && a.look == b.look
-    }
-
-    var body: some View {
-        let runs = LiveTrace.runs(points)
-        Chart {
-            ForEach(runs.indices, id: \.self) { i in
-                let r = runs[i]
-                signedRun(r.point.t, r.point.v, run: r.run, look: look, opacity: (0.32, 0.04), lineWidth: 2)
-            }
-            if look.signed {
-                RuleMark(y: .value("Zero", 0)).foregroundStyle(Theme.line).lineStyle(StrokeStyle(lineWidth: 1))
-            }
-            if let last = runs.last, selected == nil {
-                PointMark(x: .value("Time", date(last.point.t)), y: .value("Power", last.point.v))
-                    .foregroundStyle(last.point.v < 0 ? look.down : look.line)
-                    .symbolSize(28)
-            }
-            scrubMarks(selected, value: selectedPoint?.v, color: (selectedPoint?.v ?? 0) < 0 ? look.down : look.line)
-        }
-        .chartXScale(domain: date(nowMs - LiveTrace.windowMs)...date(max(nowMs, (points.last?.t ?? nowMs))))
-        .chartXAxis(.hidden)
-        .chartYAxis { powerAxis() }
-        .chartYScale(domain: .automatic(includesZero: true))
-        .directionWords(look)
-        .chartScrub(selected: $selected, range: $range, slot: { d in
-            points.min(by: { abs($0.t - d.timeIntervalSince1970 * 1000) < abs($1.t - d.timeIntervalSince1970 * 1000) })?.t
-        })
-        .onChange(of: selected) { _, d in
-            onScrub(d.flatMap { Readouts.live(node, points, at: $0.timeIntervalSince1970 * 1000) })
-        }
-        .dynamicTypeSize(...chartTextCap)
-        .accessibilityLabel(L("Live, the last five minutes"))
-    }
-
-    private var selectedPoint: LiveTrace.Point? {
-        guard let selected else { return nil }
-        let ms = selected.timeIntervalSince1970 * 1000
-        return points.min { abs($0.t - ms) < abs($1.t - ms) }
-    }
-}
-
 /// Today or the last two days, five minutes a point, from the box's tiles.
 struct HistoryChart: View, Equatable {
     let node: EnergyNode

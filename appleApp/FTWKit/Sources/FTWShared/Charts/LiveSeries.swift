@@ -1,14 +1,19 @@
 import CoreGraphics
 import Foundation
 
-/// One live frame of a value: when it was stamped, and the watts.
+/// One live frame of a value: when it was stamped, the watts, and whether
+/// this phone saw it live.
 public struct LiveSample: Equatable, Sendable {
     public var t: Double
     public var v: Double
+    /// False for a point kept from before this launch or filled in from
+    /// history: drawn in ink, never in phosphor.
+    public var seen: Bool
 
-    public init(t: Double, v: Double) {
+    public init(t: Double, v: Double, seen: Bool = true) {
         self.t = t
         self.v = v
+        self.seen = seen
     }
 }
 
@@ -16,31 +21,65 @@ public struct LiveSample: Equatable, Sendable {
 ///
 /// It draws one point per reading, not per frame: a slow device repeats its
 /// value in every 1 Hz frame, and a frame that repeats is no new truth. The
-/// readings pass through a Gaussian in screen space, 2.5 pt wide, whose
-/// reach shrinks to nothing at the head, so the head is the raw last reading
+/// readings pass through a Gaussian in screen space, 2.5 pt wide or most of
+/// one read period for a slower device, whose reach shrinks to nothing at
+/// the head, so the head is the raw last reading
 /// and the line never leaves the range of the readings near it. A band
 /// shows the lowest and highest raw reading of each 2 s frame on the clock,
-/// so it holds still as the trace scrolls. A gap stays a break.
+/// so it holds still as the trace scrolls.
+///
+/// A silence up to three of the device's own read periods is joined: a
+/// device read every 5 s leaves 5 s between readings, and that is no gap.
+/// Only a longer silence breaks the line. Points this phone did not see
+/// live draw in ink.
 ///
 /// x is placed for `nowMs`: now sits `inset` inside the right edge. A view
 /// scrolls by translating by `shift(at:)`; nothing rebuilds per frame.
 public struct LiveSeries: Equatable, Sendable {
+    /// A smoothed point, in time and watts.
+    public struct Point: Equatable, Sendable {
+        public var t: Double
+        public var v: Double
+        public var seen: Bool
+    }
+
+    /// A silence that breaks the line, from the last reading before it to
+    /// the first after it, or to now when the stream is quiet.
+    public struct Gap: Equatable, Sendable {
+        public var fromMs: Double
+        public var toMs: Double
+    }
+
     public var nowMs: Double
     public var windowMs: Double
     public var size: CGSize
     public var inset: CGFloat
     public var domain: YDomain
-    /// Each run's readings, oldest first, as drawn: one per reading. The
-    /// scrub's dot sits on these.
+    /// How often the device itself reads, as its readings show.
+    public var periodMs: Double
+    /// The longest silence the line joins.
+    public var gapMs: Double
+    /// Each run's readings, oldest first: one per reading. The scrub's dot
+    /// sits on these.
     public var runs: [[LiveSample]]
-    /// The smoothed line, one subpath per run.
+    /// Each run smoothed and thinned, in time and watts, so a slide can
+    /// blend one geometry into the next by reading time.
+    public var curves: [[Point]]
+    /// The lowest and highest raw reading per 2 s frame, per run.
+    public var frames: [[Frame]]
+    /// The silences, oldest first, the quiet head last.
+    public var gaps: [Gap]
+    /// The smoothed line where this phone saw it live, and where it did not.
     public var line: ChartPath
+    public var lineUnseen: ChartPath
     /// The same curves closed on zero.
     public var body: ChartPath
-    /// The lowest and highest raw reading per 2 s frame, one shape per run.
+    public var bodyUnseen: ChartPath
+    /// One shape per run.
     public var band: ChartPath
-    /// The last raw reading, where the head's dot sits.
+    /// The last raw reading, where the head sits.
     public var head: CGPoint?
+    public var last: LiveSample?
 
     /// Points per ms across the plot.
     public var ptPerMs: CGFloat { windowMs > 0 ? (size.width - inset) / CGFloat(windowMs) : 0 }
@@ -51,24 +90,39 @@ public struct LiveSeries: Equatable, Sendable {
     /// How far the drawing has moved left by `ms`.
     public func shift(at ms: Double) -> CGFloat { CGFloat(ms - nowMs) * ptPerMs }
 
+    public var map: YMap { YMap(domain: domain, height: size.height) }
+
     /// Every reading, oldest first, for one binary search under a finger.
     public var readings: [LiveSample] { runs.flatMap { $0 } }
+
+    /// The whole line, seen or not, for tests and the calm metrics.
+    public var wholeLine: ChartPath {
+        var p = ChartPath()
+        for curve in curves { p.addMonotone(curve.map { CGPoint(x: x($0.t), y: map.y($0.v)) }) }
+        return p
+    }
 
     public static let sigma: CGFloat = 2.5
     public static let headInset: CGFloat = 6
     public static let bandFrameMs: Double = 2_000
     /// After smoothing, one drawn point per this many points of width.
     public static let step: CGFloat = 1.5
+    /// A silence up to this many read periods is joined.
+    public static let joinPeriods: Double = 3
+    /// The Gaussian is at least this many read periods wide.
+    public static let periodReach: Double = 1
 
     /// The trace of `frames` (sorted by time) in a window `windowMs` long
-    /// that ends at `nowMs`, on a plot of `size`. `periodMs` is how often
-    /// the device itself reads, `gapMs` how long a silence may last before
-    /// the line breaks. `previous` is the domain on screen, so the axis
-    /// holds still; `floor` is the node's least scale.
+    /// that ends at `nowMs`, on a plot of `size`. `sourceGapMs` is the
+    /// longest silence the way the frames came by allows (3.5 s on the
+    /// relay); the device's own read period, from its readings unless
+    /// `periodMs` is given, can only lengthen it. `previous` is the domain
+    /// on screen, so the axis holds still; `floor` is the node's least
+    /// scale.
     public static func build(
         _ frames: [LiveSample],
-        periodMs: Double = 1_000,
-        gapMs: Double,
+        sourceGapMs: Double,
+        periodMs: Double? = nil,
         windowMs: Double,
         nowMs: Double,
         size: CGSize,
@@ -82,7 +136,9 @@ public struct LiveSeries: Equatable, Sendable {
         let fromMs = nowMs - windowMs
         let firstInside = frames.firstIndex { $0.t >= fromMs } ?? frames.count
         let kept = Array(frames[max(0, firstInside - 1)...].prefix { $0.t <= nowMs })
-        let runs = readings(kept, periodMs: periodMs, gapMs: gapMs)
+        let period = periodMs ?? Self.period(of: kept) ?? 1_000
+        let gap = max(sourceGapMs, joinPeriods * period)
+        let runs = readings(kept, periodMs: period, gapMs: gap)
         let frameBands = runs.map { bandFrames($0, frameMs: bandFrameMs) }
 
         var low = 0.0, high = 0.0
@@ -93,34 +149,107 @@ public struct LiveSeries: Equatable, Sendable {
             }
         }
         let domain = YDomain.stable(low: low, high: high, previous: previous, floor: floor)
-        var series = LiveSeries(nowMs: nowMs, windowMs: windowMs, size: size, inset: inset, domain: domain, runs: runs, line: ChartPath(), body: ChartPath(), band: ChartPath(), head: nil)
-        let map = YMap(domain: domain, height: size.height)
-        let base = map.baseline
+        var series = LiveSeries(
+            nowMs: nowMs, windowMs: windowMs, size: size, inset: inset, domain: domain, periodMs: period, gapMs: gap,
+            runs: runs, curves: [], frames: frameBands, gaps: [],
+            line: ChartPath(), lineUnseen: ChartPath(), body: ChartPath(), bodyUnseen: ChartPath(), band: ChartPath(),
+            head: nil, last: runs.last?.last
+        )
+        let pt = series.ptPerMs
+        // 2.5 pt is about 2 s: enough to calm a 1 Hz meter. A slower device
+        // leaves its readings further apart than that, so the Gaussian
+        // widens to most of one read period and still reaches its
+        // neighbours; the band keeps the peaks it cuts.
+        let sigmaMs = pt > 0 ? max(Double(sigma / pt), periodReach * period) : 0
+        let stepMs = pt > 0 ? Double(step / pt) : 0
 
         for (run, frames) in zip(runs, frameBands) {
-            let raw = run.map { CGPoint(x: series.x($0.t), y: map.y($0.v)) }
-            let drawn = decimated(smoothed(raw, sigma: sigma), step: step)
-            let start = series.line.elements.count
-            series.line.addMonotone(drawn)
-            if drawn.count > 1 {
-                series.body.elements.append(contentsOf: series.line.elements[start...])
-                series.body.elements.append(.line(CGPoint(x: drawn[drawn.count - 1].x, y: base)))
-                series.body.elements.append(.line(CGPoint(x: drawn[0].x, y: base)))
-                series.body.elements.append(.close)
-            }
-            // A frame's point sits at its middle on the clock, kept inside
-            // the run, so the band never reaches past the head.
-            guard let first = raw.first?.x, let last = raw.last?.x else { continue }
-            let xs = frames.map { min(max(series.x($0.startMs + bandFrameMs / 2), first), last) }
-            series.band.addBand(
-                highs: zip(xs, frames).map { CGPoint(x: $0, y: map.y($1.high)) },
-                lows: zip(xs, frames).map { CGPoint(x: $0, y: map.y($1.low)) }
-            )
+            let curve = thinned(smoothed(run, sigmaMs: sigmaMs), stepMs: stepMs)
+            series.curves.append(curve)
+            series.addCurve(curve)
+            series.addBand(run, frames)
         }
-        if let last = runs.last?.last {
-            series.head = CGPoint(x: series.x(last.t), y: map.y(last.v))
+        for (a, b) in zip(runs, runs.dropFirst()) {
+            if let end = a.last, let start = b.first { series.gaps.append(Gap(fromMs: end.t, toMs: start.t)) }
+        }
+        if let last = series.last {
+            if nowMs - last.t > gap { series.gaps.append(Gap(fromMs: last.t, toMs: nowMs)) }
+            series.head = CGPoint(x: series.x(last.t), y: series.map.y(last.v))
         }
         return series
+    }
+
+    /// One run's curve into the line and body paths, split where this
+    /// phone's view changes between live and not. The curve is one Steffen
+    /// cubic over the whole run, so the colour changes and the shape does
+    /// not.
+    mutating func addCurve(_ curve: [Point]) {
+        let pts = curve.map { CGPoint(x: x($0.t), y: map.y($0.v)) }
+        guard !pts.isEmpty else { return }
+        var whole = ChartPath()
+        whole.addMonotone(pts)
+        guard pts.count > 1 else {
+            if curve[0].seen { line.elements += whole.elements } else { lineUnseen.elements += whole.elements }
+            return
+        }
+        let base = map.baseline
+        var groupStart = 0
+        var groupSeen = curve[0].seen && curve[1].seen
+        func close(_ end: Int) {
+            var l = ChartPath([.move(pts[groupStart])])
+            l.elements += whole.elements[(groupStart + 1)...end]
+            var b = l
+            b.elements.append(.line(CGPoint(x: pts[end].x, y: base)))
+            b.elements.append(.line(CGPoint(x: pts[groupStart].x, y: base)))
+            b.elements.append(.close)
+            if groupSeen {
+                line.elements += l.elements
+                body.elements += b.elements
+            } else {
+                lineUnseen.elements += l.elements
+                bodyUnseen.elements += b.elements
+            }
+        }
+        for k in 1..<pts.count {
+            let seen = curve[k - 1].seen && curve[k].seen
+            if seen != groupSeen {
+                close(k - 1)
+                groupStart = k - 1
+                groupSeen = seen
+            }
+        }
+        close(pts.count - 1)
+    }
+
+    /// One run's band: a frame's point sits at its middle on the clock,
+    /// kept inside the run, so the band never reaches past the head.
+    mutating func addBand(_ run: [LiveSample], _ frames: [Frame]) {
+        guard let first = run.first?.t, let lastT = run.last?.t else { return }
+        let xs = frames.map { x(min(max($0.startMs + Self.bandFrameMs / 2, first), lastT)) }
+        band.addBand(
+            highs: zip(xs, frames).map { CGPoint(x: $0, y: map.y($1.high)) },
+            lows: zip(xs, frames).map { CGPoint(x: $0, y: map.y($1.low)) }
+        )
+    }
+
+    /// The device's read period, from how often its value changes. A
+    /// reading that repeats the last one only lengthens the time to the
+    /// next change, never shortens it, so the period is near the short end:
+    /// the fifth of the times between one new value and the next. Nil when
+    /// it changed too seldom to tell.
+    public static func period(of frames: [LiveSample]) -> Double? {
+        var changes: [Double] = []
+        var last: LiveSample?
+        var lastChange: Double?
+        for f in frames {
+            defer { last = f }
+            guard let l = last, f.v != l.v else { continue }
+            if let c = lastChange { changes.append(f.t - c) }
+            lastChange = f.t
+        }
+        guard changes.count >= 3 else { return nil }
+        let short = changes.sorted()[changes.count / 5]
+        return min(max((short / 1_000).rounded() * 1_000, 1_000), 120_000)
     }
 
     /// Frames to readings, split into runs at each silence longer than
@@ -134,16 +263,16 @@ public struct LiveSeries: Equatable, Sendable {
         var run: [LiveSample] = []
         var i = 0
         while i < frames.count {
-            // The equal frames that start at i, inside one run.
+            // The equal frames that start at i, inside one run, seen alike.
             var j = i
-            while j + 1 < frames.count, frames[j + 1].v == frames[i].v, frames[j + 1].t - frames[j].t <= gapMs { j += 1 }
+            while j + 1 < frames.count, frames[j + 1].v == frames[i].v, frames[j + 1].seen == frames[i].seen, frames[j + 1].t - frames[j].t <= gapMs { j += 1 }
             let first = frames[i], lastEqual = frames[j]
             run.append(first)
             let next = j + 1 < frames.count ? frames[j + 1] : nil
             if let next, next.t - lastEqual.t <= gapMs {
                 // The value changes inside the run.
                 let held = next.t - periodMs
-                if next.t - first.t > 1.5 * periodMs, held > first.t { run.append(LiveSample(t: held, v: first.v)) }
+                if next.t - first.t > 1.5 * periodMs, held > first.t { run.append(LiveSample(t: held, v: first.v, seen: first.seen)) }
             } else {
                 // A silence or the head: the run ends on its last frame.
                 if lastEqual.t > first.t { run.append(lastEqual) }
@@ -155,45 +284,52 @@ public struct LiveSeries: Equatable, Sendable {
         return runs
     }
 
-    /// Zero-phase Gaussian in screen space, for one run sorted by x. The
-    /// reach shrinks to nothing at the head, so the last reading is drawn
-    /// raw. It weights real readings only, so it stays inside their range.
-    public static func smoothed(_ p: [CGPoint], sigma: CGFloat) -> [CGPoint] {
-        guard p.count > 2, sigma > 0, let head = p.last?.x else { return p }
-        var out = p
-        for i in p.indices {
-            let reach = min(3 * sigma, head - p[i].x)
+    /// Zero-phase Gaussian over one run, `sigmaMs` wide in time (2.5 pt of
+    /// width). The reach shrinks to nothing at the head, so the last reading
+    /// is drawn raw. It weights real readings only, so it stays inside their
+    /// range.
+    public static func smoothed(_ run: [LiveSample], sigmaMs: Double) -> [Point] {
+        var out = run.map { Point(t: $0.t, v: $0.v, seen: $0.seen) }
+        guard run.count > 2, sigmaMs > 0, let head = run.last?.t else { return out }
+        for i in run.indices {
+            let reach = min(3 * sigmaMs, head - run[i].t)
             guard reach > 0 else { continue }
-            var sw: CGFloat = 0, sy: CGFloat = 0
+            var sw = 0.0, sv = 0.0
             var j = i
-            while j >= 0, p[i].x - p[j].x <= reach {
-                let d = (p[j].x - p[i].x) / sigma, w = exp(-0.5 * d * d)
+            while j >= 0, run[i].t - run[j].t <= reach {
+                let d = (run[j].t - run[i].t) / sigmaMs, w = exp(-0.5 * d * d)
                 sw += w
-                sy += w * p[j].y
+                sv += w * run[j].v
                 j -= 1
             }
             j = i + 1
-            while j < p.count, p[j].x - p[i].x <= reach {
-                let d = (p[j].x - p[i].x) / sigma, w = exp(-0.5 * d * d)
+            while j < run.count, run[j].t - run[i].t <= reach {
+                let d = (run[j].t - run[i].t) / sigmaMs, w = exp(-0.5 * d * d)
                 sw += w
-                sy += w * p[j].y
+                sv += w * run[j].v
                 j += 1
             }
-            out[i].y = sy / sw
+            out[i].v = sv / sw
         }
         return out
     }
 
-    /// At most one point per `step` of width, the first and the last kept.
-    public static func decimated(_ p: [CGPoint], step: CGFloat) -> [CGPoint] {
-        guard p.count > 2, step > 0 else { return p }
-        var out: [CGPoint] = [p[0]]
+    /// At most one point per `stepMs`, on buckets of the clock so the same
+    /// readings stay from one build to the next; the first and the last
+    /// point always stay.
+    public static func thinned(_ p: [Point], stepMs: Double) -> [Point] {
+        guard p.count > 2, stepMs > 0 else { return p }
+        var out: [Point] = [p[0]]
         out.reserveCapacity(p.count)
-        for q in p.dropFirst().dropLast() where q.x - out[out.count - 1].x >= step {
+        var bucket = (p[0].t / stepMs).rounded(.down)
+        for q in p.dropFirst().dropLast() {
+            let b = (q.t / stepMs).rounded(.down)
+            guard b != bucket else { continue }
+            bucket = b
             out.append(q)
         }
         let last = p[p.count - 1]
-        if out.count > 1, last.x - out[out.count - 1].x < step / 2 { out.removeLast() }
+        if out.count > 1, last.t - out[out.count - 1].t < stepMs / 2 { out.removeLast() }
         out.append(last)
         return out
     }
@@ -221,5 +357,60 @@ public struct LiveSeries: Equatable, Sendable {
             }
         }
         return out
+    }
+}
+
+// MARK: - The slide
+
+extension LiveSeries {
+    /// The last run part way from `old` to `self`, `progress` from 0 to 1,
+    /// in this geometry's points. Each point the two share by reading time
+    /// moves from its old value to its new one; the head travels the
+    /// segment from the old head to the new one. Every value drawn lies
+    /// between two values the readings gave, so the slide shows nothing the
+    /// box did not send. Nil when there is nothing to blend: no old run, a
+    /// new run, or another domain.
+    public func sliding(from old: LiveSeries, progress: Double) -> [Point]? {
+        guard progress < 1, old.domain == domain, let newRun = curves.last, let oldRun = old.curves.last,
+              let oldHead = oldRun.last, let newHead = newRun.last, newHead.t > oldHead.t,
+              let first = newRun.first, first.t <= oldHead.t else { return nil }
+        let p = min(max(progress, 0), 1)
+        var before = [Double: Double](minimumCapacity: oldRun.count)
+        for q in oldRun { before[q.t] = q.v }
+        let headT = oldHead.t + (newHead.t - oldHead.t) * p
+        var out: [Point] = []
+        out.reserveCapacity(newRun.count)
+        for q in newRun where q.t <= oldHead.t {
+            let v = before[q.t].map { $0 + (q.v - $0) * p } ?? q.v
+            out.append(Point(t: q.t, v: v, seen: q.seen))
+        }
+        // The head on its way along the segment between two readings.
+        if headT > (out.last?.t ?? -.infinity) {
+            out.append(Point(t: headT, v: oldHead.v + (newHead.v - oldHead.v) * p, seen: newHead.seen))
+        }
+        return out
+    }
+
+    /// A curve as line and body paths in this geometry, for one frame of a
+    /// slide: the same split by sight as a built run.
+    public func paths(_ curve: [Point]) -> (line: ChartPath, lineUnseen: ChartPath, body: ChartPath, bodyUnseen: ChartPath) {
+        var scratch = self
+        scratch.line = ChartPath()
+        scratch.lineUnseen = ChartPath()
+        scratch.body = ChartPath()
+        scratch.bodyUnseen = ChartPath()
+        scratch.addCurve(curve)
+        return (scratch.line, scratch.lineUnseen, scratch.body, scratch.bodyUnseen)
+    }
+
+    /// The runs before the last, as built: a slide redraws only the last.
+    public func pathsBeforeLast() -> (line: ChartPath, lineUnseen: ChartPath, body: ChartPath, bodyUnseen: ChartPath) {
+        var scratch = self
+        scratch.line = ChartPath()
+        scratch.lineUnseen = ChartPath()
+        scratch.body = ChartPath()
+        scratch.bodyUnseen = ChartPath()
+        for curve in curves.dropLast() { scratch.addCurve(curve) }
+        return (scratch.line, scratch.lineUnseen, scratch.body, scratch.bodyUnseen)
     }
 }

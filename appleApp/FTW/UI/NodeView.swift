@@ -1,66 +1,84 @@
+import Accessibility
 import FTWKit
+import os
 import SwiftUI
 
-/// One node of the flow, on one screen: the reading now and its last five
-/// minutes, today and the last two days from the box's history, the hours
-/// ahead from the box's plan with the price beside them, and the mode the
-/// home runs in, with a way to change it.
+#if DEBUG
+enum TraceCost {
+    static let log = Logger(subsystem: "energy.ftw.app", category: "frames")
+}
+#endif
+
+/// One node of the flow, on one fixed screen: the reading now as the hero,
+/// its last five minutes streaming as the chart, and the same chart for
+/// today, the last two days and the hours ahead behind one picker in the
+/// thumb's reach. A line under the chart says what the period adds up to,
+/// the battery's mode sits under it, and a footer says how the reading
+/// reaches the phone and how often the device reads.
 ///
-/// The live part asks nothing: it reads lane 0 and the ring buffer the
-/// frames fill. History and the plan are asked for when the view opens and
-/// kept for the next visit.
+/// The tap sends no request: the trace has been recording since the home
+/// opened, so it opens drawn. History and the plan are asked for when the
+/// view opens and kept for the next visit.
 struct NodeView: View {
     let app: AppModel
     let home: HomeModels
     let node: EnergyNode
     let zoom: Namespace.ID
-    @State private var period: Period = .initial
+    @State private var scrub = ScrubModel()
+    @State private var trace = NodeTraceModel()
     @State private var choosingMode = false
+    @State private var timebase: Timebase
+    @State private var readout: ChartReadout?
+    @Environment(\.dynamicTypeSize) private var typeSize
 
-    enum Period: String, CaseIterable, Hashable {
-        case today, twoDays, ahead
+    init(app: AppModel, home: HomeModels, node: EnergyNode, zoom: Namespace.ID) {
+        self.app = app
+        self.home = home
+        self.node = node
+        self.zoom = zoom
+        _timebase = State(initialValue: Timebase.remembered(node))
+    }
 
-        /// Debug builds take `-FTWPeriod ahead` and the like, for screenshots.
-        static var initial: Period {
-            #if DEBUG
-            return UserDefaults.standard.string(forKey: "FTWPeriod").flatMap(Period.init(rawValue:)) ?? .today
-            #else
-            return .today
-            #endif
-        }
+    /// Live, today, the last two days and the hours ahead: one chart, one
+    /// place.
+    enum Timebase: String, CaseIterable, Hashable {
+        case live, today, twoDays, ahead
 
         var label: String {
             switch self {
+            case .live: return L("Live")
             case .today: return L("Today")
             case .twoDays: return L("48 h")
             case .ahead: return L("Ahead")
             }
         }
+
+        /// The last choice for this node; debug builds take `-FTWPeriod
+        /// ahead` and the like, for screenshots.
+        static func remembered(_ node: EnergyNode) -> Timebase {
+            #if DEBUG
+            if let asked = UserDefaults.standard.string(forKey: "FTWPeriod").flatMap(Timebase.init(rawValue:)) { return asked }
+            #endif
+            return UserDefaults.standard.string(forKey: key(node)).flatMap(Timebase.init(rawValue:)) ?? .live
+        }
+
+        static func key(_ node: EnergyNode) -> String { "ftw.node.timebase.\(node.rawValue)" }
     }
 
     private var models: NodeModels { home.nodes }
     private var site: SiteModel { home.site }
 
     var body: some View {
-        FitScreen(spacing: 10) { fill in
-            NodeHero(site: site, node: node, loadpoints: home.loadpoints, sources: models.sources)
-            LiveSection(site: site, trace: models.live, node: node, fill: fill)
-            Picker(L("Period"), selection: $period.animation(Theme.spring)) {
-                ForEach(Period.allCases, id: \.self) { Text($0.label).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier("node.period")
-            PeriodSection(site: site, node: node, period: period, models: models, prices: home.prices, loadpoints: home.loadpoints, fill: fill)
-                // No ideal height of its own: the page measures the chart's
-                // floor and the words under it, so large text scrolls the
-                // page rather than squeezing the card.
-                .frame(maxHeight: fill ? .infinity : nil)
-            if node == .car {
-                CarLink(loadpoints: home.loadpoints, zoom: zoom)
+        Group {
+            // The accessibility sizes scroll; every other size is one fixed
+            // page, chosen by the size and never by a fit.
+            if typeSize.isAccessibilitySize {
+                ScrollView { page(fill: false) }
             } else {
-                ModeSection(mode: models.mode, node: node, choose: { choosingMode = true })
+                page(fill: true)
             }
         }
+        .background(Theme.ground)
         .navigationTitle(node.title)
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
@@ -79,23 +97,153 @@ struct NodeView: View {
             models.sources.deactivate(node)
             home.prices.deactivate()
             if node == .car { models.carEnergy.deactivate() }
+            trace.stopSound()
+        }
+        .onChange(of: timebase) { _, now in
+            UserDefaults.standard.set(now.rawValue, forKey: Timebase.key(node))
+            readout = nil
+            scrub.lift()
+        }
+        .onChange(of: scrub.isDown) { _, down in
+            if down { trace.hold(atMs: Date().timeIntervalSince1970 * 1000) } else { trace.release() }
         }
         .sheet(isPresented: $choosingMode) {
             ModeSheet(mode: models.mode)
         }
     }
+
+    private func page(fill: Bool) -> some View {
+        let timebases = Timebase.allCases.filter { $0 != .ahead || hasAhead }
+        return VStack(alignment: .leading, spacing: 0) {
+            NodeHero(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase)
+                .padding(.horizontal, 20)
+            NodeStatusRow(site: site, node: node)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
+            NodeChart(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, readout: $readout)
+                .frame(minHeight: fill ? 180 : 240, idealHeight: 300, maxHeight: 340)
+                .padding(.top, 8)
+                .padding(.horizontal, 4)
+            Picker(L("Period"), selection: $timebase.animation(.easeInOut(duration: 0.2))) {
+                ForEach(timebases, id: \.self) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("node.period")
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            RangeLine(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, readout: readout)
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+            if node == .battery {
+                ModeRow(mode: models.mode, choose: { choosingMode = true })
+                    .padding(.horizontal, 20)
+                    .padding(.top, 4)
+            } else if node == .car {
+                CarRow(loadpoints: home.loadpoints, zoom: zoom)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 4)
+            }
+            if fill { Spacer(minLength: 8) }
+            NodeFooter(site: site, node: node, live: models.live)
+                .padding(.horizontal, 20)
+                .padding(.top, fill ? 0 : 16)
+                .padding(.bottom, 8)
+        }
+        .frame(maxWidth: 640, maxHeight: fill ? .infinity : nil, alignment: .topLeading)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 8)
+    }
+
+    /// Ahead shows only where the box plans or forecasts for this node.
+    private var hasAhead: Bool {
+        switch node {
+        case .battery, .grid: return models.plan.plan != nil
+        case .solar, .home: return models.plan.forecastStamp != nil
+        case .car: return !home.loadpoints.points.isEmpty
+        }
+    }
 }
 
-// MARK: Now
+// MARK: - The trace
 
-/// The reading now, the way it flows, how full, and whether it is live.
+/// The live trace's state for one node's view: the geometry for the newest
+/// reading, the one held still under a finger, and how the window springs
+/// back on lift. Built once per reading.
+@Observable
+@MainActor
+final class NodeTraceModel {
+    private(set) var frame: TraceFrame?
+    private(set) var held: TraceFrame?
+    private(set) var frozenAtMs: Double?
+    private(set) var catchUp: (fromMs: Double, at: Date)?
+    @ObservationIgnored private var size: CGSize = .zero
+    @ObservationIgnored private var playing = false
+
+    /// What the chart and the hero read: held still while a finger is down.
+    var shown: TraceFrame? { held ?? frame }
+
+    func build(_ points: [LiveTrace.Point], node: EnergyNode, carrier: CarrierKind, size: CGSize) {
+        guard size.width > 0, size.height > 0 else { return }
+        let resized = size != self.size
+        self.size = size
+        let samples = points.map { LiveSample(t: $0.t, v: node.shown($0.v)) }
+        let now = Date()
+        let series = LiveSeries.build(
+            samples,
+            sourceGapMs: NodeLive.sourceGapMs(carrier),
+            windowMs: LiveTrace.windowMs,
+            nowMs: now.timeIntervalSince1970 * 1000,
+            size: size,
+            previous: frame?.series.domain,
+            floor: node.scaleFloorW()
+        )
+        frame = TraceFrame(series: series, previous: resized ? nil : frame?.series, arrivedAt: now)
+        if playing, let last = series.last, series.domain.span > 0 {
+            AXLiveAudioGraph.updateValue((last.v - series.domain.lower) / series.domain.span)
+        }
+    }
+
+    func hold(atMs: Double) {
+        held = frame
+        frozenAtMs = atMs
+        catchUp = nil
+    }
+
+    func release() {
+        if let frozenAtMs { catchUp = (frozenAtMs, Date()) }
+        held = nil
+        frozenAtMs = nil
+    }
+
+    /// The live value as a tone, for VoiceOver.
+    func toggleSound() {
+        playing.toggle()
+        if playing { AXLiveAudioGraph.start() } else { AXLiveAudioGraph.stop() }
+    }
+
+    func stopSound() {
+        if playing { AXLiveAudioGraph.stop() }
+        playing = false
+    }
+}
+
+// MARK: - The hero
+
+/// "1,8 kW" at 60 pt, the way it flows under it in its colour, and the
+/// node's second fact on the right. Under a finger on the live trace it
+/// gives the reading there and its time, and comes back with the spring.
 private struct NodeHero: View {
     let site: SiteModel
     let node: EnergyNode
-    let loadpoints: LoadpointsModel
-    let sources: SourcesModel
+    let home: HomeModels
+    let trace: NodeTraceModel
+    let scrub: ScrubModel
+    let timebase: NodeView.Timebase
+    @ScaledMetric(relativeTo: .largeTitle) private var figureSize: CGFloat = 60
+    @ScaledMetric(relativeTo: .title2) private var unitSize: CGFloat = 22
 
     var body: some View {
+        let loadpoints = home.loadpoints
         let fields = Flow.withLoadpointEV(site.session.fields, evW: loadpoints.stale ? 0 : Flow.loadpointChargeW(loadpoints.points))
         let car = loadpoints.points.first.flatMap { loadpoints.level($0) }
         let reading = NowFlow.readings(
@@ -104,305 +252,506 @@ private struct NodeHero: View {
             carLevel: car.map { ($0.pct, $0.origin == .assumed || $0.origin == .unconfirmed) },
             hasCar: !loadpoints.points.isEmpty
         ).first { $0.node == node }
-        let split = sources.split(node)
-        // A node with no level has room beside its figure for its devices.
-        let beside = reading?.levelPct == nil ? split.map { $0.map { DeviceLine($0, site.deviceFreshness($0.name)) } } : nil
-        VStack(alignment: .leading, spacing: 8) {
-            if let reading {
-                HeroLine(reading: reading, devices: beside ?? []).equatable()
-                HeroFreshness(freshness: worst(reading.freshness, sources.devices[node] ?? []), showsSource: node != .home)
-                if beside == nil, let split {
-                    DeviceRows(site: site, devices: split, readAtMs: sources.readAtMs, tint: Theme.color(reading.tone))
-                }
-            } else {
-                Text(L("Your box sends no reading for this."))
+        let live = reading?.freshness.live ?? false
+        let under = timebase == .live ? fingered : nil
+        let watts = under?.watts ?? reading?.watts
+        let word = under?.word ?? reading?.word ?? L("Your box sends no reading for this.")
+        let tone = under.map { Readouts.tone(node, $0.signed) } ?? reading?.tone ?? .muted
+
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                figure(watts)
+                    .foregroundStyle(live || under != nil ? Theme.ink : Theme.ink3)
+                Text(word)
                     .font(.headline)
-                    .foregroundStyle(Theme.fgDim)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    /// The node is only as live as its least live device. The box names one
-    /// source per field; the devices behind the node, once read, may say more.
-    private func worst(_ f: NodeFreshness, _ devices: [SourcesModel.Device]) -> NodeFreshness {
-        // A device the stream does not name says nothing either way.
-        let states = devices.filter { site.session.sources[$0.name] != nil }.map { site.deviceFreshness($0.name) }
-        guard let bad = states.filter({ !$0.live }).max(by: { $0.srcState < $1.srcState }), f.live else { return f }
-        return bad
-    }
-}
-
-/// One device beside a node's figure: its name, its watts, and whether
-/// the stream says it is live.
-struct DeviceLine: Equatable, Identifiable {
-    let name: String
-    let watts: Double
-    let live: Bool
-    var id: String { name }
-
-    init(_ d: SourcesModel.Device, _ f: NodeFreshness) {
-        name = d.name
-        watts = d.watts
-        live = f.live
-    }
-}
-
-private struct HeroLine: View, Equatable {
-    let reading: NodeReading
-    var devices: [DeviceLine] = []
-
-    var body: some View {
-        // Side by side while it fits; at the largest text the level and the
-        // devices go under the figure, and then the icon steps aside, so no
-        // word breaks.
-        ViewThatFits(in: .horizontal) {
-            HStack(alignment: .center, spacing: 12) {
-                figure(icon: true)
-                Spacer(minLength: 8)
-                side
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                figure(icon: true)
-                side
-            }
-            VStack(alignment: .leading, spacing: 8) {
-                figure(icon: false)
-                side
-            }
-        }
-        .animation(Theme.spring, value: reading.word)
-        .accessibilityElement(children: .combine)
-    }
-
-    private var live: Bool { reading.freshness.live }
-    private var color: Color { live ? Theme.color(reading.tone) : Theme.fgMuted }
-
-    private func figure(icon: Bool) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            if icon {
-                Image(systemName: NodeLook.symbol(reading.node, levelPct: reading.levelPct, flowing: reading.flowing))
-                    .font(.title2)
-                    .foregroundStyle(color)
-                    // A glyph beside the figure, not a second figure.
-                    .dynamicTypeSize(...DynamicTypeSize.xLarge)
-                    .frame(width: 40)
-                    .contentTransition(.symbolEffect(.replace))
-                    .accessibilityHidden(true)
-            }
-            VStack(alignment: .leading, spacing: 0) {
-                NodeValue(watts: reading.watts, size: 34)
-                    .foregroundStyle(live ? Theme.fg : Theme.fgMuted)
-                Text(reading.word)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(color)
+                    .foregroundStyle(live || under != nil ? Theme.color(tone) : Theme.ink3)
+                    .monospacedDigit()
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
-                    .contentTransition(.opacity)
+            }
+            .layoutPriority(1)
+            Spacer(minLength: 8)
+            SecondFact(site: site, node: node, home: home, reading: reading, live: live)
+        }
+        .transaction { $0.animation = scrub.isDown ? nil : Theme.spring }
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("node.hero")
+    }
+
+    private func figure(_ watts: Double?) -> some View {
+        let parts = watts.map(PowerFormat.parts)
+        return HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(parts.map { AppWords.decimal($0.text) } ?? "—")
+                .font(Theme.figure(figureSize))
+                .tracking(-1)
+                .contentTransition(.numericText(value: watts ?? 0))
+            Text(parts?.unit ?? "")
+                .font(.system(size: unitSize, weight: .medium))
+                .foregroundStyle(Theme.ink2)
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.5)
+    }
+
+    /// The reading under a finger on the trace, or the mean of two
+    /// fingers' span.
+    private var fingered: (watts: Double, signed: Double, word: String)? {
+        guard let frame = trace.shown else { return nil }
+        let readings = frame.readings
+        if let i = scrub.index, readings.indices.contains(i) {
+            let r = readings[i]
+            return (abs(r.v), r.v, NodeLive.when(r.t, Readouts.word(node, r.v)))
+        }
+        if let span = scrub.span, span.upperBound < readings.count {
+            let slice = readings[span]
+            let mean = slice.map(\.v).reduce(0, +) / Double(slice.count)
+            let from = slice.first!.t, to = slice.last!.t
+            return (abs(mean), mean, Readouts.seconds(from) + "–" + Readouts.seconds(to) + " · " + NodeWords.format("average %@", AppWords.power(abs(mean))))
+        }
+        return nil
+    }
+}
+
+/// The fact beside the figure that only this node has: the battery's level
+/// as the 10-cell meter, the car's level and where it comes from, what the
+/// grid costs an hour, the sun against its forecast, or the home's sources.
+private struct SecondFact: View {
+    let site: SiteModel
+    let node: EnergyNode
+    let home: HomeModels
+    let reading: NodeReading?
+    let live: Bool
+    @ScaledMetric(relativeTo: .title) private var levelSize: CGFloat = 34
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            switch node {
+            case .battery:
+                if let pct = reading?.levelPct {
+                    Text(AppWords.percent(pct))
+                        .font(Theme.figure(levelSize))
+                        .foregroundStyle(live ? Theme.ink : Theme.ink3)
+                        .contentTransition(.numericText(value: pct))
+                    CellMeter(pct: pct, tint: Theme.stores, live: live)
+                        .frame(width: 74, height: 4)
+                }
+            case .car:
+                if let lp = home.loadpoints.points.first, let level = home.loadpoints.level(lp) {
+                    Text(AppWords.percent(level.pct))
+                        .font(Theme.figure(levelSize))
+                        .foregroundStyle(level.origin == .assumed || level.origin == .unconfirmed ? Theme.ink3 : Theme.ink)
+                    Text(EVText.originShort(level, zone: home.loadpoints.zone))
+                        .font(.footnote)
+                        .foregroundStyle(Theme.ink2)
+                }
+            case .grid:
+                let price = currentPrice
+                if let text = NodeLive.gridCost(watts: site.session.fields[node.fid] ?? 0, priceMinor: price?.minor, currency: price?.currency ?? "SEK") {
+                    Text(text)
+                        .font(.headline)
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.ink2)
+                }
+            case .solar:
+                let made = reading?.watts ?? 0
+                let forecast = home.nodes.plan.forecastAhead(nowMs: site.nowMs).first { $0.startMs <= site.nowMs && site.nowMs < $0.startMs + $0.durationMs }?.pvW
+                if let text = NodeLive.solarShare(madeW: made, forecastW: forecast) {
+                    Text(text)
+                        .font(.headline)
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.ink2)
+                }
+            case .home:
+                Text(L("calculated"))
+                    .font(.headline)
+                    .foregroundStyle(Theme.ink2)
+                let f = site.session.fields
+                if let shares = NodeLive.homeShares(pvW: f[Contract.FID.pvW] ?? 0, batteryW: f[Contract.FID.batteryW] ?? 0, gridW: f[Contract.FID.gridW] ?? 0) {
+                    ShareBar(sun: shares.sun, battery: shares.battery, grid: shares.grid, live: live)
+                        .frame(width: 74, height: 4)
+                }
             }
         }
         .fixedSize()
     }
 
-    @ViewBuilder private var side: some View {
-        if !devices.isEmpty {
-                VStack(alignment: .trailing, spacing: 3) {
-                    ForEach(devices) { d in
-                        HStack(spacing: 5) {
-                            Circle().fill(d.live ? Theme.freshLive : Theme.freshStale).frame(width: 6, height: 6)
-                            Text(d.name).font(.caption).foregroundStyle(Theme.fgDim)
-                            Text(AppWords.power(d.watts))
-                                .font(Theme.figure(13))
-                                .foregroundStyle(d.live ? color : Theme.fgMuted)
-                                .contentTransition(.numericText(value: d.watts))
-                        }
-                        .lineLimit(1)
-                        .accessibilityElement(children: .combine)
-                    }
-                }
-            } else if let level = reading.levelPct {
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(AppWords.percent(level))
-                        .font(Theme.percent(.title2, weight: .bold))
-                        .foregroundStyle(reading.levelAssumed ? Theme.fgMuted : Theme.fg)
-                        .contentTransition(.numericText(value: level))
-                    LevelBar(pct: level, assumed: reading.levelAssumed, tint: reading.node == .car ? Theme.mobility : Theme.storage, showsFigure: false)
-                    if reading.levelAssumed {
-                        Text(L("FTW assumes")).font(.caption2).foregroundStyle(Theme.fgMuted)
-                    }
-                }
-                .fixedSize()
-                .accessibilityElement(children: .combine)
-            }
-    }
-}
-
-private struct HeroFreshness: View {
-    let freshness: NodeFreshness
-    /// The house is no device: the meter the box reads it from is not its name.
-    var showsSource = true
-
-    var body: some View {
-        HStack(spacing: 6) {
-            Circle()
-                .fill(freshness.live ? Theme.freshLive : freshness.srcState == .never ? Theme.fgMuted : Theme.freshStale)
-                .frame(width: 7, height: 7)
-            Text(line)
-                .font(.footnote)
-                .foregroundStyle(freshness.live ? Theme.fgDim : Theme.freshStale)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .accessibilityElement(children: .combine)
-    }
-
-    /// "Live · sungrow", or how old and why not live.
-    private var line: String {
-        let name = showsSource ? freshness.sourceName.map { " · \($0)" } ?? "" : ""
-        if freshness.live { return L("Live") + name }
-        if freshness.carrier == .cache { return NodeWords.format("Saved on this phone, %@", NodeLook.age(freshness)) + name }
-        switch freshness.srcState {
-        case .never: return L("No reading yet") + name
-        case .down: return NodeWords.format("Not reporting, %@", NodeLook.age(freshness)) + name
-        default: return NodeWords.format("Not live, %@", NodeLook.age(freshness)) + name
-        }
-    }
-}
-
-/// Each device behind a node, for a home with more than one: one line
-/// while they fit side by side, a line each when they do not.
-private struct DeviceRows: View {
-    let site: SiteModel
-    let devices: [SourcesModel.Device]
-    let readAtMs: Double?
-    let tint: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 16) { chips }
-                VStack(alignment: .leading, spacing: 4) { chips }
-            }
-            if let readAtMs, site.nowMs - readAtMs > 30_000 {
-                Text(NodeWords.format("Split read at %@", AppWords.clock(readAtMs, zone: .current)))
-                    .font(.caption2)
-                    .foregroundStyle(Theme.fgMuted)
-            }
-        }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radiusSmall))
-        .animation(Theme.spring, value: devices)
-    }
-
-    @ViewBuilder private var chips: some View {
-        ForEach(devices) { d in
-            let f = site.deviceFreshness(d.name)
-            HStack(spacing: 6) {
-                Circle().fill(f.live ? Theme.freshLive : Theme.freshStale).frame(width: 6, height: 6)
-                Text(d.name).font(.footnote.weight(.medium)).foregroundStyle(Theme.fg)
-                Text(AppWords.power(d.watts))
-                    .font(Theme.figure(13))
-                    .foregroundStyle(f.live ? tint : Theme.fgMuted)
-                    .contentTransition(.numericText(value: d.watts))
-                if let level = d.levelPct {
-                    Text(AppWords.percent(level)).font(Theme.percent(.footnote)).foregroundStyle(Theme.fgDim)
-                }
-            }
-            .lineLimit(1)
-            .accessibilityElement(children: .combine)
-        }
-    }
-}
-
-// MARK: Live
-
-private struct LiveSection: View {
-    let site: SiteModel
-    let trace: LiveTrace
-    let node: EnergyNode
-    /// On a page that scrolls, the chart keeps its own height and the
-    /// words above it take what they need.
-    let fill: Bool
-    @State private var readout: ChartReadout?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
+    private var currentPrice: (minor: Double, currency: String)? {
+        guard let window = home.prices.prices else { return nil }
         let now = site.nowMs
-        let points = trace.points(node.fid, sinceMs: now - LiveTrace.windowMs).map { LiveTrace.Point(t: $0.t, v: node.shown($0.v)) }
-        let live = site.freshness(node).live
-        VStack(alignment: .leading, spacing: 4) {
-            // The header gives way to the place under the finger.
-            ZStack(alignment: .leading) {
-                Kicker(L("Live · last 5 min"))
-                    .opacity(readout == nil ? 1 : 0)
-                if let readout {
-                    ReadoutLine(readout: readout, otherwise: "")
-                        .lineLimit(1)
-                }
-            }
-            .transaction { $0.animation = nil }
-            if points.count < 2 {
-                Text(live ? L("Drawing as readings arrive…") : L("No live readings while your box is out of reach."))
-                    .font(.footnote)
-                    .foregroundStyle(Theme.fgMuted)
-                    .frame(maxWidth: .infinity)
-                    .frame(minHeight: fill ? 52 : 110)
-            } else {
-                LiveChart(node: node, points: points, nowMs: now, look: NodeLook.look(node, live: live), onScrub: { readout = $0 })
-                    .equatable()
-                    // Each second's step glides over that second, so the
-                    // curve moves on at an even pace instead of jumping;
-                    // not under Reduce Motion or in Low Power Mode.
-                    .animation(reduceMotion || PowerState.shared.lowPower ? nil : .linear(duration: 1), value: now)
-                    // Its own height, so larger words above it make the
-                    // page scroll rather than the curve flat.
-                    .frame(height: fill ? 52 : 110)
-                    .accessibilityIdentifier("node.live.chart")
-            }
-        }
-        .padding(.vertical, 8)
-        .padding(.horizontal, 12)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
+        return window.slots.first { $0.startMs <= now && now < $0.startMs + $0.durationMs }.map { ($0.totalMinor, window.currency) }
     }
 }
 
-// MARK: Today, two days, ahead
+/// The home's power by source, as one 4 pt bar: sun, battery, grid.
+private struct ShareBar: View {
+    let sun: Double
+    let battery: Double
+    let grid: Double
+    let live: Bool
 
-private struct PeriodSection: View {
+    var body: some View {
+        GeometryReader { geo in
+            HStack(spacing: 1) {
+                ForEach(Array([(sun, Theme.solar), (battery, Theme.gives), (grid, Theme.grid)].enumerated()), id: \.offset) { _, part in
+                    if part.0 > 0.01 {
+                        Capsule().fill(live ? part.1 : Theme.ink3).frame(width: max(2, (geo.size.width - 2) * part.0))
+                    }
+                }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+// MARK: - The chart
+
+/// Over the chart: whether this node's reading is live, and from which
+/// device. `● LIVE · SUNGROW`, or `○ AS OF 14:05`: a clock time, never a
+/// count of seconds.
+private struct NodeStatusRow: View {
     let site: SiteModel
     let node: EnergyNode
-    let period: NodeView.Period
+    @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 10.5
+
+    var body: some View {
+        let f = site.freshness(node)
+        let text = NodeLive.status(node, f, nowMs: site.minuteMs, zone: .current)
+        // Only the dot is lit; the words are ink.
+        let dot = String(text.prefix(1)), rest = String(text.dropFirst())
+        Text("\(Text(verbatim: dot).foregroundStyle(f.live ? Theme.live : Theme.ink3))\(Text(verbatim: rest).foregroundStyle(f.live ? Theme.ink2 : Theme.ink3))")
+            .font(.system(size: size, weight: .medium, design: .monospaced))
+            .tracking(0.5)
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+            .accessibilityIdentifier("node.status")
+            .contentTransition(.opacity)
+            .animation(.default, value: text)
+    }
+}
+
+/// One place for the node's chart. Live streams the trace; today, the
+/// last two days and the hours ahead draw their own charts in the same
+/// frame. A switch cross-fades in 0.2 s and the scale does not morph.
+private struct NodeChart: View {
+    let site: SiteModel
+    let node: EnergyNode
+    let home: HomeModels
+    let trace: NodeTraceModel
+    let scrub: ScrubModel
+    let timebase: NodeView.Timebase
+    @Binding var readout: ChartReadout?
+
+    var body: some View {
+        ZStack {
+            switch timebase {
+            case .live:
+                LiveChartArea(site: site, node: node, live: home.nodes.live, trace: trace, scrub: scrub)
+                    .transition(.opacity)
+            default:
+                PeriodChart(site: site, node: node, period: timebase, models: home.nodes, prices: home.prices, loadpoints: home.loadpoints, onScrub: { readout = $0 })
+                    .padding(.horizontal, 12)
+                    .transition(.opacity)
+                    .accessibilityIdentifier("node.period.chart")
+            }
+        }
+    }
+}
+
+/// The streaming trace and the finger on it. It reads the ring of live
+/// readings once per reading and builds the geometry then; between
+/// readings the surface only scrolls.
+private struct LiveChartArea: View {
+    let site: SiteModel
+    let node: EnergyNode
+    let live: LiveTrace
+    let trace: NodeTraceModel
+    let scrub: ScrubModel
+    @State private var size: CGSize = .zero
+    @ScaledMetric(relativeTo: .caption2) private var axis: CGFloat = 10
+    @ScaledMetric(relativeTo: .caption) private var tag: CGFloat = 11
+
+    var body: some View {
+        let revision = live.revision
+        let chartFrame = ChartFrame(top: tag * 1.35 + 8, bottom: 6, trailing: axis * 3.2)
+        let look = Self.look(node)
+        let isLive = site.freshness(node).live
+        ZStack {
+            // Takes the whole frame before the first reading, so the
+            // geometry knows its size.
+            Color.clear
+            if let frame = trace.shown {
+                LiveTraceSurface(frame: frame, look: look, live: isLive, chartFrame: chartFrame, frozenAtMs: trace.frozenAtMs, catchUp: trace.catchUp, axisSize: axis)
+                LiveScrubOverlay(
+                    frame: frame,
+                    chartFrame: chartFrame,
+                    model: scrub,
+                    viewMs: trace.frozenAtMs ?? Date().timeIntervalSince1970 * 1000,
+                    look: look,
+                    tagSize: tag,
+                    tag: { NodeLive.tag($0.t, watts: $0.v) },
+                    spanTag: { r in
+                        let slice = frame.readings[r]
+                        let mean = slice.map(\.v).reduce(0, +) / Double(max(1, slice.count))
+                        return Readouts.seconds(slice.first!.t) + "–" + Readouts.seconds(slice.last!.t) + "  " + NodeWords.format("avg %@", AppWords.power(abs(mean)))
+                    }
+                )
+            }
+        }
+        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
+        .onChange(of: revision, initial: true) { rebuild(chartFrame) }
+        .onChange(of: size) { rebuild(chartFrame) }
+        .accessibilityElement()
+        .accessibilityLabel(L("Live, the last five minutes"))
+        .accessibilityChartDescriptor(LiveDescriptor(node: node, readings: trace.frame?.readings ?? []))
+        .accessibilityAction(named: L("Play as sound")) { trace.toggleSound() }
+        .accessibilityIdentifier("node.live.chart")
+        #if DEBUG
+        .task { await autoScrub() }
+        #endif
+    }
+
+    #if DEBUG
+    /// With `-FTWAutoScrub YES`, as on the price chart: a thumb back and
+    /// forth over the trace for ten seconds, then two fingers for three,
+    /// through the scrub model the finger moves. `-FTWAutoScrubAfter 300`
+    /// waits for a full window first.
+    private func autoScrub() async {
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: "FTWAutoScrub") else { return }
+        let wait = defaults.double(forKey: "FTWAutoScrubAfter")
+        try? await Task.sleep(for: .seconds(wait > 0 ? wait : 2))
+        func reading(_ along: Double) -> Int? {
+            guard let frame = trace.shown else { return nil }
+            let now = trace.frozenAtMs ?? Date().timeIntervalSince1970 * 1000
+            return SlotGrid.nearest(frame.times, to: now - (1 - along) * LiveTrace.windowMs)
+        }
+        let began = ContinuousClock.now
+        while ContinuousClock.now - began < .seconds(10) {
+            let t = (ContinuousClock.now - began) / .milliseconds(1_600)
+            let phase = t.truncatingRemainder(dividingBy: 2)
+            if let i = reading(0.05 + 0.95 * (phase < 1 ? phase : 2 - phase)), let frame = trace.shown {
+                scrub.move(to: i, landmark: frame.landmarks.contains(i))
+            }
+            try? await Task.sleep(for: .milliseconds(8))
+        }
+        if let a = reading(0.45), let b = reading(0.8) { scrub.spread(a, b) }
+        try? await Task.sleep(for: .seconds(3))
+        scrub.lift()
+    }
+    #endif
+
+    private func rebuild(_ chartFrame: ChartFrame) {
+        let plot = chartFrame.plot(in: size).size
+        #if DEBUG
+        let began = ContinuousClock.now
+        defer { TraceCost.log.debug("trace built in \((ContinuousClock.now - began) / .microseconds(1), format: .fixed(precision: 0)) µs") }
+        #endif
+        trace.build(live.points(node.fid, sinceMs: Date().timeIntervalSince1970 * 1000 - LiveTrace.windowMs - 10_000), node: node, carrier: site.carrier, size: plot)
+    }
+
+    /// Each side of zero in its direction's colour: the battery cyan
+    /// storing and gold giving, the grid magenta both ways.
+    static func look(_ node: EnergyNode) -> TraceLook {
+        let words = node.directions
+        switch node {
+        case .battery: return TraceLook(up: Theme.stores, down: Theme.gives, upWord: words.map { "↑ " + $0.up.uppercased() }, downWord: words.map { "↓ " + $0.down.uppercased() })
+        case .grid: return TraceLook(up: Theme.grid, down: Theme.grid, upWord: words.map { "↑ " + $0.up.uppercased() }, downWord: words.map { "↓ " + $0.down.uppercased() })
+        default:
+            let c = Theme.color(NodeLook.tone(node))
+            return TraceLook(up: c, down: c)
+        }
+    }
+}
+
+/// The trace as VoiceOver reads it: every reading, in watts.
+private struct LiveDescriptor: AXChartDescriptorRepresentable {
+    let node: EnergyNode
+    let readings: [LiveSample]
+
+    func makeChartDescriptor() -> AXChartDescriptor {
+        let start = readings.first?.t ?? 0, end = max(start + 1, readings.last?.t ?? 1)
+        let lo = min(0, readings.map(\.v).min() ?? 0), hi = max(lo + 1, readings.map(\.v).max() ?? 1)
+        let x = AXNumericDataAxisDescriptor(title: L("Time"), range: start...end, gridlinePositions: []) { Readouts.seconds($0) }
+        let y = AXNumericDataAxisDescriptor(title: L("Power"), range: lo...hi, gridlinePositions: []) { AppWords.power(abs($0)) }
+        let series = AXDataSeriesDescriptor(name: node.title, isContinuous: true, dataPoints: readings.map {
+            AXDataPoint(x: $0.t, y: $0.v, additionalValues: [], label: Readouts.word(node, $0.v))
+        })
+        return AXChartDescriptor(title: node.title, summary: L("Live, the last five minutes"), xAxis: x, yAxis: y, additionalAxes: [], series: [series])
+    }
+}
+
+// MARK: - Under the chart
+
+/// Two reserved lines: what the period adds up to, or under a finger what
+/// it adds up to so far. The page never moves.
+private struct RangeLine: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
+    let site: SiteModel
+    let node: EnergyNode
+    let home: HomeModels
+    let trace: NodeTraceModel
+    let scrub: ScrubModel
+    let timebase: NodeView.Timebase
+    let readout: ChartReadout?
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            Text(verbatim: "\n")
+            Text(text)
+                .accessibilityIdentifier("chart.readout")
+        }
+        .font(.subheadline)
+        .foregroundStyle(Theme.ink2)
+        .lineLimit(typeSize.isAccessibilitySize ? 5 : 2, reservesSpace: true)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .transaction { $0.animation = nil }
+    }
+
+    private var text: String {
+        guard timebase == .live else {
+            if let readout { return readout.when + "  " + readout.what }
+            return PeriodWords.summary(site: site, node: node, period: timebase, models: home.nodes, loadpoints: home.loadpoints)
+        }
+        guard let frame = trace.shown else { return " " }
+        let runs = frame.series.runs
+        if let i = scrub.index, frame.readings.indices.contains(i) {
+            return NodeLive.soFar(node, NodeLive.energy(runs, untilMs: frame.readings[i].t))
+        }
+        if let span = scrub.span, span.upperBound < frame.readings.count {
+            let a = NodeLive.energy(runs, untilMs: frame.readings[span.lowerBound].t)
+            let b = NodeLive.energy(runs, untilMs: frame.readings[span.upperBound].t)
+            return NodeLive.between(node, (b.inWh - a.inWh, b.outWh - a.outWh))
+        }
+        return NodeLive.range(node, NodeLive.energy(runs))
+    }
+}
+
+/// `VIA RELAY · READS EVERY 1 S`: how the reading reaches the phone, and
+/// how often the device itself reads, from its readings. A switch of path
+/// changes the first word and nothing else.
+private struct NodeFooter: View {
+    let site: SiteModel
+    let node: EnergyNode
+    let live: LiveTrace
+    @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 10
+
+    var body: some View {
+        let points = live.points(node.fid, sinceMs: site.nowMs - LiveTrace.windowMs)
+        // A value that never changed in the window says nothing of how often
+        // the device reads, so the footer does not guess.
+        let period = LiveSeries.period(of: points.map { LiveSample(t: $0.t, v: $0.v) })
+        Text(NodeLive.footer(site.carrier, periodMs: period))
+            .font(.system(size: size, design: .monospaced))
+            .tracking(0.5)
+            .foregroundStyle(Theme.ink3)
+            .lineLimit(2)
+            .minimumScaleFactor(0.75)
+            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+            .accessibilityIdentifier("node.footer")
+    }
+}
+
+/// The battery's one extra row: `Mode · Balanced ›`.
+private struct ModeRow: View {
+    let mode: ModeModel
+    let choose: () -> Void
+
+    var body: some View {
+        if mode.mayControl {
+            Button(action: choose) {
+                HStack(spacing: 6) {
+                    Text(L("Mode")).foregroundStyle(Theme.ink2)
+                    Text(verbatim: "·").foregroundStyle(Theme.ink3)
+                    Text(mode.outcome?.text ?? mode.label ?? "—")
+                        .foregroundStyle(Theme.ink)
+                        .contentTransition(.opacity)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Theme.ink3)
+                    Spacer(minLength: 0)
+                }
+                .font(.subheadline)
+                .lineLimit(2)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(!mode.canControl)
+            .accessibilityIdentifier("node.mode.change")
+            .animation(Theme.spring, value: mode.outcome)
+            .sensoryFeedback(trigger: mode.outcome?.tone) { _, tone in Self.feedback(tone) }
+        } else if let label = mode.label {
+            HStack(spacing: 6) {
+                Text(L("Mode")).foregroundStyle(Theme.ink2)
+                Text(verbatim: "·").foregroundStyle(Theme.ink3)
+                Text(label).foregroundStyle(Theme.ink)
+            }
+            .font(.subheadline)
+            .frame(minHeight: 44, alignment: .leading)
+        }
+    }
+
+    static func feedback(_ tone: EVText.Outcome.Tone?) -> SensoryFeedback? {
+        switch tone {
+        case .done?: return .success
+        case .warning?: return .warning
+        case .failed?: return .error
+        default: return nil
+        }
+    }
+}
+
+/// The car's one extra row: what it does now, into the car view.
+private struct CarRow: View {
+    let loadpoints: LoadpointsModel
+    let zoom: Namespace.ID
+
+    var body: some View {
+        if let lp = loadpoints.points.first {
+            NavigationLink(value: HomeRoute.car(lp.id)) {
+                HStack(spacing: 6) {
+                    Text(EVText.status(lp, zone: loadpoints.zone)).foregroundStyle(Theme.ink)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Theme.ink3)
+                    Spacer(minLength: 0)
+                }
+                .font(.subheadline)
+                .lineLimit(1)
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .matchedTransitionSource(id: HomeRoute.car(lp.id), in: zoom)
+            .accessibilityIdentifier("node.car.open")
+        }
+    }
+}
+
+// MARK: - Today, two days, ahead
+
+/// Today, the last two days or the hours ahead, in the live chart's frame.
+/// These keep their own charts until WP7 moves them onto the engine.
+private struct PeriodChart: View {
+    let site: SiteModel
+    let node: EnergyNode
+    let period: NodeView.Timebase
     let models: NodeModels
     let prices: PriceModel
     let loadpoints: LoadpointsModel
-    let fill: Bool
-    @State private var readout: ChartReadout?
+    let onScrub: (ChartReadout?) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Group {
-                switch period {
-                case .today, .twoDays: past
-                case .ahead: ahead
-                }
+        Group {
+            switch period {
+            case .ahead: ahead
+            default: past
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            // Never lower than this on a page that fits: past it, the page
-            // scrolls instead.
-            .frame(minHeight: fill ? 120 : 180)
-            .accessibilityIdentifier("node.period.chart")
-            ReadoutLine(readout: readout, otherwise: summary)
-                .contentTransition(.opacity)
         }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 12)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
-        .animation(Theme.spring, value: period)
-        .onChange(of: period) { _, _ in readout = nil }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var fromMs: Double {
@@ -417,14 +766,14 @@ private struct PeriodSection: View {
         let stride = period == .today ? 6 : 12
         if node == .car {
             if models.carEnergy.loaded {
-                CarHoursChart(hours: models.carEnergy.hours, fromMs: fromMs, toMs: toMs, strideHours: stride, onScrub: { readout = $0 }).equatable()
+                CarHoursChart(hours: models.carEnergy.hours, fromMs: fromMs, toMs: toMs, strideHours: stride, onScrub: onScrub).equatable()
             } else {
                 Placeholder(text: models.carEnergy.problem)
             }
         } else if !models.history.available {
             Placeholder(text: L("Your box keeps no history."))
         } else if models.history.frame != nil {
-            HistoryChart(node: node, samples: models.history.samples(node, fromMs: fromMs), fromMs: fromMs, toMs: toMs, look: NodeLook.look(node), strideHours: stride, onScrub: { readout = $0 })
+            HistoryChart(node: node, samples: models.history.samples(node, fromMs: fromMs), fromMs: fromMs, toMs: toMs, look: NodeLook.look(node), strideHours: stride, onScrub: onScrub)
                 .equatable()
         } else {
             Placeholder(text: models.history.problem)
@@ -448,7 +797,7 @@ private struct PeriodSection: View {
                     currency: window?.currency ?? "SEK",
                     nowMs: now,
                     look: NodeLook.look(node),
-                    onScrub: { readout = $0 }
+                    onScrub: onScrub
                 ).equatable()
             }
         case .solar, .home:
@@ -464,7 +813,7 @@ private struct PeriodSection: View {
                     nowMs: now,
                     look: NodeLook.look(node),
                     forecast: true,
-                    onScrub: { readout = $0 }
+                    onScrub: onScrub
                 ).equatable()
             }
         case .car:
@@ -479,16 +828,21 @@ private struct PeriodSection: View {
                 currency: window?.currency ?? "SEK",
                 nowMs: now,
                 look: NodeLook.look(.car),
-                onScrub: { readout = $0 }
+                onScrub: onScrub
             ).equatable()
         }
     }
 
-    /// One sentence under the chart: the energy in kWh, or the plan.
-    private var summary: String {
+}
+
+/// The line under today, the last two days and the hours ahead.
+private enum PeriodWords {
+    @MainActor
+    static func summary(site: SiteModel, node: EnergyNode, period: NodeView.Timebase, models: NodeModels, loadpoints: LoadpointsModel) -> String {
+        let fromMs = period == .today ? models.history.midnightMs : site.nowMs - HistoryModel.spanMs
         let zone = TimeZone.current
         switch period {
-        case .today, .twoDays:
+        case .live, .today, .twoDays:
             if node == .car {
                 guard models.carEnergy.loaded else { return " " }
                 let wh = models.carEnergy.wh(sinceMs: fromMs)
@@ -501,10 +855,12 @@ private struct PeriodSection: View {
             let now = site.nowMs
             // "No plan" only once the box has answered without one; until
             // then the line keeps its place.
+            let noPlan = models.plan.plan == nil && !models.plan.loaded
+            let noForecast = models.plan.forecastStamp == nil && !models.plan.forecastLoaded
             switch node {
-            case .battery, .grid where models.plan.plan == nil && !models.plan.loaded:
+            case .battery where noPlan, .grid where noPlan:
                 return models.plan.problem ?? " "
-            case .solar, .home where models.plan.forecastStamp == nil && !models.plan.forecastLoaded:
+            case .solar where noForecast, .home where noForecast:
                 return " "
             case .battery: return PlanText.battery(models.plan.ahead(nowMs: now), stale: models.plan.plan?.stale ?? false, nowMs: now, zone: zone)
             case .grid: return PlanText.grid(models.plan.ahead(nowMs: now), stale: models.plan.plan?.stale ?? false)
@@ -516,7 +872,7 @@ private struct PeriodSection: View {
                 return PlanText.car(windows, nowMs: now, zone: loadpoints.zone)
             }
         }
-    }
+        }
 }
 
 /// The shape of a chart that has not arrived, with what is happening.
@@ -526,10 +882,10 @@ private struct Placeholder: View {
     var body: some View {
         VStack(spacing: 6) {
             if let text {
-                Text(text).font(.footnote).foregroundStyle(Theme.fgMuted).multilineTextAlignment(.center)
+                Text(text).font(.footnote).foregroundStyle(Theme.ink3).multilineTextAlignment(.center)
             } else {
                 RoundedRectangle(cornerRadius: 6)
-                    .fill(Theme.surfaceSunken)
+                    .fill(Theme.hairline)
                     .redacted(reason: .placeholder)
             }
         }
@@ -537,128 +893,6 @@ private struct Placeholder: View {
     }
 }
 
-// MARK: The mode
-
-private struct ModeSection: View {
-    let mode: ModeModel
-    let node: EnergyNode
-    let choose: () -> Void
-
-    var body: some View {
-        let key = mode.shown
-        VStack(alignment: .leading, spacing: 6) {
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .firstTextBaseline) {
-                    title
-                    Spacer(minLength: 8)
-                    change
-                }
-                VStack(alignment: .leading, spacing: 6) {
-                    title
-                    change
-                }
-            }
-            if let outcome = mode.outcome {
-                ReceiptView(outcome: outcome)
-            } else {
-                Text(ModeWords.isPlan(key) ? (mode.shownStyle.map { L($0.help) } ?? ModeWords.help(mode.info(key))) : ModeWords.help(mode.info(key)))
-                    .font(.footnote)
-                    .foregroundStyle(Theme.fgDim)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
-        .animation(Theme.spring, value: mode.outcome)
-        .sensoryFeedback(trigger: mode.outcome?.tone) { _, tone in Self.feedback(tone) }
-    }
-
-    private var title: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Kicker(L("Mode"))
-            Text(mode.label ?? "—")
-                .font(.headline)
-                .foregroundStyle(Theme.fg)
-                .contentTransition(.opacity)
-            if let doubt = mode.doubt {
-                Label {
-                    Text(doubt).foregroundStyle(Theme.fg)
-                } icon: {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Theme.alarm)
-                }
-                .font(.caption.weight(.medium))
-                .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    @ViewBuilder private var change: some View {
-        if mode.mayControl {
-            Button(action: choose) {
-                Text(L("Change")).lineLimit(1).fixedSize()
-            }
-            .disabled(!mode.canControl)
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.capsule)
-            .controlSize(.small)
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
-            .accessibilityIdentifier("node.mode.change")
-        }
-    }
-
-    static func feedback(_ tone: EVText.Outcome.Tone?) -> SensoryFeedback? {
-        switch tone {
-        case .done?: return .success
-        case .warning?: return .warning
-        case .failed?: return .error
-        default: return nil
-        }
-    }
-}
-
-/// The car's own mode is its charging: what it does now, and the way into
-/// the car view for the goal, the level and Charge now.
-private struct CarLink: View {
-    let loadpoints: LoadpointsModel
-    let zoom: Namespace.ID
-
-    var body: some View {
-        if let lp = loadpoints.points.first {
-            NavigationLink(value: HomeRoute.car(lp.id)) {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Kicker(L("Charging"))
-                        Text(EVText.status(lp, zone: loadpoints.zone))
-                            .font(.headline)
-                            .foregroundStyle(Theme.fg)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text(L("Goal, level and Charge now"))
-                            .font(.footnote)
-                            .foregroundStyle(Theme.accent)
-                    }
-                    Spacer(minLength: 8)
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Theme.fgMuted)
-                }
-                .padding(.vertical, 10)
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
-                .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
-                .contentShape(RoundedRectangle(cornerRadius: Theme.radius))
-            }
-            .buttonStyle(.plain)
-            .matchedTransitionSource(id: HomeRoute.car(lp.id), in: zoom)
-            .accessibilityIdentifier("node.car.open")
-        }
-    }
-}
 
 /// The energy line under a node's history, in the node's own words.
 enum NodeSummary {
@@ -698,7 +932,7 @@ extension NodeLook {
     static func look(_ node: EnergyNode, live: Bool = true) -> ChartLook {
         let words = node.directions
         guard live else {
-            return ChartLook(up: Theme.fgMuted, down: Theme.fgMuted.opacity(0.6), line: Theme.fgMuted, upWord: words?.up, downWord: words?.down)
+            return ChartLook(up: Theme.ink3, down: Theme.ink3.opacity(0.6), line: Theme.ink3, upWord: words?.up, downWord: words?.down)
         }
         switch node {
         case .battery:

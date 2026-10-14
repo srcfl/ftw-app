@@ -124,14 +124,14 @@ enum Calm {
 
     static let liveSize = CGSize(width: 350, height: 280)
 
-    static func live(_ frames: [LiveSample], nowMs: Double? = nil, gapMs: Double = 3_500, periodMs: Double = 1_000) -> LiveSeries {
-        LiveSeries.build(frames, periodMs: periodMs, gapMs: gapMs, windowMs: 300_000, nowMs: nowMs ?? frames.last!.t, size: liveSize, floor: 3_000)
+    static func live(_ frames: [LiveSample], nowMs: Double? = nil, gapMs: Double = 3_500, periodMs: Double? = 1_000) -> LiveSeries {
+        LiveSeries.build(frames, sourceGapMs: gapMs, periodMs: periodMs, windowMs: 300_000, nowMs: nowMs ?? frames.last!.t, size: liveSize, floor: 3_000)
     }
 
     @Test func theLiveLineIsCalmOnAnOnOffLoad() {
         let (frames, edges) = Self.liveHeater()
         let series = Self.live(frames)
-        let line = series.line.flattened(steps: 8)
+        let line = series.wholeLine.flattened(steps: 8)
         let edgesPer100 = Double(edges) / Double(Self.liveSize.width) * 100
         let turns = Calm.turnsPer100(line)
         // Every frame drawn raw, as 0.3.2 did, for comparison.
@@ -213,6 +213,154 @@ enum Calm {
         let quiet = (0..<120).map { LiveSample(t: Double($0) * 1_000, v: Double($0 % 7) * 20 - 60) }
         let series = Self.live(quiet)
         #expect(series.domain.upper == 3_000 && series.domain.lower == -3_000)
+    }
+
+    // MARK: Live, Fredrik's notes on 0.3.2
+
+    /// An inverter read every 5 s, its value in every 1 Hz frame, or only
+    /// every 5 s over FTW Cloud.
+    static func slowDevice(every: Double, frameEvery: Double, seconds: Double, seed: UInt64 = 4) -> [LiveSample] {
+        var dice = ChartGeometryTests.Dice(state: seed)
+        var out: [LiveSample] = []
+        var value = 1_000.0
+        var t = 0.0, read = 0.0
+        while t <= seconds * 1_000 {
+            if t >= read {
+                value = 800 + dice.next() * 600
+                read += every * 1_000
+            }
+            out.append(LiveSample(t: t, v: value))
+            t += frameEvery * 1_000
+        }
+        return out
+    }
+
+    /// Two hours from the home box on 14 Oct 2026: the Sungrow battery,
+    /// its panels and its grid meter, read over Modbus about every 5 s.
+    struct Trace: Decodable {
+        var series: [String: [[Double]]]
+    }
+
+    static func recorded() throws -> Trace {
+        let url = try #require(Bundle.module.url(forResource: "sungrow-trace", withExtension: "json", subdirectory: "Resources"))
+        return try JSONDecoder().decode(Trace.self, from: Data(contentsOf: url))
+    }
+
+    /// A device's readings as lane 0 carries them: a frame each second,
+    /// holding the last reading.
+    static func frames(_ readings: [[Double]]) -> [LiveSample] {
+        guard let first = readings.first?[0], let last = readings.last?[0] else { return [] }
+        var out: [LiveSample] = []
+        var k = 0
+        var t = first
+        while t <= last {
+            while k + 1 < readings.count, readings[k + 1][0] <= t { k += 1 }
+            out.append(LiveSample(t: t, v: readings[k][1]))
+            t += 1_000
+        }
+        return out
+    }
+
+    /// Big steps between neighbouring readings: more than a twentieth of
+    /// the plot's height, per 100 pt of width.
+    static func edgesPer100(_ series: LiveSeries) -> Double {
+        let map = series.map
+        var edges = 0
+        for run in series.runs {
+            for (a, b) in zip(run, run.dropFirst()) where abs(map.y(a.v) - map.y(b.v)) > series.size.height / 20 { edges += 1 }
+        }
+        return Double(edges) / Double(series.size.width) * 100
+    }
+
+    @Test func theLiveLineIsCalmOnRecordedTraces() throws {
+        let trace = try Self.recorded()
+        for name in ["battery_w", "pv_w", "meter_w"] {
+            let frames = Self.frames(try #require(trace.series[name]))
+            var worst = 0.0, windows = 0, breaks = 0
+            var t = frames[0].t + 300_000
+            while t <= frames[frames.count - 1].t {
+                let series = LiveSeries.build(frames, sourceGapMs: 3_500, windowMs: 300_000, nowMs: t, size: Self.liveSize, floor: 3_000)
+                let turns = Calm.turnsPer100(series.wholeLine.flattened(steps: 8))
+                let allowed = 2 * Self.edgesPer100(series) + 2
+                #expect(turns <= allowed, "\(name) at \(Int((t - frames[0].t) / 60_000)) min: \(turns) turns per 100 pt, allowed \(allowed)")
+                worst = max(worst, turns - allowed)
+                windows += 1
+                breaks += series.gaps.count
+                // The device reads every 5 s: that is no gap. A window in
+                // which the value never changed cannot tell.
+                if LiveSeries.period(of: frames.filter { $0.t > t - 300_000 && $0.t <= t }) != nil {
+                    #expect(series.periodMs == 5_000, "\(name): period \(series.periodMs)")
+                }
+                t += 60_000
+            }
+            #expect(windows > 100)
+            #expect(breaks == 0, "\(name): \(breaks) breaks")
+        }
+    }
+
+    @Test func theReadPeriodComesFromHowOftenTheValueChanges() {
+        #expect(LiveSeries.period(of: Self.slowDevice(every: 5, frameEvery: 1, seconds: 120)) == 5_000)
+        #expect(LiveSeries.period(of: Self.slowDevice(every: 1, frameEvery: 1, seconds: 120)) == 1_000)
+        #expect(LiveSeries.period(of: Self.slowDevice(every: 60, frameEvery: 1, seconds: 120)) == nil)
+    }
+
+    @Test func aSilenceOfAFewReadPeriodsIsJoinedAndALongerOneBreaks() {
+        // Over FTW Cloud: a reading every 5 s, no frame between.
+        var frames = Self.slowDevice(every: 5, frameEvery: 5, seconds: 290)
+        var series = Self.live(frames, periodMs: nil)
+        #expect(series.periodMs == 5_000 && series.gapMs == 15_000)
+        #expect(series.runs.count == 1 && series.gaps.isEmpty)
+        // 10 s missing is joined; 20 s is a break, and only that.
+        frames.removeAll { $0.t > 100_000 && $0.t < 110_000 }
+        frames.removeAll { $0.t > 200_000 && $0.t < 220_000 }
+        series = Self.live(frames, periodMs: nil)
+        #expect(series.runs.count == 2)
+        #expect(series.gaps == [LiveSeries.Gap(fromMs: 200_000, toMs: 220_000)])
+        // A stream that falls quiet longer than the rule gaps up to now.
+        let quiet = Self.live(frames, nowMs: frames.last!.t + 20_000, periodMs: nil)
+        #expect(quiet.gaps.last == LiveSeries.Gap(fromMs: frames.last!.t, toMs: frames.last!.t + 20_000))
+    }
+
+    @Test func whatThisPhoneDidNotSeeLiveDrawsInInkOnTheSameCurve() throws {
+        let (heater, _) = Self.liveHeater()
+        // The first two minutes came back from before a kill.
+        let frames = heater.map { LiveSample(t: $0.t, v: $0.v, seen: $0.t >= 120_000) }
+        let series = Self.live(frames)
+        #expect(series.runs.count == 1)
+        #expect(!series.line.isEmpty && !series.lineUnseen.isEmpty)
+        #expect(!series.body.isEmpty && !series.bodyUnseen.isEmpty)
+        // The ink part ends where the phosphor part starts: one curve.
+        let inkEnd = try #require(series.lineUnseen.flattened().last)
+        let liveStart = try #require(series.line.flattened().first)
+        #expect(hypot(inkEnd.x - liveStart.x, inkEnd.y - liveStart.y) < 1e-9)
+        #expect(inkEnd.x < series.x(121_500) && inkEnd.x > series.x(118_000))
+    }
+
+    @Test func aSlideMovesEachPointBetweenItsOldAndNewValueAndTheHeadAlongItsSegment() throws {
+        let (frames, _) = Self.liveHeater(seconds: 200)
+        let old = Self.live(Array(frames.dropLast()))
+        let new = Self.live(frames)
+        let oldRun = try #require(old.curves.last), newRun = try #require(new.curves.last)
+        let start = try #require(new.sliding(from: old, progress: 0))
+        let oldHead = try #require(oldRun.last), newHead = try #require(newRun.last)
+        #expect(start.last == LiveSeries.Point(t: oldHead.t, v: oldHead.v, seen: true))
+        let before = Dictionary(oldRun.map { ($0.t, $0.v) }, uniquingKeysWith: { a, _ in a })
+        let after = Dictionary(newRun.map { ($0.t, $0.v) }, uniquingKeysWith: { a, _ in a })
+        for p in [0.1, 0.5, 0.9] {
+            let mid = try #require(new.sliding(from: old, progress: p))
+            for q in mid.dropLast() {
+                let a = before[q.t] ?? after[q.t]!, b = after[q.t]!
+                #expect(q.v >= min(a, b) - 1e-9 && q.v <= max(a, b) + 1e-9)
+            }
+            let head = try #require(mid.last)
+            #expect(abs(head.t - (oldHead.t + (newHead.t - oldHead.t) * p)) < 1e-9)
+            #expect(head.v >= min(oldHead.v, newHead.v) - 1e-9 && head.v <= max(oldHead.v, newHead.v) + 1e-9)
+        }
+        #expect(new.sliding(from: old, progress: 1) == nil)
+        // The thinning sits on the clock: the points the two share are the
+        // same readings.
+        let shared = Set(oldRun.dropLast(4).map(\.t))
+        #expect(shared.isSubset(of: Set(newRun.map(\.t))))
     }
 
     // MARK: Price
