@@ -22,20 +22,26 @@
 "Planned %@" = "Planned %@";
 "Plan from %@ · open FTW" = "Plan from %@ · open FTW";
 
-/* Now's strip: the next thing and the one after it. */
-"Battery stores until %@" = "Battery stores until %@";
-"Battery gives power until %@" = "Battery gives power until %@";
-"Car charges until %@" = "Car charges until %@";
-"Battery stores %@" = "Battery stores %@";
-"Battery gives power %@" = "Battery gives power %@";
-"Car charges %@" = "Car charges %@";
+/* Now's strip and the story under the dial: the verb between marks (*) takes its colour. */
+"Battery *stores* until %@" = "Battery *stores* until %@";
+"Battery *gives power* until %@" = "Battery *gives power* until %@";
+"Car *charges* until %@" = "Car *charges* until %@";
+"Battery *stores* %@" = "Battery *stores* %@";
+"Battery *gives power* %@" = "Battery *gives power* %@";
+"Car *charges* %@" = "Car *charges* %@";
 "%@, to %@" = "%@, to %@";
 "%@." = "%@.";
-"%@, then stores %@." = "%@, then stores %@.";
-"%@, then gives power %@." = "%@, then gives power %@.";
-"%@, then the battery stores %@." = "%@, then the battery stores %@.";
-"%@, then the battery gives power %@." = "%@, then the battery gives power %@.";
-"%@, then the car charges %@." = "%@, then the car charges %@.";
+"Then *stores* %@" = "Then *stores* %@";
+"Then *gives power* %@" = "Then *gives power* %@";
+"Then the battery *stores* %@" = "Then the battery *stores* %@";
+"Then the battery *gives power* %@" = "Then the battery *gives power* %@";
+"Then the car *charges* %@" = "Then the car *charges* %@";
+"%@, when power costs up to %@" = "%@, when power costs up to %@";
+"%@ for %@" = "%@ for %@";
+"%@, when you are paid to use power" = "%@, when you are paid to use power";
+"%@ from spare sun" = "%@ from spare sun";
+"%@, as selling pays" = "%@, as selling pays";
+"%@ to hold the grid limit" = "%@ to hold the grid limit";
 
 /* The strip's header and what a finger reads on it. */
 "NEXT 12 H" = "NEXT 12 H";

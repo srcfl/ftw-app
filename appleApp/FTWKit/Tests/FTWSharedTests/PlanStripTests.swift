@@ -101,22 +101,60 @@ import Testing
 
     // MARK: The sentence under the strip
 
-    @Test func theSentenceSaysTheNextThingAndWhatFollows() {
+    /// The next thing and why, then the one after it and why: the price
+    /// that drives it, or the car's goal.
+    @Test func theSentenceSaysTheNextThingWhyAndWhatFollows() {
         func next(_ t: Double) -> String { PlanGlance.live(glance.night(), nowMs: t, calendar: calendar).nextText }
-        // Under way: until when, then the next move.
-        #expect(next(at(12, 20, 5)) == "Battery gives power until 21:15, then stores 22:00.")
+        // Under way: until when and why, then the next move and why.
+        #expect(next(at(12, 20, 5)) == "Battery gives power until 21:15, when power costs up to 160 öre. Then stores 22:00 for 70.0 öre.")
         // To come: when it runs; the next subject is named.
-        #expect(next(at(12, 21, 30)) == "Battery stores 22:00–23:30, then the car charges 01:00.")
-        #expect(next(at(12, 23, 45)) == "Car charges 01:00–04:45, to 80\u{00A0}%, then the battery gives power 06:00.")
-        #expect(next(at(13, 2)) == "Car charges until 04:45, to 80\u{00A0}%, then the battery gives power 06:00.")
+        #expect(next(at(12, 21, 30)) == "Battery stores 22:00–23:30 for 70.0 öre. Then the car charges 01:00, to 80\u{00A0}%.")
+        #expect(next(at(12, 23, 45)) == "Car charges 01:00–04:45, to 80\u{00A0}%. Then the battery gives power 06:00, when power costs up to 160 öre.")
+        #expect(next(at(13, 2)) == "Car charges until 04:45, to 80\u{00A0}%. Then the battery gives power 06:00, when power costs up to 160 öre.")
         // The last thing in the plan stands alone.
-        #expect(next(at(13, 7)) == "Battery gives power until 08:00.")
+        #expect(next(at(13, 7)) == "Battery gives power until 08:00, when power costs up to 160 öre.")
     }
 
     @Test func anOldPlanNeverSaysUntil() {
         let m = PlanGlance.kept(glance.night(), readAtMs: at(12, 18), nowMs: at(12, 20, 5), calendar: calendar)
         #expect(m.state == .old)
-        #expect(m.nextText == "Battery gives power 20:05–21:15, then stores 22:00.")
+        #expect(m.nextText == "Battery gives power 20:05–21:15, when power costs up to 160 öre. Then stores 22:00 for 70.0 öre.")
+    }
+
+    /// Each reason says what drives the move; one with nothing to show
+    /// leaves the clause bare.
+    @Test func theReasonIsWhatDrivesTheMove() {
+        let entry = glance.night()
+        let clock = Clock(calendar: calendar)
+        func said(_ kind: PlanGlance.Kind, _ reason: String, from: Double = at(12, 22), to: Double = at(12, 23)) -> String {
+            let e = PlanGlance.Event(kind: kind, startMs: from, endMs: to, reason: reason)
+            return PlanGlance.clause(e, entry: entry, from: at(12, 20), clock: clock, ongoingIsNow: true).plain
+        }
+        #expect(said(.charge, "solar_surplus") == "Battery stores 22:00–23:00 from spare sun.")
+        #expect(said(.discharge, "export_paid") == "Battery gives power 22:00–23:00, as selling pays.")
+        #expect(said(.discharge, "peak_shaving") == "Battery gives power 22:00–23:00 to hold the grid limit.")
+        #expect(said(.charge, "cheap_import", from: at(13, 2), to: at(13, 4)) == "Battery stores 02:00–04:00 for 30.0 öre.")
+        // No price under it: no reason with a number.
+        #expect(said(.discharge, "expensive_import", from: at(14, 2), to: at(14, 3)) == "Battery gives power 02:00–03:00.")
+        var paid = entry
+        paid.prices = paid.prices.map { PriceSlot(startMs: $0.startMs, durationMs: $0.durationMs, spotMinor: -20, totalMinor: -5) }
+        let e = PlanGlance.Event(kind: .charge, startMs: at(12, 22), endMs: at(12, 23), reason: "cheap_import")
+        #expect(PlanGlance.clause(e, entry: paid, from: at(12, 20), clock: clock, ongoingIsNow: true).plain == "Battery stores 22:00–23:00, when you are paid to use power.")
+    }
+
+    /// Under the dial: the battery's next two moves and the car's charge, in
+    /// order, each with its verb marked for its colour.
+    @Test func theStoryUnderTheDial() {
+        let m = PlanGlance.live(glance.night(), nowMs: at(12, 20, 5), calendar: calendar)
+        #expect(m.story.map(\.kind) == [.discharge, .charge, .car])
+        #expect(m.story.map(\.plain) == [
+            "Battery gives power until 21:15, when power costs up to 160 öre.",
+            "Battery stores 22:00–23:30 for 70.0 öre.",
+            "Car charges 01:00–04:45, to 80\u{00A0}%.",
+        ])
+        #expect(m.story[0].parts == ["Battery ", "gives power", " until 21:15, when power costs up to 160 öre."])
+        // Nothing to tell before the box has answered.
+        #expect(PlanGlance.waiting(glance.night(), nowMs: at(12, 20), calendar: calendar).story.isEmpty)
     }
 
     @Test func theSentenceBeforeAndWithoutAPlan() {

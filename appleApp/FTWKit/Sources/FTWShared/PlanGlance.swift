@@ -247,6 +247,10 @@ public enum PlanGlance {
         /// what follows. "Battery gives power until 21:15, then stores
         /// 22:00."
         public let nextText: String
+        /// The plan under the dial in up to three sentences: the battery's
+        /// next two moves and the car's charge, each with its reason. The
+        /// verbs are marked so they can take their colour.
+        public let story: [Phrase]
         /// The zone the clock in this moment is read in.
         public let timeZone: TimeZone
 
@@ -274,7 +278,7 @@ public enum PlanGlance {
         let calendar = given ?? .household(read?.value.timeZone)
         guard let read else {
             return Moment(atMs: t, state: .nothing, readAtMs: nil, events: [], backdrop: [], currency: "", summary: PlanWord.openToSee.text,
-                          next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, nextText: PlanWord.openToSee.text, timeZone: calendar.timeZone)
+                          next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, nextText: PlanWord.openToSee.text, story: [], timeZone: calendar.timeZone)
         }
         let old = t - read.record.readAtMs >= staleAfterMs
         let state: State = read.value.boxStale || read.srcState == .stale ? .boxStale : (old ? .old : .plan)
@@ -299,7 +303,7 @@ public enum PlanGlance {
         let m = moment(entry, state: .waiting, readAtMs: nil, atMs: nowMs, calendar: calendar ?? .household(entry.timeZone))
         guard let note else { return m }
         return Moment(atMs: m.atMs, state: m.state, readAtMs: nil, events: m.events, backdrop: m.backdrop, currency: m.currency, summary: note,
-                      next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, nextText: note, timeZone: m.timeZone)
+                      next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, nextText: note, story: [], timeZone: m.timeZone)
     }
 
     private static func moment(_ entry: PlanEntry, state: State, readAtMs: Double?, atMs t: Double, calendar: Calendar, inApp: Bool = false) -> Moment {
@@ -333,7 +337,7 @@ public enum PlanGlance {
                 nextText = summary
             } else {
                 summary = line(list, from: t, clock: clock, ongoingIsNow: state == .plan)
-                nextText = sentence(list, from: t, clock: clock, ongoingIsNow: state == .plan)
+                nextText = sentence(list, entry: entry, from: t, clock: clock, ongoingIsNow: state == .plan)
             }
         }
 
@@ -358,6 +362,7 @@ public enum PlanGlance {
             },
             ageText: age,
             nextText: nextText,
+            story: state == .plan || state == .old ? story(list, entry: entry, from: t, clock: clock, ongoingIsNow: state == .plan) : [],
             timeZone: calendar.timeZone
         )
     }
@@ -387,33 +392,100 @@ public enum PlanGlance {
         return parts.joined(separator: " · ")
     }
 
-    /// Now's strip: the next thing the box will do, and the one after it.
-    /// "Battery gives power until 21:15, then stores 22:00." A thing under
-    /// way says until when; one to come says when it runs. The second says
-    /// only when it starts, and names its subject when that changes. A plan
-    /// that may no longer hold (`ongoingIsNow` false) never says "until".
-    static func sentence(_ events: [Event], from t: Double, clock: Clock, ongoingIsNow: Bool) -> String {
+    /// One sentence about the plan, with its verb marked: the words in
+    /// turns plain and marked, so a screen can colour what the battery or
+    /// the car does. "Battery *gives power* until 23:30, when power costs
+    /// up to 465 öre."
+    public struct Phrase: Equatable, Sendable {
+        public let kind: Kind
+        /// Even entries are plain, odd entries are the verb.
+        public let parts: [String]
+        public var plain: String { parts.joined() }
+
+        init(kind: Kind, marked: String) {
+            self.kind = kind
+            parts = marked.components(separatedBy: "*")
+        }
+    }
+
+    /// Now's strip: the next thing the box will do and why, then the one
+    /// after it and why. "Battery gives power until 23:30, when power
+    /// costs up to 465 öre. Then stores 03:45 for 297 öre." A thing under
+    /// way says until when; one to come says when it runs. The second names
+    /// its subject when that changes. A plan that may no longer hold
+    /// (`ongoingIsNow` false) never says "until".
+    static func sentence(_ events: [Event], entry: PlanEntry, from t: Double, clock: Clock, ongoingIsNow: Bool) -> String {
         let actions = events.filter { $0.kind != .cheap }
         guard let first = actions.first else { return PlanWord.nothingPlanned.text }
-        let start = ahead(first.startMs, asEnd: false, from: t, clock: clock)
-        let end = ahead(first.endMs, asEnd: true, from: t, clock: clock)
+        var text = clause(first, entry: entry, from: t, clock: clock, ongoingIsNow: ongoingIsNow).plain
+        if let then = actions.dropFirst().first {
+            let when = ahead(then.startMs, asEnd: false, from: t, clock: clock)
+            let battery = first.kind == .charge || first.kind == .discharge
+            let lead: PlanWord
+            switch then.kind {
+            case .charge: lead = battery ? .thenStores : .thenBatteryStores
+            case .discharge: lead = battery ? .thenGives : .thenBatteryGives
+            case .car, .cheap: lead = .thenCar
+            }
+            text += " " + Phrase(kind: then.kind, marked: PlanWord.sentence.format(why(then, lead.format(when), entry: entry))).plain
+        }
+        return text
+    }
+
+    /// The plan under the dial: the battery's next two moves and the car's
+    /// next charge, in the order they happen, a sentence each, each with
+    /// its reason.
+    static func story(_ events: [Event], entry: PlanEntry, from t: Double, clock: Clock, ongoingIsNow: Bool) -> [Phrase] {
+        let battery = events.filter { $0.kind == .charge || $0.kind == .discharge }.prefix(2)
+        let car = events.first { $0.kind == .car }
+        return (Array(battery) + [car].compactMap { $0 })
+            .sorted { $0.startMs < $1.startMs }
+            .map { clause($0, entry: entry, from: t, clock: clock, ongoingIsNow: ongoingIsNow) }
+    }
+
+    /// One event as a sentence with its verb marked and its reason.
+    static func clause(_ e: Event, entry: PlanEntry, from t: Double, clock: Clock, ongoingIsNow: Bool) -> Phrase {
+        let start = ahead(e.startMs, asEnd: false, from: t, clock: clock)
+        let end = ahead(e.endMs, asEnd: true, from: t, clock: clock)
         // "17:15–23:30", or "tomorrow 02:00–05:00": the day once.
-        let span = "\(start)–\(clock.wall(first.endMs, asEnd: true).hm)"
-        let under = started(first, at: t) && ongoingIsNow
-        var lead: String
-        switch first.kind {
+        let span = "\(start)–\(clock.wall(e.endMs, asEnd: true).hm)"
+        let under = started(e, at: t) && ongoingIsNow
+        let lead: String
+        switch e.kind {
         case .charge: lead = under ? PlanWord.storesUntil.format(end) : PlanWord.storesAt.format(span)
         case .discharge: lead = under ? PlanWord.givesUntil.format(end) : PlanWord.givesAt.format(span)
         case .car, .cheap: lead = under ? PlanWord.carUntil.format(end) : PlanWord.carAt.format(span)
         }
-        if first.kind == .car, let pct = first.targetPct { lead = PlanWord.toPercent.format(lead, percent(pct)) }
-        guard let then = actions.dropFirst().first else { return PlanWord.sentence.format(lead) }
-        let when = ahead(then.startMs, asEnd: false, from: t, clock: clock)
-        let battery = first.kind == .charge || first.kind == .discharge
-        switch then.kind {
-        case .charge: return (battery ? PlanWord.thenStores : PlanWord.thenBatteryStores).format(lead, when)
-        case .discharge: return (battery ? PlanWord.thenGives : PlanWord.thenBatteryGives).format(lead, when)
-        case .car, .cheap: return PlanWord.thenCar.format(lead, when)
+        return Phrase(kind: e.kind, marked: PlanWord.sentence.format(why(e, lead, entry: entry)))
+    }
+
+    /// The box's reason, said as what drives it: the price when power is
+    /// dear or cheap, the sun, selling, the grid limit, or the car's goal.
+    /// A reason with no price to show leaves the clause as it is.
+    static func why(_ e: Event, _ lead: String, entry: PlanEntry) -> String {
+        if e.kind == .car {
+            return e.targetPct.map { PlanWord.toPercent.format(lead, percent($0)) } ?? lead
+        }
+        let under = entry.prices.filter { $0.totalMinor.isFinite && $0.startMs < e.endMs && $0.startMs + $0.durationMs > e.startMs }
+        func price(_ minor: Double) -> String {
+            Words.decimal(PriceStrip.text(abs(minor), entry.currency)) + " " + PriceUnits.unit(entry.currency).label
+        }
+        switch (e.kind, e.reason) {
+        case (.discharge, "export_paid"?):
+            return PlanWord.whySell.format(lead)
+        case (.discharge, "peak_shaving"?):
+            return PlanWord.whyLimit.format(lead)
+        case (.discharge, _):
+            guard let top = under.map(\.totalMinor).max() else { return lead }
+            return PlanWord.whyDear.format(lead, price(top))
+        case (.charge, "solar_surplus"?):
+            return PlanWord.whySun.format(lead)
+        case (.charge, _):
+            guard !under.isEmpty else { return lead }
+            let mean = under.map(\.totalMinor).reduce(0, +) / Double(under.count)
+            return mean < 0 ? PlanWord.whyPaid.format(lead) : PlanWord.whyCheap.format(lead, price(mean))
+        default:
+            return lead
         }
     }
 
@@ -489,20 +561,28 @@ enum PlanWord: String, CaseIterable {
     case cheapPower = "Cheapest power"
     case planned = "Planned %@"
     case planFrom = "Plan from %@ · open FTW"
-    // Now's strip: the next thing and the one after it.
-    case storesUntil = "Battery stores until %@"
-    case givesUntil = "Battery gives power until %@"
-    case carUntil = "Car charges until %@"
-    case storesAt = "Battery stores %@"
-    case givesAt = "Battery gives power %@"
-    case carAt = "Car charges %@"
+    // Now's strip and the story under the dial: the verb between marks
+    // (*) takes the colour of what it says.
+    case storesUntil = "Battery *stores* until %@"
+    case givesUntil = "Battery *gives power* until %@"
+    case carUntil = "Car *charges* until %@"
+    case storesAt = "Battery *stores* %@"
+    case givesAt = "Battery *gives power* %@"
+    case carAt = "Car *charges* %@"
     case toPercent = "%@, to %@"
     case sentence = "%@."
-    case thenStores = "%@, then stores %@."
-    case thenGives = "%@, then gives power %@."
-    case thenBatteryStores = "%@, then the battery stores %@."
-    case thenBatteryGives = "%@, then the battery gives power %@."
-    case thenCar = "%@, then the car charges %@."
+    case thenStores = "Then *stores* %@"
+    case thenGives = "Then *gives power* %@"
+    case thenBatteryStores = "Then the battery *stores* %@"
+    case thenBatteryGives = "Then the battery *gives power* %@"
+    case thenCar = "Then the car *charges* %@"
+    // Why: what drives the move.
+    case whyDear = "%@, when power costs up to %@"
+    case whyCheap = "%@ for %@"
+    case whyPaid = "%@, when you are paid to use power"
+    case whySun = "%@ from spare sun"
+    case whySell = "%@, as selling pays"
+    case whyLimit = "%@ to hold the grid limit"
     // The strip's header and what a finger reads on it.
     case next12h = "NEXT 12 H"
     case plannedAt = "PLANNED %@"

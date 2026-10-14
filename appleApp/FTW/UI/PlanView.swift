@@ -104,11 +104,9 @@ private struct PlanBody: View {
                 VStack(alignment: .leading, spacing: 12) {
                     PlanDialCard(dial: dial, grey: moment.isGrey)
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(moment.summary)
-                            .font(.subheadline)
-                            .foregroundStyle(moment.isGrey ? Theme.ink3 : Theme.ink2)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .redacted(reason: moment.placeholder ? .placeholder : [])
+                        // The words are the dial's legend: each verb takes
+                        // the colour its ticks have.
+                        PlanStory(moment: moment)
                         // Mono stops growing at accessibility1.
                         Group {
                             if let cheapest = dial.cheapestText {
@@ -147,7 +145,10 @@ private struct PlanBody: View {
             }
         }
         PriceRow(prices: prices, minute: minute)
-        Events(moment: moment, entry: models.planShare.entry, loadpoints: loadpoints, style: style)
+        // Under the dial the story already says what each row would.
+        if style == .lanes {
+            Events(moment: moment, entry: models.planShare.entry, loadpoints: loadpoints, style: style)
+        }
         CompactMode(mode: models.mode, choose: chooseMode)
     }
 
@@ -163,6 +164,52 @@ private struct PlanBody: View {
         if m.state == .boxStale { return L("Your box couldn't plan ahead just now, so it runs on safe defaults.") }
         guard let at = models.plan.receivedAtMs ?? m.readAtMs else { return L("Reading the plan from your box…") }
         return NodeWords.format("Planned by your box at %@. It plans again every quarter of an hour.", AppWords.clock(at, zone: m.timeZone))
+    }
+}
+
+/// The plan under the dial in up to three sentences, each verb in the
+/// colour of its ticks: ink gives power, cyan stores, violet for the car.
+/// Before the box has answered, the plan's own line in its shape.
+private struct PlanStory: View {
+    let moment: PlanGlance.Moment
+
+    var body: some View {
+        Group {
+            if moment.story.isEmpty {
+                Text(moment.summary)
+                    .foregroundStyle(moment.isGrey ? Theme.ink3 : Theme.ink2)
+                    .redacted(reason: moment.placeholder ? .placeholder : [])
+            } else {
+                moment.story.enumerated().reduce(Text(verbatim: "")) { text, item in
+                    let (i, phrase) = item
+                    return text + Text(verbatim: i == 0 ? "" : " ") + sentence(phrase)
+                }
+            }
+        }
+        .font(.subheadline)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func sentence(_ phrase: PlanGlance.Phrase) -> Text {
+        phrase.parts.enumerated().reduce(Text(verbatim: "")) { text, item in
+            let (i, part) = item
+            let verb = i % 2 == 1
+            return text + Text(verbatim: part)
+                .foregroundStyle(verb && !moment.isGrey ? color(phrase.kind) : (moment.isGrey ? Theme.ink3 : Theme.ink2))
+                .fontWeight(verb ? .semibold : .regular)
+        }
+    }
+
+    /// The dial's colours: on the dial gold is the sun's, so giving power is
+    /// ink.
+    private func color(_ kind: PlanGlance.Kind) -> Color {
+        switch kind {
+        case .charge: return Theme.stores
+        case .discharge: return Theme.ink
+        case .car: return Theme.car
+        case .cheap: return Theme.ink2
+        }
     }
 }
 
