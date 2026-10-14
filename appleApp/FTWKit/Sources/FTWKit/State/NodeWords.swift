@@ -54,6 +54,11 @@ public enum NodeWords {
         "VIA FTW CLOUD": "VIA FTW CLOUD",
         "SAVED ON THIS PHONE": "SPARAD PÅ TELEFONEN",
         "NOT CONNECTED": "INTE ANSLUTEN",
+        // The grid's phases against the main fuse.
+        "PHASES": "FASER",
+        "PHASES · FUSE %@": "FASER · SÄKRING %@",
+        "nearest the fuse": "närmast säkringen",
+        "The phases are not live.": "Faserna är inte live.",
         "READS EVERY %@ S": "LÄSER VAR %@ S",
         "LAST 5 MIN": "SENASTE 5 MIN",
         "LIVE · LAST 5 MIN": "LIVE · SENASTE 5 MIN",
