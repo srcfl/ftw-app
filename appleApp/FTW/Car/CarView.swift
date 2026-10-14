@@ -229,7 +229,7 @@ private struct LevelBlock: View {
                 Text(L("Level unknown")).font(.headline).foregroundStyle(Theme.ink)
             }
             if let receipt = model.receipt(level: lp), let outcome = model.outcome(level: lp) {
-                CommandReceipt(receipt: receipt, outcome: outcome)
+                CommandReceipt(receipt: receipt, text: outcome.text, tone: outcome.tone)
                     .transition(.opacity)
             }
             if level?.origin == .car, !correcting, canControl {
@@ -451,6 +451,8 @@ private struct ControlBar: View {
         let current = self.current
         let asked = self.asked
         let receipt = model.receipt(hold: lp)
+        let outcome = model.outcome(hold: lp)
+        let shown = receipt != nil && outcome != nil
         VStack(alignment: .leading, spacing: 10) {
             // Side by side; at the accessibility sizes one under the other,
             // so no name is cut.
@@ -463,25 +465,27 @@ private struct ControlBar: View {
                     }
                 }
             }
+            // Both stay in place and only fade, so a receipt that changes
+            // four times in a few seconds never leaves a half-removed hint
+            // behind it.
             ZStack(alignment: .topLeading) {
                 ReceiptSpace()
-                if let receipt, let outcome = model.outcome(hold: lp) {
-                    CommandReceipt(receipt: receipt, outcome: outcome)
-                        .transition(.opacity)
-                } else {
-                    Text(L("Charge now runs until you go back to the plan or unplug."))
-                        .font(.footnote)
-                        .foregroundStyle(Theme.ink2)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .transition(.opacity)
-                }
+                Text(L("Charge now runs until you go back to the plan or unplug."))
+                    .font(.footnote)
+                    .foregroundStyle(Theme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .opacity(shown ? 0 : 1)
+                    .accessibilityHidden(shown)
+                CommandReceipt(receipt: receipt ?? ReceiptLog(), text: outcome?.text ?? " ", tone: outcome?.tone ?? .working)
+                    .opacity(shown ? 1 : 0)
+                    .accessibilityHidden(!shown)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 4)
+            .animation(Theme.spring, value: shown)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .animation(Theme.spring, value: receipt)
         .animation(Theme.spring, value: current)
         // Commands answer once, when the box says what it did.
         .sensoryFeedback(trigger: model.outcome(hold: lp)?.tone) { _, tone in LevelBlock.feedback(tone) }
@@ -539,23 +543,25 @@ private struct ControlBar: View {
 /// alarm red, why not.
 struct CommandReceipt: View {
     let receipt: ReceiptLog
-    let outcome: EVText.Outcome
+    let text: String
+    let tone: EVText.Outcome.Tone
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             ReceiptRow(receipt: receipt)
                 .accessibilityIdentifier("car.receipt")
-            Text(outcome.text)
+            Text(text)
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(color)
                 .contentTransition(.opacity)
                 .fixedSize(horizontal: false, vertical: true)
+                .animation(.easeInOut(duration: 0.2), value: text)
         }
         .accessibilityElement(children: .combine)
     }
 
     private var color: Color {
-        switch outcome.tone {
+        switch tone {
         case .working: return Theme.ink2
         case .done: return Theme.live
         case .warning, .failed: return Theme.alarm
