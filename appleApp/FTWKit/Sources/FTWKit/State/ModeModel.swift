@@ -245,9 +245,9 @@ public final class ModeModel {
     // MARK: Changing it
 
     /// Run a mode. The tap shows at once; the box decides.
-    public func set(_ mode: String) async {
+    public func set(_ mode: String, cmdId: String? = nil) async {
         guard mode != shown else { return }
-        await send(.mode(mode), op: Contract.opSetMode, args: [("mode", .text(mode))])
+        await send(.mode(mode), op: Contract.opSetMode, args: [("mode", .text(mode))], cmdId: cmdId)
     }
 
     /// Back from a manual mode to the plan the household chose.
@@ -268,7 +268,7 @@ public final class ModeModel {
     /// How long a tap waits for the stream before it gives up.
     nonisolated static let streamWaitMs: Double = 3_000
 
-    private func send(_ ask: Ask, op: String, args: [(String, CBOR)]) async {
+    private func send(_ ask: Ask, op: String, args: [(String, CBOR)], cmdId: String? = nil) async {
         guard !sending else { return }
         clearing?.cancel()
         change = Change(ask: ask)
@@ -287,7 +287,7 @@ public final class ModeModel {
             let r = try await site.core.command(op, args: args, onAck: { [weak self] in
                 guard let self, self.change?.ask == ask else { return }
                 self.change?.acked = true
-            })
+            }, cmdId: cmdId)
             switch r.state {
             case .applied: result = .applied
             case .superseded: result = .superseded

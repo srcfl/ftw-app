@@ -127,12 +127,12 @@ jobs:
           CURRENT_PROJECT_VERSION=${{ steps.version.outputs.build }}
           FTW_SOURCE_REVISION=$GITHUB_SHA
 
-      # App Store Connect refuses a widget whose version differs from its
-      # app's, so check both before sending anything.
-      - name: Check the version in the app and the widget
+      # App Store Connect refuses an extension or a watch app whose version
+      # differs from its app's, so check them all before sending anything.
+      - name: Check the version in the app, its extensions and the watch app
         run: |
           app=$RUNNER_TEMP/FTW.xcarchive/Products/Applications/FTW.app
-          for plist in "$app/Info.plist" "$app"/PlugIns/*.appex/Info.plist; do
+          for plist in "$app/Info.plist" "$app"/PlugIns/*.appex/Info.plist "$app"/Watch/*.app/Info.plist "$app"/Watch/*.app/PlugIns/*.appex/Info.plist; do
             got=$(plutil -extract CFBundleShortVersionString raw "$plist")/$(plutil -extract CFBundleVersion raw "$plist")
             echo "$got  ${plist#$app/}  $(plutil -extract DTSDKName raw "$plist")"
             [[ $got == ${{ steps.version.outputs.version }}/${{ steps.version.outputs.build }} ]] || { echo "::error::$plist has $got"; exit 1; }

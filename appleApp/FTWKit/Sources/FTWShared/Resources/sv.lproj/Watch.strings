@@ -1,0 +1,79 @@
+/* The Apple Watch app and its complications. Keys are the English (WatchWord). */
+"LIVE" = "LIVE";
+"DEMO" = "DEMO";
+"AS OF %@" = "PER %@";
+"NO READING YET" = "INGEN AVLÄSNING ÄN";
+"FTW IN CONTROL" = "FTW STYR";
+"▲ FTW NOT IN CONTROL" = "▲ FTW STYR INTE";
+"PLANNED %@" = "PLANERAD %@";
+"PLAN FROM %@" = "PLAN FRÅN %@";
+
+"SENT" = "SKICKAT";
+"ACCEPTED" = "MOTTAGET";
+"CONFIRMED" = "BEKRÄFTAT";
+"Sending to your iPhone…" = "Skickar till din iPhone …";
+"Your iPhone is sending it to your box…" = "Din iPhone skickar det till boxen …";
+"Your iPhone can't be reached. Nothing was sent." = "Din iPhone nås inte. Inget skickades.";
+"No answer from your iPhone yet. Check FTW there." = "Inget svar från din iPhone än. Titta i FTW där.";
+"That came too late, so it was not sent. Try again." = "Det kom för sent och skickades inte. Försök igen.";
+"That was for another home. Nothing was sent." = "Det gällde ett annat hem. Inget skickades.";
+"This phone may not change how the home is run." = "Den här telefonen får inte ändra hur hemmet körs.";
+
+"iPhone not reachable" = "iPhone nås inte";
+"Open FTW on your iPhone" = "Öppna FTW på din iPhone";
+"The watch shows what your iPhone last read. Pair the phone with your box first." = "Klockan visar det din iPhone senast läste. Para ihop telefonen med boxen först.";
+
+"Solar" = "Sol";
+"Battery" = "Batteri";
+"Usage" = "Förbrukning";
+"Grid" = "Elnät";
+"Car" = "Bil";
+"making" = "producerar";
+"resting" = "vilar";
+"charging" = "laddar";
+"giving power" = "laddar ur";
+"using" = "använder";
+"buying" = "köper";
+"selling" = "säljer";
+"balanced" = "i balans";
+"no reading" = "ingen avläsning";
+
+"Now" = "Nu";
+"Plan" = "Plan";
+"Price" = "Pris";
+"Mode" = "Läge";
+
+"Battery stores" = "Batteriet laddar";
+"Battery gives power" = "Batteriet laddar ur";
+"Battery waits" = "Batteriet vilar";
+"No plan" = "Ingen plan";
+"car charges" = "bilen laddar";
+"car %@" = "bilen %@";
+"cheapest" = "billigast";
+"No price yet" = "Inget pris än";
+"Turn the Crown to step through the plan" = "Vrid på Digital Crown för att stega genom planen";
+
+"Plugged in" = "Inkopplad";
+"Not plugged in" = "Inte inkopplad";
+"Charge now on" = "Ladda nu på";
+"Charging · %@" = "Laddar · %@";
+"Goal %@" = "Mål %@";
+"Charges %@" = "Laddar %@";
+"%@ assumed" = "%@ antaget";
+"FTW has no charger" = "FTW har ingen laddare";
+"Charge now" = "Ladda nu";
+"Pause" = "Pausa";
+"Back to the plan" = "Tillbaka till planen";
+"Start charging at once, until you go back to the plan?" = "Börja ladda direkt, tills du går tillbaka till planen?";
+"Stop charging until you go back to the plan?" = "Sluta ladda tills du går tillbaka till planen?";
+"Let FTW decide when to charge again?" = "Låta FTW bestämma när det laddar igen?";
+"Run the home as %@?" = "Köra hemmet som %@?";
+"Cancel" = "Avbryt";
+
+"Price now" = "Pris nu";
+"Cheap now" = "Billigt nu";
+"until %@" = "till %@";
+"Cheap power" = "Billig el";
+"Shows up in the Smart Stack while power is at its cheapest." = "Syns i Smart Stack när elen är som billigast.";
+"FTW plan" = "FTW-plan";
+"The next 24 hours on a dial, and what FTW plans now." = "De närmaste 24 timmarna på en tavla, och vad FTW planerar nu.";

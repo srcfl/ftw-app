@@ -515,6 +515,7 @@ final class RecordingCarrier: Carrier {
         var args: CBOR
         var notValidAfterMs: Double?
         var uptimeMs: Double
+        var cmdId: String?
     }
 
     let inner: Carrier
@@ -532,7 +533,7 @@ final class RecordingCarrier: Carrier {
     @discardableResult
     func send(_ frame: Bytes) -> Bool {
         if let d = try? Frame.decode(frame), d.envelope.t == "cmd", let b = d.envelope.b {
-            commands.append(Command(op: b["op"]?.string ?? "", args: b["args"] ?? CBOR.emptyMap, notValidAfterMs: b["notValidAfterMs"]?.double, uptimeMs: uptimeMs))
+            commands.append(Command(op: b["op"]?.string ?? "", args: b["args"] ?? CBOR.emptyMap, notValidAfterMs: b["notValidAfterMs"]?.double, uptimeMs: uptimeMs, cmdId: b["cmdId"]?.string))
         }
         return inner.send(frame)
     }
