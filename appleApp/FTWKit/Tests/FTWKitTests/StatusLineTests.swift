@@ -1,0 +1,253 @@
+import Foundation
+import Testing
+@testable import FTWDemo
+@testable import FTWKit
+import FTWShared
+
+/// The status line under Now's title: whether this is now, and who controls
+/// the home, in a few mono words that never count seconds.
+@Suite struct StatusLineTests {
+    static let utc = TimeZone(identifier: "UTC")!
+    /// 10:00 UTC.
+    static let t = CarTextTests.t
+
+    func line(_ reach: StatusLine.Reach, _ control: StatusLine.Control = .ftw, receipt: StatusLine.Receipt? = nil, asOf: Double? = nil) -> StatusLine {
+        StatusLine.make(.init(reach: reach, control: control, receipt: receipt, asOfMs: asOf, zone: Self.utc))
+    }
+
+    @Test func liveIsALitDotAndWhoControlsTheHome() {
+        AppWords.$language.withValue(.en) {
+            let live = line(.live)
+            #expect(live.dot == .lit)
+            #expect(live.text == "LIVE · FTW IN CONTROL")
+            #expect(live.opens == .control)
+            #expect(line(.live, .you).text == "LIVE · YOU'RE IN CONTROL")
+            #expect(line(.demo).text == "DEMO · SIMULATED HOME")
+            #expect(line(.demo).dot == .lit)
+        }
+    }
+
+    /// Anything not live is a hollow ring and the clock time of the oldest
+    /// reading on screen. It holds still while the clock moves.
+    @Test func notLiveIsAHollowRingAndAClockTime() {
+        AppWords.$language.withValue(.en) {
+            let cached = line(.connecting, asOf: Self.t + 5 * 60_000 + 40_000)
+            #expect(cached.dot == .hollow)
+            #expect(cached.text == "AS OF 10:05 · FTW IN CONTROL")
+            #expect(line(.settled, asOf: Self.t).text == "AS OF 10:00 · FTW IN CONTROL")
+            // Nothing on screen yet: connecting says only that.
+            #expect(line(.connecting, asOf: nil).text == "CONNECTING…")
+            #expect(line(.settled, asOf: nil).text == "CONNECTING…")
+        }
+    }
+
+    @Test func outOfReachSaysSoAndOpensHelp() {
+        AppWords.$language.withValue(.en) {
+            let lost = line(.cantReach, asOf: Self.t)
+            #expect(lost.text == "AS OF 10:00 · CAN'T REACH THE BOX ›")
+            #expect(lost.opens == .help)
+            #expect(line(.cantReach).text == "CAN'T REACH THE BOX ›")
+            #expect(line(.offline, asOf: Self.t).text == "AS OF 10:00 · PHONE OFFLINE")
+            #expect(line(.busy, asOf: Self.t).text == "AS OF 10:00 · FTW BUSY")
+            #expect(line(.starting(45)).text == "BOX STARTING · 45\u{00A0}%")
+            #expect(line(.ended, receipt: .sent).text == "ACCESS ENDED")
+        }
+    }
+
+    /// Dispatch blocked and devices gone quiet are said in alarm red; the
+    /// rest of the line stays ink.
+    @Test func aBlockOrAQuietDeviceIsAnAlarm() {
+        AppWords.$language.withValue(.en) {
+            let paused = line(.live, .paused)
+            #expect(paused.text == "LIVE · ▲ PAUSED · METER STALE")
+            #expect(paused.parts.map(\.tone) == [.ink, .alarm, .alarm])
+            #expect(paused.dot == .lit)
+            #expect(line(.live, .quiet(1)).text == "LIVE · ▲ 1 DEVICE QUIET")
+            #expect(line(.settled, .quiet(2), asOf: Self.t).text == "AS OF 10:00 · ▲ 2 DEVICES QUIET")
+        }
+    }
+
+    /// A mode change takes the second half of the line until the box has
+    /// answered; confirmed is lime, refused is alarm red.
+    @Test func aModeChangeShowsTheBoxsReceipt() {
+        AppWords.$language.withValue(.en) {
+            #expect(line(.live, receipt: .waiting).text == "LIVE · SENDING…")
+            #expect(line(.live, receipt: .sent).text == "LIVE · SENT ▸")
+            #expect(line(.live, receipt: .accepted).text == "LIVE · SENT ▸ ACCEPTED ▸")
+            let done = line(.live, receipt: .confirmed)
+            #expect(done.text == "LIVE · SENT ▸ CONFIRMED")
+            #expect(done.parts.last?.tone == .live)
+            #expect(line(.live, receipt: .refused).parts.last == .init(text: "▲ REFUSED", tone: .alarm))
+            #expect(line(.demo, receipt: .unconfirmed).text == "DEMO · ▲ NOT CONFIRMED")
+        }
+    }
+
+    @Test func inSwedish() {
+        AppWords.$language.withValue(.sv) {
+            #expect(line(.live).text == "LIVE · FTW STYR")
+            #expect(line(.settled, asOf: Self.t).text == "PER 10:00 · FTW STYR")
+            #expect(line(.live, .paused).text == "LIVE · ▲ PAUSAD · MÄTAREN TYST")
+            #expect(line(.live, receipt: .confirmed).text == "LIVE · SKICKAT ▸ BEKRÄFTAT")
+            #expect(line(.cantReach).text == "NÅR INTE BOXEN ›")
+            #expect(line(.demo).text == "DEMO · SIMULERAT HEM")
+        }
+    }
+
+    /// Fredrik's rule: no ticking seconds. No state, in either language,
+    /// writes an age in seconds or minutes, and a clock time moves only by
+    /// the minute.
+    @Test func theLineNeverCountsSeconds() {
+        let reaches: [StatusLine.Reach] = [.live, .settled, .connecting, .cantReach, .offline, .busy, .starting(12), .starting(nil), .ended, .demo]
+        let controls: [StatusLine.Control] = [.ftw, .you, .paused, .quiet(1), .quiet(3), .unknown]
+        let receipts: [StatusLine.Receipt?] = [nil, .waiting, .sent, .accepted, .confirmed, .unconfirmed, .refused]
+        for language in [AppWords.Language.en, .sv] {
+            AppWords.$language.withValue(language) {
+                var seen = Set<String>()
+                for r in reaches {
+                    for c in controls {
+                        for p in receipts {
+                            for second in stride(from: 0.0, to: 60_000, by: 7_000) {
+                                let text = line(r, c, receipt: p, asOf: Self.t + second).text
+                                seen.insert(text)
+                                #expect(text.range(of: #"\d+\s?(s|sek|min)\b"#, options: .regularExpression) == nil, "\(text)")
+                                #expect(!text.lowercased().contains("ago"), "\(text)")
+                                #expect(!text.contains("sedan"), "\(text)")
+                            }
+                        }
+                    }
+                }
+                // Within one minute, the seconds never change the words.
+                #expect(line(.settled, asOf: Self.t).text == line(.settled, asOf: Self.t + 59_000).text)
+                #expect(seen.count >= 40)
+            }
+        }
+    }
+}
+
+/// The line against a home: the simulated box over the loopback, a mode
+/// change from tap to answer, and the line coming back afterwards.
+@MainActor
+@Suite struct StatusLineSiteTests {
+    @Test func aLiveHomeSaysLiveAndFTWInControl() async throws {
+        let rig = DemoRig()
+        let site = SiteModel(siteId: "home", build: "test", ua: "test", scheduler: rig.scheduler, files: nil, shared: nil)
+        site.start()
+        let mode = ModeModel(site: site)
+        AppWords.$language.withValue(.en) {
+            let before = StatusLine.make(StatusLine.facts(site: site, mode: mode, demo: false, online: true, noCarrier: false, receipt: nil))
+            #expect(before.text == "CONNECTING…")
+            #expect(before.dot == .hollow)
+        }
+        site.connect(SimulatedBox.loopback(rig.scheduler))
+        await rig.run(3_000)
+        AppWords.$language.withValue(.en) {
+            let live = StatusLine.make(StatusLine.facts(site: site, mode: mode, demo: false, online: true, noCarrier: false, receipt: nil))
+            #expect(live.text == "LIVE · FTW IN CONTROL")
+            #expect(live.dot == .lit)
+            // Readings arriving now outrank an old sentence of help.
+            let stillLive = StatusLine.make(StatusLine.facts(site: site, mode: mode, demo: false, online: true, noCarrier: true, receipt: nil))
+            #expect(stillLive.text == "LIVE · FTW IN CONTROL")
+        }
+    }
+
+    @Test func aModeChangeHoldsTheLineUntilTheBoxAnswersThenLetsGo() async throws {
+        let rig = DemoRig()
+        rig.app.startDemo()
+        let home = try #require(rig.app.home)
+        let mode = home.nodes.mode
+        await rig.run(3_000)
+        func now() -> StatusLine {
+            AppWords.$language.withValue(.en) {
+                StatusLine.make(StatusLine.facts(site: home.site, mode: mode, demo: true, online: true, noCarrier: false, receipt: StatusLine.receipt(mode, nowMs: home.site.scheduler.nowMs)))
+            }
+        }
+        #expect(now().text == "DEMO · SIMULATED HOME")
+        // The clock moves only when the test moves it, so the command runs
+        // beside it; the box answers 0.9 s after the tap.
+        let task = Task { await mode.set("idle") }
+        await rig.run(100)
+        #expect(["DEMO · SENT ▸", "DEMO · SENT ▸ ACCEPTED ▸"].contains(now().text))
+        await rig.run(1_500)
+        await task.value
+        #expect(now().text == "DEMO · SENT ▸ CONFIRMED")
+        await rig.run(StatusLine.receiptShownMs)
+        #expect(now().text == "DEMO · SIMULATED HOME")
+    }
+
+    /// The stream goes quiet: the dot goes out, and the line says the clock
+    /// time of the last reading and holds it while the clock runs.
+    @Test func aQuietStreamSaysAsOfAndHoldsStill() async throws {
+        let rig = DemoRig()
+        rig.app.startDemo()
+        let home = try #require(rig.app.home)
+        let box = try #require(rig.box)
+        await rig.run(3_000)
+        func now() -> StatusLine {
+            AppWords.$language.withValue(.en) {
+                StatusLine.make(StatusLine.facts(site: home.site, mode: home.nodes.mode, demo: false, online: true, noCarrier: false, receipt: nil))
+            }
+        }
+        #expect(now().text == "LIVE · FTW IN CONTROL")
+        box.mute = true
+        await rig.run(5_000)
+        let quiet = now()
+        #expect(quiet.dot == .hollow)
+        // The oldest reading on screen: the box read its devices a moment
+        // before the last frame, which left at 12:00:03.
+        #expect(["AS OF 11:59 · FTW IN CONTROL", "AS OF 12:00 · FTW IN CONTROL"].contains(quiet.text))
+        await rig.run(20_000)
+        #expect(now() == quiet)
+        box.mute = false
+        await rig.run(3_000)
+        #expect(now().text == "LIVE · FTW IN CONTROL")
+    }
+
+    /// A manual mode is the household's own choice: the line says so.
+    @Test func aManualModeSaysYoureInControl() async throws {
+        let rig = DemoRig()
+        rig.app.startDemo()
+        let home = try #require(rig.app.home)
+        await rig.run(3_000)
+        #expect(StatusLine.control(site: home.site, mode: home.nodes.mode) == .ftw)
+        let task = Task { await home.nodes.mode.set("idle") }
+        await rig.run(2_000)
+        await task.value
+        #expect(StatusLine.control(site: home.site, mode: home.nodes.mode) == .you)
+    }
+}
+
+/// The home's name as Now's title.
+@Suite struct HomeNameTests {
+    @Test func aHomeWithoutANameIsHomeInThePhonesLanguage() {
+        AppWords.$language.withValue(.en) {
+            #expect(HomeName.title(nil) == "Home")
+            #expect(HomeName.title("Home") == "Home")
+            #expect(HomeName.title("Stugan") == "Stugan")
+            #expect(HomeName.demo == "Demo home")
+        }
+        AppWords.$language.withValue(.sv) {
+            #expect(HomeName.title("Home") == "Hem")
+            #expect(HomeName.demo == "Demohem")
+        }
+    }
+}
+
+/// Now's fixed page: the flow's size and place come from the screen alone.
+@Suite struct NowLayoutTests {
+    @Test func theFlowTakesItsShareOfTheRoomWithinItsBounds() {
+        // An SE: the floor.
+        let se = NowLayout(room: 400)
+        #expect(se.flow == 232)
+        #expect(abs(se.above - (400 - 232) * 0.42) < 0.001)
+        // A Pro Max: 45 % of the room.
+        let pm = NowLayout(room: 640)
+        #expect(abs(pm.flow - 288) < 0.001)
+        // Never more than 340 pt, and never more than the room.
+        #expect(NowLayout(room: 2_000).flow == 340)
+        #expect(NowLayout(room: 180).flow == 180)
+        #expect(NowLayout(room: 180).above == 0)
+        #expect(NowLayout(room: -5).flow == 0)
+        // Above the middle: less room over the flow than under it.
+        #expect(pm.above < 640 - pm.flow - pm.above)
+    }
+}

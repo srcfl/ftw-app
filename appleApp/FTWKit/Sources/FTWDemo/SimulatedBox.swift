@@ -451,6 +451,42 @@ public final class SimulatedBox {
         respond(id, status: status, json: json)
     }
 
+    /// Core's answer to "Are we in control?" for the demo's battery and
+    /// charger, in the shape `control_feedback` has on a real box: the
+    /// battery follows the plan and the meter saw it, the charger waits for
+    /// the plan's hours or follows them.
+    private func controlFeedback(_ now: Double) -> [JSON] {
+        let mode = house.modeKey
+        let bat = house.batteryW
+        let moved = abs(bat) >= 100
+        var battery: JSON = [
+            "driver": "sungrow", "kind": "battery", "mode": .string(mode), "status": "following",
+            "reason": moved ? "plan" : "idle", "severity": "info", "evidence": moved ? "confirmed" : "measured",
+            "readings_fresh": true, "requested_w": .number(bat), "sent_w": .number(bat), "readback_w": .number(bat),
+            "actual_w": .number((bat * 0.995).rounded()), "battery_soc": .number(house.socFraction), "tolerance_w": 150,
+            "command_at_ms": .number(now - 4_000), "observed_at_ms": .number(now - 1_000),
+            "site_confirmation": moved ? "confirmed" : "no_clear_change",
+        ]
+        if moved {
+            battery = battery.setting("confirmed_at_ms", .number(now - 2_000)).setting("site_evidence", [
+                "device_change_w": .number((bat * 0.4).rounded()), "grid_change_w": .number((bat * 0.4).rounded()),
+                "grid_before_w": .number(house.gridW - (bat * 0.4).rounded()), "grid_after_w": .number(house.gridW),
+                "samples": 8, "window_s": 12, "tolerance_w": 120,
+            ])
+        }
+        let ev = house.evWatts
+        let charging = ev >= 100
+        let car: JSON = [
+            "driver": "easee", "kind": "ev", "mode": .string(mode), "status": charging ? "following" : "waiting",
+            "reason": charging ? (house.manualHoldW != nil ? "manual_hold" : "plan") : (house.carPluggedIn ? "no_plan_budget" : "not_connected"),
+            "severity": "info", "evidence": charging ? "measured" : "", "readings_fresh": true,
+            "sent_w": .number(ev), "actual_w": .number(ev), "requested_a": charging ? .number((ev / 690).rounded()) : .null,
+            "command_at_ms": .number(now - 60_000), "observed_at_ms": .number(now - 1_000),
+            "site_confirmation": charging ? "device_response_unconfirmed" : "not_controlling",
+        ]
+        return [battery, car]
+    }
+
     private func answer(_ method: String, _ pattern: String, _ itemID: String?, _ query: [String: String], _ body: JSON?) -> (Int, JSON) {
         let now = scheduler.nowMs
         switch (method, pattern) {
@@ -473,6 +509,7 @@ public final class SimulatedBox {
                 "fuse": ["max_amps": .number(house.fuseAmps), "phases": 3, "voltage": 230],
                 "phase_amps": .array((0..<3).map { .number(((perPhase + Double($0) * 90) / 230 * 10).rounded() / 10) }),
                 "phase_powers": .array((0..<3).map { .number((perPhase + Double($0) * 90).rounded()) }),
+                "control_feedback": .array(controlFeedback(now)),
             ])
         case ("GET", "/api/energy/daily"):
             let days = max(1, min(90, Int(query["days"] ?? "7") ?? 7))

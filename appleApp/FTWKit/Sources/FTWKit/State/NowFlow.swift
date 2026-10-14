@@ -95,6 +95,16 @@ public enum NowFlow {
 }
 
 extension NowFlow {
+    /// The shape of Now before the box has ever answered: every corner and
+    /// the home, with no figure and no word, so the first reading fills the
+    /// drawing in place rather than building it.
+    public static let skeleton: [NodeReading] = EnergyNode.allCases.map { node in
+        NodeReading(
+            node: node, watts: nil, word: "", tone: .muted, towardHome: true, levelPct: nil, levelAssumed: false,
+            freshness: NodeFreshness(carrier: .none, srcState: .never, ageMs: nil, sourceName: nil)
+        )
+    }
+
     /// Now's nodes from the stream, with the car's charger watts where the
     /// stream leaves them out: the last the box said, dated by its read and
     /// never an invented 0 W. Before this run's first reading, the nodes the
@@ -121,5 +131,26 @@ extension NowFlow {
             hasCar: !points.isEmpty,
             known: site.lastFrameAtMs == nil ? site.kept?.nodes ?? [] : []
         )
+    }
+}
+
+/// Where the flow goes on Now, from the height there is. The flow takes 45 %
+/// of the room between the bar and the plan, never less than 232 pt and
+/// never more than 340 pt, and sits a little above the middle of that room.
+/// A function of the screen alone, so nothing on the page moves when data
+/// arrives.
+public struct NowLayout: Equatable, Sendable {
+    public static let minFlow: CGFloat = 232
+    public static let maxFlow: CGFloat = 340
+
+    public let flow: CGFloat
+    /// From the top of the room to the top of the flow.
+    public let above: CGFloat
+
+    /// - room: the height between the bar and the plan.
+    public init(room: CGFloat) {
+        let free = max(0, room)
+        flow = min(free, min(Self.maxFlow, max(Self.minFlow, free * 0.45)))
+        above = max(0, (free - flow) * 0.42)
     }
 }

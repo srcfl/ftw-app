@@ -256,6 +256,45 @@ public enum NodeWords {
         "That link is not an FTW pairing code.": "Länken är ingen FTW-kod för parkoppling.",
         "That didn't work. Try scanning again.": "Det gick inte. Försök skanna igen.",
         "There is no FTW pairing code in that picture. Try a closer screenshot of the QR.": "Bilden har ingen FTW-kod för parkoppling. Prova en närmare skärmbild av QR-koden.",
+
+        // The status line under Now's title: short words in mono caps
+        "LIVE": "LIVE",
+        "DEMO": "DEMO",
+        "AS OF %@": "PER %@",
+        "CONNECTING…": "ANSLUTER…",
+        "CAN'T REACH THE BOX": "NÅR INTE BOXEN",
+        "PHONE OFFLINE": "TELEFONEN OFFLINE",
+        "FTW BUSY": "FTW UPPTAGET",
+        "BOX STARTING": "BOXEN STARTAR",
+        "ACCESS ENDED": "ÅTKOMSTEN SLUT",
+        "SIMULATED HOME": "SIMULERAT HEM",
+        "FTW IN CONTROL": "FTW STYR",
+        "YOU'RE IN CONTROL": "DU STYR",
+        "▲ PAUSED": "▲ PAUSAD",
+        "METER STALE": "MÄTAREN TYST",
+        "▲ 1 DEVICE QUIET": "▲ 1 ENHET TYST",
+        "▲ %@ DEVICES QUIET": "▲ %@ ENHETER TYSTA",
+        "SENDING…": "SKICKAR…",
+        "SENT ▸": "SKICKAT ▸",
+        "SENT ▸ ACCEPTED ▸": "SKICKAT ▸ MOTTAGET ▸",
+        "SENT ▸ CONFIRMED": "SKICKAT ▸ BEKRÄFTAT",
+        "▲ NOT CONFIRMED": "▲ EJ BEKRÄFTAT",
+        "▲ REFUSED": "▲ NEKAT",
+        "Status": "Status",
+        "Shows whether FTW is in control, and how it knows.": "Visar om FTW styr, och hur det vet det.",
+
+        // The control sheet
+        "Readings": "Mätvärden",
+        "Read from your box at %@.": "Läst från boxen kl. %@.",
+        "Your box sends no more detail to this phone.": "Boxen skickar inga fler detaljer till den här telefonen.",
+        "Simulated on this phone": "Simulerade i telefonen",
+
+        // The title's menu
+        "Homes": "Hem",
+        "Pair a home": "Parkoppla ett hem",
+        "Settings": "Inställningar",
+        "About FTW": "Om FTW",
+        "Homes, settings and about.": "Hem, inställningar och om appen.",
     ]
 }
 

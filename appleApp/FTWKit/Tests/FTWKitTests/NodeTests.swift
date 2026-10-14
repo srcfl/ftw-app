@@ -798,6 +798,8 @@ import FTWShared
             "appleApp/FTW/UI/RootView.swift", "appleApp/FTWKit/Sources/FTWKit/State/PairModel.swift",
             "appleApp/FTW/UI/ChartScrub.swift", "appleApp/FTW/Car/CarView.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/ChartWords.swift", "appleApp/FTW/UI/PriceView.swift",
+            "appleApp/FTW/UI/StatusLine.swift", "appleApp/FTW/UI/ControlSheet.swift", "appleApp/FTW/UI/ModeMenu.swift",
+            "appleApp/FTWKit/Sources/FTWKit/State/StatusLine.swift",
         ]
         let pattern = #/(?:\bL|NodeWords\.(?:text|format)|AppWords\.(?:text|format))\("((?:[^"\\]|\\.)*)"/#
         var english = Set<String>()

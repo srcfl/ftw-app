@@ -57,6 +57,7 @@ struct HomeView: View {
     let app: AppModel
     let home: HomeModels
     @State private var path: [HomeRoute] = HomeRoute.initial
+    @State private var sheet: HomeSheet?
     /// A node on Now grows into its own view, and the car into the car view.
     @Namespace private var zoom
 
@@ -64,15 +65,21 @@ struct HomeView: View {
         NavigationStack(path: $path) {
             NowView(app: app, home: home, zoom: zoom)
                 .background(Theme.surface)
-                .navigationTitle(L("Now"))
+                // The home's name, with the way to every other place behind
+                // it: no button of its own on Now.
+                .navigationTitle(app.homeName)
                 .navigationBarTitleDisplayMode(.inline)
-                .freshness(app: app, site: home.site)
+                .statusLine(app: app, home: home)
                 .toolbar {
-                    if app.isDemo {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button(L("Exit demo")) { app.exitDemo() }
-                                .accessibilityIdentifier("demo.exit")
-                        }
+                    // The title's menu is drawn here rather than with
+                    // `toolbarTitleMenu`, whose target also covers the
+                    // status line under it: the name opens the menu, the
+                    // line opens the control sheet.
+                    ToolbarItem(placement: .title) {
+                        TitleMenu(app: app, sheet: $sheet)
+                    }
+                    ToolbarItem(placement: .topBarTrailing) {
+                        ModeMenu(mode: home.nodes.mode)
                     }
                 }
                 .navigationDestination(for: HomeRoute.self) { route in
@@ -91,97 +98,116 @@ struct HomeView: View {
                             PriceView(home: home)
                         }
                     }
-                    .freshness(app: app, site: home.site)
+                    .statusLine(app: app, home: home)
                     .navigationTransition(.zoom(sourceID: route, in: zoom))
                 }
+        }
+        .sheet(item: $sheet) { which in
+            switch which {
+            case .settings: ModeSheet(mode: home.nodes.mode, app: app)
+            case .about(let start): AboutView(app: app, start: start)
+            }
         }
         // Now and the car read the chargers from one model, so a screen
         // appearing asks the box once.
         .onAppear { home.loadpoints.activate() }
         .onDisappear { home.loadpoints.deactivate() }
-    }
-}
-
-extension View {
-    /// Freshness under every screen's title, in the system's own bar, so it
-    /// never scrolls away and needs no band of its own.
-    func freshness(app: AppModel, site: SiteModel) -> some View {
-        modifier(FreshnessSubtitle(app: app, site: site))
-    }
-}
-
-private struct FreshnessSubtitle: ViewModifier {
-    let app: AppModel
-    let site: SiteModel
-
-    func body(content: Content) -> some View {
-        content.toolbar {
-            ToolbarItem(placement: .subtitle) {
-                FreshnessLine(app: app, site: site)
-            }
+        #if DEBUG
+        // For screenshots: `-FTWSheet settings` opens the settings, and
+        // `-FTWAbout about`, `remove` or a file name such as `LICENSE` opens
+        // Source & licenses there.
+        .task {
+            if UserDefaults.standard.string(forKey: "FTWSheet") == "settings" { sheet = .settings }
+            if let start = UserDefaults.standard.string(forKey: "FTWAbout").flatMap(AboutView.Start.init) { sheet = .about(start) }
         }
+        #endif
     }
 }
 
-/// "● Live via encrypted relay · 2 s", or the demo's own line, in its own
-/// view so a frame redraws this line and not the screen under it. A change
-/// of state cross-fades; the dot beats with each frame unless Reduce Motion
-/// is on.
-struct FreshnessLine: View {
+/// What the title's menu opens over Now.
+enum HomeSheet: Hashable, Identifiable {
+    case settings
+    case about(AboutView.Start)
+    var id: Self { self }
+}
+
+/// The home's name as the title, and its menu.
+struct TitleMenu: View {
     let app: AppModel
-    let site: SiteModel
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Binding var sheet: HomeSheet?
 
     var body: some View {
-        let line = self.line
-        HStack(spacing: 5) {
-            Circle()
-                .fill(line.color)
-                .frame(width: 7, height: 7)
-                .phaseAnimator([false, true], trigger: site.lastFrameAtMs) { dot, beat in
-                    dot.scaleEffect(line.beats && beat && !reduceMotion ? 1.4 : 1)
-                } animation: { _ in .easeOut(duration: 0.3) }
-            Text(line.message)
-                .contentTransition(.opacity)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            if let tail = line.tail {
-                Text(tail)
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
+        Menu {
+            HomeMenu(app: app, sheet: $sheet)
+        } label: {
+            HStack(spacing: 6) {
+                Text(app.homeName)
+                    .font(.headline)
+                    .foregroundStyle(Theme.ink)
                     .lineLimit(1)
+                Image(systemName: "chevron.down.circle.fill")
+                    .font(.subheadline)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(Theme.ink2)
             }
+            .contentShape(Rectangle())
         }
-        .font(.footnote)
-        .foregroundStyle(Theme.fgDim)
-        .animation(Theme.spring, value: line)
-        .accessibilityElement(children: .combine)
-        .accessibilityIdentifier("freshness")
-        // Chrome: whole words before large letters.
+        .accessibilityLabel(app.homeName)
+        .accessibilityHint(L("Homes, settings and about."))
+        .accessibilityIdentifier("now.title")
+        // Chrome in the bar: whole words before large letters.
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
+}
 
-    struct Line: Equatable {
-        var color: Color
-        var message: String
-        var tail: String?
-        var beats: Bool
-    }
+/// The title's menu: the homes on this phone, how this one is run, what the
+/// app is and how it treats your data, the way out of the demo, and the
+/// build, in that order.
+struct HomeMenu: View {
+    let app: AppModel
+    @Binding var sheet: HomeSheet?
 
-    private var line: Line {
+    var body: some View {
+        Section {
+            Menu {
+                ForEach(app.homes) { h in
+                    Button { app.open(h.siteId) } label: {
+                        if !app.isDemo, app.site?.siteId == h.siteId {
+                            Label(HomeName.title(h.label), systemImage: "checkmark")
+                        } else {
+                            Text(HomeName.title(h.label))
+                        }
+                    }
+                }
+                Button { app.recovering = true } label: {
+                    Label(L("Pair a home"), systemImage: "qrcode.viewfinder")
+                }
+            } label: {
+                Label(L("Homes"), systemImage: "house")
+            }
+            Button { sheet = .settings } label: {
+                Label(L("Settings"), systemImage: "gearshape")
+            }
+            .accessibilityIdentifier("menu.settings")
+            Button { sheet = .about(.about) } label: {
+                Label(L("About FTW"), systemImage: "info.circle")
+            }
+            .accessibilityIdentifier("menu.about")
+            Link(destination: Origin.privacyURL()) {
+                Label(AboutWords.text("Privacy"), systemImage: "hand.raised")
+            }
+        }
         if app.isDemo {
-            let streaming = site.session.phase == .streaming
-            return Line(color: streaming ? Theme.live : Theme.fgMuted, message: L(streaming ? "Live demo · simulated home" : "Starting the demo"), tail: nil, beats: streaming)
+            Section {
+                Button { app.exitDemo() } label: {
+                    Label(L("Exit demo"), systemImage: "xmark.circle")
+                }
+                .accessibilityIdentifier("demo.exit")
+            }
         }
-        let band = site.freshness(noCarrier: app.connectHelp != nil)
-        let age = band.age.flatMap { $0 == "—" ? nil : $0 }
-        // No network on the phone at all: say that, and how old the last
-        // reading is, rather than count seconds toward a box out of reach.
-        if !NetworkState.shared.online, band.tone != .live {
-            return Line(color: Theme.freshLost, message: L("This phone is offline"), tail: age.map { "· \($0)" }, beats: false)
+        Section {
+            Text(verbatim: "FTW \(BuildSource.bundled.versionText)")
         }
-        let tail = [band.wait, age].compactMap { $0 }.joined(separator: " · ")
-        return Line(color: FreshnessTone.color(band.tone), message: band.message, tail: tail.isEmpty ? nil : "· \(tail)", beats: band.tone == .live)
     }
 }
 
@@ -210,18 +236,6 @@ struct FitScreen<Content: View>: View {
             .padding(.vertical, 12)
             .frame(maxWidth: 640, alignment: .topLeading)
             .frame(maxWidth: .infinity, maxHeight: fill ? .infinity : nil, alignment: .top)
-    }
-}
-
-/// Freshness's colours, one per tone.
-enum FreshnessTone {
-    static func color(_ tone: Freshness.Tone) -> Color {
-        switch tone {
-        case .live: return Theme.freshLive
-        case .stale: return Theme.freshStale
-        case .reaching, .lost: return Theme.freshLost
-        case .busy: return Theme.freshStale
-        }
     }
 }
 

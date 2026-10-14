@@ -79,6 +79,8 @@ public final class ModeModel {
         /// stands until the box reports again, so the screen does not flick
         /// back to the old value in between.
         var reportAtResult: Double?
+        /// When the box answered, by the phone clock.
+        public var settledAtMs: Double?
 
         public var settled: Bool { result != nil }
     }
@@ -305,6 +307,7 @@ public final class ModeModel {
             change?.reportAtResult = prefsReadAtMs
         }
         change?.result = result
+        change?.settledAtMs = site.scheduler.nowMs
         // The prefs move the mode too, so both are read again, after any
         // answer the box gave: what it holds now is what shows.
         if case .mode = ask {} else { want += 1; self.ask?.evaluate() }
