@@ -332,6 +332,7 @@ private struct LiveSection: View {
         let now = site.nowMs
         let points = trace.points(node.fid, sinceMs: now - LiveTrace.windowMs).map { $0.with(v: node.shown($0.v)) }
         let live = site.freshness(node).live
+        let resumed = trace.missed(nowMs: now)
         VStack(alignment: .leading, spacing: 4) {
             // The header gives way to the place under the finger.
             ZStack(alignment: .leading) {
@@ -350,7 +351,7 @@ private struct LiveSection: View {
                     .frame(maxWidth: .infinity)
                     .frame(minHeight: fill ? 52 : 110)
             } else {
-                LiveChart(node: node, points: points, nowMs: now, look: NodeLook.look(node, live: live), onScrub: { readout = $0 })
+                LiveChart(node: node, points: points, nowMs: now, look: NodeLook.look(node, live: live), resumed: resumed, onScrub: { readout = $0 })
                     .equatable()
                     // Each second's step glides over that second, so the
                     // curve moves on at an even pace instead of jumping;

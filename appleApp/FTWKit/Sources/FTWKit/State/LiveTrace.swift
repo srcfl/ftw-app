@@ -56,6 +56,11 @@ public struct RingBuffer<Element: Sendable>: Sendable {
 /// it stands for are still true; a source that falls silent past its gap
 /// rule records nothing, and the curve breaks there rather than drawing a
 /// line across.
+///
+/// The last five minutes are sealed as `ring-<site>` with the home's other
+/// files, so after a kill a node's curve opens with what the app saw
+/// before. Those points are marked `restored`: drawn in ink, never as live,
+/// and `resumed` dates the time the app missed.
 @Observable
 @MainActor
 public final class LiveTrace {
@@ -92,9 +97,18 @@ public final class LiveTrace {
     /// own (`SiteModel.readingGapMs`); this is the box's stream in front.
     public nonisolated static let gapMs: Double = 3_500
 
+    /// The time between the newest restored point and the first live one
+    /// after it. `toMs` is nil until a live reading comes.
+    public struct Resumed: Equatable, Sendable {
+        public let fromMs: Double
+        public var toMs: Double?
+    }
+
     /// Moves once per recorded reading, so a curve redraws once a second
     /// and nothing else does.
     public private(set) var revision = 0
+    /// Nil when nothing was restored at launch.
+    public private(set) var resumed: Resumed?
 
     @ObservationIgnored private var rings: [Int: RingBuffer<Point>] = [:]
     /// Per field, how long its newest point may stand before a silence is
@@ -107,6 +121,8 @@ public final class LiveTrace {
 
     public init(site: SiteModel) {
         self.site = site
+        if let file = site.keptFile(RingFile.self, "ring"), file.version == RingFile.version { restore(file) }
+        site.keepFile("ring") { [weak self] in self?.file }
         token = site.observe { [weak self] in self?.take() }
         take()
     }
@@ -152,10 +168,59 @@ public final class LiveTrace {
             holds[fid] = gapMs
             any = true
         }
-        if any { revision += 1 }
+        guard any else { return }
+        if resumed != nil, resumed?.toMs == nil { resumed?.toMs = atMs }
+        revision += 1
+    }
+
+    // MARK: The sealed ring
+
+    /// The last five minutes of every ring, as the file keeps them.
+    var file: RingFile? {
+        guard let newest = rings.values.compactMap({ $0.last?.t }).max() else { return nil }
+        var lanes = [String: RingFile.Lane]()
+        for (fid, ring) in rings {
+            let kept = ring.elements.filter { $0.t >= newest - Self.windowMs }
+            guard let first = kept.first else { continue }
+            var lane = RingFile.Lane(t0: first.t.rounded(), dt: [], v: [], starts: [])
+            var previous: Point?
+            for (i, p) in kept.enumerated() {
+                lane.dt.append(Int(p.t.rounded() - (previous?.t.rounded() ?? lane.t0)))
+                lane.v.append(p.v)
+                if previous.map({ $0.run != p.run || $0.restored != p.restored }) ?? true { lane.starts.append(i) }
+                previous = p
+            }
+            lanes[String(fid)] = lane
+        }
+        return RingFile(lanes: lanes)
+    }
+
+    /// What the last launch kept, as points that are no longer live.
+    func restore(_ file: RingFile) {
+        var newest: Double?
+        for (key, lane) in file.lanes {
+            guard let fid = Int(key), !Self.notReadings.contains(fid), lane.dt.count == lane.v.count, !lane.v.isEmpty else { continue }
+            var ring = RingBuffer<Point>(capacity: Self.capacity)
+            var t = lane.t0
+            for i in lane.v.indices {
+                t += Double(lane.dt[i])
+                if i == 0 || lane.starts.contains(i) { nextRun += 1 }
+                ring.append(Point(t: t, v: lane.v[i], run: nextRun, restored: true))
+            }
+            rings[fid] = ring
+            newest = max(newest ?? t, t)
+        }
+        if let newest { resumed = Resumed(fromMs: newest, toMs: nil) }
     }
 
     nonisolated static let notReadings: Set<Int> = [Contract.FID.mode, Contract.FID.srcGrid, Contract.FID.srcPV, Contract.FID.srcBattery]
+
+    /// The time the app missed, while restored points still show in the
+    /// window that ends at `nowMs`.
+    public func missed(nowMs: Double) -> Resumed? {
+        guard let resumed, resumed.fromMs >= nowMs - Self.windowMs else { return nil }
+        return resumed
+    }
 
     /// One field from `sinceMs` on, oldest first.
     public func points(_ fid: Int, sinceMs: Double) -> [Point] {
@@ -177,4 +242,24 @@ public final class LiveTrace {
         }
         return out
     }
+}
+
+/// The live rings as `ring-<site>` keeps them: per field, times as steps in
+/// whole ms after the first, the values, and where each run starts. About
+/// 15 KB for five minutes of Now's fields.
+struct RingFile: Codable, Equatable, Sendable {
+    static let version = 1
+
+    struct Lane: Codable, Equatable, Sendable {
+        var t0: Double
+        /// Each point's time after the one before; the first is 0.
+        var dt: [Int]
+        var v: [Double]
+        /// The indexes where a run starts.
+        var starts: [Int]
+    }
+
+    var version = RingFile.version
+    /// By field id.
+    var lanes: [String: Lane]
 }

@@ -110,6 +110,8 @@ public final class SiteModel {
     /// The home file as last read or written, so the same home is not
     /// written twice.
     @ObservationIgnored private var lastHome: HomeCache?
+    /// The models' own sealed files beside the home file.
+    @ObservationIgnored private var fileKeepers: [FileKeeper] = []
     /// FTW Cloud's price window and chargers as last accepted, for the
     /// models that show them. Each change comes with a `notify`.
     @ObservationIgnored public private(set) var cloudPrices: Stamped<PriceEntry>?
@@ -544,6 +546,12 @@ public final class SiteModel {
             shareCloudHome()
         }
         writeHome(siteId: siteId, files: files, wait: wait)
+        for keeper in fileKeepers {
+            guard let data = keeper.encode(), data != keeper.last else { continue }
+            keeper.last = data
+            let name = "\(keeper.prefix)-\(siteId)"
+            if wait { files.write(name, data.byteArray) } else { files.writeLater(name, data.byteArray) }
+        }
         guard session.phase == .streaming || !session.fields.isEmpty, cachedAtMs == nil else { return }
         // The cloud's ages move with the clock; take them as of now.
         let state = source == .cloud ? composed() : session
@@ -557,6 +565,21 @@ public final class SiteModel {
     /// A model's part of the home file: `fill` adds it at every write.
     public func keep(_ fill: @escaping @MainActor (inout HomeCache) -> Void) {
         keepers.append(fill)
+    }
+
+    /// A model's own sealed file beside the home file, `<prefix>-<site>`,
+    /// written on the same triggers when what `value` gives differs from
+    /// what was written last. Nil writes nothing.
+    public func keepFile<T: Encodable>(_ prefix: String, _ value: @escaping @MainActor () -> T?) {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        fileKeepers.append(FileKeeper(prefix: prefix) { value().flatMap { try? encoder.encode($0) } })
+    }
+
+    /// The file `keepFile` wrote for this home, as the last launch left it.
+    public func keptFile<T: Decodable>(_ type: T.Type, _ prefix: String) -> T? {
+        guard let siteId else { return nil }
+        return files?.readJSON(T.self, "\(prefix)-\(siteId)")
     }
 
     /// Write the home file when it says something new. Hello is the box's
@@ -940,6 +963,19 @@ public final class SiteModel {
         }
         if let token = wait.token { unobserve(token) }
         return ok
+    }
+}
+
+/// One model's sealed file, and what was written to it last.
+@MainActor
+private final class FileKeeper {
+    let prefix: String
+    let encode: @MainActor () -> Data?
+    var last: Data?
+
+    init(prefix: String, encode: @escaping @MainActor () -> Data?) {
+        self.prefix = prefix
+        self.encode = encode
     }
 }
 

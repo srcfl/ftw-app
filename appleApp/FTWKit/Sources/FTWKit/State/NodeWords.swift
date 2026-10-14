@@ -45,6 +45,7 @@ public enum NodeWords {
         "Live · last 5 min": "Live · senaste 5 min",
         "Live, the last five minutes": "Live, de senaste fem minuterna",
         "Drawing as readings arrive…": "Ritas när mätningarna kommer …",
+        "RESUMED %@": "ÅTERUPPTAGEN %@",
         "No live readings while your box is out of reach.": "Inga livevärden medan boxen inte går att nå.",
         "No reading yet": "Ingen mätning än",
         "Not live, %@": "Inte live, %@",

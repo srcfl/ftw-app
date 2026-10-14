@@ -120,32 +120,47 @@ private func signedRun(_ t: Double, _ v: Double, run: Int, look: ChartLook, opac
         .interpolationMethod(.monotone)
 }
 
-/// The last five minutes, from the ring buffer lane 0 fills. A break in
-/// the stream is a break in the line.
+/// The last five minutes, from the live trace. A break in the stream is a
+/// break in the line. Points kept from before this launch draw in ink,
+/// with a band over the time the app missed.
 struct LiveChart: View, Equatable {
     let node: EnergyNode
     let points: [LiveTrace.Point]
     let nowMs: Double
     let look: ChartLook
+    var resumed: LiveTrace.Resumed?
     var onScrub: (ChartReadout?) -> Void = { _ in }
     @State private var selected: Date?
     @State private var range: ClosedRange<Date>?
 
     nonisolated static func == (a: Self, b: Self) -> Bool {
-        a.node == b.node && a.points == b.points && a.nowMs == b.nowMs && a.look == b.look
+        a.node == b.node && a.points == b.points && a.nowMs == b.nowMs && a.look == b.look && a.resumed == b.resumed
     }
 
     var body: some View {
         let runs = LiveTrace.runs(points)
+        let ink = NodeLook.look(node, live: false)
         Chart {
+            if let resumed {
+                RectangleMark(xStart: .value("Missed", date(resumed.fromMs)), xEnd: .value("Resumed", date(resumed.toMs ?? nowMs)))
+                    .foregroundStyle(Theme.ink3.opacity(0.14))
+                    .annotation(position: .overlay, alignment: .topLeading) {
+                        if let at = resumed.toMs {
+                            Text(NodeWords.format("RESUMED %@", AppWords.clock(at, zone: .current)))
+                                .font(Theme.mono(.caption2))
+                                .foregroundStyle(Theme.ink3)
+                                .fixedSize()
+                        }
+                    }
+            }
             ForEach(runs.indices, id: \.self) { i in
                 let r = runs[i]
-                signedRun(r.point.t, r.point.v, run: r.run, look: look, opacity: (0.32, 0.04), lineWidth: 2)
+                signedRun(r.point.t, r.point.v, run: r.run, look: r.point.restored ? ink : look, opacity: (0.32, 0.04), lineWidth: 2)
             }
             if look.signed {
                 RuleMark(y: .value("Zero", 0)).foregroundStyle(Theme.line).lineStyle(StrokeStyle(lineWidth: 1))
             }
-            if let last = runs.last, selected == nil {
+            if let last = runs.last, !last.point.restored, selected == nil {
                 PointMark(x: .value("Time", date(last.point.t)), y: .value("Power", last.point.v))
                     .foregroundStyle(last.point.v < 0 ? look.down : look.line)
                     .symbolSize(28)
