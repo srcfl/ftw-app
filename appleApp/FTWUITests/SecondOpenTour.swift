@@ -1,9 +1,10 @@
 import XCTest
 
 /// Opens the battery's Today twice, then kills the app and opens it again
-/// straight into the battery's live trace, for screen recordings of the
-/// second open. The demo keeps its sealed cache like a paired home.
-/// Skipped unless asked for:
+/// straight into the battery's live trace, then its Today, for screen
+/// recordings of the second open. The demo keeps its sealed cache like a
+/// paired home. `FTW_DWELL` is how many seconds Now stays up first, so the
+/// live ring has more to keep. Skipped unless asked for:
 ///
 ///     TEST_RUNNER_FTW_SECOND=1 xcodebuild test … -only-testing:FTWUITests/SecondOpenTour
 final class SecondOpenTour: XCTestCase {
@@ -18,7 +19,7 @@ final class SecondOpenTour: XCTestCase {
         app.launch()
         let battery = app.descendants(matching: .any)["now.node.battery"].firstMatch
         XCTAssertTrue(battery.waitForExistence(timeout: 15))
-        Thread.sleep(forTimeInterval: 6)
+        Thread.sleep(forTimeInterval: Double(env["FTW_DWELL"] ?? "") ?? 6)
 
         // First open, back, second open.
         for open in ["first", "second"] {
@@ -41,7 +42,10 @@ final class SecondOpenTour: XCTestCase {
         app.launch()
         XCTAssertTrue(app.descendants(matching: .any)["node.live.chart"].firstMatch.waitForExistence(timeout: 5))
         shoot(app, "after-kill")
-        Thread.sleep(forTimeInterval: 6)
+        Thread.sleep(forTimeInterval: 4)
+        app.segmentedControls["node.period"].buttons.element(boundBy: 1).tap()
+        shoot(app, "after-kill-today")
+        Thread.sleep(forTimeInterval: 3)
     }
 
     @MainActor
