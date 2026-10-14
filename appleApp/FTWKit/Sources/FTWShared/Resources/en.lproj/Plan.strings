@@ -21,3 +21,31 @@
 "Cheapest power" = "Cheapest power";
 "Planned %@" = "Planned %@";
 "Plan from %@ · open FTW" = "Plan from %@ · open FTW";
+
+/* Now's strip: the next thing and the one after it. */
+"Battery stores until %@" = "Battery stores until %@";
+"Battery gives power until %@" = "Battery gives power until %@";
+"Car charges until %@" = "Car charges until %@";
+"Battery stores %@" = "Battery stores %@";
+"Battery gives power %@" = "Battery gives power %@";
+"Car charges %@" = "Car charges %@";
+"%@, to %@" = "%@, to %@";
+"%@." = "%@.";
+"%@, then stores %@." = "%@, then stores %@.";
+"%@, then gives power %@." = "%@, then gives power %@.";
+"%@, then the battery stores %@." = "%@, then the battery stores %@.";
+"%@, then the battery gives power %@." = "%@, then the battery gives power %@.";
+"%@, then the car charges %@." = "%@, then the car charges %@.";
+
+/* The strip's header and what a finger reads on it. */
+"NEXT 12 H" = "NEXT 12 H";
+"PLANNED %@" = "PLANNED %@";
+"OLD PLAN · %@" = "OLD PLAN · %@";
+"NOW" = "NOW";
+"stores" = "stores";
+"gives power" = "gives power";
+"waits" = "waits";
+"car charges" = "car charges";
+"car at %@" = "car at %@";
+"below zero" = "below zero";
+"no price yet" = "no price yet";

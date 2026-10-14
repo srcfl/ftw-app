@@ -47,6 +47,7 @@
 "Open FTW to see prices" = "Öppna FTW för att se priser";
 "No prices · open FTW" = "Inga priser · öppna FTW";
 "Fetched %@" = "Hämtat %@";
+"AS OF %@" = "PER %@";
 "incl. grid fee and VAT" = "inkl. nätavgift och moms";
 "incl. VAT" = "inkl. moms";
 "incl. grid fee" = "inkl. nätavgift";

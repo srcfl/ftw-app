@@ -55,14 +55,57 @@ public struct PlanEntry: CacheValue {
     /// The household's time zone, as the box names it, so a widget reads the
     /// clock the way the home does. Nil in a record from before it was kept.
     public var timeZone: String?
+    /// Where the box's own solar forecast expects the panels to make power,
+    /// for the plan dial's sky. Nil when the app has not read the forecast.
+    public var daylight: Daylight?
 
-    public init(battery: [Slot]?, charges: [Charge], prices: [PriceSlot], currency: String, boxStale: Bool, timeZone: String? = nil) {
+    /// A stretch of time.
+    public struct Span: Codable, Sendable, Equatable {
+        public var fromMs: Double
+        public var toMs: Double
+
+        public init(fromMs: Double, toMs: Double) {
+            self.fromMs = fromMs
+            self.toMs = toMs
+        }
+    }
+
+    /// The stretch the solar forecast covers, and the runs in it where it
+    /// expects the panels to make power.
+    public struct Daylight: Codable, Sendable, Equatable {
+        public var covered: Span
+        public var sun: [Span]
+
+        public init(covered: Span, sun: [Span]) {
+            self.covered = covered
+            self.sun = sun
+        }
+
+        /// From the forecast's slots: start, length and expected watts.
+        public init?(_ slots: [(startMs: Double, durationMs: Double, pvW: Double)]) {
+            let sorted = slots.filter { $0.durationMs > 0 }.sorted { $0.startMs < $1.startMs }
+            guard let first = sorted.first, let last = sorted.last else { return nil }
+            var runs = [Span]()
+            for s in sorted where s.pvW >= PlanDial.sunW {
+                let end = s.startMs + s.durationMs
+                if let open = runs.last, s.startMs <= open.toMs + 1 {
+                    runs[runs.count - 1].toMs = max(open.toMs, end)
+                } else {
+                    runs.append(Span(fromMs: s.startMs, toMs: end))
+                }
+            }
+            self.init(covered: Span(fromMs: first.startMs, toMs: last.startMs + last.durationMs), sun: runs)
+        }
+    }
+
+    public init(battery: [Slot]?, charges: [Charge], prices: [PriceSlot], currency: String, boxStale: Bool, timeZone: String? = nil, daylight: Daylight? = nil) {
         self.battery = battery
         self.charges = charges
         self.prices = prices
         self.currency = currency
         self.boxStale = boxStale
         self.timeZone = timeZone
+        self.daylight = daylight
     }
 }
 
@@ -200,6 +243,10 @@ public enum PlanGlance {
         public let laterText: String?
         /// "Planned 14:05", or "Plan from 14:05 · open FTW" once old.
         public let ageText: String?
+        /// Now's strip in one sentence: the next thing the box will do and
+        /// what follows. "Battery gives power until 21:15, then stores
+        /// 22:00."
+        public let nextText: String
         /// The zone the clock in this moment is read in.
         public let timeZone: TimeZone
 
@@ -227,7 +274,7 @@ public enum PlanGlance {
         let calendar = given ?? .household(read?.value.timeZone)
         guard let read else {
             return Moment(atMs: t, state: .nothing, readAtMs: nil, events: [], backdrop: [], currency: "", summary: PlanWord.openToSee.text,
-                          next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, timeZone: calendar.timeZone)
+                          next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, nextText: PlanWord.openToSee.text, timeZone: calendar.timeZone)
         }
         let old = t - read.record.readAtMs >= staleAfterMs
         let state: State = read.value.boxStale || read.srcState == .stale ? .boxStale : (old ? .old : .plan)
@@ -252,7 +299,7 @@ public enum PlanGlance {
         let m = moment(entry, state: .waiting, readAtMs: nil, atMs: nowMs, calendar: calendar ?? .household(entry.timeZone))
         guard let note else { return m }
         return Moment(atMs: m.atMs, state: m.state, readAtMs: nil, events: m.events, backdrop: m.backdrop, currency: m.currency, summary: note,
-                      next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, timeZone: m.timeZone)
+                      next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, nextText: note, timeZone: m.timeZone)
     }
 
     private static func moment(_ entry: PlanEntry, state: State, readAtMs: Double?, atMs t: Double, calendar: Calendar, inApp: Bool = false) -> Moment {
@@ -269,18 +316,24 @@ public enum PlanGlance {
         }
 
         let summary: String
+        let nextText: String
         switch state {
         case .nothing:
             summary = PlanWord.openToSee.text
+            nextText = summary
         case .boxStale:
             summary = PlanWord.boxStale.text
+            nextText = summary
         case .waiting:
             summary = PlanWord.reading.text
+            nextText = summary
         case .plan, .old:
             if entry.battery == nil, entry.charges.isEmpty {
                 summary = PlanWord.noPlanYet.text
+                nextText = summary
             } else {
                 summary = line(list, from: t, clock: clock, ongoingIsNow: state == .plan)
+                nextText = sentence(list, from: t, clock: clock, ongoingIsNow: state == .plan)
             }
         }
 
@@ -303,8 +356,8 @@ public enum PlanGlance {
                 let rest = list.filter { $0 != n }
                 return rest.isEmpty ? nil : line(rest, from: t, clock: clock, ongoingIsNow: true, actions: 1)
             },
-            ageText: age
-        ,
+            ageText: age,
+            nextText: nextText,
             timeZone: calendar.timeZone
         )
     }
@@ -332,6 +385,36 @@ public enum PlanGlance {
             parts.append(PlanWord.cheapest.format(range(cheap, from: t, clock: clock, ongoingIsNow: ongoingIsNow)))
         }
         return parts.joined(separator: " · ")
+    }
+
+    /// Now's strip: the next thing the box will do, and the one after it.
+    /// "Battery gives power until 21:15, then stores 22:00." A thing under
+    /// way says until when; one to come says when it runs. The second says
+    /// only when it starts, and names its subject when that changes. A plan
+    /// that may no longer hold (`ongoingIsNow` false) never says "until".
+    static func sentence(_ events: [Event], from t: Double, clock: Clock, ongoingIsNow: Bool) -> String {
+        let actions = events.filter { $0.kind != .cheap }
+        guard let first = actions.first else { return PlanWord.nothingPlanned.text }
+        let start = ahead(first.startMs, asEnd: false, from: t, clock: clock)
+        let end = ahead(first.endMs, asEnd: true, from: t, clock: clock)
+        // "17:15–23:30", or "tomorrow 02:00–05:00": the day once.
+        let span = "\(start)–\(clock.wall(first.endMs, asEnd: true).hm)"
+        let under = started(first, at: t) && ongoingIsNow
+        var lead: String
+        switch first.kind {
+        case .charge: lead = under ? PlanWord.storesUntil.format(end) : PlanWord.storesAt.format(span)
+        case .discharge: lead = under ? PlanWord.givesUntil.format(end) : PlanWord.givesAt.format(span)
+        case .car, .cheap: lead = under ? PlanWord.carUntil.format(end) : PlanWord.carAt.format(span)
+        }
+        if first.kind == .car, let pct = first.targetPct { lead = PlanWord.toPercent.format(lead, percent(pct)) }
+        guard let then = actions.dropFirst().first else { return PlanWord.sentence.format(lead) }
+        let when = ahead(then.startMs, asEnd: false, from: t, clock: clock)
+        let battery = first.kind == .charge || first.kind == .discharge
+        switch then.kind {
+        case .charge: return (battery ? PlanWord.thenStores : PlanWord.thenBatteryStores).format(lead, when)
+        case .discharge: return (battery ? PlanWord.thenGives : PlanWord.thenBatteryGives).format(lead, when)
+        case .car, .cheap: return PlanWord.thenCar.format(lead, when)
+        }
     }
 
     /// "02–05", "02:15–04:47", "now–05". Tomorrow is named only when the
@@ -375,6 +458,8 @@ public enum PlanGlance {
     static func percent(_ v: Double) -> String { "\(Int(v.rounded()))\u{00A0}%" }
 
     public static var title: String { PlanWord.title.text }
+    /// "NOW", after the price on the strip's header.
+    public static var nowWord: String { PlanWord.nowMark.text }
     public static var summaryText: String { PlanWord.summary.text }
 }
 
@@ -404,6 +489,32 @@ enum PlanWord: String, CaseIterable {
     case cheapPower = "Cheapest power"
     case planned = "Planned %@"
     case planFrom = "Plan from %@ · open FTW"
+    // Now's strip: the next thing and the one after it.
+    case storesUntil = "Battery stores until %@"
+    case givesUntil = "Battery gives power until %@"
+    case carUntil = "Car charges until %@"
+    case storesAt = "Battery stores %@"
+    case givesAt = "Battery gives power %@"
+    case carAt = "Car charges %@"
+    case toPercent = "%@, to %@"
+    case sentence = "%@."
+    case thenStores = "%@, then stores %@."
+    case thenGives = "%@, then gives power %@."
+    case thenBatteryStores = "%@, then the battery stores %@."
+    case thenBatteryGives = "%@, then the battery gives power %@."
+    case thenCar = "%@, then the car charges %@."
+    // The strip's header and what a finger reads on it.
+    case next12h = "NEXT 12 H"
+    case plannedAt = "PLANNED %@"
+    case oldPlan = "OLD PLAN · %@"
+    case nowMark = "NOW"
+    case stores = "stores"
+    case gives = "gives power"
+    case waits = "waits"
+    case carChargesWord = "car charges"
+    case carGoal = "car at %@"
+    case belowZero = "below zero"
+    case noPrice = "no price yet"
 
     var text: String { Words.bundle.localizedString(forKey: rawValue, value: rawValue, table: "Plan") }
 

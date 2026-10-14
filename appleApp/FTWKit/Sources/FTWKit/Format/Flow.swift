@@ -136,6 +136,209 @@ public enum Flow {
         return out
     }
 
+    // MARK: Beams on Now
+
+    /// A figure on Now: 10 W steps under 1 kW, 0.1 kW to 10 kW, whole kW
+    /// past that. It changes when the digits on screen change, so a figure
+    /// rolls when it means something and not every second.
+    public static func quantised(_ watts: Double) -> Double {
+        guard watts.isFinite else { return 0 }
+        let a = abs(watts)
+        let step: Double = a < 995 ? 10 : (a < 9_950 ? 100 : 1_000)
+        return (watts / step).rounded() * step
+    }
+
+    /// A beam's core width in points: 1.25 at rest, 1.1 more per kW, never
+    /// past 6. At 1.1 kW it is as wide as a trace's line.
+    public static func beamWidth(kw: Double) -> Double {
+        min(6, max(1.25, 1.25 + 1.1 * abs(kw)))
+    }
+
+    /// How fast the light runs from source to sink, in points a second: 19
+    /// at 0.1 kW, 31 at 1 kW, 52 at 10 kW. Faster with power, never racing.
+    public static func waveSpeed(kw: Double) -> Double {
+        16 + 22 * log10(1 + 4 * abs(kw))
+    }
+
+    /// Points from one crest of the light to the next.
+    public static let wavelength: Double = 30
+
+    /// Brightness along a beam, from 0.45 to 1: soft crests a wavelength
+    /// apart. `s` is points from the source, `phase` is wavelengths the
+    /// light has travelled.
+    public static func wave(_ s: Double, phase: Double) -> Double {
+        let c = (1 + cos(2 * .pi * (s / wavelength - phase))) / 2
+        return 0.45 + 0.55 * c * c * c
+    }
+
+    /// A value that follows its target as a critically damped spring with
+    /// time constant `tau`: it swells to a new value and never overshoots.
+    /// Stepped exactly, so a long frame lands where many short ones would.
+    public struct Follow: Equatable, Sendable {
+        public private(set) var value: Double
+        public private(set) var velocity: Double = 0
+
+        public init(_ value: Double) { self.value = value }
+
+        public mutating func step(toward target: Double, dt: Double, tau: Double) {
+            guard dt > 0 else { return }
+            guard tau > 0 else { return snap(target) }
+            let w = 1 / tau, e = value - target, k = exp(-w * dt)
+            let a = velocity + w * e
+            value = target + (e + a * dt) * k
+            velocity = (velocity - w * a * dt) * k
+        }
+
+        public mutating func snap(_ target: Double) {
+            value = target
+            velocity = 0
+        }
+    }
+
+    /// The phosphor on a beam, from 0 (ink, still) to 1 (live). It ignites
+    /// on the first live frame with the app's spring (response 0.35 s,
+    /// bounce 0.15), and when live ends it decays exponentially (τ 0.4 s)
+    /// while its wave slows to rest in 0.35 s, so the screen cools like a
+    /// CRT. A beam that has never been live stays at 0. Instant under
+    /// Reduce Motion.
+    public struct Light: Equatable, Sendable {
+        public static let decay: Double = 0.4
+        public static let rest: Double = 0.35
+        /// `Theme.spring`: `Spring(duration: 0.35, bounce: 0.15)` is a
+        /// response of 0.35 s at damping 1 − bounce.
+        static let response: Double = 0.35
+        static let damping: Double = 0.85
+
+        public private(set) var live: Bool
+        private var since: Double
+        private var level0: Double
+        private var motion0: Double
+
+        public init(live: Bool, at t: Double) {
+            self.live = live
+            since = t
+            level0 = live ? 1 : 0
+            motion0 = level0
+        }
+
+        public mutating func set(live: Bool, at t: Double, instant: Bool = false) {
+            guard live != self.live else { return }
+            let target: Double = live ? 1 : 0
+            level0 = instant ? target : level(at: t)
+            motion0 = instant ? target : motion(at: t)
+            since = t
+            self.live = live
+        }
+
+        /// The glow, the wave's depth and the core's strength.
+        public func level(at t: Double) -> Double {
+            let dt = max(0, t - since)
+            return live ? 1 - (1 - level0) * Self.residual(dt) : level0 * exp(-dt / Self.decay)
+        }
+
+        /// How fast the wave runs, as a share of its speed.
+        public func motion(at t: Double) -> Double {
+            let dt = max(0, t - since)
+            if live { return min(1, 1 - (1 - motion0) * Self.residual(dt)) }
+            let k = 1 - min(1, dt / Self.rest)
+            return motion0 * k * k
+        }
+
+        /// What is left of a step after `t` seconds on the spring.
+        static func residual(_ t: Double) -> Double {
+            let w = 2 * Double.pi / response, z = damping
+            let wd = w * (1 - z * z).squareRoot()
+            return exp(-z * w * t) * (cos(wd * t) + z * w / wd * sin(wd * t))
+        }
+    }
+
+    /// What a beam on Now shows for one node's reading. Only a reading the
+    /// box confirmed live glows or moves; at 42 W or less the beam is a
+    /// still dotted hairline.
+    public struct BeamTarget: Equatable, Sendable {
+        public let node: EnergyNode
+        /// Magnitude, never signed.
+        public let kw: Double
+        public let live: Bool
+        public let flowing: Bool
+        /// The light runs toward the home.
+        public let towardHome: Bool
+
+        public init(node: EnergyNode, kw: Double, live: Bool, flowing: Bool, towardHome: Bool) {
+            self.node = node
+            self.kw = kw
+            self.live = live
+            self.flowing = flowing
+            self.towardHome = towardHome
+        }
+
+        public init(_ r: NodeReading) {
+            self.init(node: r.node, kw: (r.watts ?? 0) / 1000, live: r.freshness.live, flowing: r.flowing, towardHome: r.towardHome)
+        }
+    }
+
+    /// One beam's look in one frame.
+    public struct BeamFrame: Equatable, Sendable {
+        /// The core's width, in points.
+        public var width: Double
+        /// Wavelengths the light has run, source to sink.
+        public var phase: Double
+        /// The phosphor: the glow's strength and the wave's depth.
+        public var light: Double
+        /// 0 for a beam, 1 for the still dotted hairline of a node at rest.
+        public var idle: Double
+
+        /// The core's opacity: 0.35 in ink, full while live.
+        public var alpha: Double { 0.35 + 0.65 * min(1, light) }
+        /// How far the light's wave dips, 0 (even) to 1.
+        public var depth: Double { min(1, light) }
+    }
+
+    /// A beam over time: its width and speed follow the readings (τ 0.4 s),
+    /// its light ignites and decays, its wave runs at the speed the power
+    /// gives. A plain value stepped once per frame, so a test can run it.
+    public struct BeamMotion: Equatable, Sendable {
+        public static let tau: Double = 0.4
+
+        private var width: Follow
+        private var speed: Follow
+        private var idle: Follow
+        private var light: Light
+        private var phase: Double = 0
+        private var last: Double
+
+        /// The first frame: everything where the reading puts it, with no
+        /// ignite, so a screen that opens on live data does not flash and a
+        /// cache never glows.
+        public init(_ target: BeamTarget, at t: Double) {
+            width = Follow(Flow.beamWidth(kw: target.kw))
+            speed = Follow(Flow.waveSpeed(kw: target.kw))
+            idle = Follow(target.flowing ? 0 : 1)
+            light = Light(live: target.live, at: t)
+            last = t
+        }
+
+        /// The beam at `t`. Under Reduce Motion it snaps and its light does
+        /// not run.
+        public mutating func step(_ target: BeamTarget, at t: Double, reduceMotion: Bool) -> BeamFrame {
+            let dt = max(0, t - last)
+            last = max(last, t)
+            light.set(live: target.live, at: t, instant: reduceMotion)
+            let w = Flow.beamWidth(kw: target.kw), v = Flow.waveSpeed(kw: target.kw), rest: Double = target.flowing ? 0 : 1
+            if reduceMotion {
+                width.snap(w)
+                speed.snap(v)
+                idle.snap(rest)
+            } else {
+                width.step(toward: w, dt: dt, tau: Self.tau)
+                speed.step(toward: v, dt: dt, tau: Self.tau)
+                idle.step(toward: rest, dt: dt, tau: Self.tau / 2)
+                phase = (phase + speed.value * light.motion(at: t) * dt / Flow.wavelength).truncatingRemainder(dividingBy: 1_000)
+            }
+            return BeamFrame(width: width.value, phase: phase, light: light.level(at: t), idle: min(1, max(0, idle.value)))
+        }
+    }
+
     // MARK: The fuse
 
     public struct Phase: Equatable, Sendable, Identifiable {

@@ -20,13 +20,13 @@ struct PlanPage: View {
             let ctx = model.context
             let dial = faces.dial(plan: ctx?.plan, prices: ctx?.prices, nowMs: nowMs)
             let moment = PlanGlance.moment(ctx?.plan.map { CacheRead(record: $0, origin: .app) }, atMs: nowMs)
-            let i = min(max(quarter, 0), WatchDial.count - 1)
+            let i = min(max(quarter, 0), PlanDial.count - 1)
             GeometryReader { geo in
                 // The dial takes what the two lines under it leave.
                 let side = max(80, min(geo.size.width - 4, geo.size.height - 30))
                 VStack(spacing: 2) {
                     ZStack {
-                        DialFace(dial: dial, selected: i, grey: moment.isGrey)
+                        PlanDialView(dial: dial, selected: i, grey: moment.isGrey)
                         VStack(spacing: 0) {
                             Text(dial.time(i))
                                 .font(Theme.figure(side * 0.15))
@@ -59,7 +59,7 @@ struct PlanPage: View {
             }
             .focusable()
             .focused($focused)
-            .digitalCrownRotation(detent: $quarter, from: 0, through: WatchDial.count - 1, by: 1, sensitivity: .high, isContinuous: false, isHapticFeedbackEnabled: false)
+            .digitalCrownRotation(detent: $quarter, from: 0, through: PlanDial.count - 1, by: 1, sensitivity: .high, isContinuous: false, isHapticFeedbackEnabled: false)
             .onChange(of: quarter) { _, q in
                 scrub.move(to: q, landmark: dial.landmarks.contains(q))
             }
@@ -69,7 +69,7 @@ struct PlanPage: View {
             .accessibilityHint(WatchWord.turnTheCrown.text)
             .accessibilityAdjustableAction { direction in
                 switch direction {
-                case .increment: quarter = min(quarter + 1, WatchDial.count - 1)
+                case .increment: quarter = min(quarter + 1, PlanDial.count - 1)
                 case .decrement: quarter = max(quarter - 1, 0)
                 @unknown default: break
                 }
@@ -108,13 +108,13 @@ struct PlanPage: View {
 @MainActor
 final class DialMemo {
     @ObservationIgnored private var key: String?
-    @ObservationIgnored private var kept: WatchDial?
+    @ObservationIgnored private var kept: PlanDial?
 
-    func dial(plan: CacheRecord<PlanEntry>?, prices: CacheRecord<PriceEntry>?, nowMs: Double) -> WatchDial {
+    func dial(plan: CacheRecord<PlanEntry>?, prices: CacheRecord<PriceEntry>?, nowMs: Double) -> PlanDial {
         let minute = (nowMs / 60_000).rounded(.down)
         let key = "\(plan?.readAtMs ?? 0)|\(prices?.readAtMs ?? 0)|\(minute)"
         if key == self.key, let kept { return kept }
-        let d = WatchDial(plan: plan?.value, prices: prices?.value, nowMs: nowMs)
+        let d = PlanDial(plan: plan?.value, prices: prices?.value, nowMs: nowMs)
         self.key = key
         kept = d
         return d

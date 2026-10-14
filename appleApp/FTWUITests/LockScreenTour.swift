@@ -28,10 +28,14 @@ final class LockScreenTour: XCTestCase {
         guard tap(ftw) else { return note("no FTW in the gallery") }
         Thread.sleep(forTimeInterval: 2)
         shoot("lock-ftw")
-        // FTW's widgets are pages: the price first, the plan second. A tap
-        // on the preview adds it.
-        springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.72)).press(forDuration: 0.1, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.72)))
-        Thread.sleep(forTimeInterval: 1.5)
+        // FTW's widgets are pages: the price first, the plan second, the
+        // plan dial's circle after them. `TEST_RUNNER_FTW_LOCK_PAGE` says
+        // how many to swipe past; a tap on the preview adds it.
+        let page = Int(ProcessInfo.processInfo.environment["FTW_LOCK_PAGE"] ?? "") ?? 1
+        for _ in 0..<page {
+            springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.71)).press(forDuration: 0.05, thenDragTo: springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.15, dy: 0.71)), withVelocity: .fast, thenHoldForDuration: 0)
+            Thread.sleep(forTimeInterval: 1.5)
+        }
         shoot("lock-ftw-plan")
         springboard.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.72)).tap()
         Thread.sleep(forTimeInterval: 2)

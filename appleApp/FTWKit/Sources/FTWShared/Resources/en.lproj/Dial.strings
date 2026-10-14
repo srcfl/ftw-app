@@ -1,0 +1,12 @@
+/* The plan dial's words, on the phone, its widget and the watch. English is the key (DialWord). */
+"STORES · %@" = "STORES · %@";
+"GIVES · %@" = "GIVES · %@";
+"WAITS" = "WAITS";
+"NO PLAN" = "NO PLAN";
+"CAR" = "CAR";
+"CAR TO %@" = "CAR TO %@";
+"NO PRICE YET" = "NO PRICE YET";
+"PLANNED %@ · REPLANS EVERY 15 MIN" = "PLANNED %@ · REPLANS EVERY 15 MIN";
+"PLAN FROM %@ · OLD" = "PLAN FROM %@ · OLD";
+"Plan dial" = "Plan dial";
+"The next 24 hours round a dial: the price, what the battery does and when the car charges." = "The next 24 hours round a dial: the price, what the battery does and when the car charges.";

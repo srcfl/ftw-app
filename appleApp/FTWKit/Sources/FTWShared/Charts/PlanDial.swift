@@ -1,21 +1,23 @@
 import Foundation
 
-/// The plan dial as the watch draws it: one turn is the next 24 hours, on a
-/// 24-hour face with 00 at the bottom and 12 at the top, so the day's
-/// light sits in the upper half and morning on the left. Each quarter hour
-/// is one tick. Its length is the price in eight levels, its colour what
-/// the battery does then, and a dotted arc inside marks the car's charging.
+/// The plan dial, as the phone, its widget and the watch all draw it: one
+/// turn is the next 24 hours, on a 24-hour face with 00 at the bottom and
+/// 12 at the top, so the day's light sits in the upper half and morning on
+/// the left. Each quarter hour is one tick. Its length is the price in
+/// eight levels, its colour what the battery does then, and a dotted arc
+/// inside marks the car's charging. The sun's arc on the rim comes from the
+/// box's own forecast, never from astronomy.
 ///
-/// Built on the chart engine in `Charts/` (`SlotGrid`, `ZoneClock`), and
-/// worked out once per plan, so the Crown only reads a table. The phone's
-/// own dial (WP11) is not on `main` yet; when it lands in FTWShared, the
-/// watch draws that face and this type goes.
-public struct WatchDial: Equatable, Sendable {
+/// Built on the chart engine (`SlotGrid`, `ZoneClock`) and worked out once
+/// per plan and minute, so a finger or the Crown only reads a table.
+public struct PlanDial: Equatable, Sendable {
     public static let quarterMs: Double = 15 * 60_000
     /// One turn: 24 hours of quarters.
     public static let count = 96
     /// The block-glyph scale: ▁▂▃▄▅▆▇█.
     public static let levels = 8
+    /// The box's forecast counts as sun from this many watts up.
+    static let sunW: Double = 10
 
     public enum Battery: Equatable, Sendable {
         case stores, gives, waits
@@ -44,11 +46,22 @@ public struct WatchDial: Equatable, Sendable {
     /// The cheapest two hours ahead, as quarter indices, when they stand
     /// out from the rest.
     public let cheapest: ClosedRange<Int>?
-    /// Where the Crown gives a light tap: now, the cheapest window's
-    /// edges and each car goal.
+    /// "CHEAPEST 00:00–02:00 · 28,5 ÖRE", when `cheapest` is set.
+    public let cheapestText: String?
+    /// Where a finger or the Crown gives a light tap: now, the cheapest
+    /// window's edges and each car goal.
     public let landmarks: Set<Int>
     /// The box sent a battery plan.
     public let hasPlan: Bool
+    /// Where the box's forecast expects the sun inside the turn, from
+    /// sunrise to sunset. Empty without a forecast: no sky is drawn rather
+    /// than one worked out from the calendar.
+    public let sun: [ClosedRange<Double>]
+    /// Per quarter, read by a finger: "14:30", "98 ÖRE/KWH", "STORES ·
+    /// 3,0 KW · CAR". Made once, so a drag costs a subscript.
+    public let times: [String]
+    public let prices: [String]
+    public let doing: [String]
 
     /// The face at `nowMs`. Prices come from the price record where it has
     /// them, else from the plan's own.
@@ -64,18 +77,22 @@ public struct WatchDial: Equatable, Sendable {
             .sorted { $0.startMs < $1.startMs }
         let battery = (plan?.battery ?? []).sorted { $0.startMs < $1.startMs }
         let charges = plan?.charges ?? []
+        let currency = prices?.prices.currency ?? plan?.currency ?? "SEK"
 
-        func price(_ t: Double) -> Double? {
-            // The last slot that starts at or before t, if it still covers t.
-            guard let i = Self.last(slots, atOrBefore: t, start: \.startMs) else { return nil }
-            return t < slots[i].startMs + slots[i].durationMs ? slots[i].totalMinor : nil
+        // What holds in the part of quarter `q` still to come: the box
+        // starts its plan the moment it makes it, so the first slot often
+        // begins inside the quarter running now.
+        func holding<T>(_ items: [T], _ q: Int, start: KeyPath<T, Double>, length: KeyPath<T, Double>) -> T? {
+            let a = max(grid.startMs(q), nowMs), b = grid.endMs(q)
+            let i = Self.last(items, atOrBefore: a, start: start)
+            if let i, a < items[i][keyPath: start] + items[i][keyPath: length] { return items[i] }
+            let next = (i ?? -1) + 1
+            return next < items.count && items[next][keyPath: start] < b ? items[next] : nil
         }
-        func batteryW(_ t: Double) -> Double? {
-            guard let i = Self.last(battery, atOrBefore: t, start: \.startMs) else { return nil }
-            return t < battery[i].startMs + battery[i].durationMs ? battery[i].batteryW : nil
-        }
+        func price(_ q: Int) -> Double? { holding(slots, q, start: \.startMs, length: \.durationMs)?.totalMinor }
+        func batteryW(_ q: Int) -> Double? { holding(battery, q, start: \.startMs, length: \.durationMs)?.batteryW }
 
-        let minors = (0..<Self.count).map { price(grid.startMs($0)) }
+        let minors = (0..<Self.count).map { price($0) }
         let known = minors.compactMap { $0 }
         let lo = known.min() ?? 0, hi = known.max() ?? 0
 
@@ -84,9 +101,9 @@ public struct WatchDial: Equatable, Sendable {
             if let pct = c.targetPct, let i = grid.index(atMs: c.toMs - 1) { goals[i] = pct }
         }
 
-        quarters = (0..<Self.count).map { i in
+        let quarters = (0..<Self.count).map { i in
             let start = grid.startMs(i), end = grid.endMs(i)
-            let w = batteryW(start)
+            let w = batteryW(i)
             let action: Battery = w.map { $0 > PlanGlance.idleW ? .stores : ($0 < -PlanGlance.idleW ? .gives : .waits) } ?? .waits
             return Quarter(
                 startMs: start,
@@ -99,13 +116,18 @@ public struct WatchDial: Equatable, Sendable {
             )
         }
 
+        let unit = PriceUnits.unit(currency)
+        func figure(_ minor: Double) -> String { Words.decimal(PriceStrip.text(abs(minor), currency)) }
+
         var cheapest: ClosedRange<Int>?
+        var cheapestText: String?
         let ahead = slots.filter { $0.startMs + $0.durationMs > nowMs && $0.startMs < grid.toMs }
         if ahead.count >= 2, let block = PriceStrip.bestBlock(ahead, hours: 2, cheapest: true) {
             let mean = ahead.map(\.totalMinor).reduce(0, +) / Double(ahead.count)
             if block.meanMinor < mean * PlanGlance.cheapShare || block.meanMinor < 0,
                let a = grid.index(atMs: max(block.startMs, nowMs)), let b = grid.index(atMs: block.endMs - 1) {
                 cheapest = a...b
+                cheapestText = PriceWord.cheapest.format(clock.label(block.startMs) + "–" + clock.label(block.endMs), figure(block.meanMinor) + " " + unit.label.uppercased())
             }
         }
 
@@ -113,13 +135,37 @@ public struct WatchDial: Equatable, Sendable {
         if let cheapest { marks.formUnion([cheapest.lowerBound, cheapest.upperBound]) }
         marks.formUnion(goals.keys)
 
+        let perKwh = unit.perKwh.uppercased()
         self.grid = grid
+        self.quarters = quarters
         self.nowMs = nowMs
-        self.currency = prices?.prices.currency ?? plan?.currency ?? "SEK"
+        self.currency = currency
         self.zone = zone
         self.cheapest = cheapest
+        self.cheapestText = cheapestText
         landmarks = marks
         hasPlan = !battery.isEmpty
+        sun = (plan?.daylight?.sun ?? []).compactMap { s in
+            let from = max(s.fromMs, first), to = min(s.toMs, grid.toMs)
+            return from < to ? from...to : nil
+        }
+        times = (0..<Self.count).map { clock.label($0 == 0 ? nowMs : grid.startMs($0)) }
+        self.prices = minors.map { m in m.map { figure($0) + " " + perKwh } ?? DialWord.noPrice.text }
+        doing = quarters.map { q in
+            var parts = [String]()
+            switch (q.battery, q.batteryW) {
+            case (_, nil): parts.append(DialWord.noPlan.text)
+            case (.stores, let w?): parts.append(DialWord.stores.format(Words.decimal(PowerFormat.text(w)).uppercased()))
+            case (.gives, let w?): parts.append(DialWord.gives.format(Words.decimal(PowerFormat.text(w)).uppercased()))
+            case (.waits, _): parts.append(DialWord.waits.text)
+            }
+            if let goal = q.carGoalPct {
+                parts.append(DialWord.carTo.format(PlanGlance.percent(goal)))
+            } else if q.car {
+                parts.append(DialWord.car.text)
+            }
+            return parts.joined(separator: " · ")
+        }
     }
 
     /// The price in eight levels, the dearest at 7. A flat day sits in the
@@ -155,8 +201,10 @@ public struct WatchDial: Equatable, Sendable {
     /// Where the middle of quarter `i` sits.
     public func angle(quarter i: Int) -> Double { angle(grid.startMs(i) + Self.quarterMs / 2) }
 
-    /// Where the hand points: now, or the start of the quarter the Crown
-    /// chose.
+    /// Where the turn begins and ends: +24 h meets now.
+    public var seam: Double { angle(grid.firstMs) }
+
+    /// Where the hand points: now, or the start of the quarter chosen.
     public func handAngle(selected: Int?) -> Double {
         guard let i = selected, i > 0 else { return angle(nowMs) }
         return angle(grid.startMs(i))
@@ -166,11 +214,29 @@ public struct WatchDial: Equatable, Sendable {
     /// seam where tomorrow meets now reads as the end of the turn.
     public func fade(_ i: Int) -> Double { 1 - 0.55 * Double(i) / Double(Self.count - 1) }
 
-    // MARK: What the Crown reads
+    /// The quarter under a finger `x` right of and `y` below the dial's
+    /// centre. One turn holds each quarter once, so the angle alone finds
+    /// it. A finger that crosses the seam winds no further: coming from the
+    /// end it stays on the last quarter, from now on the first, so turning
+    /// back answers at once.
+    public func index(x: Double, y: Double, from previous: Int?) -> Int {
+        var a = atan2(x, -y)
+        if a < 0 { a += 2 * .pi }
+        var along = a - seam
+        if along < 0 { along += 2 * .pi }
+        let i = min(Self.count - 1, max(0, Int(along / (2 * .pi) * Double(Self.count))))
+        guard let previous, abs(i - previous) > Self.count / 2 else { return i }
+        return previous < Self.count / 2 ? 0 : Self.count - 1
+    }
+
+    // MARK: What a finger or the Crown reads
 
     /// "14:30"
-    public func time(_ i: Int) -> String {
-        ZoneClock.of(zone).label(i == 0 ? nowMs : grid.startMs(i))
+    public func time(_ i: Int) -> String { times[i] }
+
+    /// "98", or "–" before the price is known: the widget's middle.
+    public func figure(_ i: Int) -> String {
+        quarters[i].minor.map { Words.decimal(PriceStrip.text($0, currency)) } ?? "–"
     }
 
     /// "98 öre", or "—" before the price is known.
@@ -198,5 +264,45 @@ public struct WatchDial: Equatable, Sendable {
         if let cheapest, cheapest.contains(i) { parts.append(WatchWord.cheapestMark.text) }
         if q.minor == nil { parts.append(WatchWord.noPriceYet.text.lowercased()) }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// The dial's mono words, on the phone and the watch. The English is the
+/// key; the Swedish lives in `Resources/sv.lproj/Dial.strings`, and a test
+/// checks each one has it.
+enum DialWord: String, CaseIterable {
+    case stores = "STORES · %@"
+    case gives = "GIVES · %@"
+    case waits = "WAITS"
+    case noPlan = "NO PLAN"
+    case car = "CAR"
+    case carTo = "CAR TO %@"
+    case noPrice = "NO PRICE YET"
+    case planned = "PLANNED %@ · REPLANS EVERY 15 MIN"
+    case plannedOld = "PLAN FROM %@ · OLD"
+    case title = "Plan dial"
+    case summary = "The next 24 hours round a dial: the price, what the battery does and when the car charges."
+
+    var text: String { Words.bundle.localizedString(forKey: rawValue, value: rawValue, table: "Dial") }
+
+    func format(_ args: String...) -> String {
+        var out = text
+        for a in args {
+            guard let r = out.range(of: "%@") else { break }
+            out.replaceSubrange(r, with: a)
+        }
+        return out
+    }
+}
+
+extension PlanDial {
+    /// "Plan dial", for the widget gallery and VoiceOver.
+    public static var title: String { DialWord.title.text }
+    public static var summary: String { DialWord.summary.text }
+
+    /// "PLANNED 16:51 · REPLANS EVERY 15 MIN", or once old, "PLAN FROM
+    /// 14:05 · OLD".
+    public static func planned(atMs: Double, old: Bool, zone: TimeZone) -> String {
+        (old ? DialWord.plannedOld : DialWord.planned).format(ZoneClock.of(zone).label(atMs))
     }
 }

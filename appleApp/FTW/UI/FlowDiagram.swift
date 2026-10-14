@@ -3,174 +3,225 @@ import SwiftUI
 
 /// The home and what flows through it, laid out as the box's own dashboard
 /// lays it out: the sun top left, the battery top right, the grid bottom
-/// left, the car bottom right, and the home's own use in the middle. Each
-/// node is a door to its own view, and grows into it.
+/// left, the car bottom right, and the home's own use in the ring in the
+/// middle. A node whose partner across the middle is missing moves onto the
+/// middle axis (`FlowPlan`). Each node is text on the ground, with no box,
+/// and a door to its own view that grows out of it.
 ///
-/// Dots move along a line only while that node's reading is live. A cached,
-/// quiet or lagging node holds still in ink, because motion claims power is
-/// flowing right now.
+/// Between them run straight beams of light. A beam's width says the power
+/// and a soft wave of light runs along it from source to sink, faster with
+/// more power; it glows in the dark. Only a reading the box confirmed live
+/// glows or moves: a cached or quiet beam is a faint still line, and a node
+/// at rest is a still dotted hairline. No dot travels anywhere.
 struct FlowDiagram: View {
     let readings: [NodeReading]
     let zoom: Namespace.ID
-    /// Charge now, Pause and Back to the plan, held on the car's bubble.
+    /// Charge now, Pause and Back to the plan, held on the car.
     var car: CarActions?
     @State private var frames: [EnergyNode: CGRect] = [:]
+    @ScaledMetric(relativeTo: .largeTitle) private var hubSize: CGFloat = 92
 
     var body: some View {
         GeometryReader { geo in
-            let m = Metrics(size: geo.size)
+            let nodes = readings.map(\.node)
+            // The ring grows a little with the text, no more: past that it
+            // takes the nodes' room.
+            let ring = min(hubSize, 100)
+            let hub = CGRect(x: geo.size.width / 2 - ring / 2, y: geo.size.height / 2 - ring / 2, width: ring, height: ring)
+            let width = Self.nodeWidth(geo.size.width, hub: ring)
             ZStack {
-                FlowLines(lines: lines(m), moving: readings.contains { $0.node != .home && $0.flowing && $0.freshness.live })
+                FlowBeams(beams: beams(nodes: nodes, hub: hub))
                     .accessibilityHidden(true)
                 ForEach(readings.filter { $0.node != .home }) { r in
-                    door(r) { NodeBubble(reading: r, width: m.bubbleWidth, scale: m.scale).equatable() }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: m.alignment(r.node))
+                    let spot = FlowPlan.spot(r.node, among: nodes)
+                    // The node's place is a fixed frame, so neither a beam
+                    // nor the door moves when a word or a figure changes
+                    // width; the whole frame takes the finger.
+                    door(r) { NodeLabel(reading: r, spot: spot).equatable().frame(width: width, alignment: spot.textAlignment) }
+                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { frames[r.node] = $0 }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: spot.alignment)
                 }
                 if let home = readings.first(where: { $0.node == .home }) {
-                    door(home) { HubBubble(reading: home, diameter: m.hubDiameter, scale: m.scale).equatable() }
+                    door(home) { HubLabel(reading: home, diameter: ring).equatable() }
+                        .position(x: hub.midX, y: hub.midY)
                 }
             }
-            .frame(width: m.box.width, height: m.box.height)
-            .position(x: geo.size.width / 2, y: geo.size.height / 2)
         }
         .coordinateSpace(.named(Self.space))
-        // A drawing with fixed places: past this size its labels would
-        // collide, and every figure in it is also said in the node's view.
-        .dynamicTypeSize(...DynamicTypeSize.xLarge)
     }
 
     nonisolated static let space = "flow"
 
+    /// As wide as the room beside the hub allows, within reason.
+    static func nodeWidth(_ width: CGFloat, hub: CGFloat) -> CGFloat {
+        min(132, max(88, (width - hub - 40) / 2))
+    }
+
     private func door<Label: View>(_ r: NodeReading, @ViewBuilder label: () -> Label) -> some View {
         NavigationLink(value: HomeRoute.node(r.node)) { label() }
-            .buttonStyle(PressStyle())
+            .buttonStyle(LockOnPress())
             .modifier(CarMenu(actions: r.node == .car ? car : nil))
             .matchedTransitionSource(id: HomeRoute.node(r.node), in: zoom)
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { frames[r.node] = $0 }
             .accessibilityIdentifier("now.node.\(r.node.rawValue)")
     }
 
-    private func lines(_ m: Metrics) -> [FlowLines.Line] {
-        guard let hub = frames[.home] else { return [] }
-        let to = CGPoint(x: hub.midX, y: hub.midY)
-        return readings.compactMap { r in
-            guard r.node != .home, let f = frames[r.node] else { return nil }
-            return FlowLines.Line(
-                from: CGPoint(x: f.midX, y: f.midY),
-                to: to,
-                color: Theme.color(r.tone),
-                active: r.flowing && r.freshness.live,
-                towardHub: r.towardHome,
-                kw: (r.watts ?? 0) / 1000
-            )
-        }
-    }
-
-    /// Sizes from the room there is. The drawing never grows taller than
-    /// a little over its width: past that the corners only drift apart. On
-    /// a tall phone the figures grow with it, so the room reads as size
-    /// rather than as empty space.
-    struct Metrics {
-        let box: CGSize
-        let scale: CGFloat
-        let bubbleWidth: CGFloat
-        let hubDiameter: CGFloat
-
-        init(size: CGSize) {
-            box = CGSize(width: size.width, height: min(size.height, size.width * 1.2))
-            scale = min(1.25, max(1, box.height / 380))
-            bubbleWidth = min(136, max(96, size.width * 0.3)) * min(scale, 1.1)
-            // Wide enough for the home's word in Swedish at the largest
-            // size the drawing allows.
-            hubDiameter = min(132 * scale, max(112, min(size.width * 0.34, box.height * 0.42)))
-        }
-
-        func alignment(_ node: EnergyNode) -> Alignment {
-            switch node {
-            case .solar: return .topLeading
-            case .battery: return .topTrailing
-            case .grid: return .bottomLeading
-            case .car: return .bottomTrailing
-            case .home: return .center
-            }
+    private func beams(nodes: [EnergyNode], hub: CGRect) -> [FlowBeams.Beam] {
+        readings.compactMap { r in
+            guard r.node != .home, let frame = frames[r.node],
+                  let ends = FlowPlan.beam(node: frame, at: FlowPlan.spot(r.node, among: nodes), hub: hub) else { return nil }
+            let target = Flow.BeamTarget(r)
+            let (from, to) = target.towardHome ? (ends.node, ends.hub) : (ends.hub, ends.node)
+            return FlowBeams.Beam(target: target, from: from, to: to, color: Theme.color(r.tone))
         }
     }
 }
 
-/// The lines between the nodes and the home, and the dots that run along
-/// the live ones, at the display's own rate while something moves and Now
-/// is on screen in an active app. Low Power Mode drops the rate to 20 a
-/// second; Reduce Motion stills the dots and marks each live line with an
-/// arrow for its direction instead.
-private struct FlowLines: View {
-    struct Line {
+extension FlowPlan.Spot {
+    /// Where the node sits in the flow's frame.
+    var alignment: Alignment {
+        switch self {
+        case .topLeading: return .topLeading
+        case .topTrailing: return .topTrailing
+        case .bottomLeading: return .bottomLeading
+        case .bottomTrailing: return .bottomTrailing
+        case .top: return .top
+        case .bottom: return .bottom
+        case .center: return .center
+        }
+    }
+
+    /// How its text lines up in its frame.
+    var textAlignment: Alignment { leading ? .leading : (trailing ? .trailing : .center) }
+    var horizontal: HorizontalAlignment { leading ? .leading : (trailing ? .trailing : .center) }
+}
+
+/// The beams, in one Canvas inside one `TimelineView`. The light runs at the
+/// display's rate while a beam is live and Now is on screen in an active
+/// app, at 20 frames a second in Low Power Mode, and for a moment after a
+/// change so a beam can swell, ignite or cool; otherwise the timeline rests
+/// and nothing draws. Under Reduce Motion the light holds still, ignite and
+/// decay are instant, and a still chevron mid-beam says which way it flows.
+private struct FlowBeams: View {
+    struct Beam: Equatable {
+        let target: Flow.BeamTarget
+        /// Source to sink: the light runs this way.
         let from: CGPoint
         let to: CGPoint
         let color: Color
-        let active: Bool
-        let towardHub: Bool
-        let kw: Double
     }
 
-    let lines: [Line]
-    let moving: Bool
+    let beams: [Beam]
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @State private var onScreen = false
+    @State private var clock = BeamClock()
+    /// Changes seen, and the last one the beams have settled after.
+    @State private var changes = 0
+    @State private var settled = 0
 
-    private var lowPower: Bool { PowerState.shared.lowPower }
+    /// Long enough for a width to swell (τ 0.4 s) and a glow to cool.
+    static let settle: Duration = .milliseconds(2_400)
 
     var body: some View {
-        let still = reduceMotion || !moving
-        let paused = still || !onScreen || scenePhase != .active
-        TimelineView(.animation(minimumInterval: lowPower ? 1.0 / 20 : nil, paused: paused)) { context in
-            Canvas { canvas, _ in
-                draw(canvas, at: context.date.timeIntervalSinceReferenceDate, still: still)
+        let lowPower = PowerState.shared.lowPower
+        let waving = beams.contains { $0.target.live && $0.target.flowing }
+        let running = onScreen && scenePhase == .active && !reduceMotion && (waving || changes != settled)
+        let still = reduceMotion
+        TimelineView(.animation(minimumInterval: lowPower ? 1.0 / 20 : nil, paused: !running)) { tick in
+            Canvas(rendersAsynchronously: false) { g, _ in
+                #if DEBUG
+                let began = ContinuousClock.now
+                defer { ChartDraws.flow(ContinuousClock.now - began) }
+                #endif
+                draw(&g, at: (running ? tick.date : .now).timeIntervalSinceReferenceDate, still: still)
             }
         }
         .onAppear { onScreen = true }
         .onDisappear { onScreen = false }
-    }
-
-    private func draw(_ canvas: GraphicsContext, at time: TimeInterval, still: Bool) {
-        for line in lines {
-            var path = Path()
-            path.move(to: line.from)
-            path.addLine(to: line.to)
-            canvas.stroke(path, with: .color(line.active ? line.color.opacity(0.45) : Theme.line), style: StrokeStyle(lineWidth: line.active ? 2 : 1.5, lineCap: .round, dash: line.active ? [] : [3, 5]))
-            guard line.active else { continue }
-            if still {
-                arrow(canvas, line)
-                continue
-            }
-            // Speed grows with power but never races: a kettle and a car
-            // charger are both readable at a glance, at most about 0.8
-            // lengths a second.
-            let speed = 0.2 + min(0.6, log10(1 + line.kw) * 0.5)
-            let dots = 4
-            for i in 0..<dots {
-                var t = (time * speed + Double(i) / Double(dots)).truncatingRemainder(dividingBy: 1)
-                if !line.towardHub { t = 1 - t }
-                let p = CGPoint(x: line.from.x + (line.to.x - line.from.x) * t, y: line.from.y + (line.to.y - line.from.y) * t)
-                canvas.fill(Path(ellipseIn: CGRect(x: p.x - 3, y: p.y - 3, width: 6, height: 6)), with: .color(line.color))
-            }
+        .onChange(of: beams.map(\.target)) { changes += 1 }
+        .task(id: changes) {
+            try? await Task.sleep(for: Self.settle)
+            guard !Task.isCancelled else { return }
+            settled = changes
         }
     }
 
-    /// A still chevron halfway along a live line, pointing the way power
-    /// flows.
-    private func arrow(_ canvas: GraphicsContext, _ line: Line) {
-        let (a, b) = line.towardHub ? (line.from, line.to) : (line.to, line.from)
+    private func draw(_ g: inout GraphicsContext, at t: Double, still: Bool) {
+        let px = 1 / max(g.environment.displayScale, 1)
+        for beam in beams {
+            let f = clock.frame(beam.target, at: t, reduceMotion: still)
+            let length = hypot(beam.to.x - beam.from.x, beam.to.y - beam.from.y)
+            guard length > 1 else { continue }
+            var path = Path()
+            path.move(to: beam.from)
+            path.addLine(to: beam.to)
+            // At rest: the still dotted hairline, cross-faded with the beam
+            // as a node starts or stops.
+            if f.idle > 0.01 { TraceInk.dotted(path, px: px, opacity: f.idle, in: g) }
+            let k = 1 - f.idle
+            guard k > 0.01 else { continue }
+            let width = CGFloat(f.width)
+            if TraceInk.glows(live: f.light > 0.004, in: g) {
+                TraceInk.glow(path, color: beam.color, width: width, strength: f.light * k, in: g)
+            }
+            let color = beam.color.resolve(in: g.environment)
+            g.stroke(path, with: .linearGradient(Gradient(stops: Self.stops(length: Double(length), f, color, k)), startPoint: beam.from, endPoint: beam.to), style: StrokeStyle(lineWidth: width, lineCap: .round))
+            if still, beam.target.flowing { chevron(beam, width: width, opacity: f.alpha * k, in: g) }
+        }
+    }
+
+    /// The core's brightness along the beam as gradient stops. Inside, the
+    /// stops sit on the wave's own grid, ten to a wavelength, so a crest
+    /// keeps its exact shape as it runs instead of shimmering between
+    /// fixed stops.
+    static func stops(length: Double, _ f: Flow.BeamFrame, _ color: Color.Resolved, _ k: Double) -> [Gradient.Stop] {
+        func stop(_ s: Double) -> Gradient.Stop {
+            let b = f.alpha * (1 - f.depth * (1 - Flow.wave(s, phase: f.phase))) * k
+            var c = color
+            c.opacity *= Float(b)
+            return Gradient.Stop(color: Color(c), location: s / length)
+        }
+        guard f.depth > 0.001 else { return [stop(0), stop(length)] }
+        let step = Flow.wavelength / 10
+        let q = f.phase * 10 - (f.phase * 10).rounded(.down)
+        var out = [stop(0)]
+        var s = step * q
+        while s < length {
+            if s > 0 { out.append(stop(s)) }
+            s += step
+        }
+        out.append(stop(length))
+        return out
+    }
+
+    /// A still chevron halfway along a beam, pointing the way power flows:
+    /// 6 pt, and wider than a wide beam. A mark of the interface, so in ink.
+    private func chevron(_ beam: Beam, width: CGFloat, opacity: Double, in g: GraphicsContext) {
+        let (a, b) = (beam.from, beam.to)
         let dx = b.x - a.x, dy = b.y - a.y
-        let length = max(1, (dx * dx + dy * dy).squareRoot())
+        let length = max(1, hypot(dx, dy))
         let (ux, uy) = (dx / length, dy / length)
         let mid = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
-        let size: CGFloat = 6
+        let size = max(6, width * 0.6 + 3)
         var head = Path()
         head.move(to: CGPoint(x: mid.x - ux * size - uy * size, y: mid.y - uy * size + ux * size))
         head.addLine(to: CGPoint(x: mid.x + ux * size * 0.6, y: mid.y + uy * size * 0.6))
         head.addLine(to: CGPoint(x: mid.x - ux * size + uy * size, y: mid.y - uy * size - ux * size))
-        canvas.stroke(head, with: .color(line.color), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+        g.stroke(head, with: .color(Theme.ink.opacity(opacity)), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round))
+    }
+}
+
+/// Each beam's motion between frames. Not observed: the Canvas steps it and
+/// nothing else reads it, so it redraws nothing.
+@MainActor
+private final class BeamClock {
+    private var motions: [EnergyNode: Flow.BeamMotion] = [:]
+
+    func frame(_ target: Flow.BeamTarget, at t: Double, reduceMotion: Bool) -> Flow.BeamFrame {
+        var m = motions[target.node] ?? Flow.BeamMotion(target, at: t)
+        let f = m.step(target, at: t, reduceMotion: reduceMotion)
+        motions[target.node] = m
+        return f
     }
 }
 
@@ -200,59 +251,102 @@ private struct CarMenu: ViewModifier {
     }
 }
 
-/// A slight give under the finger, as a system button has.
-private struct PressStyle: ButtonStyle {
+/// A node's door: the press goes down to the label, which closes the
+/// lock-on on its own text.
+private struct LockOnPress: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.95 : 1)
-            .animation(Theme.spring, value: configuration.isPressed)
+            .environment(\.lockedOn, configuration.isPressed)
+            .contentShape(Rectangle().inset(by: -8))
     }
 }
 
-/// One corner of the flow: what it is, how much, which way, and how full
-/// for the battery and the car. A reading that is not live is drawn in ink
-/// with a dashed edge; the status line says how old it is.
-struct NodeBubble: View, Equatable {
+extension EnvironmentValues {
+    /// A finger is on this node.
+    @Entry var lockedOn = false
+}
+
+/// The lock-on under a finger: four 7 pt corner brackets close on what is
+/// pressed, from 1.15× to its size, with the app's spring. Nothing else
+/// moves.
+private struct LockOnBrackets: View {
+    let on: Bool
+
+    var body: some View {
+        Brackets()
+            .stroke(Theme.ink, style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round))
+            .padding(-6)
+            .scaleEffect(on ? 1 : 1.15)
+            .opacity(on ? 1 : 0)
+            .animation(Theme.spring, value: on)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+/// Four corners of a rectangle, 7 pt arms.
+private struct Brackets: Shape {
+    func path(in rect: CGRect) -> Path {
+        let arm: CGFloat = 7
+        var p = Path()
+        for (corner, sx, sy) in [(CGPoint(x: rect.minX, y: rect.minY), 1.0, 1.0), (CGPoint(x: rect.maxX, y: rect.minY), -1.0, 1.0),
+                                 (CGPoint(x: rect.maxX, y: rect.maxY), -1.0, -1.0), (CGPoint(x: rect.minX, y: rect.maxY), 1.0, -1.0)] {
+            p.move(to: CGPoint(x: corner.x, y: corner.y + sy * arm))
+            p.addLine(to: corner)
+            p.addLine(to: CGPoint(x: corner.x + sx * arm, y: corner.y))
+        }
+        return p
+    }
+}
+
+/// One node of the flow, as text on the ground in four fixed rows: the
+/// symbol and name in its energy's colour, the figure, one word for what it
+/// does, and a row for the battery's or the car's level that every node
+/// keeps, so nothing moves when a level arrives. A figure the box has not
+/// confirmed live is drawn in a softer ink; the status line says how old.
+struct NodeLabel: View, Equatable {
     let reading: NodeReading
-    let width: CGFloat
-    var scale: CGFloat = 1
+    let spot: FlowPlan.Spot
+    @ScaledMetric(relativeTo: .caption2) private var name: CGFloat = 11
+    @ScaledMetric(relativeTo: .title2) private var figure: CGFloat = 24
+    @ScaledMetric(relativeTo: .subheadline) private var unit: CGFloat = 14
+    @ScaledMetric(relativeTo: .footnote) private var word: CGFloat = 13
+    @Environment(\.lockedOn) private var lockedOn
+
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.reading == b.reading && a.spot == b.spot }
 
     var body: some View {
         let live = reading.freshness.live
-        let color = live ? Theme.color(reading.tone) : Theme.fgMuted
-        VStack(spacing: 2) {
+        let hue = NodeLook.hue(reading)
+        VStack(alignment: spot.horizontal, spacing: 1) {
+            // The symbol on the outer side: before the name on the left,
+            // after it on the right.
             HStack(spacing: 4) {
-                Image(systemName: NodeLook.symbol(reading.node, levelPct: reading.levelPct, flowing: reading.flowing))
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(color)
-                    .contentTransition(.symbolEffect(.replace))
+                if !spot.trailing { symbol }
                 Text(reading.node.caps)
-                    .font(.caption2.weight(.semibold))
-                    .tracking(0.6)
-                    .foregroundStyle(Theme.fgDim)
+                    .font(.system(size: name, weight: .medium, design: .monospaced))
+                    .tracking(0.5)
+                    .minimumScaleFactor(0.75)
+                if spot.trailing { symbol }
             }
-            NodeValue(watts: reading.watts, size: 18 * scale)
-                .foregroundStyle(reading.watts == nil ? Theme.fgMuted : color)
-            // Every row is kept, filled or not, so a corner never changes
+            .foregroundStyle(hue)
+            .lineLimit(1)
+            NodeValue(watts: reading.watts, size: figure, unit: unit)
+                .foregroundStyle(reading.watts == nil || !live ? Theme.ink2 : Theme.ink)
+                .padding(.top, 1)
+            // Every row is kept, filled or not, so a node never changes
             // height when its word or level arrives.
             Text(reading.word.isEmpty ? " " : reading.word)
-                .font(.caption2)
-                .foregroundStyle(Theme.fgDim)
+                .font(.system(size: word))
+                .foregroundStyle(Theme.ink2)
                 .lineLimit(1)
-            LevelBar(pct: reading.levelPct ?? 0, assumed: reading.levelAssumed, tint: reading.node == .car ? Theme.mobility : Theme.storage)
+                .minimumScaleFactor(0.8)
+            CellMeter(pct: reading.levelPct ?? 0, tint: reading.node == .car ? Theme.car : Theme.stores, live: live && !reading.levelAssumed)
+                .frame(width: 50, height: 4)
+                .padding(.top, 4)
                 .opacity(reading.levelPct == nil ? 0 : 1)
-                .accessibilityHidden(reading.levelPct == nil)
         }
-        .padding(.vertical, 8 * scale)
-        .padding(.horizontal, 6)
-        .frame(width: width)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Theme.surfaceRaised))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .strokeBorder(color.opacity(live ? 0.55 : 0.35), style: StrokeStyle(lineWidth: 1.5, dash: live ? [] : [4, 3]))
-        )
-        .contentShape(RoundedRectangle(cornerRadius: 16))
-        .animation(Theme.spring, value: reading.word)
+        .overlay { LockOnBrackets(on: lockedOn) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(reading.node.title)
         .accessibilityValue(NodeLook.spoken(reading))
@@ -260,31 +354,48 @@ struct NodeBubble: View, Equatable {
     }
 }
 
-/// The home in the middle: everything it is using right now.
-struct HubBubble: View, Equatable {
+extension NodeLabel {
+    private var symbol: some View {
+        Image(systemName: NodeLook.symbol(reading.node, levelPct: reading.levelPct, flowing: reading.flowing))
+            .font(.system(size: name, weight: .semibold))
+            .contentTransition(.symbolEffect(.replace))
+    }
+}
+
+/// The home in the middle, everything it uses right now, in the screen's
+/// only round shape: a thin ring of ink.
+struct HubLabel: View, Equatable {
     let reading: NodeReading
     let diameter: CGFloat
-    var scale: CGFloat = 1
+    @ScaledMetric(relativeTo: .largeTitle) private var figure: CGFloat = 34
+    @ScaledMetric(relativeTo: .caption) private var word: CGFloat = 12
+    @Environment(\.lockedOn) private var lockedOn
+
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.reading == b.reading && a.diameter == b.diameter }
 
     var body: some View {
         let live = reading.freshness.live
-        VStack(spacing: 1) {
-            Image(systemName: "house.fill")
-                .font(.title3)
-                .foregroundStyle(live ? Theme.accent : Theme.fgMuted)
-            NodeValue(watts: reading.watts, size: 22 * scale)
-                .foregroundStyle(Theme.fg)
-            Text(EnergyNode.home.caps)
-                .font(.caption2.weight(.semibold))
-                .tracking(0.6)
-                .foregroundStyle(Theme.fgDim)
+        let shown = reading.watts.map(Flow.quantised)
+        let parts = shown.map(PowerFormat.parts)
+        VStack(spacing: 0) {
+            Text(parts.map { AppWords.decimal($0.text) } ?? "—")
+                .font(Theme.figure(figure))
+                .tracking(-1)
+                .foregroundStyle(reading.watts == nil || !live ? Theme.ink2 : Theme.ink)
+                .contentTransition(.numericText(value: shown ?? 0))
+                .animation(Theme.spring, value: shown)
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .minimumScaleFactor(0.6)
+            Text(NodeWords.format("%@ · home", parts?.unit ?? "W"))
+                .font(.system(size: word))
+                .foregroundStyle(Theme.ink2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
         }
-        .padding(8)
+        .padding(.horizontal, 10)
         .frame(width: diameter, height: diameter)
-        .background(Circle().fill(Theme.surfaceElevated))
-        .overlay(Circle().strokeBorder((live ? Theme.accentFill : Theme.fgMuted).opacity(0.6), style: StrokeStyle(lineWidth: 2, dash: live ? [] : [4, 3])))
+        .background(Circle().strokeBorder(Theme.ink.opacity(0.28), lineWidth: 1))
+        .overlay { LockOnBrackets(on: lockedOn) }
         .contentShape(Circle())
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(EnergyNode.home.title)
@@ -293,49 +404,24 @@ struct HubBubble: View, Equatable {
     }
 }
 
-/// "632 W", "7,2 kW": figure and unit, the figure rolling as it changes.
+/// "630 W", "7,2 kW": figure and unit, quantised (`Flow.quantised`), so
+/// the figure rolls when its digits change and not every second.
 struct NodeValue: View {
     let watts: Double?
     let size: CGFloat
+    var unit: CGFloat?
 
     var body: some View {
         if let watts {
-            let parts = PowerFormat.parts(watts)
-            Text("\(Text(AppWords.decimal(parts.text)).font(Theme.figure(size)))\(Text(" \(parts.unit)").font(.caption))")
-                .contentTransition(.numericText(value: watts))
-                .animation(Theme.spring, value: watts)
+            let shown = Flow.quantised(watts)
+            let parts = PowerFormat.parts(shown)
+            Text("\(Text(AppWords.decimal(parts.text)).font(Theme.figure(size)))\(Text(" \(parts.unit)").font(unit.map { .system(size: $0, weight: .medium) } ?? .caption).foregroundStyle(Theme.ink2))")
+                .contentTransition(.numericText(value: shown))
+                .animation(Theme.spring, value: shown)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         } else {
             Text("—").font(Theme.figure(size))
-        }
-    }
-}
-
-/// How full, as a bar and a figure. An assumed level is drawn hollow.
-struct LevelBar: View {
-    let pct: Double
-    let assumed: Bool
-    let tint: Color
-    var showsFigure = true
-
-    var body: some View {
-        HStack(spacing: 4) {
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Theme.surfaceSunken)
-                    Capsule()
-                        .fill(assumed ? tint.opacity(0.35) : tint)
-                        .frame(width: geo.size.width * min(1, max(0, pct / 100)))
-                }
-            }
-            .frame(width: 36, height: 5)
-            if showsFigure {
-                Text(AppWords.percent(pct))
-                    .font(Theme.percent(.caption2, weight: .medium))
-                    .foregroundStyle(assumed ? Theme.fgMuted : Theme.fg)
-                    .contentTransition(.numericText(value: pct))
-            }
         }
     }
 }
@@ -353,6 +439,19 @@ enum NodeLook {
         case .home: return "house.fill"
         case .grid: return "bolt.fill"
         case .car: return flowing ? "bolt.car.fill" : "car.side.fill"
+        }
+    }
+
+    /// The node's own colour for its name: its kind, and for the battery
+    /// which way it runs. At rest it keeps its kind's colour; only its beam
+    /// goes still.
+    static func hue(_ r: NodeReading) -> Color {
+        switch r.node {
+        case .solar: return Theme.solar
+        case .battery: return r.tone == .discharging ? Theme.gives : Theme.stores
+        case .home: return Theme.ink
+        case .grid: return Theme.grid
+        case .car: return Theme.car
         }
     }
 

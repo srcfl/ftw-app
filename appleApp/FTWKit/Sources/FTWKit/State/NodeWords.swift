@@ -132,6 +132,10 @@ public enum NodeWords {
 
         // The plan view
         "Opens the plan.": "Öppnar planen.",
+        "Dial": "Tavla",
+        "Lanes": "Banor",
+        "Show the plan as": "Visa planen som",
+        "Swipe up or down to move an hour.": "Svep uppåt eller nedåt för att flytta en timme.",
         "Battery charges": "Batteriet laddar",
         "Battery gives power": "Batteriet laddar ur",
         "Cheapest": "Billigast",
@@ -188,6 +192,7 @@ public enum NodeWords {
         "idle": "vilar",
         "dark": "mörkt",
         "using": "använder",
+        "%@ · home": "%@ · hemmet",
         "no reading": "ingen mätning",
         "not live": "inte live",
         "live": "live",

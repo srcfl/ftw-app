@@ -232,7 +232,7 @@ public enum WatchGlance {
     /// recent enough to show, and the plan and the price in words.
     public struct Face: Equatable, Sendable {
         public let atMs: Double
-        public let dial: WatchDial?
+        public let dial: PlanDial?
         public let batteryPct: Double?
         public let plan: PlanGlance.Moment
         public let price: PriceGlance.Moment
@@ -244,16 +244,16 @@ public enum WatchGlance {
         let ends = [plan?.value.battery?.map { $0.startMs + $0.durationMs }.max(), prices?.value.prices.slots.map { $0.startMs + $0.durationMs }.max()].compactMap { $0 }
         let until = min(nowMs + 24 * 3_600_000, ends.max() ?? nowMs)
         var times = [nowMs]
-        var t = (nowMs / WatchDial.quarterMs).rounded(.down) * WatchDial.quarterMs + WatchDial.quarterMs
+        var t = (nowMs / PlanDial.quarterMs).rounded(.down) * PlanDial.quarterMs + PlanDial.quarterMs
         while t < until {
             times.append(t)
-            t += WatchDial.quarterMs
+            t += PlanDial.quarterMs
         }
         let level = now?.value.reading(.battery)?.levelPct
         return times.map { at in
             Face(
                 atMs: at,
-                dial: plan == nil && prices == nil ? nil : WatchDial(plan: plan?.value, prices: prices?.value, nowMs: at),
+                dial: plan == nil && prices == nil ? nil : PlanDial(plan: plan?.value, prices: prices?.value, nowMs: at),
                 batteryPct: now.flatMap { at - $0.record.readAtMs <= levelForMs ? level : nil },
                 plan: PlanGlance.moment(plan, atMs: at),
                 price: PriceGlance.moment(prices, atMs: at)

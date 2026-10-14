@@ -1,30 +1,60 @@
+import Charts
 import FTWKit
 import SwiftUI
 
-/// The plan, opened from Now: the next twelve hours as lanes over the
-/// prices, then each thing the box means to do, when, and why, in the
-/// box's own reasons. One screen, like Now.
+/// The plan, opened from Now: the next 24 hours round the plan dial, or
+/// the next twelve hours in lanes, then each thing the box means to do,
+/// when, and why, in the box's own reasons. The dial is the default; the
+/// lanes are one tap away in the toolbar, and the phone keeps the viewer's
+/// choice.
 struct PlanView: View {
     let app: AppModel
     let home: HomeModels
     @State private var choosingMode = false
+    /// The viewer's own choice, kept on this phone. `-FTWPlanStyle lanes`
+    /// at launch holds it there, for screenshots and tests.
+    @AppStorage("FTWPlanStyle") private var style: PlanStyle = .dial
 
     private var models: NodeModels { home.nodes }
 
     var body: some View {
-        FitScreen(spacing: 10) { fill in
-            PlanBody(site: home.site, models: models, loadpoints: home.loadpoints, prices: home.prices, fill: fill, chooseMode: { choosingMode = true })
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                PlanBody(site: home.site, models: models, loadpoints: home.loadpoints, prices: home.prices, style: style, chooseMode: { choosingMode = true })
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .frame(maxWidth: 640, alignment: .topLeading)
+            .frame(maxWidth: .infinity)
         }
+        .scrollBounceBehavior(.basedOnSize)
+        .background(Theme.ground)
         .navigationTitle(PlanGlance.title)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Picker(L("Show the plan as"), selection: $style.animation(.easeInOut(duration: 0.25))) {
+                    ForEach(PlanStyle.allCases, id: \.self) { s in
+                        Image(systemName: s.symbol)
+                            .accessibilityLabel(s.label)
+                            .tag(s)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .fixedSize()
+                .accessibilityIdentifier("plan.style")
+            }
+        }
         .onAppear {
-            models.plan.activate()
+            // The forecast gives the dial its sky: the same read the sun's
+            // and the home's views make.
+            models.plan.activate(forecast: true)
             models.mode.activate()
             home.prices.activate()
             LaunchClock.mark("first content")
         }
         .onDisappear {
-            models.plan.deactivate()
+            models.plan.deactivate(forecast: true)
             models.mode.deactivate()
             home.prices.deactivate()
         }
@@ -34,41 +64,98 @@ struct PlanView: View {
     }
 }
 
+/// How the plan view draws the plan: round on the dial, or straight in
+/// lanes.
+enum PlanStyle: String, CaseIterable {
+    case dial, lanes
+
+    var label: String {
+        switch self {
+        case .dial: return L("Dial")
+        case .lanes: return L("Lanes")
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .dial: return "circle.dashed"
+        case .lanes: return "chart.bar.xaxis"
+        }
+    }
+}
+
 private struct PlanBody: View {
     let site: SiteModel
     let models: NodeModels
     let loadpoints: LoadpointsModel
     let prices: PriceModel
-    let fill: Bool
+    let style: PlanStyle
     let chooseMode: () -> Void
+    @State private var dials = DialMemo()
 
     var body: some View {
         // The plan marks the minute: it redraws once a minute, not a second.
-        let minute = (site.nowMs / 60_000).rounded(.down) * 60_000
+        let minute = site.minuteMs
         let moment = models.planShare.moment(nowMs: minute)
-        VStack(alignment: .leading, spacing: 4) {
-            Text(moment.summary)
-                .font(.headline)
-                .foregroundStyle(moment.isGrey ? Theme.fgDim : Theme.fg)
-                .fixedSize(horizontal: false, vertical: true)
-                .redacted(reason: moment.placeholder ? .placeholder : [])
-            Text(stateLine(moment))
-                .font(.footnote)
-                .foregroundStyle(moment.state == .boxStale ? Theme.alarm : Theme.fgDim)
+        Group {
+            switch style {
+            case .dial:
+                let dial = dials.dial(models.planShare.entry, nowMs: minute)
+                VStack(alignment: .leading, spacing: 12) {
+                    PlanDialCard(dial: dial, grey: moment.isGrey)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(moment.summary)
+                            .font(.subheadline)
+                            .foregroundStyle(moment.isGrey ? Theme.ink3 : Theme.ink2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .redacted(reason: moment.placeholder ? .placeholder : [])
+                        // Mono stops growing at accessibility1.
+                        Group {
+                            if let cheapest = dial.cheapestText {
+                                Text(cheapest).foregroundStyle(Theme.ink2)
+                            }
+                            Text(plannedLine(moment, zone: dial.zone))
+                                .foregroundStyle(moment.state == .boxStale ? Theme.alarm : Theme.ink3)
+                        }
+                        .font(Theme.mono())
+                        .tracking(0.5)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                    }
+                }
+                .transition(.opacity)
+            case .lanes:
+                VStack(alignment: .leading, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(moment.summary)
+                            .font(.headline)
+                            .foregroundStyle(moment.isGrey ? Theme.fgDim : Theme.fg)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .redacted(reason: moment.placeholder ? .placeholder : [])
+                        Text(stateLine(moment))
+                            .font(.footnote)
+                            .foregroundStyle(moment.state == .boxStale ? Theme.alarm : Theme.fgDim)
+                    }
+                    VStack(alignment: .leading, spacing: 6) {
+                        PlanLanes(moment: moment)
+                            .equatable()
+                            .frame(height: 140)
+                        Legend(kinds: Set(moment.events.map(\.kind)))
+                    }
+                }
+                .transition(.opacity)
+            }
         }
-        VStack(alignment: .leading, spacing: 6) {
-            PlanLanes(moment: moment)
-                .equatable()
-                .frame(minHeight: fill ? 84 : 140, idealHeight: fill ? 84 : 140, maxHeight: fill ? 200 : 140)
-            Legend(kinds: Set(moment.events.map(\.kind)))
-        }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 12)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
         PriceRow(prices: prices, minute: minute)
-        Events(moment: moment, entry: models.planShare.entry, loadpoints: loadpoints)
+        Events(moment: moment, entry: models.planShare.entry, loadpoints: loadpoints, style: style)
         CompactMode(mode: models.mode, choose: chooseMode)
+    }
+
+    /// "PLANNED 16:51 · REPLANS EVERY 15 MIN", or that the box could not.
+    private func plannedLine(_ m: PlanGlance.Moment, zone: TimeZone) -> String {
+        if m.state == .boxStale { return L("Your box couldn't plan ahead just now, so it runs on safe defaults.") }
+        guard let at = models.plan.receivedAtMs ?? m.readAtMs else { return L("Reading the plan from your box…") }
+        return PlanDial.planned(atMs: at, old: m.state == .old, zone: zone)
     }
 
     /// When the box made it, or that it could not.
@@ -76,6 +163,22 @@ private struct PlanBody: View {
         if m.state == .boxStale { return L("Your box couldn't plan ahead just now, so it runs on safe defaults.") }
         guard let at = models.plan.receivedAtMs ?? m.readAtMs else { return L("Reading the plan from your box…") }
         return NodeWords.format("Planned by your box at %@. It plans again every quarter of an hour.", AppWords.clock(at, zone: m.timeZone))
+    }
+}
+
+/// The dial worked out once per plan and minute, so a body that runs again
+/// for any other reason reads it.
+@MainActor
+private final class DialMemo {
+    private var key: (entry: PlanEntry, minute: Double)?
+    private var kept: PlanDial?
+
+    func dial(_ entry: PlanEntry, nowMs: Double) -> PlanDial {
+        if let key, key.entry == entry, key.minute == nowMs, let kept { return kept }
+        let d = PlanDial(plan: entry, prices: nil, nowMs: nowMs)
+        key = (entry, nowMs)
+        kept = d
+        return d
     }
 }
 
@@ -108,11 +211,14 @@ private struct Legend: View {
     }
 }
 
-/// Each thing the box means to do, when, and why.
+/// Each thing the box means to do, when, and why, as plain rows on the
+/// ground. Each row's mark has the colour the plan draws it in above, so
+/// the rows are the legend.
 private struct Events: View {
     let moment: PlanGlance.Moment
     let entry: PlanEntry
     let loadpoints: LoadpointsModel
+    let style: PlanStyle
 
     var body: some View {
         VStack(spacing: 0) {
@@ -136,16 +242,18 @@ private struct Events: View {
                     .padding(.top, 6)
             }
         }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 12)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
+    }
+
+    /// On the dial gold is the sun's, so the battery giving power is ink
+    /// there; the lanes keep gold.
+    private func color(_ kind: PlanGlance.Kind) -> Color {
+        style == .dial && kind == .discharge ? Theme.ink : PlanLanes.color(kind)
     }
 
     private func row(_ e: PlanGlance.Event) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
             RoundedRectangle(cornerRadius: 2)
-                .fill(PlanLanes.color(e.kind))
+                .fill(color(e.kind))
                 .frame(width: 10, height: 6)
                 .alignmentGuide(.firstTextBaseline) { $0[.bottom] }
             VStack(alignment: .leading, spacing: 1) {
@@ -221,11 +329,8 @@ private struct PriceRow: View {
                         .foregroundStyle(Theme.fgMuted)
                 }
                 .padding(.vertical, 10)
-                .padding(.horizontal, 12)
                 .frame(minHeight: 44)
-                .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
-                .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
-                .contentShape(RoundedRectangle(cornerRadius: Theme.radius))
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("plan.price")
@@ -254,10 +359,8 @@ private struct CompactMode: View {
                     }
                 }
                 .padding(.vertical, 10)
-                .padding(.horizontal, 12)
-                .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
-                .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
-                .contentShape(RoundedRectangle(cornerRadius: Theme.radius))
+                .frame(minHeight: 44)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(!mode.canControl)
@@ -272,4 +375,95 @@ private extension String {
         guard let first else { return self }
         return first.uppercased() + dropFirst()
     }
+}
+
+/// The hours ahead as lanes: the car's charging on top, the battery under
+/// it (charging one colour, giving power another), the cheapest hours as a
+/// thin mark, and the prices as a low strip along the bottom. The price is
+/// the ground the plan stands on, not the subject.
+struct PlanLanes: View, Equatable {
+    let moment: PlanGlance.Moment
+    var compact = false
+
+    private static let car = 0.68...0.96
+    private static let battery = 0.34...0.62
+    private static let cheap = 0.23...0.27
+    static let priceFloor = 0.03
+    static let priceRise = 0.15
+
+    var body: some View {
+        let from = moment.atMs
+        let to = from + PlanGlance.horizonMs
+        let top = max(1, moment.backdrop.map(\.minor).max() ?? 1)
+        let grey = moment.isGrey
+        Chart {
+            ForEach(moment.backdrop) { bar in
+                RectangleMark(
+                    xStart: .value("From", date(max(from, bar.startMs))),
+                    xEnd: .value("To", date(min(to, bar.endMs))),
+                    yStart: .value("Bottom", 0),
+                    yEnd: .value("Price", Self.priceFloor + Self.priceRise * max(0, bar.minor) / top)
+                )
+                .foregroundStyle(grey ? Theme.fgMuted : Theme.price(bar.tone))
+                .opacity(0.4)
+            }
+            ForEach(moment.events) { e in
+                let lane = Self.lane(e.kind)
+                RectangleMark(
+                    xStart: .value("From", date(max(from, e.startMs))),
+                    xEnd: .value("To", date(min(to, e.endMs))),
+                    yStart: .value("Low", lane.lowerBound),
+                    yEnd: .value("High", lane.upperBound)
+                )
+                .foregroundStyle(grey ? Theme.fgMuted : Self.color(e.kind))
+                .cornerRadius(5)
+                .annotation(position: .overlay, alignment: .center) {
+                    if !compact || e.endMs - e.startMs >= 90 * 60_000, let pct = e.targetPct, e.kind == .car {
+                        Text(AppWords.percent(pct))
+                            .font(.system(size: 9, weight: .bold).monospacedDigit())
+                            .foregroundStyle(Theme.ground)
+                    }
+                }
+            }
+            RuleMark(x: .value("Now", date(from)))
+                .foregroundStyle(Theme.accentFill)
+                .lineStyle(StrokeStyle(lineWidth: 1.5))
+        }
+        .chartXScale(domain: date(from)...date(to))
+        .chartYScale(domain: 0...1)
+        .chartYAxis(.hidden)
+        .chartXAxis {
+            AxisMarks(preset: .aligned, values: .stride(by: .hour, count: 3)) { value in
+                AxisValueLabel { hourLabel(value) }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    static func lane(_ kind: PlanGlance.Kind) -> ClosedRange<Double> {
+        switch kind {
+        case .car: return car
+        case .charge, .discharge: return battery
+        case .cheap: return cheap
+        }
+    }
+
+    static func color(_ kind: PlanGlance.Kind) -> Color {
+        switch kind {
+        case .car: return Theme.car
+        case .charge: return Theme.stores
+        case .discharge: return Theme.gives
+        case .cheap: return Theme.ink2
+        }
+    }
+
+    private func date(_ ms: Double) -> Date { Date(timeIntervalSince1970: ms / 1000) }
+}
+
+/// "15", on the 24-hour clock FTW uses in both languages: an English phone
+/// would otherwise label the afternoon "03".
+private func hourLabel(_ value: AxisValue) -> some View {
+    Text(value.as(Date.self).map { String(format: "%02d", Calendar.current.component(.hour, from: $0)) } ?? "")
+        .font(.caption2)
+        .foregroundStyle(Theme.ink3)
 }
