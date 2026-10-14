@@ -18,7 +18,8 @@ import WidgetKit
 /// not a reading.
 struct PlanDialFace: View, Equatable {
     enum Size: Equatable {
-        /// The phone's plan view and the watch app: rim, hours, the car's goal.
+        /// The phone's plan view and the watch app: rim, hours, and the
+        /// car's goal where the dial is large enough.
         case app
         /// A widget or a complication: the marks alone.
         case small
@@ -45,7 +46,10 @@ struct PlanDialFace: View, Equatable {
                 stubs(g).fill(Theme.ink3.opacity(0.5))
                 carDots(g).fill(grey ? Theme.ink3 : Theme.car)
                     .widgetAccentable()
-                if size == .app { CarGoals(g: g, dial: dial, grey: grey) }
+                // The goal sits inside the car's arc. On a watch that is
+                // where the hand's time and price are, so it shows only on
+                // a dial as large as the phone's.
+                if size == .app, g.side >= 200 { CarGoals(g: g, dial: dial, grey: grey) }
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
