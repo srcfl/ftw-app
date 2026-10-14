@@ -230,4 +230,15 @@ import Testing
         // A plan with no levels says nothing about them.
         #expect(PlanGlance.live(glance.night(), nowMs: at(12, 20, 5), calendar: calendar).levels.isEmpty)
     }
+
+    /// A quarter the market has not priced is a stub, never a level.
+    @Test func unpricedQuartersAreStubs() {
+        var entry = glance.night()
+        entry.prices = entry.prices.filter { $0.startMs < at(13, 4) }
+        let s = PlanStrip.build(entry, moment: PlanGlance.live(entry, nowMs: at(12, 20, 5), calendar: calendar), hasCar: true)
+        // 04:00 is quarter 32; the window runs to 08:00.
+        #expect(s.pending == [.init(first: 32, count: 16, value: true)])
+        #expect(s.levels[31] != nil && s.levels[32] == nil)
+        #expect(strip(at: at(12, 20, 5)).pending.isEmpty)
+    }
 }

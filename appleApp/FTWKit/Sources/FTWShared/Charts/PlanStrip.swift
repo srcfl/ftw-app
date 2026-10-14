@@ -44,6 +44,9 @@ public struct PlanStrip: Equatable, Sendable {
     public let batteryRuns: [Run<Battery>]
     public let carRuns: [Run<Bool>]
     public let priceRuns: [Run<Int>]
+    /// Stretches the market has not priced yet: drawn as hatched stubs,
+    /// never as a level.
+    public let pending: [Run<Bool>]
     /// Local three-hour marks: "18", "21", "00".
     public let hours: [Tick]
     /// Quarters that give a light impact under a finger: now, either end,
@@ -175,6 +178,7 @@ public struct PlanStrip: Equatable, Sendable {
             batteryRuns: runs(battery),
             carRuns: runs(car.map { $0 ? true : nil }),
             priceRuns: runs(levels),
+            pending: runs(levels.map { $0 == nil ? true : nil }),
             hours: hours,
             landmarks: landmarks,
             readouts: readouts,

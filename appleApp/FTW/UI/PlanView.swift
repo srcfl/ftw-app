@@ -119,6 +119,13 @@ private struct PlanBody: View {
                             }
                             Text(plannedLine(moment, zone: dial.zone))
                                 .foregroundStyle(moment.state == .boxStale ? Theme.alarm : Theme.ink3)
+                            // What the plan rests on: the prices are known,
+                            // the sun and the home's use are a forecast, and
+                            // a style other than balanced leans on it less or
+                            // more.
+                            if let lean = styleLine {
+                                Text(lean).foregroundStyle(Theme.ink3)
+                            }
                         }
                         .font(Theme.mono())
                         .tracking(0.5)
@@ -162,6 +169,13 @@ private struct PlanBody: View {
         if m.state == .boxStale { return L("Your box couldn't plan ahead just now, so it runs on safe defaults.") }
         guard let at = models.plan.receivedAtMs ?? m.readAtMs else { return L("Reading the plan from your box…") }
         return PlanDial.planned(atMs: at, old: m.state == .old, zone: zone)
+    }
+
+    /// "CAREFUL WITH THE FORECAST", when the planning style is not
+    /// balanced. Nothing when it is, or before the box has said.
+    private var styleLine: String? {
+        guard let style = models.mode.shownStyle, style.key != "balanced" else { return nil }
+        return NodeWords.format("%@ with the forecast", NodeWords.text(style.name)).uppercased()
     }
 
     /// When the box made it, or that it could not.

@@ -98,6 +98,25 @@ struct PlanStripDrawing: ChartDrawing {
         for (third, path) in thirds {
             g.fill(path, with: .color(grey ? Theme.ink3.opacity(0.6) : Theme.ink.opacity(Self.ink(third))))
         }
+        // Not priced yet: a hatched stub, so a guess never looks like a price.
+        if !strip.pending.isEmpty {
+            var stubs = Path(), hatch = Path()
+            let stub = PlanStripLayout.levelStep * 2
+            for run in strip.pending {
+                let s = PlanStripLayout.span(first: run.first, last: run.last, grid: grid, width: width, scale: scale)
+                let rect = CGRect(x: s.x0, y: PlanStripLayout.priceBottom - stub, width: s.x1 - s.x0, height: stub)
+                stubs.addRect(rect)
+                var x = rect.minX - stub
+                while x < rect.maxX {
+                    hatch.move(to: CGPoint(x: x, y: rect.maxY))
+                    hatch.addLine(to: CGPoint(x: x + stub, y: rect.minY))
+                    x += 3
+                }
+            }
+            var clipped = g
+            clipped.clip(to: stubs)
+            clipped.stroke(hatch, with: .color(Theme.ink3), style: StrokeStyle(lineWidth: px, lineCap: .butt, lineJoin: .round))
+        }
 
         // Now, one pixel across the lanes and the bars.
         let nowX = snap(grid.x(atMs: strip.nowMs, width: width))
