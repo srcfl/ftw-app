@@ -22,6 +22,9 @@ struct ScrubTrack: Equatable {
     /// slot under the finger lights up as its whole bar and the rest dims,
     /// in place of a dot on a line.
     var bars = false
+    /// The last slot a finger may reach: the slots after it have not
+    /// happened yet.
+    var limit: Int?
 
     func x(_ i: Int, plot: CGRect) -> CGFloat {
         if let atMs, atMs.indices.contains(i) { return plot.minX + grid.x(atMs: atMs[i], width: plot.width) }
@@ -105,7 +108,8 @@ struct ScrubOverlay: View {
 
     private func slot(_ x: CGFloat) -> Int? {
         let plot = frame.plot(in: size)
-        return track.grid.index(atX: x - plot.minX, width: plot.width)
+        guard let i = track.grid.index(atX: x - plot.minX, width: plot.width) else { return nil }
+        return track.limit.map { min(i, $0) } ?? i
     }
 
     private func follow(_ x: CGFloat) {

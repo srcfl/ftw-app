@@ -117,6 +117,11 @@ native, and smooth enough to impress.
   live is drawn in ink on the same curve. No dot travels along a line.
 - **Every chart takes a finger.** The point under it is marked, and the
   line under the chart says what was there. Two fingers give the span.
+- **History sits small and grows** (Fredrik, 14 Oct 2026). A node's chart
+  is compact, so the view never scrolls for it; a tap opens it on the
+  whole screen, growing out of the small one. Chips add or take away
+  series, kept per viewer; the last one stays, and a hidden series never
+  changes what the others say.
 - **Charts draw on the engine.** Geometry is a value built once per data
   change (`FTWShared/Charts`, tested). A chart is one Canvas
   (`ChartSurface`) that never sees the finger and a small `ScrubOverlay`

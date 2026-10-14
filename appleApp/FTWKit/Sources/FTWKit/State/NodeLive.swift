@@ -122,3 +122,28 @@ public enum NodeLive {
         Readouts.seconds(ms) + "  " + AppWords.power(abs(watts))
     }
 }
+
+/// Which series a node's history shows: its own first, the others in Now's
+/// order, and never none.
+public enum SeriesPick {
+    public static func ordered(_ series: [EnergyNode], own: EnergyNode) -> [EnergyNode] {
+        let rest = EnergyNode.allCases.filter { $0 != own && series.contains($0) }
+        return (series.contains(own) ? [own] : []) + rest
+    }
+
+    /// A tap on a chip: in or out, but the last one stays.
+    public static func toggled(_ series: [EnergyNode], _ tapped: EnergyNode, own: EnergyNode) -> [EnergyNode] {
+        if series.contains(tapped) {
+            guard series.count > 1 else { return series }
+            return ordered(series.filter { $0 != tapped }, own: own)
+        }
+        return ordered(series + [tapped], own: own)
+    }
+
+    /// What was kept, read back: unknown names dropped, the node's own
+    /// series when nothing is left.
+    public static func read(_ stored: String?, own: EnergyNode) -> [EnergyNode] {
+        let kept = (stored ?? "").split(separator: ",").compactMap { EnergyNode(rawValue: String($0)) }
+        return ordered(kept.isEmpty ? [own] : kept, own: own)
+    }
+}
