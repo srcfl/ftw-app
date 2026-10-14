@@ -23,7 +23,11 @@ struct FTWApp: App {
             // What the widgets read. Nil only in a build without the App
             // Group entitlement, and then the app works without widgets.
             shared: AppGroupFiles.shared(),
-            sharedWritten: { WidgetCenter.shared.reloadAllTimelines() },
+            // The watch gets the same records the widgets just got.
+            sharedWritten: {
+                WidgetCenter.shared.reloadAllTimelines()
+                WatchBridge.shared.cacheWritten()
+            },
             passkeys: Passkeys(),
             build: AppInfo.build,
             ua: AppInfo.userAgent,
@@ -33,6 +37,9 @@ struct FTWApp: App {
         // Siri, the Control and the Live Activity reach the box through the
         // app, and Charge now starts its Live Activity wherever it is pressed.
         IntentRunner.install(model)
+        // The Apple Watch reads through this phone and sends its commands
+        // here, over the same runner.
+        if let runner = IntentRunner.shared { WatchBridge.shared.install(model, runner: runner) }
         // A paired phone paints its cached home before anything else runs.
         model.launch()
         #if DEBUG
