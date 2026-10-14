@@ -142,6 +142,9 @@ private struct StripSentence: View {
                 .font(.subheadline)
                 .foregroundStyle(grey ? Theme.ink3 : Theme.ink2)
                 .lineLimit(lines, reservesSpace: !typeSize.isAccessibilitySize)
+                // The reason makes the line long; it shrinks a little before
+                // it would lose its end.
+                .minimumScaleFactor(0.85)
                 .redacted(reason: placeholder ? .placeholder : [])
                 .opacity(down ? 0 : 1)
                 // Back only once the quarter's line has gone, so the two
