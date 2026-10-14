@@ -166,7 +166,7 @@ private struct FlowBeams: View {
             }
             let color = beam.color.resolve(in: g.environment)
             g.stroke(path, with: .linearGradient(Gradient(stops: Self.stops(length: Double(length), f, color, k)), startPoint: beam.from, endPoint: beam.to), style: StrokeStyle(lineWidth: width, lineCap: .round))
-            if still, beam.target.flowing { chevron(beam, color: beam.color.opacity(f.alpha * k), in: g) }
+            if still, beam.target.flowing { chevron(beam, width: width, opacity: f.alpha * k, in: g) }
         }
     }
 
@@ -194,20 +194,20 @@ private struct FlowBeams: View {
         return out
     }
 
-    /// A still 6 pt chevron halfway along a beam, pointing the way power
-    /// flows.
-    private func chevron(_ beam: Beam, color: Color, in g: GraphicsContext) {
+    /// A still chevron halfway along a beam, pointing the way power flows:
+    /// 6 pt, and wider than a wide beam. A mark of the interface, so in ink.
+    private func chevron(_ beam: Beam, width: CGFloat, opacity: Double, in g: GraphicsContext) {
         let (a, b) = (beam.from, beam.to)
         let dx = b.x - a.x, dy = b.y - a.y
         let length = max(1, hypot(dx, dy))
         let (ux, uy) = (dx / length, dy / length)
         let mid = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
-        let size: CGFloat = 6
+        let size = max(6, width * 0.6 + 3)
         var head = Path()
         head.move(to: CGPoint(x: mid.x - ux * size - uy * size, y: mid.y - uy * size + ux * size))
         head.addLine(to: CGPoint(x: mid.x + ux * size * 0.6, y: mid.y + uy * size * 0.6))
         head.addLine(to: CGPoint(x: mid.x - ux * size + uy * size, y: mid.y - uy * size - ux * size))
-        g.stroke(head, with: .color(color), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+        g.stroke(head, with: .color(Theme.ink.opacity(opacity)), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round))
     }
 }
 
