@@ -142,6 +142,8 @@ final class NowFitsTests: XCTestCase {
         let app = launchDemo()
         app.buttons["now.node.battery"].tap()
         XCTAssertTrue(app.navigationBars["Battery"].waitForExistence(timeout: 5))
+        // The view opens on the timebase this phone chose last; Live is one tap.
+        app.segmentedControls["node.period"].buttons["Live"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["node.live.chart"].waitForExistence(timeout: 5))
         let ahead = app.segmentedControls["node.period"].buttons["Ahead"]
         XCTAssertTrue(ahead.isHittable)

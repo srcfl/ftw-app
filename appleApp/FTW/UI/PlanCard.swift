@@ -148,3 +148,11 @@ struct PlanLanes: View, Equatable {
 
     private func date(_ ms: Double) -> Date { Date(timeIntervalSince1970: ms / 1000) }
 }
+
+/// "15", on the 24-hour clock FTW uses in both languages: an English phone
+/// would otherwise label the afternoon "03".
+private func hourLabel(_ value: AxisValue) -> some View {
+    Text(value.as(Date.self).map { String(format: "%02d", Calendar.current.component(.hour, from: $0)) } ?? "")
+        .font(.caption2)
+        .foregroundStyle(Theme.ink3)
+}

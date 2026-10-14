@@ -5,10 +5,13 @@ import Foundation
 public struct ChartSample: Equatable, Sendable {
     public var startMs: Double
     public var value: Double?
+    /// A hole whose tile is on its way, not one the box has no record for.
+    public var fetching: Bool
 
-    public init(startMs: Double, value: Double?) {
+    public init(startMs: Double, value: Double?, fetching: Bool = false) {
         self.startMs = startMs
         self.value = value
+        self.fetching = fetching
     }
 }
 
@@ -31,6 +34,8 @@ public struct ChartBucket: Equatable, Sendable {
     /// Energy into and out of the site over its means, in watt-hours.
     public var inWh: Double
     public var outWh: Double
+    /// It holds no mean, and one of its holes is on its way.
+    public var fetching = false
 }
 
 /// The smallest bucket of 5, 15, 30 or 60 minutes that leaves each point
@@ -56,9 +61,13 @@ public enum DisplayBucket {
         var sum = [Double](repeating: 0, count: count), at = sum, inWh = sum, outWh = sum
         var low = [Double](repeating: .infinity, count: count), high = [Double](repeating: -.infinity, count: count)
         var held = [Int](repeating: 0, count: count)
+        var coming = [Bool](repeating: false, count: count)
         let whPerW = sampleMs / 3_600_000
         for s in samples where s.startMs >= fromMs && s.startMs < toMs {
-            guard let v = s.value else { continue }
+            guard let v = s.value else {
+                if s.fetching { coming[min(max(Int(((s.startMs - origin) / stepMs).rounded(.down)), 0), count - 1)] = true }
+                continue
+            }
             let k = min(max(Int(((s.startMs - origin) / stepMs).rounded(.down)), 0), count - 1)
             sum[k] += v
             held[k] += 1
@@ -81,10 +90,23 @@ public enum DisplayBucket {
                 count: n,
                 atMs: n > 0 ? at[k] / Double(n) : (max(start, fromMs) + min(start + stepMs, toMs)) / 2,
                 inWh: inWh[k],
-                outWh: outWh[k]
+                outWh: outWh[k],
+                fetching: n == 0 && coming[k]
             ))
         }
         return out
+    }
+
+    /// The lowest and highest five-minute mean over the buckets, with zero.
+    public static func extent(_ buckets: [ChartBucket]) -> (low: Double, high: Double) {
+        var low = 0.0, high = 0.0
+        for b in buckets {
+            if let lo = b.low, let hi = b.high {
+                low = min(low, lo)
+                high = max(high, hi)
+            }
+        }
+        return (low, high)
     }
 }
 
@@ -107,6 +129,18 @@ public struct ChartSeries: Equatable, Sendable {
     public var band: ChartPath
     /// Where each slot's value sits on the line; nil in a gap.
     public var points: [CGPoint?]
+    /// Where each slot's highest and lowest five-minute mean sit.
+    public var highs: [CGPoint?]
+    public var lows: [CGPoint?]
+    /// Holes on their way, and holes the box has no record for, as slots.
+    /// A slot after now is neither: it has not happened.
+    public var fetching: [ClosedRange<Int>]
+    public var missing: [ClosedRange<Int>]
+    /// A dashed straight line across each hole on its way, from the
+    /// measured slot before it to the one after: an estimate, never a value.
+    public var estimate: ChartPath
+    /// The last slot with data.
+    public var lastData: Int?
     public var readouts: ReadoutTable
 
     /// The history of one node between `fromMs` and `toMs` on a plot of
@@ -125,6 +159,7 @@ public struct ChartSeries: Equatable, Sendable {
         floor: Double = 1,
         clock: ZoneClock,
         landmarksMs: [Double] = [],
+        domain forced: YDomain? = nil,
         words: ReadoutWords
     ) -> ChartSeries {
         let stepMs = DisplayBucket.stepMs(spanMs: toMs - fromMs, width: size.width)
@@ -132,50 +167,47 @@ public struct ChartSeries: Equatable, Sendable {
         let grid = SlotGrid(firstMs: buckets.first?.startMs ?? fromMs, stepMs: stepMs, count: buckets.count, fromMs: fromMs, toMs: toMs)
 
         // The domain holds the band, not just the means, so the highest
-        // five-minute mean always fits.
-        var low = 0.0, high = 0.0
-        for b in buckets {
-            if let lo = b.low, let hi = b.high {
-                low = min(low, lo)
-                high = max(high, hi)
-            }
-        }
-        let domain = YDomain.stable(low: low, high: high, previous: previous, floor: floor)
+        // five-minute mean always fits. Several series on one chart share
+        // one, given.
+        let extent = DisplayBucket.extent(buckets)
+        let domain = forced ?? YDomain.stable(low: extent.low, high: extent.high, previous: previous, floor: floor)
         let map = YMap(domain: domain, height: size.height)
 
-        var line = ChartPath(), body = ChartPath(), band = ChartPath()
         var points = [CGPoint?](repeating: nil, count: buckets.count)
-        var run: [CGPoint] = [], highs: [CGPoint] = [], lows: [CGPoint] = []
-        run.reserveCapacity(buckets.count)
-        let base = map.baseline
-        func endRun() {
-            let start = line.elements.count
-            line.addMonotone(run)
-            // The body is the same curve, closed on zero: made once.
-            if run.count > 1 {
-                body.elements.append(contentsOf: line.elements[start...])
-                body.elements.append(.line(CGPoint(x: run[run.count - 1].x, y: base)))
-                body.elements.append(.line(CGPoint(x: run[0].x, y: base)))
-                body.elements.append(.close)
-                band.addBand(highs: highs, lows: lows)
-            }
-            run.removeAll(keepingCapacity: true)
-            highs.removeAll(keepingCapacity: true)
-            lows.removeAll(keepingCapacity: true)
-        }
+        var highPoints = points, lowPoints = points
         for (i, b) in buckets.enumerated() {
-            guard let m = b.mean, let lo = b.low, let hi = b.high else {
-                endRun()
+            guard let m = b.mean, let lo = b.low, let hi = b.high else { continue }
+            let x = grid.x(atMs: b.atMs, width: size.width)
+            points[i] = CGPoint(x: x, y: map.y(m))
+            highPoints[i] = CGPoint(x: x, y: map.y(hi))
+            lowPoints[i] = CGPoint(x: x, y: map.y(lo))
+        }
+        let (line, body, band) = paths(points: points, highs: highPoints, lows: lowPoints, baseline: map.baseline)
+
+        // Holes: on their way, or none on record, but only before now.
+        let until = nowMs ?? toMs
+        var fetching: [ClosedRange<Int>] = [], missing: [ClosedRange<Int>] = []
+        var estimate = ChartPath()
+        var i = 0
+        while i < buckets.count {
+            guard buckets[i].mean == nil, buckets[i].startMs < until else {
+                i += 1
                 continue
             }
-            let x = grid.x(atMs: b.atMs, width: size.width)
-            let p = CGPoint(x: x, y: map.y(m))
-            points[i] = p
-            run.append(p)
-            highs.append(CGPoint(x: x, y: map.y(hi)))
-            lows.append(CGPoint(x: x, y: map.y(lo)))
+            let coming = buckets[i].fetching
+            var j = i
+            while j + 1 < buckets.count, buckets[j + 1].mean == nil, buckets[j + 1].startMs < until, buckets[j + 1].fetching == coming { j += 1 }
+            if coming {
+                fetching.append(i...j)
+                if i > 0, j + 1 < buckets.count, let a = points[i - 1], let b = points[j + 1] {
+                    estimate.elements += [.move(a), .line(b)]
+                }
+            } else {
+                missing.append(i...j)
+            }
+            i = j + 1
         }
-        endRun()
+        let lastData = buckets.lastIndex { $0.mean != nil }
 
         var when: [String] = [], what: [String] = []
         var inWh: [Double] = [0], outWh: [Double] = [0]
@@ -200,9 +232,16 @@ public struct ChartSeries: Equatable, Sendable {
             outWh.append(outWh[i] + b.outWh)
         }
 
+        // As on the live trace: the high, the low, and the slots at each end
+        // of a run of data, where a hole begins or ends.
         var landmarks = Set<Int>()
         if let highest { landmarks.insert(highest.i) }
         if let lowest { landmarks.insert(lowest.i) }
+        for (i, b) in buckets.enumerated() where b.mean != nil {
+            let before = i == 0 || buckets[i - 1].mean == nil
+            let after = i == buckets.count - 1 || buckets[i + 1].mean == nil
+            if before || after { landmarks.insert(i) }
+        }
         for ms in (nowMs.map { [$0] } ?? []) + landmarksMs where ms >= fromMs && ms < toMs {
             if let i = grid.index(atMs: ms) { landmarks.insert(i) }
         }
@@ -216,7 +255,66 @@ public struct ChartSeries: Equatable, Sendable {
             body: body,
             band: band,
             points: points,
+            highs: highPoints,
+            lows: lowPoints,
+            fetching: fetching,
+            missing: missing,
+            estimate: estimate,
+            lastData: lastData,
             readouts: ReadoutTable(when: when, what: what, inWh: inWh, outWh: outWh, landmarks: landmarks)
         )
+    }
+}
+
+extension ChartSeries {
+    /// The line, body and band through slot points: one run per stretch of
+    /// slots with data, so a hole stays a break. The body is the line's own
+    /// curve closed on zero; the band runs from the highs' curve back along
+    /// the lows'.
+    public static func paths(points: [CGPoint?], highs: [CGPoint?], lows: [CGPoint?], baseline: CGFloat) -> (line: ChartPath, body: ChartPath, band: ChartPath) {
+        var line = ChartPath(), body = ChartPath(), band = ChartPath()
+        var run: [CGPoint] = [], hi: [CGPoint] = [], lo: [CGPoint] = []
+        func endRun() {
+            let start = line.elements.count
+            line.addMonotone(run)
+            if run.count > 1 {
+                body.elements.append(contentsOf: line.elements[start...])
+                body.elements.append(.line(CGPoint(x: run[run.count - 1].x, y: baseline)))
+                body.elements.append(.line(CGPoint(x: run[0].x, y: baseline)))
+                body.elements.append(.close)
+                band.addBand(highs: hi, lows: lo)
+            }
+            run.removeAll(keepingCapacity: true)
+            hi.removeAll(keepingCapacity: true)
+            lo.removeAll(keepingCapacity: true)
+        }
+        for i in points.indices {
+            guard let p = points[i], let h = highs[i], let l = lows[i] else {
+                endRun()
+                continue
+            }
+            run.append(p)
+            hi.append(h)
+            lo.append(l)
+        }
+        endRun()
+        return (line, body, band)
+    }
+
+    /// Part way from `old` to this series, `progress` from 0 to 1: each slot
+    /// both have moves from its old mean and swing to its new one, matched
+    /// by slot; a slot only this one has is drawn as it is. Nil when the two
+    /// do not share their slots and scale: then nothing morphs.
+    public func blended(from old: ChartSeries, progress: Double) -> (line: ChartPath, body: ChartPath, band: ChartPath)? {
+        guard progress < 1, old.grid == grid, old.domain == domain, old.points.count == points.count else { return nil }
+        let k = CGFloat(min(max(progress, 0), 1))
+        func mix(_ a: [CGPoint?], _ b: [CGPoint?]) -> [CGPoint?] {
+            zip(a, b).map { o, n in
+                guard let n else { return nil }
+                guard let o else { return n }
+                return CGPoint(x: o.x + (n.x - o.x) * k, y: o.y + (n.y - o.y) * k)
+            }
+        }
+        return Self.paths(points: mix(old.points, points), highs: mix(old.highs, highs), lows: mix(old.lows, lows), baseline: YMap(domain: domain, height: size.height).baseline)
     }
 }

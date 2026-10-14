@@ -76,6 +76,21 @@ import Testing
         #expect(sunOnly?.sun == 1)
     }
 
+    @Test func aChipAddsOrTakesAwayASeriesAndTheLastOneStays() {
+        var series = SeriesPick.read(nil, own: .battery)
+        #expect(series == [.battery])
+        series = SeriesPick.toggled(series, .grid, own: .battery)
+        series = SeriesPick.toggled(series, .solar, own: .battery)
+        // The node's own series first, the rest in Now's order.
+        #expect(series == [.battery, .solar, .grid])
+        series = SeriesPick.toggled(series, .battery, own: .battery)
+        #expect(series == [.solar, .grid])
+        series = SeriesPick.toggled(series, .solar, own: .battery)
+        #expect(SeriesPick.toggled(series, .grid, own: .battery) == [.grid])
+        #expect(SeriesPick.read("grid,bogus,home", own: .battery) == [.home, .grid])
+        #expect(SeriesPick.read("", own: .solar) == [.solar])
+    }
+
     @Test func everyNewWordHasSwedish() {
         for key in ["LIVE", "CALCULATED", "NO READING YET", "AS OF %@", "VIA RELAY", "VIA FTW CLOUD", "READS EVERY %@ S", "LIVE · LAST 5 MIN", "5 min: made %@", "earns ≈ %@", "%@ of forecast"] {
             #expect(NodeWords.sv[key] != nil, "\(key)")
