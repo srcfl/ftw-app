@@ -195,6 +195,9 @@ public enum WatchGlance {
         public let range: String
         /// "28,5 öre"
         public let price: String
+        /// "29": the price in whole units, for a slot with room for one
+        /// figure.
+        public let short: String
         public var id: Double { startMs }
     }
 
@@ -220,7 +223,8 @@ public enum WatchGlance {
                 endMs: block.endMs,
                 meanMinor: block.meanMinor,
                 range: "\(clock.label(block.startMs))–\(clock.label(block.endMs))",
-                price: "\(Words.decimal(PriceStrip.text(block.meanMinor, currency))) \(PriceUnits.unit(currency).label)"
+                price: "\(Words.decimal(PriceStrip.text(block.meanMinor, currency))) \(PriceUnits.unit(currency).label)",
+                short: "\(Int(PriceUnits.display(block.meanMinor, currency).rounded()))"
             ))
         }
         return out

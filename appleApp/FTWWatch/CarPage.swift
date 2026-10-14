@@ -1,9 +1,13 @@
 import FTWShared
 import SwiftUI
 
-/// The car as the box last described it, dated, and the three commands:
-/// Charge now, Pause and Back to the plan. Each asks once more, goes
-/// through the phone, and shows the box's receipt under the buttons.
+/// The car on one screen: its level as the 10-cell meter, what it does,
+/// when that was read, its goal and next window, and the three commands as
+/// one row of buttons. Each asks once more and names itself in full there.
+/// The box's answers come back as the receipt, which takes the place of
+/// what the car does until the page is left.
+///
+/// With more than one charger, the one with a car plugged in shows.
 struct CarPage: View {
     let model: WatchModel
     @State private var asking: Ask?
@@ -19,27 +23,26 @@ struct CarPage: View {
         TimelineView(.everyMinute) { timeline in
             let nowMs = timeline.date.timeIntervalSince1970 * 1000
             let cars = WatchGlance.cars(model.context?.cars, plan: model.context?.plan?.value, nowMs: nowMs, zone: model.zone)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
-                    if model.context?.cars == nil {
-                        // Nothing read yet is not "no charger": the shape of
-                        // the page until the phone says.
-                        CarBlock(car: .shape, model: model, ask: { _ in })
-                            .redacted(reason: .placeholder)
-                            .disabled(true)
-                    } else if cars.isEmpty {
-                        Text(WatchWord.noCharger.text)
-                            .font(.footnote)
-                            .foregroundStyle(Theme.ink2)
-                    }
-                    ForEach(cars) { car in
-                        CarBlock(car: car, model: model, ask: { asking = $0 })
-                    }
+            let car = cars.first(where: \.pluggedIn) ?? cars.first
+            Group {
+                if let car {
+                    OnePage { CarBlock(car: car, model: model, ask: { asking = $0 }) }
+                } else if model.context?.cars == nil {
+                    // Nothing read yet is not "no charger": the shape of the
+                    // page until the phone says.
+                    CarBlock(car: .shape, model: model, ask: { _ in })
+                        .redacted(reason: .placeholder)
+                        .disabled(true)
+                } else {
+                    Text(WatchWord.noCharger.text)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.ink2)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .navigationTitle(WatchWord.car.text)
+        .onDisappear { model.leaveCars() }
         .sheet(item: $asking) { a in
             Confirm(question: a.question, action: a.action) { model.send(a.op) }
         }
@@ -52,63 +55,114 @@ private struct CarBlock: View {
     let ask: (CarPage.Ask) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(car.levelText ?? "—")
-                    .font(Theme.figure(26))
-                    .foregroundStyle(Theme.ink)
-                    .minimumScaleFactor(0.7)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                if let cells = car.cells {
-                    Meter(cells: cells, hue: Theme.car)
+        VStack(alignment: .leading, spacing: 2) {
+            // The level beside its meter, or the meter under it where the
+            // width runs out, as with "20 % antaget".
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    level
+                    Spacer(minLength: 0)
+                    meter
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    level
+                    meter
                 }
             }
-            Text(car.state)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Theme.ink)
-            if let line = [car.goal, car.next].compactMap({ $0 }).nilIfEmpty?.joined(separator: " · ") {
-                Text(line)
-                    .font(.caption2)
-                    .foregroundStyle(Theme.ink2)
-            }
-            Text(car.asOf)
-                .font(Theme.mono(.caption2))
-                .foregroundStyle(Theme.ink3)
-
-            // Room for the receipt, above the buttons, so nothing moves
-            // when it lands and it shows where the tap was.
+            // One room for what the car does or, after a command, the box's
+            // receipt, so nothing moves when the receipt lands.
             ZStack(alignment: .topLeading) {
                 ReceiptLine(receipt: WatchReceipt(commandID: "", op: .mode(""), sent: .waiting, accepted: .waiting, confirmed: .waiting, text: "\n", tone: .working))
                     .hidden()
                     .accessibilityHidden(true)
                 if let r = model.receipt(for: car.loadpointID) {
                     ReceiptLine(receipt: r)
-                } else if !model.canSend {
-                    Text(WatchWord.phoneUnreachable.text)
-                        .font(.footnote)
-                        .foregroundStyle(Theme.ink2)
+                } else {
+                    state
                 }
             }
-            let sending = model.sending(car.loadpointID)
-            let off = !model.canSend || sending
-            VStack(spacing: 4) {
-                command(WatchWord.chargeNow.text, .chargeNow(loadpointID: car.loadpointID), WatchWord.chargeNowAsk.text, off: off)
+            Spacer(minLength: 0)
+            let off = !model.canSend || model.sending(car.loadpointID)
+            HStack(spacing: 6) {
+                command("bolt.fill", WatchWord.chargeNow.text, .chargeNow(loadpointID: car.loadpointID), WatchWord.chargeNowAsk.text, off: off, on: car.holding)
                     .accessibilityIdentifier("watch.car.chargeNow")
-                command(WatchWord.pause.text, .pause(loadpointID: car.loadpointID), WatchWord.pauseAsk.text, off: off)
-                command(WatchWord.backToPlan.text, .backToPlan(loadpointID: car.loadpointID), WatchWord.backToPlanAsk.text, off: off)
+                command("pause.fill", WatchWord.pause.text, .pause(loadpointID: car.loadpointID), WatchWord.pauseAsk.text, off: off, on: false)
+                command("arrow.uturn.backward", WatchWord.backToPlan.text, .backToPlan(loadpointID: car.loadpointID), WatchWord.backToPlanAsk.text, off: off, on: false)
             }
-            .padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// "20 % antaget": a level FTW assumed says so.
+    private var level: some View {
+        Text(car.levelText ?? "—")
+            .font(Theme.figure(22))
+            .foregroundStyle(Theme.ink)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+    }
+
+    @ViewBuilder private var meter: some View {
+        if let cells = car.cells {
+            Meter(cells: cells, hue: Theme.car)
         }
     }
 
-    private func command(_ title: String, _ op: WatchCommand.Op, _ question: String, off: Bool) -> some View {
-        Button(title) { ask(CarPage.Ask(op: op, question: question, action: title)) }
-            .buttonStyle(.bordered)
-            .disabled(off)
+    /// What it does and when the box said so, then its goal and next
+    /// window, or why the buttons are off.
+    private var state: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(car.state)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Spacer(minLength: 2)
+                Text(car.asOf)
+                    .font(Theme.mono(.caption2))
+                    .foregroundStyle(Theme.ink3)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            // Goal and next window on a line each; one line for both when
+            // the second says why the buttons are off.
+            if model.canSend {
+                ForEach([car.goal, car.next].compactMap { $0 }, id: \.self) { line($0) }
+            } else {
+                line([car.goal, car.next].compactMap { $0 }.joined(separator: " · "))
+                line(WatchWord.phoneUnreachable.text)
+            }
+        }
     }
-}
 
-extension Array {
-    var nilIfEmpty: [Element]? { isEmpty ? nil : self }
+    private func line(_ text: String) -> some View {
+        Text(text)
+            .font(.caption2)
+            .foregroundStyle(Theme.ink2)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+    }
+
+    /// One command: a glyph on the button, its full name in the question
+    /// and to VoiceOver. `on` marks the one the box last confirmed as
+    /// holding.
+    private func command(_ glyph: String, _ title: String, _ op: WatchCommand.Op, _ question: String, off: Bool, on: Bool) -> some View {
+        Button {
+            ask(CarPage.Ask(op: op, question: question, action: title))
+        } label: {
+            // Lower than the system's bordered button, so the page needs no
+            // scrolling; still a whole third of the width to hit.
+            Image(systemName: glyph)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(on ? Theme.car : Theme.ink)
+                .frame(maxWidth: .infinity, minHeight: 30)
+                .background(Theme.raised, in: RoundedRectangle(cornerRadius: 9))
+                .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+        .disabled(off)
+        .opacity(off ? 0.4 : 1)
+        .accessibilityLabel(title)
+    }
 }

@@ -43,7 +43,7 @@ struct PlanPage: View {
                         quarter = 0
                         focused = true
                     }
-                    Text(i == 0 ? moment.summary : dial.what(i))
+                    Text(i == 0 ? next(moment) : dial.what(i))
                         .font(.system(size: 12))
                         .foregroundStyle(i == 0 && moment.isGrey ? Theme.ink3 : Theme.ink2)
                         .multilineTextAlignment(.center)
@@ -92,6 +92,13 @@ struct PlanPage: View {
             if q > 0 { quarter = q }
             #endif
         }
+    }
+
+    /// What happens next, in one short sentence: "Batteriet laddar ur till
+    /// 19:30". The whole plan is the dial.
+    private func next(_ m: PlanGlance.Moment) -> String {
+        guard let what = m.nextWhat else { return m.summary }
+        return [what, m.nextUntil].compactMap { $0 }.joined(separator: " ")
     }
 
     /// "PLANNED 16:45", or "PLAN FROM 14:05" once it is old.

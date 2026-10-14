@@ -311,6 +311,29 @@ import Testing
         #expect(faces.allSatisfy { $0.dial != nil })
     }
 
+    // MARK: The trace on the wrist
+
+    /// The trace draws each direction on its side of zero, as the phone's
+    /// node view does: giving and selling below, everything else above.
+    @Test func aReadingKeepsItsDirectionForTheTrace() {
+        func r(_ node: WatchNow.Node, _ w: Double?, _ way: WatchNow.Way) -> Double? {
+            WatchNow.Reading(node: node, watts: w, way: way, live: true).signedW
+        }
+        #expect(r(.battery, 1_200, .giving) == -1_200)
+        #expect(r(.battery, 900, .charging) == 900)
+        #expect(r(.grid, 300, .selling) == -300)
+        #expect(r(.grid, 300, .buying) == 300)
+        #expect(r(.solar, 2_000, .making) == 2_000)
+        #expect(r(.home, 412, .using) == 412)
+        #expect(r(.grid, nil, .noReading) == nil)
+        #expect(WatchNow.Node.home.floorW == 2_000 && WatchNow.Node.car.floorW == 3_700)
+    }
+
+    @Test func aCheapWindowHasOneFigureForASmallSlot() {
+        let w = WatchGlance.cheapWindows(prices(), nowMs: at(14, 12))
+        #expect(w.map(\.short) == ["70", "30"])
+    }
+
     // MARK: Words
 
     @Test func everyWatchWordHasSwedish() throws {
