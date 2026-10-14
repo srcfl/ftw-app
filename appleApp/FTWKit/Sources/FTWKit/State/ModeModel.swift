@@ -103,6 +103,9 @@ public final class ModeModel {
     @ObservationIgnored private var ask: LiveAsk?
     @ObservationIgnored private var active = 0
     @ObservationIgnored private var want = 0
+    /// How long the box's preferences stand when someone starts looking
+    /// again. They change on the box's page or another phone, never often.
+    nonisolated static let prefsStandMs: Double = 15 * 60_000
 
     public init(site: SiteModel) {
         self.site = site
@@ -113,7 +116,7 @@ public final class ModeModel {
     public func activate() {
         active += 1
         if ask == nil {
-            ask = LiveAsk(site: site, want: { [weak self] in
+            ask = LiveAsk(site: site, order: .prefs, ttlMs: Self.prefsStandMs, want: { [weak self] in
                 guard let self, self.active > 0, self.site.hasPassthrough else { return nil }
                 return "prefs \(self.want)"
             }, ask: { [weak self] in try await self?.loadPrefs() })

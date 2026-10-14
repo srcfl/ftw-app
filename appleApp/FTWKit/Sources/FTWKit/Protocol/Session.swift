@@ -96,6 +96,18 @@ public struct CommandError: Error, Equatable, HelpfulError {
     public let help: String
 }
 
+/// Which read goes first when several wait for the box's one API slot: what
+/// Now's car needs, then the mode, then the plan, then the device status,
+/// then the rest. Anything a person asked for goes before all of them.
+/// `LiveAsk` sets it for the reads it makes.
+public enum ReadOrder: Int, Sendable, Comparable {
+    case person, loadpoints, prefs, plan, status, later
+
+    @TaskLocal public static var current: ReadOrder = .person
+
+    public static func < (a: ReadOrder, b: ReadOrder) -> Bool { a.rawValue < b.rawValue }
+}
+
 @MainActor
 public final class Session {
     public static let apiTimeoutMs: Double = 20_000
@@ -170,11 +182,16 @@ public final class Session {
     private var pendingCommands: [String: PendingCommand] = [:]
 
     // The api queue: one call on the wire at a time, because that is how
-    // many the box serves.
+    // many the box serves. Waiting calls go in `ReadOrder`, then in turn.
     private var apiBusy = false
-    private var apiWaiters: [(id: Int, continuation: CheckedContinuation<Void, Error>, timer: Cancellable)] = []
+    private var apiWaiters: [(id: Int, order: ReadOrder, continuation: CheckedContinuation<Void, Error>, timer: Cancellable)] = []
     private var apiWaiterSeq = 0
     private var apiGeneration = 0
+    private var apiGrant: Cancellable?
+    /// An idle slot waits one display frame before a read gets it, so reads
+    /// asked for in the same moment go in their order, not in the order
+    /// their tasks happened to start. What a person asked for never waits.
+    static let apiGatherMs: Double = 16
 
     public init(build: String, ua: String = "native", locales: [String] = ["en"], subscription: Subscription = Subscription(), scheduler: Scheduler) {
         self.build = build
@@ -341,7 +358,7 @@ public final class Session {
     /// success, and a call never crosses a disconnect into a new session.
     public func api(_ req: APIRequest) async throws -> APIResponse {
         let generation = apiGeneration
-        try await acquireAPISlot()
+        try await acquireAPISlot(ReadOrder.current)
         defer { releaseAPISlot() }
         for attempt in 0... {
             if generation != apiGeneration { throw SessionError.carrierClosed }
@@ -366,11 +383,7 @@ public final class Session {
         }
     }
 
-    private func acquireAPISlot() async throws {
-        if !apiBusy {
-            apiBusy = true
-            return
-        }
+    private func acquireAPISlot(_ order: ReadOrder) async throws {
         apiWaiterSeq += 1
         let mine = apiWaiterSeq
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
@@ -379,18 +392,30 @@ public final class Session {
                 self.apiWaiters.remove(at: i)
                 cont.resume(throwing: SessionError.queueTimedOut)
             }
-            apiWaiters.append((mine, cont, timer))
+            apiWaiters.append((mine, order, cont, timer))
+            if order == .person {
+                grantAPISlot()
+            } else if !apiBusy, apiGrant == nil {
+                apiGrant = scheduler.after(Self.apiGatherMs) { [weak self] in
+                    self?.apiGrant = nil
+                    self?.grantAPISlot()
+                }
+            }
         }
     }
 
     private func releaseAPISlot() {
-        if apiWaiters.isEmpty {
-            apiBusy = false
-            return
-        }
-        let next = apiWaiters.removeFirst()
-        next.timer.cancel()
-        next.continuation.resume()
+        apiBusy = false
+        grantAPISlot()
+    }
+
+    /// The slot to the first waiting call in order.
+    private func grantAPISlot() {
+        guard !apiBusy, let next = apiWaiters.indices.min(by: { (apiWaiters[$0].order, apiWaiters[$0].id) < (apiWaiters[$1].order, apiWaiters[$1].id) }) else { return }
+        let waiter = apiWaiters.remove(at: next)
+        waiter.timer.cancel()
+        apiBusy = true
+        waiter.continuation.resume()
     }
 
     private func dispatchAPI(_ req: APIRequest) async throws -> APIResponse {

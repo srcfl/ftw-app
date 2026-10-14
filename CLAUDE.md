@@ -76,10 +76,16 @@ native, and smooth enough to impress.
   quote the numbers in any PR that touches launch.
 - **The handshake runs beside the first frame, never ahead of it.**
 - **No timer loops.** Lane 0 drives Now. Until the box streams charger
-  state (M5, or FTW Cloud C3), the chargers are read when a screen that
-  shows them appears, after a command, and when the stream says the car
-  started or stopped drawing. The plan's shortfall is read when the car
-  view opens and when the car's plan changes.
+  state (M5, or FTW Cloud C3), the chargers are read when someone starts
+  looking and the last read is over a minute old, after a command, and
+  when the stream says the car started or stopped drawing. The plan's
+  shortfall is read when the car view opens and when the car's plan
+  changes.
+- **Ask by the data's age.** `LiveAsk` names what it wants by how old the
+  data is (the five minutes, the quarter, the day) and keeps an answer
+  while that name holds. A view appearing or a redial asks only when the
+  answer is older than its time to live. Reads wait for the box's one API
+  slot in `ReadOrder`: chargers, prefs, plan, status, the rest.
 - **A frame redraws what moved.** Small views that read only what they
   show, value inputs, and `Equatable` with `.equatable()` where a frame
   would otherwise redraw a whole section. A clock on screen ticks by the

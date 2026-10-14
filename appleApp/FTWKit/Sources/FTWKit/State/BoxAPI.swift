@@ -87,29 +87,47 @@ extension SiteModel {
     }
 }
 
-/// One rule for everything a screen asks the box for: ask while the session
-/// streams, again every time it comes back, and again after a failure, with
-/// a wait that doubles up to a quarter of an hour. A carrier that drops
-/// settles every request at once, and nothing else would ever ask again.
+/// One rule for everything a screen asks the box for. `want` names the
+/// data by its age: the five minutes for history, the quarter for the
+/// plan, the day for prices. An answer stands while that name holds. When
+/// someone starts looking again (a view appears, or the stream comes back)
+/// an answer older than `ttlMs` no longer stands. Neither a view appearing
+/// nor a redial asks by itself, and no timer does: an answer from before
+/// the app went to the background still stands when it comes back.
+///
+/// An answer a dropped carrier never gave is asked for at the next live
+/// moment. A failure is asked again after a wait that doubles up to a
+/// quarter of an hour. Reads that wait for the box's one API slot go in
+/// `order`.
 @MainActor
 public final class LiveAsk {
     static let retryMs: Double = 30_000
     static let ceilingMs: Double = 15 * 60_000
 
     private unowned let site: SiteModel
+    private let order: ReadOrder
+    private let ttlMs: Double
     private let want: @MainActor () -> String?
     private let ask: @MainActor () async throws -> Void
-    private var asked: String?
-    private var tries = 0
+    /// The last answer, by name, and when it came.
+    private var answered: (name: String, atMs: Double)?
+    /// What is on the wire now.
+    private var asking: String?
+    /// What failed, waiting out its backoff.
+    private var failed: String?
+    /// Whether someone looked at the last evaluation, while it streamed.
+    private var looking = false
     private var waitMs = LiveAsk.retryMs
     private var timer: Cancellable?
     private var generation = 0
     private var token: Int?
 
-    /// `want` names what to ask for; the same name is not asked twice, and
-    /// nil means there is nothing to ask. `ask` rejects to be asked again.
-    public init(site: SiteModel, want: @escaping @MainActor () -> String?, ask: @escaping @MainActor () async throws -> Void) {
+    /// `want` names what to ask for, or nil when nobody looks. `ask`
+    /// rejects to be asked again.
+    public init(site: SiteModel, order: ReadOrder = .later, ttlMs: Double = .infinity, want: @escaping @MainActor () -> String?, ask: @escaping @MainActor () async throws -> Void) {
         self.site = site
+        self.order = order
+        self.ttlMs = ttlMs
         self.want = want
         self.ask = ask
         token = site.observe { [weak self] in self?.evaluate() }
@@ -122,33 +140,58 @@ public final class LiveAsk {
         token = nil
     }
 
-    /// Check whether to ask now. Called on every session change and tick,
-    /// and by the owner when what it wants changes.
+    /// Check whether to ask now. Called on every session change and clock
+    /// tick, and by the owner when what it wants changes.
     public func evaluate() {
         guard token != nil else { return }
-        guard site.session.phase == .streaming, let name = want() else {
-            // Whatever was asked is unanswered now; the next live moment asks
-            // again rather than waiting out a backoff.
-            asked = nil
+        guard site.session.phase == .streaming else {
+            // What was on the wire is settled with the carrier. The next
+            // live moment asks again at once rather than waiting out a
+            // backoff; an answer already given still stands.
+            generation += 1
+            asking = nil
+            failed = nil
             waitMs = Self.retryMs
             timer?.cancel()
+            looking = false
             return
         }
-        let key = "\(name) \(tries)"
-        if asked == key { return }
-        asked = key
+        guard let name = want() else {
+            // Nobody looks: no retry. What is on the wire may still land.
+            failed = nil
+            timer?.cancel()
+            looking = false
+            return
+        }
+        if !looking {
+            looking = true
+            if let answered, site.scheduler.nowMs - answered.atMs >= ttlMs { self.answered = nil }
+        }
+        if asking == name || failed == name || answered?.name == name { return }
+        start(name)
+    }
+
+    private func start(_ name: String) {
         timer?.cancel()
+        failed = nil
+        asking = name
         generation += 1
         let mine = generation
+        let order = order
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                try await self.ask()
-                if mine == self.generation { self.waitMs = Self.retryMs }
+                try await ReadOrder.$current.withValue(order) { try await self.ask() }
+                guard mine == self.generation else { return }
+                self.asking = nil
+                self.answered = (name, self.site.scheduler.nowMs)
+                self.waitMs = Self.retryMs
             } catch {
                 guard mine == self.generation else { return }
+                self.asking = nil
+                self.failed = name
                 self.timer = self.site.scheduler.after(self.waitMs) { [weak self] in
-                    self?.tries += 1
+                    self?.failed = nil
                     self?.evaluate()
                 }
                 self.waitMs = min(self.waitMs * 2, Self.ceilingMs)

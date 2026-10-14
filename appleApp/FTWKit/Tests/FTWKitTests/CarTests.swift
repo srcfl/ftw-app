@@ -479,8 +479,9 @@ import FTWDemo
         #expect(try #require(rig.box).receivedRequests.isEmpty)
     }
 
-    /// No timer reads the chargers. A screen appearing does, a command
-    /// does, and the stream saying the car started drawing does.
+    /// No timer reads the chargers, and no screen appearing while the
+    /// last read stands. A command does, and the stream saying the car
+    /// started drawing does.
     @Test func theChargersAreReadOnEventsNotOnATimer() async throws {
         let rig = Rig()
         rig.app.startDemo()
@@ -493,10 +494,11 @@ import FTWDemo
         await rig.run(60_000, step: 500)
         #expect(reads() == 1)
 
-        // A second screen appearing is a reason to look again.
+        // A second screen appearing is no reason to look again: what the
+        // first one shows is the box's answer.
         home.loadpoints.activate()
         await rig.run(1_000)
-        #expect(reads() == 2)
+        #expect(reads() == 1)
         home.loadpoints.deactivate()
 
         // Charge now: one read after the box's answer, one when the stream
@@ -505,13 +507,13 @@ import FTWDemo
         let charge = Task { await home.loadpoints.chargeNow(car) }
         await rig.run(2_000)
         await charge.value
-        #expect(reads() == 3)
+        #expect(reads() == 2)
         #expect(home.loadpoints.points.first?.powerW == 0)
         await rig.run(5_000, step: 250)
-        #expect(reads() == 4)
+        #expect(reads() == 3)
         #expect(home.loadpoints.points.first?.powerW == 11_000)
         await rig.run(60_000, step: 500)
-        #expect(reads() == 4)
+        #expect(reads() == 3)
 
         // The plan's shortfall: read when the car view opens and when the
         // car's plan changes, not once a minute.

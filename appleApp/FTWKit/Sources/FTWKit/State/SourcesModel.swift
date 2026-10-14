@@ -91,7 +91,7 @@ public final class SourcesModel {
         defer { inFlight = false }
         let fields = site.session.fields
         do {
-            let status = try await site.callBox(.get, "/api/status")
+            let status = try await ReadOrder.$current.withValue(.status) { try await site.callBox(.get, "/api/status") }
             devices = Self.devices(status)
             readAtMs = site.nowMs
             failedAtMs = nil

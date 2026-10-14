@@ -90,8 +90,12 @@ public final class LoadpointsModel: Activatable {
     @ObservationIgnored private var reading: Task<Void, Error>?
     @ObservationIgnored private var levelSending: Set<String> = []
     @ObservationIgnored private var clearing: [String: Cancellable] = [:]
-    /// Bumped by each appearance and by `reread`: a new reason to ask.
-    @ObservationIgnored private var visits = 0
+    /// Bumped by `reread`: a person asked to look again.
+    @ObservationIgnored private var rereads = 0
+    /// How long a read of the chargers stands when someone starts looking
+    /// again. The stream says when a car starts or stops drawing; this
+    /// covers a cable plugged in while nobody looked.
+    nonisolated static let readStandsMs: Double = 60_000
 
     /// The Live Activity for Charge now. A test sets its own; otherwise the
     /// app's, which it installs at launch.
@@ -124,10 +128,11 @@ public final class LoadpointsModel: Activatable {
         // A Live Activity from another home, or from the demo, has no
         // business on this phone once this home is open.
         activityHost?.endAll(except: activityHome)
-        // A Live Activity is only as good as the last read: every time the
-        // stream comes back while someone looks, read the chargers once, so
-        // the Live Activity is confirmed again or ended.
-        activityAsk = LiveAsk(site: site, want: { [weak self] in
+        // A Live Activity is only as good as the last read: when the stream
+        // comes back while someone looks and the last read is over a
+        // minute old, read the chargers once, so the Live Activity is
+        // confirmed again or ended.
+        activityAsk = LiveAsk(site: site, order: .loadpoints, ttlMs: Self.readStandsMs, want: { [weak self] in
             guard let self, self.site.documentVisible, self.site.hasPassthrough,
                   let host = self.activityHost, !host.loadpointIDs(home: self.activityHome).isEmpty else { return nil }
             return "live activity"
@@ -176,11 +181,10 @@ public final class LoadpointsModel: Activatable {
 
     public func activate() {
         active += 1
-        visits += 1
         if ask == nil {
-            ask = LiveAsk(site: site, want: { [weak self] in
+            ask = LiveAsk(site: site, order: .loadpoints, ttlMs: Self.readStandsMs, want: { [weak self] in
                 guard let self, self.active > 0, self.site.documentVisible, self.site.hasPassthrough else { return nil }
-                return "loadpoints \(self.visits) \(self.drawing)"
+                return "loadpoints \(self.rereads) \(self.drawing)"
             }, ask: { [weak self] in try await self?.load() })
         }
         ask?.evaluate()
@@ -203,7 +207,7 @@ public final class LoadpointsModel: Activatable {
     public func watchPlan() {
         planWatchers += 1
         if planAsk == nil {
-            planAsk = LiveAsk(site: site, want: { [weak self] in
+            planAsk = LiveAsk(site: site, order: .plan, want: { [weak self] in
                 guard let self, self.planWatchers > 0, self.site.documentVisible, self.site.hasPassthrough, self.inlinePlan else { return nil }
                 let goals = self.points.filter { $0.pluggedIn && $0.schedule != nil && !$0.planPending && !$0.planOutdated }
                 guard !goals.isEmpty else { return nil }
@@ -241,7 +245,7 @@ public final class LoadpointsModel: Activatable {
 
     /// Ask again now: pull to refresh, or the demo's cable.
     public func reread() {
-        visits += 1
+        rereads += 1
         ask?.evaluate()
     }
 
