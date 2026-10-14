@@ -1,0 +1,12 @@
+/* The plan dial's words, on the phone, its widget and the watch. Keys are the English (DialWord). */
+"STORES · %@" = "LAGRAR · %@";
+"GIVES · %@" = "GER · %@";
+"WAITS" = "VILAR";
+"NO PLAN" = "INGEN PLAN";
+"CAR" = "BILEN";
+"CAR TO %@" = "BILEN TILL %@";
+"NO PRICE YET" = "INGET PRIS ÄN";
+"PLANNED %@ · REPLANS EVERY 15 MIN" = "PLANERAD %@ · PLANERAS OM VAR 15:E MIN";
+"PLAN FROM %@ · OLD" = "PLAN FRÅN %@ · GAMMAL";
+"Plan dial" = "Plantavla";
+"The next 24 hours round a dial: the price, what the battery does and when the car charges." = "De kommande 24 timmarna runt en tavla: priset, vad batteriet gör och när bilen laddar.";
