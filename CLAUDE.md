@@ -112,6 +112,12 @@ native, and smooth enough to impress.
   changed, and compute the points once per change.
 - **Every chart takes a finger.** The point under it is marked, and the
   line under the chart says what was there. Two fingers give the span.
+- **Charts draw on the engine.** Geometry is a value built once per data
+  change (`FTWShared/Charts`, tested). A chart is one Canvas
+  (`ChartSurface`) that never sees the finger and a small `ScrubOverlay`
+  that alone redraws under it, reading a `ScrubModel`. About one point
+  per 6 pt of width, and every stroke joins round (`ChartStrokeTests`).
+  Widgets draw the same shapes as still paths.
 - **Haptics are sparse.** `.selection` per slot while scrubbing, at most
   about 25 a second. `.impact(weight: .light)` at now, the edges of the
   cheapest window, the day's high and low, the car's goal and the ends of

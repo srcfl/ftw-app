@@ -1,4 +1,3 @@
-import Charts
 import FTWShared
 import SwiftUI
 import WidgetKit
@@ -182,30 +181,21 @@ struct Empty: View {
     }
 }
 
-/// The next twelve hours as the app draws them (`PriceLineChart`, shared
-/// with the app): one stepped line coloured by level, now as a rule and a
-/// dot, the cheapest hours as a soft band, the average as a faint rule.
+/// The next twelve hours as the app draws them (`PricePaths`, shared with
+/// the app): a bar per slot in ink by thirds, the now slot in full ink,
+/// the average as a dotted rule and the cheapest two hours bracketed.
 ///
-/// Tinted and clear home screens and StandBy at night draw in one colour,
-/// so there the line is one colour and the band carries the cheap hours.
+/// Tinted and clear home screens and StandBy at night draw in one colour;
+/// the bars keep their three strengths.
 struct Curve: View {
     let moment: PriceGlance.Moment
     @Environment(\.widgetRenderingMode) private var renderingMode
 
     var body: some View {
-        PriceLineChart(
-            points: moment.curve.map { PricePoint(startMs: $0.startMs, endMs: $0.endMs, value: PriceUnits.display($0.minor, moment.currency)) },
-            nowMs: moment.atMs,
-            mean: moment.meanMinor.map { PriceUnits.display($0, moment.currency) },
-            cheapest: moment.cheapest.map { $0.startMs...$0.endMs },
-            cheapestLabel: nil,
-            meanLabel: nil,
-            palette: .ink,
-            zone: moment.timeZone,
-            labelEveryHours: 3,
+        PriceBarsStill(
+            chart: PriceChart.build(bars: moment.curve, currency: moment.currency, nowMs: moment.atMs, spanMs: PriceGlance.curveMs, everyHours: 3, clock: ZoneClock.of(moment.timeZone)),
             monochrome: renderingMode != .fullColor
         )
-        .widgetAccentable()
         .accessibilityHidden(true)
     }
 }
