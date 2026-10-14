@@ -28,7 +28,10 @@ struct NodeView: View {
     @State private var trace = NodeTraceModel()
     @State private var choosingMode = false
     @State private var timebase: Timebase
-    @State private var readout: ChartReadout?
+    @State private var text = PeriodText()
+    @State private var series: [EnergyNode]
+    @State private var enlarged = false
+    @Namespace private var chartZoom
     @Environment(\.dynamicTypeSize) private var typeSize
 
     init(app: AppModel, home: HomeModels, node: EnergyNode, zoom: Namespace.ID) {
@@ -37,6 +40,7 @@ struct NodeView: View {
         self.node = node
         self.zoom = zoom
         _timebase = State(initialValue: Timebase.remembered(node))
+        _series = State(initialValue: SeriesChoice.load(node))
     }
 
     /// Live, today, the last two days and the hours ahead: one chart, one
@@ -101,7 +105,6 @@ struct NodeView: View {
         }
         .onChange(of: timebase) { _, now in
             UserDefaults.standard.set(now.rawValue, forKey: Timebase.key(node))
-            readout = nil
             scrub.lift()
         }
         .onChange(of: scrub.isDown) { _, down in
@@ -110,20 +113,52 @@ struct NodeView: View {
         .sheet(isPresented: $choosingMode) {
             ModeSheet(mode: models.mode)
         }
+        .fullScreenCover(isPresented: $enlarged) {
+            ChartFullScreen(site: site, node: node, home: home, timebase: $timebase, series: $series, timebases: timebases)
+                .navigationTransition(.zoom(sourceID: "chart", in: chartZoom))
+        }
     }
 
+    private var timebases: [Timebase] { Timebase.allCases.filter { $0 != .ahead || hasAhead } }
+
     private func page(fill: Bool) -> some View {
-        let timebases = Timebase.allCases.filter { $0 != .ahead || hasAhead }
         return VStack(alignment: .leading, spacing: 0) {
-            NodeHero(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase)
+            NodeHero(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, text: text)
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .padding(.horizontal, 20)
-            NodeStatusRow(site: site, node: node)
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
-            NodeChart(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, readout: $readout)
-                .frame(minHeight: fill ? 180 : 240, idealHeight: 300, maxHeight: 340)
-                .padding(.top, 8)
+            HStack(spacing: 8) {
+                NodeStatusRow(site: site, node: node)
+                    .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                Spacer(minLength: 4)
+                Button { enlarged = true } label: {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Theme.ink3)
+                        .frame(minWidth: 32, minHeight: 28)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L("Enlarge the chart"))
+                .accessibilityIdentifier("node.chart.enlarge")
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            // The series a history shows; the row keeps its room on every
+            // timebase, so nothing moves on a switch.
+            SeriesChips(own: node, available: Self.chartable(node), chosen: $series)
+                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                .padding(.horizontal, 14)
+                .opacity(timebase == .today || timebase == .twoDays ? 1 : 0)
+                .allowsHitTesting(timebase == .today || timebase == .twoDays)
+                .accessibilityHidden(!(timebase == .today || timebase == .twoDays))
+            // Compact: the view never scrolls for it. A tap opens it on the
+            // whole screen, growing out of this one.
+            NodeChart(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, series: series, text: text)
+                .frame(minHeight: fill ? 150 : 200, idealHeight: 200, maxHeight: 230)
                 .padding(.horizontal, 4)
+                .contentShape(Rectangle())
+                .simultaneousGesture(TapGesture().onEnded { enlarged = true })
+                .matchedTransitionSource(id: "chart", in: chartZoom)
             Picker(L("Period"), selection: $timebase.animation(.easeInOut(duration: 0.2))) {
                 ForEach(timebases, id: \.self) { Text($0.label).tag($0) }
             }
@@ -131,7 +166,7 @@ struct NodeView: View {
             .accessibilityIdentifier("node.period")
             .padding(.horizontal, 20)
             .padding(.top, 12)
-            RangeLine(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, readout: readout)
+            RangeLine(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, text: text)
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
             if node == .battery {
@@ -145,6 +180,7 @@ struct NodeView: View {
             }
             if fill { Spacer(minLength: 8) }
             NodeFooter(site: site, node: node, live: models.live)
+                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                 .padding(.horizontal, 20)
                 .padding(.top, fill ? 0 : 16)
                 .padding(.bottom, 8)
@@ -152,6 +188,12 @@ struct NodeView: View {
         .frame(maxWidth: 640, maxHeight: fill ? .infinity : nil, alignment: .topLeading)
         .frame(maxWidth: .infinity)
         .padding(.top, 8)
+    }
+
+    /// The series a node's history can show: the box's tiles, and the car
+    /// on its own view, from its hours.
+    static func chartable(_ node: EnergyNode) -> [EnergyNode] {
+        EnergyNode.allCases.filter { $0 != .car || node == .car }
     }
 
     /// Ahead shows only where the box plans or forecasts for this node.
@@ -240,6 +282,7 @@ private struct NodeHero: View {
     let trace: NodeTraceModel
     let scrub: ScrubModel
     let timebase: NodeView.Timebase
+    let text: PeriodText
     @ScaledMetric(relativeTo: .largeTitle) private var figureSize: CGFloat = 60
     @ScaledMetric(relativeTo: .title2) private var unitSize: CGFloat = 22
 
@@ -254,8 +297,15 @@ private struct NodeHero: View {
             hasCar: !loadpoints.points.isEmpty
         ).first { $0.node == node }
         let live = reading?.freshness.live ?? false
-        let under = timebase == .live ? fingered : nil
-        let watts = under?.watts ?? reading?.watts
+        // Under a finger the hero says what the finger is on, on Live and
+        // on the measured past alike. The hours ahead are a plan, not a
+        // reading, so there the hero stays on now.
+        let under: (watts: Double?, signed: Double, word: String)? = switch timebase {
+        case .live: fingered.map { ($0.watts, $0.signed, $0.word) }
+        case .today, .twoDays: text.hero(scrub).map { ($0.watts, $0.signed, $0.word) }
+        case .ahead: nil
+        }
+        let watts = under.map(\.watts) ?? reading?.watts
         let word = under?.word ?? reading?.word ?? L("Your box sends no reading for this.")
         let tone = under.map { Readouts.tone(node, $0.signed) } ?? reading?.tone ?? .muted
 
@@ -275,7 +325,7 @@ private struct NodeHero: View {
             SecondFact(site: site, node: node, home: home, reading: reading, live: live)
         }
         .transaction { $0.animation = scrub.isDown ? nil : Theme.spring }
-        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("node.hero")
     }
@@ -425,16 +475,17 @@ private struct NodeStatusRow: View {
             .tracking(0.5)
             .lineLimit(1)
             .minimumScaleFactor(0.75)
-            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+            .dynamicTypeSize(...DynamicTypeSize.xxLarge)
             .accessibilityIdentifier("node.status")
             .contentTransition(.opacity)
             .animation(.default, value: text)
     }
 }
 
-/// One place for the node's chart. Live streams the trace; today, the
-/// last two days and the hours ahead draw their own charts in the same
-/// frame. A switch cross-fades in 0.2 s and the scale does not morph.
+/// One place for the node's chart. Live streams the trace; today and the
+/// last two days draw the chosen series on the engine; the hours ahead
+/// draw the plan or the forecast with the price. A switch cross-fades in
+/// 0.2 s and the scale does not morph.
 private struct NodeChart: View {
     let site: SiteModel
     let node: EnergyNode
@@ -442,7 +493,8 @@ private struct NodeChart: View {
     let trace: NodeTraceModel
     let scrub: ScrubModel
     let timebase: NodeView.Timebase
-    @Binding var readout: ChartReadout?
+    let series: [EnergyNode]
+    let text: PeriodText
 
     var body: some View {
         ZStack {
@@ -450,12 +502,94 @@ private struct NodeChart: View {
             case .live:
                 LiveChartArea(site: site, node: node, live: home.nodes.live, trace: trace, scrub: scrub)
                     .transition(.opacity)
-            default:
-                PeriodChart(site: site, node: node, period: timebase, models: home.nodes, prices: home.prices, loadpoints: home.loadpoints, onScrub: { readout = $0 })
-                    .padding(.horizontal, 12)
+            case .today, .twoDays:
+                HistoryChartArea(site: site, node: node, home: home, scrub: scrub, period: timebase, series: series, text: text)
+                    .transition(.opacity)
+                    .accessibilityIdentifier("node.period.chart")
+            case .ahead:
+                AheadChartArea(site: site, node: node, home: home, scrub: scrub, text: text)
                     .transition(.opacity)
                     .accessibilityIdentifier("node.period.chart")
             }
+        }
+        // A chart's words stop growing at xxLarge: they are drawn in the
+        // Canvas, and said again under the chart and to VoiceOver. Set here,
+        // above the charts, so their scaled sizes read it.
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+    }
+}
+
+/// The chart on the whole screen, grown out of the small one: the same
+/// timebases, series and finger, with room to read.
+private struct ChartFullScreen: View {
+    let site: SiteModel
+    let node: EnergyNode
+    let home: HomeModels
+    @Binding var timebase: NodeView.Timebase
+    @Binding var series: [EnergyNode]
+    let timebases: [NodeView.Timebase]
+    @State private var scrub = ScrubModel()
+    @State private var trace = NodeTraceModel()
+    @State private var text = PeriodText()
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dynamicTypeSize) private var typeSize
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                // The accessibility sizes scroll, with the chart at a fixed
+                // height; every other size is one page.
+                if typeSize.isAccessibilitySize {
+                    ScrollView { content(chart: 360) }
+                } else {
+                    content(chart: nil)
+                }
+            }
+            .background(Theme.ground)
+            .navigationTitle(node.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss() } label: { Image(systemName: "xmark") }
+                        .accessibilityLabel(L("Close"))
+                        .accessibilityIdentifier("node.chart.close")
+                }
+            }
+        }
+        .onChange(of: timebase) { _, _ in scrub.lift() }
+        .onChange(of: scrub.isDown) { _, down in
+            if down { trace.hold(atMs: Date().timeIntervalSince1970 * 1000) } else { trace.release() }
+        }
+    }
+
+    private func content(chart height: CGFloat?) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            NodeHero(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, text: text)
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                .padding(.horizontal, 20)
+            NodeStatusRow(site: site, node: node)
+                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                .padding(.horizontal, 20)
+                .padding(.top, 12)
+            SeriesChips(own: node, available: NodeView.chartable(node), chosen: $series)
+                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                .padding(.horizontal, 14)
+                .opacity(timebase == .today || timebase == .twoDays ? 1 : 0)
+                .allowsHitTesting(timebase == .today || timebase == .twoDays)
+            NodeChart(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, series: series, text: text)
+                .frame(height: height)
+                .frame(maxHeight: height == nil ? .infinity : nil)
+                .padding(.horizontal, 4)
+            Picker(L("Period"), selection: $timebase.animation(.easeInOut(duration: 0.2))) {
+                ForEach(timebases, id: \.self) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .accessibilityIdentifier("node.chart.period")
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            RangeLine(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, text: text)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
         }
     }
 }
@@ -476,7 +610,8 @@ private struct LiveChartArea: View {
     var body: some View {
         let revision = live.revision
         let chartFrame = ChartFrame(top: tag * 1.35 + 8, bottom: 6, trailing: axis * 3.2)
-        let look = Self.look(node)
+        // The same colours as every other chart of this node.
+        let look = NodeChartLook.look(node)
         let isLive = site.freshness(node).live
         ZStack {
             // Takes the whole frame before the first reading, so the
@@ -500,7 +635,7 @@ private struct LiveChartArea: View {
                 )
             }
         }
-        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
         .onChange(of: revision, initial: true) { rebuild(chartFrame) }
         .onChange(of: size) { rebuild(chartFrame) }
@@ -553,18 +688,6 @@ private struct LiveChartArea: View {
         trace.build(live.samples(node, sinceMs: Date().timeIntervalSince1970 * 1000 - LiveTrace.windowMs - 10_000), node: node, gapMs: site.readingGapMs, size: plot)
     }
 
-    /// Each side of zero in its direction's colour: the battery cyan
-    /// storing and gold giving, the grid magenta both ways.
-    static func look(_ node: EnergyNode) -> TraceLook {
-        let words = node.directions
-        switch node {
-        case .battery: return TraceLook(up: Theme.stores, down: Theme.gives, upWord: words.map { "↑ " + $0.up.uppercased() }, downWord: words.map { "↓ " + $0.down.uppercased() })
-        case .grid: return TraceLook(up: Theme.grid, down: Theme.grid, upWord: words.map { "↑ " + $0.up.uppercased() }, downWord: words.map { "↓ " + $0.down.uppercased() })
-        default:
-            let c = Theme.color(NodeLook.tone(node))
-            return TraceLook(up: c, down: c)
-        }
-    }
 }
 
 /// The trace as VoiceOver reads it: every reading, in watts.
@@ -596,12 +719,12 @@ private struct RangeLine: View {
     let trace: NodeTraceModel
     let scrub: ScrubModel
     let timebase: NodeView.Timebase
-    let readout: ChartReadout?
+    let text: PeriodText
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             Text(verbatim: "\n")
-            Text(text)
+            Text(line)
                 .accessibilityIdentifier("chart.readout")
         }
         .font(.subheadline)
@@ -611,9 +734,9 @@ private struct RangeLine: View {
         .transaction { $0.animation = nil }
     }
 
-    private var text: String {
+    private var line: String {
         guard timebase == .live else {
-            if let readout { return readout.when + "  " + readout.what }
+            if let under = text.text(scrub) { return under }
             return PeriodWords.summary(site: site, node: node, period: timebase, models: home.nodes, loadpoints: home.loadpoints)
         }
         guard let frame = trace.shown else { return " " }
@@ -650,7 +773,7 @@ private struct NodeFooter: View {
             .foregroundStyle(Theme.ink3)
             .lineLimit(2)
             .minimumScaleFactor(0.75)
-            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+            .dynamicTypeSize(...DynamicTypeSize.xxLarge)
             .accessibilityIdentifier("node.footer")
     }
 }
@@ -732,110 +855,6 @@ private struct CarRow: View {
     }
 }
 
-// MARK: - Today, two days, ahead
-
-/// Today, the last two days or the hours ahead, in the live chart's frame.
-/// These keep their own charts until WP7 moves them onto the engine.
-private struct PeriodChart: View {
-    let site: SiteModel
-    let node: EnergyNode
-    let period: NodeView.Timebase
-    let models: NodeModels
-    let prices: PriceModel
-    let loadpoints: LoadpointsModel
-    let onScrub: (ChartReadout?) -> Void
-
-    var body: some View {
-        Group {
-            switch period {
-            case .ahead: ahead
-            default: past
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var fromMs: Double {
-        period == .today ? models.history.midnightMs : site.nowMs - HistoryModel.spanMs
-    }
-
-    /// The hour the history is drawn to: the tiles end at the last five
-    /// minutes, and the axis at now.
-    private var toMs: Double { (site.nowMs / 60_000).rounded(.up) * 60_000 }
-
-    @ViewBuilder private var past: some View {
-        let stride = period == .today ? 6 : 12
-        if node == .car {
-            if models.carEnergy.loaded {
-                CarHoursChart(hours: models.carEnergy.hours, fromMs: fromMs, toMs: toMs, strideHours: stride, onScrub: onScrub).equatable()
-            } else {
-                Placeholder(text: models.carEnergy.problem)
-            }
-        } else if !models.history.available {
-            Placeholder(text: L("Your box keeps no history."))
-        } else if models.history.frame != nil {
-            HistoryChart(node: node, samples: models.history.samples(node, fromMs: fromMs), fromMs: fromMs, toMs: toMs, look: NodeLook.look(node), strideHours: stride, onScrub: onScrub)
-                .equatable()
-        } else {
-            Placeholder(text: models.history.problem)
-        }
-    }
-
-    @ViewBuilder private var ahead: some View {
-        let now = site.nowMs
-        let window = prices.prices
-        let priceBars = (window?.slots ?? []).map { AheadChart.Price(startMs: $0.startMs, endMs: $0.startMs + $0.durationMs, minor: $0.totalMinor) }
-        switch node {
-        case .battery, .grid:
-            let slots = models.plan.ahead(nowMs: now)
-            if slots.isEmpty {
-                Placeholder(text: models.plan.loaded ? nil : models.plan.problem)
-            } else {
-                AheadChart(
-                    node: node,
-                    bars: slots.map { AheadChart.Bar(startMs: $0.startMs, endMs: $0.endMs, watts: node == .battery ? $0.batteryW : $0.gridW, reason: $0.reason) },
-                    prices: slots.compactMap { s in s.priceMinor.map { AheadChart.Price(startMs: s.startMs, endMs: s.endMs, minor: $0) } },
-                    currency: window?.currency ?? "SEK",
-                    nowMs: now,
-                    look: NodeLook.look(node),
-                    onScrub: onScrub
-                ).equatable()
-            }
-        case .solar, .home:
-            let slots = models.plan.forecastAhead(nowMs: now)
-            if slots.isEmpty {
-                Placeholder(text: models.plan.forecastLoaded ? L("No forecast for the hours ahead yet.") : nil)
-            } else {
-                AheadChart(
-                    node: node,
-                    bars: slots.map { AheadChart.Bar(startMs: $0.startMs, endMs: $0.startMs + $0.durationMs, watts: node == .solar ? $0.pvW : $0.loadW) },
-                    prices: slots.compactMap { s in s.priceMinor.map { AheadChart.Price(startMs: s.startMs, endMs: s.startMs + s.durationMs, minor: $0) } },
-                    currency: window?.currency ?? "SEK",
-                    nowMs: now,
-                    look: NodeLook.look(node),
-                    forecast: true,
-                    onScrub: onScrub
-                ).equatable()
-            }
-        case .car:
-            let windows = loadpoints.points.flatMap { loadpoints.windows[$0.id] ?? $0.planWindows }
-            AheadChart(
-                node: .car,
-                bars: windows.filter { $0.toMs > now }.map { w in
-                    // A window that names no peak is drawn at its mean.
-                    AheadChart.Bar(startMs: w.fromMs, endMs: w.toMs, watts: w.peakW ?? (w.energyWh ?? 0) * 3_600_000 / max(1, w.toMs - w.fromMs))
-                },
-                prices: priceBars,
-                currency: window?.currency ?? "SEK",
-                nowMs: now,
-                look: NodeLook.look(.car),
-                onScrub: onScrub
-            ).equatable()
-        }
-    }
-
-}
-
 /// The line under today, the last two days and the hours ahead.
 private enum PeriodWords {
     @MainActor
@@ -876,25 +895,6 @@ private enum PeriodWords {
         }
 }
 
-/// The shape of a chart that has not arrived, with what is happening.
-private struct Placeholder: View {
-    let text: String?
-
-    var body: some View {
-        VStack(spacing: 6) {
-            if let text {
-                Text(text).font(.footnote).foregroundStyle(Theme.ink3).multilineTextAlignment(.center)
-            } else {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Theme.hairline)
-                    .redacted(reason: .placeholder)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-
 /// The energy line under a node's history, in the node's own words.
 enum NodeSummary {
     static func energy(_ node: EnergyNode, _ e: EnergyToday, today: Bool) -> String {
@@ -913,37 +913,4 @@ enum NodeSummary {
         }
         return text
     }
-}
-
-extension NodeLook {
-    /// The colour of a node's curve.
-    static func tone(_ node: EnergyNode) -> Flow.Tone {
-        switch node {
-        case .solar: return .solar
-        case .battery: return .battery
-        case .home: return .house
-        case .grid: return .importing
-        case .car: return .ev
-        }
-    }
-
-    /// One colour pair per node for all its charts: the battery in its own
-    /// colour, giving power in the same colour lighter; the grid red when
-    /// buying and green when selling, as on Now. Grey when not live.
-    static func look(_ node: EnergyNode, live: Bool = true) -> ChartLook {
-        let words = node.directions
-        guard live else {
-            return ChartLook(up: Theme.ink3, down: Theme.ink3.opacity(0.6), line: Theme.ink3, upWord: words?.up, downWord: words?.down)
-        }
-        switch node {
-        case .battery:
-            return ChartLook(up: Theme.stores, down: Theme.gives, line: Theme.ink2, upWord: words?.up, downWord: words?.down)
-        case .grid:
-            return ChartLook(up: Theme.grid, down: Theme.grid, line: Theme.grid, upWord: words?.up, downWord: words?.down)
-        default:
-            let c = Theme.color(tone(node))
-            return ChartLook(up: c, down: c, line: c)
-        }
-    }
-
 }

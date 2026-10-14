@@ -50,42 +50,6 @@ public enum Readouts {
     /// "14:35:12", for the live curve's seconds.
     public static func seconds(_ ms: Double) -> String { ZoneClock.of(.current).seconds(ms) }
 
-    /// A step of history: its power and which way, and the energy since the
-    /// chart's start up to the end of the step.
-    public static func history(_ node: EnergyNode, _ samples: [HistorySample], fromMs: Double, at ms: Double) -> ChartReadout? {
-        guard let i = samples.lastIndex(where: { $0.startMs <= ms }) else { return nil }
-        let s = samples[i]
-        let when = clock(max(fromMs, s.startMs))
-        guard let w = s.watts else {
-            return ChartReadout(when: when, what: s.fetching ? NodeWords.text("fetching…") : NodeWords.text("no data"))
-        }
-        let e = EnergyToday.sum(Array(samples[...i]), fromMs: fromMs)
-        var what = "\(AppWords.power(abs(w))) \(word(node, w))"
-        if node.directions != nil {
-            what += " · " + NodeWords.format("↑ %@ ↓ %@ so far", AppWords.energy(e.inWh), AppWords.energy(e.outWh))
-        } else {
-            what += " · " + NodeWords.format("%@ so far", AppWords.energy(e.inWh))
-        }
-        return ChartReadout(when: when, what: what)
-    }
-
-    /// Two fingers on history: the mean power and the energy between them.
-    public static func history(_ node: EnergyNode, _ samples: [HistorySample], range: ClosedRange<Double>) -> ChartReadout? {
-        let inside = samples.filter { $0.startMs + $0.stepMs > range.lowerBound && $0.startMs < range.upperBound }
-        guard !inside.isEmpty else { return nil }
-        let e = EnergyToday.sum(inside, fromMs: range.lowerBound)
-        let measured = inside.compactMap(\.watts)
-        guard !measured.isEmpty else { return ChartReadout(when: span(range.lowerBound, range.upperBound), what: NodeWords.text("no data")) }
-        let mean = measured.reduce(0, +) / Double(measured.count)
-        var what = NodeWords.format("average %@", AppWords.power(abs(mean)))
-        if node.directions != nil {
-            what += " · " + NodeWords.format("↑ %@ ↓ %@", AppWords.energy(e.inWh), AppWords.energy(e.outWh))
-        } else {
-            what += " · " + AppWords.energy(e.inWh)
-        }
-        return ChartReadout(when: span(range.lowerBound, range.upperBound), what: what)
-    }
-
     /// "65.5 öre/kWh"
     public static func price(_ minor: Double, _ currency: String) -> String {
         "\(AppWords.decimal(PriceStrip.text(minor, currency))) \(PriceUnits.unit(currency).perKwh)"
@@ -125,11 +89,6 @@ public enum Readouts {
         return ChartReadout(when: span(range.lowerBound, range.upperBound), what: parts.joined(separator: " · "))
     }
 
-    /// An hour of the car's charging.
-    public static func carHour(_ hours: [CarEnergyModel.Hour], at ms: Double) -> ChartReadout? {
-        guard let h = hours.first(where: { $0.startMs <= ms && ms < $0.startMs + $0.lenMs }) else { return nil }
-        return ChartReadout(when: span(h.startMs, h.startMs + h.lenMs), what: h.wh > 0 ? NodeWords.format("charged %@", AppWords.energy(h.wh)) : NodeWords.text("not charging"))
-    }
 }
 
 

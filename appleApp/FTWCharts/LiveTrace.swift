@@ -107,16 +107,14 @@ struct LiveTraceSurface: View {
     var catchUp: (fromMs: Double, at: Date)?
     var axisSize: CGFloat = 10
 
-    @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.scenePhase) private var phase
     /// Set 0.3 s after a reading came or a finger lifted, so the rest of
     /// the second runs at 15 fps.
     @State private var settledAt: Date?
 
-    static let slide: TimeInterval = 0.25
-    static let spring: TimeInterval = 0.35
+    static let slide = TraceInk.slide
+    static let spring = TraceInk.spring
 
     var body: some View {
         let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -137,19 +135,15 @@ struct LiveTraceSurface: View {
         }
     }
 
-    /// A critically damped ease from 0 to 1 over `duration`.
     static func ease(_ elapsed: TimeInterval, _ duration: TimeInterval) -> Double {
-        guard elapsed < duration else { return 1 }
-        let w = 6.0 / duration, t = max(0, elapsed)
-        return min(1, 1 - (1 + w * t) * exp(-w * t))
+        TraceInk.ease(elapsed, duration)
     }
 
     private func draw(in g: inout GraphicsContext, size: CGSize, at date: Date, slides: Bool) {
         let series = frame.series
         let plot = chartFrame.plot(in: size)
         let px = 1 / max(g.environment.displayScale, 1)
-        let dark = scheme == .dark
-        let glows = dark && live && !reduceTransparency
+        let glows = TraceInk.glows(live: live, in: g)
 
         // The window's moment: held under a finger, springing back on lift.
         var viewMs = frozenAtMs ?? date.timeIntervalSince1970 * 1000
@@ -164,22 +158,17 @@ struct LiveTraceSurface: View {
         // A new scale moves as one spring, never jumps: y on the new scale
         // back to watts, then onto the scale on its way.
         var scale = CGAffineTransform.identity
+        var shown = series.domain
         if let previous = frame.previous, previous.domain != series.domain {
             let k = Self.ease(date.timeIntervalSince(frame.arrivedAt), Self.spring)
-            let h = series.size.height
-            let lower = previous.domain.lower + (series.domain.lower - previous.domain.lower) * k
-            let upper = previous.domain.upper + (series.domain.upper - previous.domain.upper) * k
-            let span = max(upper - lower, 1)
-            let aNew = -h / CGFloat(series.domain.span), bNew = h * CGFloat(series.domain.upper / series.domain.span)
-            let aNow = -h / CGFloat(span), bNow = h * CGFloat(upper / span)
-            let d = aNow / aNew
-            scale = CGAffineTransform(a: 1, b: 0, c: 0, d: d, tx: 0, ty: bNow - d * bNew)
+            shown = TraceInk.between(previous.domain, series.domain, k)
+            scale = TraceInk.rescale(series.domain, shown, height: series.size.height)
         }
         let baseline = CGPoint(x: 0, y: base).applying(scale).y
 
         // Axes first, still: zero, the magnitudes in the gutter, and the
-        // direction words when both signs show.
-        drawAxes(in: &g, plot: plot, px: px, baseline: plot.minY + baseline)
+        // direction words when both signs show, as on every chart.
+        ChartAxes.draw(in: &g, plot: plot, domain: series.domain, px: px, axis: axisSize, look: look, shown: shown)
 
         var plotting = g
         plotting.clip(to: Path(CGRect(x: plot.minX, y: plot.minY - 12, width: plot.width, height: plot.height + 24)))
@@ -216,45 +205,22 @@ struct LiveTraceSurface: View {
         let width = series.size.width + shift + 40
         let above = Path(CGRect(x: -width, y: -40, width: 3 * width, height: baseline + 40))
         let below = Path(CGRect(x: -width, y: baseline, width: 3 * width, height: series.size.height - baseline + 40))
-        let peak = dark ? 0.30 : 0.18
 
-        // The band, under everything: how far the raw readings swung.
-        for (side, color) in [(above, look.up), (below, look.down)] {
-            var s = plotting
-            s.clip(to: side)
-            s.fill(p.band, with: .color(color.opacity(dark ? 0.14 : 0.10)))
-        }
-        // The body: one gradient from nothing at zero to `peak` at the
-        // scale's edge, in each direction's colour.
-        do {
-            var s = plotting
-            s.clip(to: above)
-            s.fill(p.body, with: .linearGradient(Gradient(colors: [look.up.opacity(0), look.up.opacity(peak)]), startPoint: CGPoint(x: 0, y: baseline), endPoint: CGPoint(x: 0, y: 0)))
-            s.fill(p.bodyUnseen, with: .linearGradient(Gradient(colors: [Theme.ink.opacity(0), Theme.ink.opacity(peak * 0.5)]), startPoint: CGPoint(x: 0, y: baseline), endPoint: CGPoint(x: 0, y: 0)))
-        }
-        do {
-            var s = plotting
-            s.clip(to: below)
-            s.fill(p.body, with: .linearGradient(Gradient(colors: [look.down.opacity(0), look.down.opacity(peak)]), startPoint: CGPoint(x: 0, y: baseline), endPoint: CGPoint(x: 0, y: series.size.height)))
-            s.fill(p.bodyUnseen, with: .linearGradient(Gradient(colors: [Theme.ink.opacity(0), Theme.ink.opacity(peak * 0.5)]), startPoint: CGPoint(x: 0, y: baseline), endPoint: CGPoint(x: 0, y: series.size.height)))
-        }
+        // The band, under everything: how far the raw readings swung. Then
+        // the body; what this phone did not see live in ink.
+        TraceInk.band(p.band, look: look, above: above, below: below, in: plotting)
+        TraceInk.body(p.body, look: look, baseline: baseline, height: series.size.height, above: above, below: below, in: plotting)
+        TraceInk.body(p.bodyUnseen, look: look, ink: true, baseline: baseline, height: series.size.height, above: above, below: below, in: plotting)
 
         // A silence the line does not join: a dotted baseline across it.
         plotting.stroke(p.gaps, with: .color(Theme.ink.opacity(0.35)), style: StrokeStyle(lineWidth: px, lineCap: .butt, lineJoin: .round, dash: [1, 3]))
 
         // What this phone did not see live: ink, no glow.
-        plotting.stroke(p.lineUnseen, with: .color(Theme.ink2), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+        plotting.stroke(p.lineUnseen, with: .color(Theme.ink2), style: StrokeStyle(lineWidth: TraceInk.line, lineCap: .round, lineJoin: .round))
 
-        // The line, each side of zero in its colour; glowing only while live.
-        for (side, color) in [(above, look.up), (below, look.down)] {
-            var s = plotting
-            s.clip(to: side)
-            if glows {
-                s.stroke(p.line, with: .color(color.opacity(0.12)), style: StrokeStyle(lineWidth: 7, lineCap: .round, lineJoin: .round))
-                s.stroke(p.line, with: .color(color.opacity(0.25)), style: StrokeStyle(lineWidth: 4.5, lineCap: .round, lineJoin: .round))
-            }
-            s.stroke(p.line, with: .color(live ? color : Theme.ink2), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
-        }
+        // The line, each side of zero in its colour; glowing only while
+        // live, and in ink once the reading is not.
+        TraceInk.line(p.line, look: live ? look : TraceLook(up: Theme.ink2, down: Theme.ink2), glows: glows, above: above, below: below, in: plotting)
 
         // The head: quiet, on the raw last reading, a small halo only while
         // live in the dark.
@@ -265,32 +231,6 @@ struct LiveTraceSurface: View {
             }
             let r: CGFloat = 1.75
             plotting.fill(Path(ellipseIn: CGRect(x: head.x - r, y: head.y - r, width: 2 * r, height: 2 * r)), with: .color(live ? Theme.ink : Theme.ink2))
-        }
-    }
-
-    private func drawAxes(in g: inout GraphicsContext, plot: CGRect, px: CGFloat, baseline: CGFloat) {
-        let domain = frame.series.domain
-        var zero = Path()
-        zero.move(to: CGPoint(x: plot.minX, y: (baseline / px).rounded() * px + px / 2))
-        zero.addLine(to: CGPoint(x: plot.maxX, y: (baseline / px).rounded() * px + px / 2))
-        g.stroke(zero, with: .color(Theme.ink.opacity(0.35)), style: StrokeStyle(lineWidth: px, lineCap: .butt, lineJoin: .round))
-        let map = YMap(domain: domain, height: plot.height)
-        for v in [domain.upper, domain.lower] where v != 0 {
-            let y = plot.minY + map.y(v)
-            var grid = Path()
-            grid.move(to: CGPoint(x: plot.minX, y: y))
-            grid.addLine(to: CGPoint(x: plot.maxX, y: y))
-            g.stroke(grid, with: .color(Theme.ink.opacity(0.12)), style: StrokeStyle(lineWidth: px, lineCap: .butt, lineJoin: .round, dash: [1, 3]))
-            let label = g.resolve(ChartText.label(PowerFormat.scale(abs(v)), size: axisSize))
-            g.draw(label, at: CGPoint(x: plot.maxX + 4, y: y), anchor: .leading)
-        }
-        if domain.lower < 0, domain.upper > 0 {
-            if let up = look.upWord {
-                g.draw(g.resolve(ChartText.label(up, size: axisSize)), at: CGPoint(x: plot.minX + 2, y: plot.minY + 2), anchor: .topLeading)
-            }
-            if let down = look.downWord {
-                g.draw(g.resolve(ChartText.label(down, size: axisSize)), at: CGPoint(x: plot.minX + 2, y: plot.maxY - 2), anchor: .bottomLeading)
-            }
         }
     }
 }

@@ -84,6 +84,7 @@ private struct PricePage: View, Equatable {
         let included = PriceGlance.text(PriceGlance.included(window.slots))
         VStack(alignment: .leading, spacing: 0) {
             PriceHero(chart: chart, zone: window.zone, scrub: scrub)
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
             if chart.isEmpty {
                 Text(L("No prices ahead yet."))
                     .font(.subheadline)

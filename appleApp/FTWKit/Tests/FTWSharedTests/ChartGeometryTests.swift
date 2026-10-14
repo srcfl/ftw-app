@@ -339,7 +339,7 @@ import Testing
         #expect(t.what == ["567 W · 0–1100", "1000 W", "-1500 W · -2000–-1000"])
         #expect(t.soFar(0).inWh == 1_700.0 / 12)
         #expect(t.between(2, 1).outWh == 4_500.0 / 12)
-        // The highest mean, the lowest and now.
+        // The highest mean, the lowest, now, and the ends of the run.
         #expect(t.landmarks == [0, 2])
         #expect(series.grid.index(atMs: from + 2_000_000) == 2)
     }

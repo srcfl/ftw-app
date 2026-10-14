@@ -401,28 +401,6 @@ import FTWShared
         HistorySample(startMs: Double(i) * Self.step, stepMs: Self.step, watts: w, fetching: fetching)
     }
 
-    @Test func aStepSaysItsPowerItsWayAndTheEnergySoFar() {
-        AppWords.$language.withValue(.en) {
-            let samples = [sample(0, 1_200), sample(1, -600), sample(2, nil), sample(3, nil, fetching: true), sample(4, 2_400)]
-            let r = Readouts.history(.battery, samples, fromMs: 0, at: Self.step * 1.5)
-            #expect(r?.when == AppWords.clock(Self.step, zone: .current))
-            #expect(r?.what == "600\u{00A0}W giving power · ↑ \(AppWords.energy(100)) ↓ \(AppWords.energy(50)) so far")
-            // A hole says which kind it is.
-            #expect(Readouts.history(.battery, samples, fromMs: 0, at: Self.step * 2.5)?.what == "no data")
-            #expect(Readouts.history(.battery, samples, fromMs: 0, at: Self.step * 3.5)?.what == "fetching…")
-            // One way only for the sun.
-            #expect(Readouts.history(.solar, [sample(0, 1_200)], fromMs: 0, at: 1)?.what == "1.2\u{00A0}kW making · \(AppWords.energy(100)) so far")
-        }
-    }
-
-    @Test func twoFingersSayTheMeanAndTheEnergyBetweenThem() {
-        AppWords.$language.withValue(.sv) {
-            let samples = [sample(0, 1_200), sample(1, 600), sample(2, 0)]
-            let r = Readouts.history(.home, samples, range: 0...(Self.step * 2))
-            #expect(r?.what == "i snitt 900\u{00A0}W · \(AppWords.energy(150))")
-        }
-    }
-
     @Test func aSlotAheadSaysWhatThePlanDoesWhyAndThePrice() {
         AppWords.$language.withValue(.en) {
             let hour = 3_600_000.0
@@ -771,13 +749,13 @@ import FTWShared
     @Test func everySentenceHasSwedish() throws {
         let files = [
             "appleApp/FTW/UI/NowView.swift", "appleApp/FTW/UI/FlowDiagram.swift", "appleApp/FTW/UI/NodeView.swift",
-            "appleApp/FTW/UI/NodeCharts.swift", "appleApp/FTW/UI/ModeSheet.swift",
+            "appleApp/FTW/UI/NodeHistory.swift", "appleApp/FTW/UI/ModeSheet.swift",
             "appleApp/FTW/UI/PlanCard.swift", "appleApp/FTW/UI/PlanView.swift", "appleApp/FTWKit/Sources/FTWKit/State/PlanShare.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/EnergyNode.swift", "appleApp/FTWKit/Sources/FTWKit/State/NowFlow.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/ModeModel.swift", "appleApp/FTWKit/Sources/FTWKit/State/PlanModel.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/HistoryModel.swift", "appleApp/FTW/UI/PairView.swift",
             "appleApp/FTW/UI/RootView.swift", "appleApp/FTWKit/Sources/FTWKit/State/PairModel.swift",
-            "appleApp/FTW/UI/ChartScrub.swift", "appleApp/FTW/Car/CarView.swift",
+            "appleApp/FTW/Car/CarView.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/ChartWords.swift", "appleApp/FTW/UI/PriceView.swift",
         ]
         let pattern = #/(?:\bL|NodeWords\.(?:text|format)|AppWords\.(?:text|format))\("((?:[^"\\]|\\.)*)"/#
