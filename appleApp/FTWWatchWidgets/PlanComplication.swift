@@ -2,11 +2,12 @@ import FTWShared
 import SwiftUI
 import WidgetKit
 
-/// The plan on the watch face. Circular: the dial, a ring of prices with
-/// the battery's action, the hand at now and the battery's level in the
-/// middle while it is recent. Rectangular: what happens next, the price
-/// strip and when the plan was made. Corner: the price now and when it is
-/// cheapest. Inline: the price now.
+/// The plan on the watch face, as pictures with at most one figure each.
+/// Circular: the dial, a ring of prices with the battery's action, the hand
+/// at now and the battery's level in the middle while it is recent.
+/// Rectangular: what comes next as a glyph and a time, the price now, and
+/// the plan unrolled over twelve hours. Corner: the price now with the
+/// day's range as a gauge. Inline: the price now.
 struct PlanComplication: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: WatchKinds.plan, provider: FaceTimeline()) { entry in
@@ -78,37 +79,76 @@ struct PlanComplicationView: View {
         .accessibilityLabel(face.plan.summary)
     }
 
+    /// What comes next as a glyph and one time, then the plan unrolled
+    /// over twelve hours. No sentence: the strip carries the plan. A plan
+    /// over an hour old greys and shows when it was made.
     private var rectangular: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(face.plan.nextWhat.map { [face.plan.nextWhen, $0].compactMap { $0 }.joined(separator: " · ") } ?? face.plan.summary)
-                .font(.headline)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-                .widgetAccentable()
-            Text(face.plan.nextUntil ?? face.plan.cheapText ?? "")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-            if !face.price.curve.isEmpty {
-                BlockBars(bars: face.price.curve)
-                    .frame(height: 10)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: face.plan.isGrey ? "clock" : EventGlyph.name(face.plan.next?.kind))
+                    .font(.system(size: 13, weight: .semibold))
+                    .widgetAccentable()
+                Text(when ?? "–")
+                    .font(.system(.headline, design: .default).monospacedDigit())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Spacer(minLength: 2)
+                if let price = shortPrice {
+                    Text(price)
+                        .font(.system(.body, design: .default).monospacedDigit().weight(.semibold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .layoutPriority(1)
+                }
             }
-            Text(planAge)
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
+            if let dial = face.dial {
+                DialStrip(dial: dial, quarters: 48, grey: face.plan.isGrey)
+                    .frame(maxHeight: .infinity)
+            }
         }
         .containerBackground(for: .widget) { Theme.ground }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(face.plan.summary)
     }
 
+    /// "till 13:30" for what is under way, "22:00" for what starts later,
+    /// or the time an old plan was made.
+    private var when: String? {
+        let clock = ZoneClock.of(face.plan.timeZone)
+        if face.plan.isGrey { return face.plan.readAtMs.map { clock.label($0) } }
+        guard let e = face.plan.next else { return nil }
+        return PlanGlance.started(e, at: face.atMs) ? face.plan.nextUntil : clock.label(e.startMs)
+    }
+
+    /// The price now in whole minor units: "53".
+    private var shortPrice: String? {
+        face.price.current.map { "\(Int(PriceUnits.display($0.totalMinor, face.price.currency).rounded()))" }
+    }
+
+    /// One figure, the price now, and the day's range as a gauge along the
+    /// corner: low on the left, dear on the right.
     private var corner: some View {
-        Text(face.price.priceText ?? "–")
-            .font(.system(size: 14, weight: .semibold).monospacedDigit())
+        Text(shortPrice ?? "–")
+            .font(.system(size: 18, weight: .semibold).monospacedDigit())
+            .minimumScaleFactor(0.6)
             .widgetCurvesContent()
             .widgetLabel {
-                Text(face.price.priceText == nil ? (face.price.emptyText ?? "") : (face.price.cheapestStartText ?? face.price.unitLabel))
+                if let now = face.price.current?.totalMinor, let range = priceRange, range.lowerBound < range.upperBound {
+                    Gauge(value: min(max(now, range.lowerBound), range.upperBound), in: range) {
+                        EmptyView()
+                    }
+                    .gaugeStyle(.accessoryLinear)
+                    .tint(Theme.ink)
+                }
             }
             .containerBackground(for: .widget) { Theme.ground }
+            .accessibilityLabel(face.price.inlineText)
+    }
+
+    private var priceRange: ClosedRange<Double>? {
+        let values = face.price.curve.map(\.minor)
+        guard let lo = values.min(), let hi = values.max() else { return nil }
+        return lo...hi
     }
 
     /// The inline slot is as narrow as a date on some faces and the system
@@ -116,13 +156,5 @@ struct PlanComplicationView: View {
     private var inline: some View {
         Text(face.price.priceText.map { "\($0) \(face.price.unitLabel)" } ?? face.price.inlineText)
             .containerBackground(for: .widget) { Theme.ground }
-    }
-
-    /// "PLANNED 16:45", or "PLAN FROM 14:05" once old. A complication
-    /// always says how old its plan is.
-    private var planAge: String {
-        guard let at = face.plan.readAtMs else { return face.price.fetchedText?.uppercased() ?? "" }
-        let clock = ZoneClock.of(face.plan.timeZone).label(at)
-        return (face.plan.state == .old ? WatchWord.planFrom : WatchWord.planned).format(clock)
     }
 }

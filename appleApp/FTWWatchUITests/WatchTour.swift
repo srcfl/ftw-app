@@ -57,16 +57,13 @@ final class WatchTour: XCTestCase {
         shoot("charge-now-receipt")
     }
 
-    /// Now from top to bottom, the modes, and a change of mode with its
-    /// receipt, then back to the plan.
+    /// Now, the modes behind its toolbar button, and a change of mode with
+    /// its receipt.
     func testNowAndMode() throws {
         let app = launch("now")
         XCTAssertTrue(app.staticTexts.firstMatch.waitForExistence(timeout: 15))
         sleep(4)
         shoot("now")
-        app.swipeUp()
-        sleep(1)
-        shoot("now-bottom")
         let mode = app.buttons["watch.mode"]
         XCTAssertTrue(mode.waitForExistence(timeout: 5))
         mode.tap()
@@ -84,6 +81,28 @@ final class WatchTour: XCTestCase {
         app.swipeUp()
         sleep(1)
         shoot("mode-receipt")
+    }
+
+    /// The four pages one after another, as a wrist moves through them,
+    /// with a picture of each: Now after its trace has filled a little,
+    /// the plan, the car, the price, and back.
+    func testPaging() throws {
+        let app = launch("now")
+        XCTAssertTrue(app.staticTexts.firstMatch.waitForExistence(timeout: 30))
+        // Live once the phone's frames arrive: the demo's status line says so.
+        let live = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'DEMO'")).firstMatch
+        _ = live.waitForExistence(timeout: 60)
+        sleep(25)
+        shoot("page-now")
+        for name in ["page-plan", "page-car", "page-price"] {
+            app.swipeUp()
+            sleep(4)
+            shoot(name)
+        }
+        for _ in 0..<3 {
+            app.swipeDown()
+            sleep(2)
+        }
     }
 
     func testPriceAndPlan() throws {

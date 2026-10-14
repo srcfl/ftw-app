@@ -75,9 +75,10 @@ struct ReceiptLine: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
             Text(receipt.text)
-                .font(.footnote)
+                .font(.caption2)
                 .foregroundStyle(tone)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
                 .contentTransition(.opacity)
         }
         .animation(Theme.spring, value: receipt)
@@ -125,4 +126,17 @@ extension Theme {
     /// The phone's one spring (`FTW/UI/Theme.swift`), so the watch moves
     /// as the app does.
     static let spring = Animation.spring(duration: 0.35, bounce: 0.15)
+}
+
+/// A page on one screen. At text sizes too large for the watch it scrolls
+/// rather than cut a reading off.
+struct OnePage<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        ViewThatFits(in: .vertical) {
+            content
+            ScrollView { content }
+        }
+    }
 }

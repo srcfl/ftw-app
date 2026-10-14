@@ -39,8 +39,8 @@ struct CheapWindowIntent: WidgetConfigurationIntent {
 
 struct CheapEntry: RelevanceEntry {
     let window: WatchGlance.CheapWindow?
-    /// "Fetched 13:05"
-    let fetched: String?
+    /// The hours ahead, the window among them.
+    let bars: [PriceStrip.Bar]
 }
 
 struct CheapProvider: RelevanceEntriesProvider {
@@ -63,35 +63,45 @@ struct CheapProvider: RelevanceEntriesProvider {
         let prices = Kept.read().prices
         let nowMs = Date.now.timeIntervalSince1970 * 1000
         let window = WatchGlance.cheapWindows(prices?.value, nowMs: nowMs).first { $0.startMs == configuration.startMs }
-        let fetched = prices.map { PriceGlance.moment($0, atMs: nowMs).fetchedText }
-        return CheapEntry(window: window, fetched: fetched ?? nil)
+        let bars = prices.map { PriceGlance.moment($0, atMs: nowMs).curve } ?? []
+        return CheapEntry(window: window, bars: bars)
     }
 
     func placeholder(context: Context) -> CheapEntry {
-        CheapEntry(window: nil, fetched: nil)
+        CheapEntry(window: nil, bars: [])
     }
 }
 
+/// The card: a glyph, the window's hours and its price, then the hours
+/// ahead with the window standing out. No sentence; the glyph and the
+/// bars carry it.
 struct CheapView: View {
     let entry: CheapEntry
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(WatchWord.cheapNow.text)
-                .font(.headline)
-                .widgetAccentable()
-            if let w = entry.window {
-                Text("\(w.range) · \(w.price)")
-                    .font(.body.monospacedDigit())
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.down.circle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .widgetAccentable()
+                Text(entry.window?.range ?? "00:00–00:00")
+                    .font(.system(.headline).monospacedDigit())
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(0.6)
+                Spacer(minLength: 2)
+                Text(entry.window?.short ?? "00")
+                    .font(.system(.body).monospacedDigit().weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .layoutPriority(1)
             }
-            Text(entry.fetched?.uppercased() ?? "")
-                .font(.system(.caption2, design: .monospaced))
-                .foregroundStyle(.secondary)
+            BlockBars(bars: entry.bars, highlight: entry.window.map { $0.startMs...$0.endMs })
+                .frame(maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .containerBackground(for: .widget) { Theme.ground }
         .redacted(reason: entry.window == nil ? .placeholder : [])
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(entry.window.map { "\(WatchWord.cheapNow.text), \($0.range), \($0.price)" } ?? WatchWord.cheapWidget.text)
     }
 }
