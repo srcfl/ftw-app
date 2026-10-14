@@ -372,14 +372,17 @@ final class NowFitsTests: XCTestCase {
     }
 
     @MainActor
-    /// Scrolls the mode sheet until a row clears the receipt bar at its
-    /// foot: on a small phone the sheet is full height and scrolls. The bar
-    /// and the home indicator take less than 100 pt.
+    /// Scrolls the mode sheet a little at a time until a row clears the
+    /// receipt bar at its foot: on a small phone the sheet is full height
+    /// and scrolls. The bar and the home indicator take less than 100 pt.
+    /// Short, slow drags keep the rows above in place.
     private func reveal(_ row: XCUIElement, in app: XCUIApplication) {
         let window = app.windows.firstMatch.frame
-        for _ in 0..<3 where row.frame.maxY > window.maxY - 100 {
-            app.collectionViews.firstMatch.swipeUp()
-            Thread.sleep(forTimeInterval: 1)
+        for _ in 0..<4 where row.frame.maxY > window.maxY - 100 {
+            let list = app.collectionViews.firstMatch
+            list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8))
+                .press(forDuration: 0.1, thenDragTo: list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)), withVelocity: .slow, thenHoldForDuration: 0.3)
+            Thread.sleep(forTimeInterval: 0.6)
         }
     }
 

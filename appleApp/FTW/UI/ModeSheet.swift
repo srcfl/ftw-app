@@ -16,7 +16,17 @@ struct ModeSheet: View {
     var app: AppModel?
     /// The plan, to say what a change of style moved.
     var plan: PlanShare?
+    /// The change the sheet opened on, which is not its own to close for:
+    /// a sheet opened again just after a mode was applied stays open.
+    @State private var openedOn: ModeModel.Change?
     @Environment(\.dismiss) private var dismiss
+
+    init(mode: ModeModel, app: AppModel? = nil, plan: PlanShare? = nil) {
+        self.mode = mode
+        self.app = app
+        self.plan = plan
+        _openedOn = State(initialValue: mode.change)
+    }
     /// The sheet's height for its content, measured once laid out.
     @State private var fitted: CGFloat = 520
     @State private var detent: PresentationDetent = .height(520)
@@ -69,7 +79,7 @@ struct ModeSheet: View {
     /// a moment later the sheet goes. A style or a sale stays, since the
     /// reader may change the other too.
     private func closeOnceApplied() async {
-        guard let change = mode.change, change.result == .applied, case .mode = change.ask else { return }
+        guard let change = mode.change, change != openedOn, change.result == .applied, case .mode = change.ask else { return }
         try? await Task.sleep(for: .milliseconds(900))
         guard !Task.isCancelled else { return }
         dismiss()
