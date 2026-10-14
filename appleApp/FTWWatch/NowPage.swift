@@ -36,8 +36,9 @@ struct NowPage: View {
             if let hero {
                 HeroFigure(figure: hero, way: model.now?.value.reading(hero.node)?.way ?? .resting)
             }
+            // Whatever height is left, so Now fits 41 mm as well as 46.
             TraceView(trace: model.trace, live: lit)
-                .frame(minHeight: 40, maxHeight: .infinity)
+                .frame(minHeight: 24, maxHeight: .infinity)
             Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 3) {
                 ForEach(Array(stride(from: 0, to: rest.count, by: 2)), id: \.self) { i in
                     GridRow {

@@ -56,16 +56,17 @@ private struct CarBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                // "20 % antaget": a level FTW assumed says so.
-                Text(car.levelText ?? "—")
-                    .font(Theme.figure(22))
-                    .foregroundStyle(Theme.ink)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                Spacer(minLength: 0)
-                if let cells = car.cells {
-                    Meter(cells: cells, hue: Theme.car)
+            // The level beside its meter, or the meter under it where the
+            // width runs out, as with "20 % antaget".
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    level
+                    Spacer(minLength: 0)
+                    meter
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    level
+                    meter
                 }
             }
             // One room for what the car does or, after a command, the box's
@@ -90,6 +91,21 @@ private struct CarBlock: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// "20 % antaget": a level FTW assumed says so.
+    private var level: some View {
+        Text(car.levelText ?? "—")
+            .font(Theme.figure(22))
+            .foregroundStyle(Theme.ink)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+    }
+
+    @ViewBuilder private var meter: some View {
+        if let cells = car.cells {
+            Meter(cells: cells, hue: Theme.car)
+        }
     }
 
     /// What it does and when the box said so, then its goal and next
