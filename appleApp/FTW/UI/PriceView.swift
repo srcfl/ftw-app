@@ -168,7 +168,7 @@ private struct PriceBarsChart: View {
             ChartSurface(drawing: PriceBarsDrawing(chart: chart, frame: frame, axis: axis, kicker: kicker))
                 .equatable()
             ScrubOverlay(
-                track: ScrubTrack(grid: chart.grid, domain: chart.domain, values: chart.shown, tags: chart.tag, landmarks: chart.landmarks),
+                track: ScrubTrack(grid: chart.grid, domain: chart.domain, values: chart.shown, tags: chart.tag, landmarks: chart.landmarks, bars: true),
                 frame: frame,
                 model: scrub,
                 tagSize: tag,

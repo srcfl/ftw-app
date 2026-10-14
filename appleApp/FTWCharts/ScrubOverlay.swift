@@ -18,6 +18,10 @@ struct ScrubTrack: Equatable {
     var color: Color = Theme.ink
     /// Dims what lies right of the finger, for a history's "so far".
     var dimsAfter = false
+    /// A value that holds across its slot (a price, a plan quarter): the
+    /// slot under the finger lights up as its whole bar and the rest dims,
+    /// in place of a dot on a line.
+    var bars = false
 
     func x(_ i: Int, plot: CGRect) -> CGFloat {
         if let atMs, atMs.indices.contains(i) { return plot.minX + grid.x(atMs: atMs[i], width: plot.width) }
@@ -117,6 +121,12 @@ struct ScrubOverlay: View {
         let px = 1 / max(g.environment.displayScale, 1)
         let x = (track.x(i, plot: plot) / px).rounded() * px + px / 2
 
+        if track.bars {
+            lit(i...i, plot: plot, px: px, in: &g)
+            rule(at: x, plot: plot, px: px, in: &g)
+            tag(track.tags.indices.contains(i) ? track.tags[i] : "", over: x, plot: plot, in: &g, size: size)
+            return
+        }
         if track.dimsAfter {
             g.fill(Path(CGRect(x: x, y: 0, width: max(0, plot.maxX - x), height: size.height)), with: .color(Theme.ground.opacity(0.55)))
         }
@@ -140,10 +150,43 @@ struct ScrubOverlay: View {
         func snap(_ v: CGFloat) -> CGFloat { (v / px).rounded() * px + px / 2 }
         let x0 = snap(plot.minX + track.grid.x(atMs: max(track.grid.startMs(r.lowerBound), track.grid.fromMs), width: plot.width))
         let x1 = snap(plot.minX + track.grid.x(atMs: min(track.grid.endMs(r.upperBound), track.grid.toMs), width: plot.width))
-        g.fill(Path(CGRect(x: x0, y: plot.minY, width: max(px, x1 - x0), height: plot.height)), with: .color(Theme.ink.opacity(0.08)))
+        if track.bars {
+            lit(r, plot: plot, px: px, in: &g)
+        } else {
+            g.fill(Path(CGRect(x: x0, y: plot.minY, width: max(px, x1 - x0), height: plot.height)), with: .color(Theme.ink.opacity(0.08)))
+        }
         rule(at: x0, plot: plot, px: px, in: &g)
         rule(at: x1, plot: plot, px: px, in: &g)
         tag(text, over: (x0 + x1) / 2, plot: plot, in: &g, size: size)
+    }
+
+    /// Bars: the slots in `r` light up. Everything else in the plot dims
+    /// under the ground at half strength, each lit slot's column takes a
+    /// faint wash from top to bottom, and its bar is drawn again in full
+    /// ink, its whole width and height. A slot with no value keeps its
+    /// wash, so the finger still sees where it is.
+    private func lit(_ r: ClosedRange<Int>, plot: CGRect, px: CGFloat, in g: inout GraphicsContext) {
+        func snap(_ v: CGFloat) -> CGFloat { (v / px).rounded() * px }
+        let grid = track.grid
+        let x0 = snap(plot.minX + grid.x(atMs: max(grid.startMs(r.lowerBound), grid.fromMs), width: plot.width))
+        let x1 = snap(plot.minX + grid.x(atMs: min(grid.endMs(r.upperBound), grid.toMs), width: plot.width))
+        g.fill(Path(CGRect(x: plot.minX, y: plot.minY, width: max(0, x0 - plot.minX), height: plot.height)), with: .color(Theme.ground.opacity(0.5)))
+        g.fill(Path(CGRect(x: x1, y: plot.minY, width: max(0, plot.maxX - x1), height: plot.height)), with: .color(Theme.ground.opacity(0.5)))
+        g.fill(Path(CGRect(x: x0, y: plot.minY, width: max(px, x1 - x0 - px), height: plot.height)), with: .color(Theme.ink.opacity(0.16)))
+        let map = YMap(domain: track.domain, height: plot.height)
+        let base = plot.minY + snap(map.baseline)
+        for i in r where track.values.indices.contains(i) {
+            guard let v = track.values[i], v != 0 else { continue }
+            let a = snap(plot.minX + grid.x(atMs: max(grid.startMs(i), grid.fromMs), width: plot.width))
+            let b = snap(plot.minX + grid.x(atMs: min(grid.endMs(i), grid.toMs), width: plot.width)) - px
+            let y = plot.minY + snap(map.y(v))
+            let bar = CGRect(x: a, y: min(y, base), width: max(px, b - a), height: abs(y - base))
+            let radius = min(1.25, bar.width / 2, bar.height)
+            let radii = v > 0
+                ? RectangleCornerRadii(topLeading: radius, bottomLeading: 0, bottomTrailing: 0, topTrailing: radius)
+                : RectangleCornerRadii(topLeading: 0, bottomLeading: radius, bottomTrailing: radius, topTrailing: 0)
+            g.fill(Path(roundedRect: bar, cornerRadii: radii, style: .circular), with: .color(Theme.ink))
+        }
     }
 
     private func rule(at x: CGFloat, plot: CGRect, px: CGFloat, in g: inout GraphicsContext) {

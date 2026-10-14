@@ -46,17 +46,20 @@ struct ChartSurface<Drawing: ChartDrawing>: View, Equatable {
 enum ChartDraws {
     static var surface = 0
     static var overlay = 0
+    /// Slot or span changes under a finger.
+    static var changes = 0
     static var overlayMs = 0.0
     static var worstMs = 0.0
 
-    static func take() -> (surface: Int, overlay: Int, overlayMs: Double, worstMs: Double) {
+    static func take() -> (surface: Int, overlay: Int, changes: Int, overlayMs: Double, worstMs: Double) {
         defer {
             surface = 0
             overlay = 0
+            changes = 0
             overlayMs = 0
             worstMs = 0
         }
-        return (surface, overlay, overlayMs, worstMs)
+        return (surface, overlay, changes, overlayMs, worstMs)
     }
 }
 #endif

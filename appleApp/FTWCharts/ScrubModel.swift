@@ -73,6 +73,9 @@ final class ScrubModel {
     }
 
     private func show(_ next: Shown) {
+        #if DEBUG
+        ChartDraws.changes += 1
+        #endif
         if shown != next { shown = next }
         let t = step.ticks + spanStep.ticks, b = step.bumps + spanStep.bumps
         if ticks != t { ticks = t }
