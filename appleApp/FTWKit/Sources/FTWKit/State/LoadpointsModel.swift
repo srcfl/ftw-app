@@ -39,7 +39,10 @@ public final class LoadpointsModel: Activatable {
         case failed(String)
     }
 
-    public private(set) var points: [Loadpoint] = []
+    /// The chargers as the box last described them, and when and how that
+    /// reached this phone. The same chargers again change nothing.
+    public private(set) var stamp: Stamped<[Loadpoint]>?
+    public var points: [Loadpoint] { stamp?.value ?? [] }
     public private(set) var windows: [String: [Loadpoint.Window]] = [:]
     public private(set) var planMissing = false
     public private(set) var loading = false
@@ -63,11 +66,19 @@ public final class LoadpointsModel: Activatable {
     public private(set) var levelSet: [String: EVText.LevelSet] = [:]
     /// What is on screen came from the phone's own cache, not the box. True
     /// from a cold start until the first read.
-    public private(set) var fromCache = false
+    public var fromCache: Bool { stamp?.fromCache ?? false }
+
+    /// The chargers and their plan, as the home file keeps them.
+    public struct Chargers: Codable, Equatable, Sendable {
+        public var points: [Loadpoint]
+        public var windows: [String: [Loadpoint.Window]]
+    }
 
     @ObservationIgnored private unowned let site: SiteModel
     @ObservationIgnored private var ask: LiveAsk?
     @ObservationIgnored private var activityAsk: LiveAsk?
+    /// FTW Cloud's chargers as last taken, so they are taken once.
+    @ObservationIgnored private var cloudTaken: Stamped<[CarEntry.Car]>?
     /// Charge now per charger as the last read found it, so the Control is
     /// told only when it changed.
     @ObservationIgnored private var lastHolding: [String: Bool] = [:]
@@ -93,11 +104,23 @@ public final class LoadpointsModel: Activatable {
     public init(site: SiteModel, charging _: ChargingWatch?, cache: CacheReader? = CacheReader.shared(), chargeNowHost: (any ChargeNowHost)? = nil) {
         self.site = site
         self.chargeNowHost = chargeNowHost
-        if let siteId = site.siteId, let read = cache?.read(CarEntry.self, siteId: siteId) {
-            points = read.value.cars.map { Self.loadpoint($0, readAtMs: read.record.readAtMs) }
+        // A cold start paints the chargers as last read: from the sealed
+        // home file, with their goals and windows, or else from the record
+        // left for the widgets, whichever is newer.
+        let shared = site.siteId.flatMap { cache?.read(CarEntry.self, siteId: $0) }
+        if let kept = site.kept?.chargers, kept.asOfMs >= shared?.record.readAtMs ?? 0 {
+            stamp = Stamped(kept.value.points, asOfMs: kept.asOfMs, origin: .cache)
+            windows = kept.value.windows
+            readAtMs = kept.asOfMs
+        } else if let read = shared {
+            stamp = Stamped(read.value.cars.map { Self.loadpoint($0, readAtMs: read.record.readAtMs) }, asOfMs: read.record.readAtMs, origin: .cache)
             readAtMs = read.record.readAtMs
-            fromCache = true
         }
+        site.keep { [weak self] home in
+            guard let self, let stamp = self.stamp else { return }
+            home.chargers = Stamped<Chargers>(Chargers(points: stamp.value, windows: self.windows), asOfMs: stamp.asOfMs, origin: stamp.origin)
+        }
+        site.observe { [weak self] in self?.takeCloud() }
         // A Live Activity from another home, or from the demo, has no
         // business on this phone once this home is open.
         activityHost?.endAll(except: activityHome)
@@ -109,6 +132,30 @@ public final class LoadpointsModel: Activatable {
                   let host = self.activityHost, !host.loadpointIDs(home: self.activityHome).isEmpty else { return nil }
             return "live activity"
         }, ask: { [weak self] in try await self?.loadChargers() })
+    }
+
+    /// FTW Cloud's chargers, when they are newer than the box's last answer
+    /// here. They carry the cable, the level and the power; the goal and
+    /// the plan stay as the box last gave them.
+    private func takeCloud() {
+        guard let cloud = site.cloudCars, cloud != cloudTaken else { return }
+        cloudTaken = cloud
+        if let stamp, !stamp.fromCache, stamp.asOfMs >= cloud.asOfMs { return }
+        let known = Dictionary(points.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let next = cloud.value.map { car -> Loadpoint in
+            let fresh = Self.loadpoint(car, readAtMs: cloud.asOfMs)
+            guard var lp = known[car.loadpointID] else { return fresh }
+            lp.pluggedIn = fresh.pluggedIn
+            lp.powerW = fresh.powerW
+            lp.socPct = fresh.socPct
+            lp.socSource = fresh.socSource
+            lp.vehicleSocAgeS = fresh.vehicleSocAgeS
+            if let target = fresh.targetSocPct { lp.targetSocPct = target }
+            return lp
+        }
+        guard let taken = Stamped.taking(Stamped(next, asOfMs: cloud.asOfMs, origin: .cloud), over: stamp) else { return }
+        stamp = taken
+        readAtMs = taken.asOfMs
     }
 
     /// A charger as the cache kept it: enough for the level, its source and
@@ -184,6 +231,14 @@ public final class LoadpointsModel: Activatable {
         fromCache || error != nil || site.session.phase != .streaming
     }
 
+    /// How fresh the chargers' figures are, as a node says it: live while
+    /// this session's read stands, else stale and as old as the read.
+    public var freshness: NodeFreshness {
+        let age = readAtMs.map { max(0, site.nowMs - $0) }
+        guard stale else { return NodeFreshness(carrier: site.carrier, srcState: .live, ageMs: age, sourceName: nil) }
+        return NodeFreshness(carrier: fromCache ? .cache : site.carrier, srcState: .stale, ageMs: age, sourceName: nil)
+    }
+
     /// Ask again now: pull to refresh, or the demo's cable.
     public func reread() {
         visits += 1
@@ -213,7 +268,8 @@ public final class LoadpointsModel: Activatable {
             guard mine == token else { return }
             let list = wire?["loadpoints"]?.array ?? []
             let before = Dictionary(points.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            points = list.map(Loadpoint.init)
+            let now = site.scheduler.nowMs
+            if let taken = Stamped.taking(Stamped(list.map(Loadpoint.init), asOfMs: now, origin: .relay), over: stamp) { stamp = taken }
             for lp in points {
                 // A level set here belongs to one plug-in.
                 let was = before[lp.id]
@@ -221,13 +277,13 @@ public final class LoadpointsModel: Activatable {
             }
             inlinePlan = !points.isEmpty && points.allSatisfy(\.inlinePlan)
             if inlinePlan {
-                windows = Dictionary(uniqueKeysWithValues: points.map { ($0.id, $0.planWindows) })
-                planMissing = false
+                let next = Dictionary(uniqueKeysWithValues: points.map { ($0.id, $0.planWindows) })
+                if next != windows { windows = next }
+                if planMissing { planMissing = false }
             }
-            loaded = true
-            fromCache = false
-            readAtMs = site.scheduler.nowMs
-            error = nil
+            if !loaded { loaded = true }
+            readAtMs = now
+            if error != nil { error = nil }
             site.shareCars(points, fresh: true)
             readOutside()
             planAsk?.evaluate()
@@ -257,9 +313,9 @@ public final class LoadpointsModel: Activatable {
             for lp in points {
                 out[lp.id] = pending || lp.planPending || lp.planOutdated ? [] : Self.chargeWindows(actions, loadpointID: lp.id)
             }
-            windows = out
+            if out != windows { windows = out }
             takeShortfall(wire, pending: pending)
-            planMissing = false
+            if planMissing { planMissing = false }
         } catch {
             guard mine == token else { return }
             planMissing = true
@@ -515,9 +571,10 @@ public final class LoadpointsModel: Activatable {
         do {
             _ = try await site.callBox(.delete, "/api/loadpoints/\(Self.escape(lp.id))/schedule")
             // The DELETE confirms the removal even if the reread fails.
-            if let i = points.firstIndex(where: { $0.id == lp.id }) {
-                points[i].schedule = nil
-                points[i].targetSocPct = nil
+            if var s = stamp, let i = s.value.firstIndex(where: { $0.id == lp.id }) {
+                s.value[i].schedule = nil
+                s.value[i].targetSocPct = nil
+                stamp = s
             }
             goalSave[lp.id] = .removed
         } catch let e as BoxAPIError {

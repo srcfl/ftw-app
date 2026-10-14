@@ -5,8 +5,8 @@ import FTWShared
 /// sentences that describe it. No sentence claims what the box has not
 /// said: a charger that does not know the car's charge is described by what
 /// it does know, never by an invented percentage.
-public struct Loadpoint: Equatable, Sendable, Identifiable {
-    public struct Schedule: Equatable, Sendable {
+public struct Loadpoint: Equatable, Sendable, Identifiable, Codable {
+    public struct Schedule: Equatable, Sendable, Codable {
         public var socPct: Double
         /// The ready time as the box sends it: the UTC minute of day of that
         /// time on today's date.
@@ -31,7 +31,7 @@ public struct Loadpoint: Equatable, Sendable, Identifiable {
         }
     }
 
-    public struct Manual: Equatable, Sendable {
+    public struct Manual: Equatable, Sendable, Codable {
         public var state: String?
         public var requestedA: Double?
         public var requestedW: Double?
@@ -41,14 +41,14 @@ public struct Loadpoint: Equatable, Sendable, Identifiable {
         public var chargerUpdatedAtMs: Double?
     }
 
-    public struct Charger: Equatable, Sendable {
+    public struct Charger: Equatable, Sendable, Codable {
         public var known: Bool
         public var available: Bool?
         public var updatedAtMs: Double?
         public var reason: String?
     }
 
-    public struct Window: Equatable, Sendable, Identifiable {
+    public struct Window: Equatable, Sendable, Identifiable, Codable {
         public var fromMs: Double
         public var toMs: Double
         public var peakW: Double?

@@ -16,6 +16,15 @@ struct PlanCard: View, Equatable {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Kicker(PlanGlance.title)
+                // A plan kept from an earlier launch says when the box made
+                // it, until the box answers.
+                if let age = moment.ageText {
+                    Text(age)
+                        .font(.caption2)
+                        .foregroundStyle(Theme.fgMuted)
+                        .lineLimit(1)
+                        .transition(.opacity)
+                }
                 Spacer(minLength: 8)
                 if let priceNow {
                     Text("\(Text(L("Price now")).font(.caption2).foregroundStyle(Theme.fgMuted)) \(Text(AppWords.decimal(priceNow)).font(Theme.number(13, weight: .bold)).foregroundStyle(Theme.fg)) \(Text(unit).font(.caption2).foregroundStyle(Theme.fgMuted))")
@@ -27,12 +36,16 @@ struct PlanCard: View, Equatable {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(Theme.fgMuted)
             }
+            // Two lines kept whatever the sentence, so the card holds its
+            // height when the plan lands. Before the box's first answer
+            // the line is a placeholder, not a claim about the plan.
             Text(moment.summary)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(moment.isGrey ? Theme.fgDim : Theme.fg)
-                .lineLimit(2)
+                .lineLimit(2, reservesSpace: true)
                 .minimumScaleFactor(0.85)
                 .fixedSize(horizontal: false, vertical: true)
+                .redacted(reason: moment.placeholder ? .placeholder : [])
                 .contentTransition(.opacity)
             PlanLanes(moment: moment, compact: true)
                 .frame(height: 50)
@@ -44,6 +57,7 @@ struct PlanCard: View, Equatable {
         .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
         .contentShape(RoundedRectangle(cornerRadius: Theme.radius))
         .animation(Theme.spring, value: moment.summary)
+        .animation(Theme.spring, value: moment.ageText)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(PlanGlance.title)
         .accessibilityValue([moment.summary, priceNow.map { "\(L("Price now")) \($0) \(unit)" }].compactMap { $0 }.joined(separator: ". "))

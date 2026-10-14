@@ -3,6 +3,7 @@
 "What FTW plans to do over the next hours, and when power is cheapest." = "Vad FTW planerar de närmaste timmarna, och när elen är billigast.";
 "Open FTW to see the plan" = "Öppna FTW för att se planen";
 "No plan from your box yet" = "Ingen plan från boxen än";
+"Reading the plan from your box…" = "Läser planen från boxen …";
 "Your box couldn't plan ahead · it runs on safe defaults" = "Boxen kunde inte planera · kör på säkra standardval";
 "Nothing planned for 12 hours" = "Inget planerat på 12 timmar";
 "%@ car charges to %@" = "%@ laddar bilen till %@";

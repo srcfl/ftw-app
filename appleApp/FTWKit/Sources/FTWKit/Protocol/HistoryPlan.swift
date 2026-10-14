@@ -123,7 +123,7 @@ public struct HistEnd: Sendable, Equatable {
 
 // MARK: - The plan
 
-public struct PlanSlot: Equatable, Sendable, Identifiable {
+public struct PlanSlot: Equatable, Sendable, Identifiable, Codable {
     /// Wall clock: these are future times a person reads.
     public var startMs: Double
     public var durationMs: Double
@@ -151,7 +151,7 @@ public struct PlanSlot: Equatable, Sendable, Identifiable {
 
 /// What the box means to do, slot by slot. Intent, not prophecy: the box
 /// replans as the day turns out.
-public struct Plan: Equatable, Sendable {
+public struct Plan: Equatable, Sendable, Codable {
     public var rev: UInt64
     public var uptimeMs: Double
     public var slots: [PlanSlot]

@@ -35,6 +35,9 @@ public final class SimulatedBox {
     /// estimate meanwhile and the data grows into it. 0 sends all at once.
     public var holdTileMs: Double = 0
     private var heldTile = false
+    /// The plan as last made, with the quarter and revision it was made
+    /// for. Core plans each quarter and sends the same plan until the next.
+    var madePlan: (quarter: Double, rev: UInt64, plan: Plan)?
     /// The share of today the box has prices for, as
     /// `priced_coverage_pct`. Below 0.95 the grid widget marks its cost
     /// partial.

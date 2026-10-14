@@ -499,7 +499,13 @@ private struct PeriodSection: View {
             return NodeSummary.energy(node, e, today: period == .today)
         case .ahead:
             let now = site.nowMs
+            // "No plan" only once the box has answered without one; until
+            // then the line keeps its place.
             switch node {
+            case .battery, .grid where models.plan.plan == nil && !models.plan.loaded:
+                return models.plan.problem ?? " "
+            case .solar, .home where models.plan.forecastStamp == nil && !models.plan.forecastLoaded:
+                return " "
             case .battery: return PlanText.battery(models.plan.ahead(nowMs: now), stale: models.plan.plan?.stale ?? false, nowMs: now, zone: zone)
             case .grid: return PlanText.grid(models.plan.ahead(nowMs: now), stale: models.plan.plan?.stale ?? false)
             case .solar: return PlanText.solar(models.plan.forecastAhead(nowMs: now))
@@ -591,10 +597,11 @@ private struct ModeSection: View {
     }
 
     @ViewBuilder private var change: some View {
-        if mode.canControl {
+        if mode.mayControl {
             Button(action: choose) {
                 Text(L("Change")).lineLimit(1).fixedSize()
             }
+            .disabled(!mode.canControl)
             .buttonStyle(.bordered)
             .buttonBorderShape(.capsule)
             .controlSize(.small)

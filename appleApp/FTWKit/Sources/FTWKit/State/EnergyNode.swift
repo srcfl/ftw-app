@@ -3,7 +3,7 @@ import FTWShared
 
 /// The five places energy goes on Now, each a door to its own view: the
 /// sun, the house battery, the home's own use, the grid and the car.
-public enum EnergyNode: String, CaseIterable, Hashable, Sendable, Identifiable {
+public enum EnergyNode: String, CaseIterable, Hashable, Sendable, Identifiable, Codable {
     case solar, battery, home, grid, car
 
     public var id: String { rawValue }
@@ -139,7 +139,7 @@ extension SiteModel {
     public func freshness(fid: Int) -> NodeFreshness {
         let f = NodeFreshness.of(
             fid: fid,
-            session: session,
+            session: asCached(session),
             carrier: carrier,
             streamQuietMs: sinceLastFrameMs,
             shelfMs: carrier == .cache ? cachedAtMs.map { max(0, nowMs - $0) } : nil,
@@ -166,14 +166,14 @@ public final class NodeModels {
     /// The plan as Now draws it, and as the plan widget reads it.
     public let planShare: PlanShare
 
-    public init(site: SiteModel, loadpoints: LoadpointsModel, prices: PriceModel) {
+    public init(site: SiteModel, loadpoints: LoadpointsModel, prices: PriceModel, cache: CacheReader? = nil) {
         live = LiveTrace(site: site)
         history = HistoryModel(site: site)
         carEnergy = CarEnergyModel(site: site)
         plan = PlanModel(site: site)
         mode = ModeModel(site: site)
         sources = SourcesModel(site: site)
-        planShare = PlanShare(site: site, plan: plan, loadpoints: loadpoints, prices: prices)
+        planShare = PlanShare(site: site, plan: plan, loadpoints: loadpoints, prices: prices, cache: cache)
         // A change the box applied is followed by its new plan.
         mode.applied = { [plan] in plan.follow() }
     }

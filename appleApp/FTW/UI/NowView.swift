@@ -107,7 +107,9 @@ private struct NowBody: View {
             Card { Text(L("This app is older than your box. Some things are hidden until it updates.")) }
         }
         StatusSection(site: site, mode: home.nodes.mode, choose: chooseMode)
-        FlowSection(site: site, loadpoints: home.loadpoints, zoom: zoom, fill: fill, canCommand: site.canConfigure)
+        // Controls wait for the box: a role kept from an earlier launch
+        // draws the home, never a command.
+        FlowSection(site: site, loadpoints: home.loadpoints, zoom: zoom, fill: fill, canCommand: site.canConfigure && site.heardFromBox)
         PlanSection(site: site, models: home.nodes, prices: home.prices, zoom: zoom)
         AboutLink(app: app)
             .padding(.top, -18)
@@ -155,7 +157,8 @@ private struct StatusSection: View {
                 sources: site.session.sources
             ),
             mode: mode.label.map { ModeLabel(text: $0, sending: mode.sending, doubt: mode.doubt) },
-            canChoose: mode.canControl,
+            canChoose: mode.mayControl,
+            canPress: mode.canControl,
             choose: choose
         )
         .equatable()
@@ -177,11 +180,14 @@ struct ModeLabel: Equatable {
 struct StatusRow: View, Equatable {
     let answer: InControl.Answer
     let mode: ModeLabel?
+    /// This phone may change the mode: the choice is drawn.
     let canChoose: Bool
+    /// The box has spoken, so the choice opens. Until then it stays inert.
+    var canPress = true
     let choose: () -> Void
 
     nonisolated static func == (a: StatusRow, b: StatusRow) -> Bool {
-        a.answer == b.answer && a.mode == b.mode && a.canChoose == b.canChoose
+        a.answer == b.answer && a.mode == b.mode && a.canChoose == b.canChoose && a.canPress == b.canPress
     }
 
     var body: some View {
@@ -282,7 +288,7 @@ struct StatusRow: View, Equatable {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .disabled(!canChoose)
+            .disabled(!canChoose || !canPress)
             .accessibilityLabel(L("Mode"))
             .accessibilityValue(mode.text)
             .accessibilityHint(canChoose ? L("Change mode") : "")
@@ -320,16 +326,8 @@ private struct FlowSection: View {
 
     var body: some View {
         // The stream carries the car's watts; a box that leaves them out
-        // gets the charger's last answer.
-        let evW = loadpoints.stale ? 0 : Flow.loadpointChargeW(loadpoints.points)
-        let fields = Flow.withLoadpointEV(site.session.fields, evW: evW)
-        let car = loadpoints.points.first.flatMap { loadpoints.level($0) }
-        let readings = NowFlow.readings(
-            fields: fields,
-            freshness: { site.freshness(fid: $0) },
-            carLevel: car.map { ($0.pct, $0.origin == .assumed || $0.origin == .unconfirmed) },
-            hasCar: !loadpoints.points.isEmpty
-        )
+        // gets the charger's last answer, with its age.
+        let readings = NowFlow.readings(site: site, loadpoints: loadpoints)
         // The drawing has fixed places and stops growing at xLarge. At the
         // accessibility sizes each node gets a row of its own instead, so
         // its figure can grow with the text.
@@ -432,12 +430,11 @@ private struct PlanSection: View {
         // The plan marks the minute, not the second: it redraws once a
         // minute however often the clock ticks.
         let minute = (site.nowMs / 60_000).rounded(.down) * 60_000
-        let entry = models.planShare.entry
         let window = prices.prices
         let current = window.flatMap { w in w.slots.first { minute >= $0.startMs && minute < $0.startMs + $0.durationMs } }
         NavigationLink(value: HomeRoute.plan) {
             PlanCard(
-                moment: PlanGlance.live(entry, nowMs: minute),
+                moment: models.planShare.moment(nowMs: minute),
                 priceNow: current.map { PriceStrip.text($0.totalMinor, window?.currency) },
                 unit: PriceUnits.unit(window?.currency).perKwh
             )
