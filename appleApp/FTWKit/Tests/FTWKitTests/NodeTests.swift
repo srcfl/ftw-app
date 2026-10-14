@@ -489,6 +489,19 @@ import FTWShared
 // MARK: The plan
 
 @Suite struct PlanTests {
+    /// What the plan saves comes from the planner's own document: its cost,
+    /// the no-battery baseline, and the levels at either end.
+    @Test func theSavingComesFromThePlannersDocument() {
+        let plan: JSON = [
+            "total_cost_ore": 4350, "initial_soc": 1,
+            "baselines": ["no_battery_ore": 7168],
+            "actions": .array([["slot_start_ms": 1_000, "slot_len_min": 15, "soc": .number(0.98)]]),
+        ]
+        #expect(PlanModel.saving(plan) == PlanSaving(costMinor: 4350, noBatteryMinor: 7168, startLevel: 1, endLevel: 0.98, endMs: 901_000))
+        // A plan without a baseline says nothing.
+        #expect(PlanModel.saving(["total_cost_ore": 4350, "initial_soc": 1]) == nil)
+    }
+
     @MainActor
     @Test func thePlanArrivesAndLandsOnTheSession() async throws {
         let rig = Rig()

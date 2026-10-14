@@ -287,6 +287,7 @@ enum DialWord: String, CaseIterable {
     case noPrice = "NO PRICE YET"
     case planned = "PLANNED %@ · REPLANS EVERY 15 MIN"
     case plannedOld = "PLAN FROM %@ · OLD"
+    case saving = "ABOUT %@ LESS THAN NO BATTERY · TO %@"
     case title = "Plan dial"
     case summary = "The next 24 hours round a dial: the price, what the battery does and when the car charges."
 

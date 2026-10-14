@@ -112,6 +112,11 @@ private struct PlanBody: View {
                             if let cheapest = dial.cheapestText {
                                 Text(cheapest).foregroundStyle(Theme.ink2)
                             }
+                            // What the planner reckons the plan saves, only
+                            // where it compares honestly.
+                            if let saving = models.plan.saving?.text(currency: models.planShare.entry.currency, nowMs: minute, zone: dial.zone) {
+                                Text(saving).foregroundStyle(Theme.ink2)
+                            }
                             Text(plannedLine(moment, zone: dial.zone))
                                 .foregroundStyle(moment.state == .boxStale ? Theme.alarm : Theme.ink3)
                         }

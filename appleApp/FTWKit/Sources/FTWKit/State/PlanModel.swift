@@ -48,6 +48,10 @@ public final class PlanModel {
     /// pushed.
     public private(set) var receivedAtMs: Double?
     public private(set) var problem: String?
+    /// What the planner reckons its plan saves against no battery, from its
+    /// own document, read with the forecast. Nil until then, and when the
+    /// planner gave no baseline.
+    public private(set) var saving: PlanSaving?
 
     @ObservationIgnored private unowned let site: SiteModel
     @ObservationIgnored private var ask: LiveAsk?
@@ -137,8 +141,19 @@ public final class PlanModel {
     func loadForecast() async throws {
         let wire = try await site.callBox(.get, "/api/mpc/plan")
         let next = Stamped(Self.forecast(wire?["plan"]?["actions"]?.array ?? []), asOfMs: site.nowMs, origin: .relay)
+        let worth = Self.saving(wire?["plan"])
+        if worth != saving { saving = worth }
         if let taken = Stamped.taking(next, over: forecastStamp) { forecastStamp = taken }
         if !forecastLoaded { forecastLoaded = true }
+    }
+
+    /// The plan's cost, the same hours with no battery, and the levels at
+    /// either end, from the planner's document.
+    nonisolated static func saving(_ plan: JSON?) -> PlanSaving? {
+        guard let plan, let cost = plan["total_cost_ore"]?.number, let none = plan["baselines"]?["no_battery_ore"]?.number,
+              let start = plan["initial_soc"]?.number, let last = plan["actions"]?.array?.last,
+              let end = last["soc"]?.number, let slotStart = last["slot_start_ms"]?.number, let len = last["slot_len_min"]?.number else { return nil }
+        return PlanSaving(costMinor: cost, noBatteryMinor: none, startLevel: start, endLevel: end, endMs: slotStart + len * 60_000)
     }
 
     static func forecast(_ actions: [JSON]) -> [Forecast] {

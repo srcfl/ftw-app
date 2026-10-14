@@ -568,6 +568,18 @@ public final class SimulatedBox {
             return (200, ["scope": "system", "since_ms": .number(since), "until_ms": .number(until), "truncated": false, "points": .array(carEnergyRows(sinceMs: since, untilMs: until))])
         case ("GET", "/api/mpc/plan"):
             var plan: JSON = ["actions": .array(mpcActions())]
+            // The planner's own reckoning: its cost and the same hours with
+            // no battery, imports at the price and exports at the spot.
+            let steps = house.plan(nowMs: now)
+            func cost(_ grid: (SimulatedHouse.Step) -> Double) -> Double {
+                steps.reduce(0) { sum, s in
+                    let kWh = grid(s) / 1000 * s.durationMs / 3_600_000
+                    return sum + kWh * (kWh >= 0 ? s.priceMinor : s.priceMinor * 0.6)
+                }
+            }
+            plan = plan.setting("total_cost_ore", .number(cost { $0.gridW }.rounded()))
+                .setting("initial_soc", .number(house.socFraction))
+                .setting("baselines", ["no_battery_ore": .number(cost { $0.gridW - $0.batteryW }.rounded())])
             if let p = house.carPlan(now) { plan = plan.setting("loadpoint_shortfall_wh", ["garage": .number(p.shortfallWh)]) }
             return (200, ["plan": plan, "meta": ["replanning": false, "outdated": false]])
         case ("POST", "/api/loadpoints/{id}/vehicle"):
