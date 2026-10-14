@@ -17,12 +17,12 @@ import Testing
 
     /// One colour set, by look. A look the set does not name falls back the
     /// way the asset catalogue does: high contrast to normal, dark to light.
-    func color(_ role: String, _ look: Look, in path: String? = nil) throws -> RGB {
+    func color(_ role: String, _ look: Look, in path: String? = nil, idiom: String = "universal") throws -> RGB {
         let text = try RepoFiles.read(path ?? "\(Self.catalog)/ftw.\(role).colorset/Contents.json")
         let json = try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
         let colors = try #require(json["colors"] as? [[String: Any]])
         var byLook: [Set<String>: RGB] = [:]
-        for c in colors {
+        for c in colors where (c["idiom"] as? String ?? "universal") == idiom {
             let marks = Set(((c["appearances"] as? [[String: String]]) ?? []).compactMap { $0["value"] })
             let color = try #require(c["color"] as? [String: Any])
             let comps = try #require(color["components"] as? [String: String])
@@ -100,6 +100,14 @@ import Testing
         }
     }
 
+    /// watchOS compiles no dark appearance into a catalog, and a watch is
+    /// always dark. So each role has a watch colour, and it is its dark one.
+    @Test func theWatchWearsTheDarkHalf() throws {
+        for role in Self.roles {
+            #expect(try color(role, .light, idiom: "watch") == color(role, .dark), "\(role)")
+        }
+    }
+
     /// The system tint is ink and the launch screen is the ground, in the
     /// app's own catalog, which the system reads before any view.
     @Test func theTintIsInkAndTheLaunchIsTheGround() throws {
@@ -114,7 +122,7 @@ import Testing
     /// catalog, so a widget can never drift from the app.
     @Test func noOrangeAndNoColourInCode() throws {
         let orange: Set<String> = ["DA7F00", "FFAC41"]
-        for folder in ["appleApp/FTW", "appleApp/FTWCharts", "appleApp/FTWWidgets", "appleApp/FTWNotify"] {
+        for folder in ["appleApp/FTW", "appleApp/FTWCharts", "appleApp/FTWWidgets", "appleApp/FTWNotify", "appleApp/FTWWatch", "appleApp/FTWWatchShared", "appleApp/FTWWatchWidgets"] {
             let root = RepoFiles.root.appendingPathComponent(folder)
             let files = try #require(FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil))
             for case let url as URL in files {

@@ -119,6 +119,15 @@ final class IntentRunner: CommandRunner {
         return (app.site?.siteId ?? app.sites.current()?.siteId) == siteId
     }
 
+    /// The home with a session on its way, for as long as `body` runs. The
+    /// Apple Watch's commands and its look at Now count here with the
+    /// intents, so the last of them to finish closes the session.
+    func hold<T>(_ body: @MainActor (HomeModels) async -> T) async -> T? {
+        guard let home = await begin() else { return nil }
+        defer { end() }
+        return await body(home)
+    }
+
     /// The home, with a session on its way. A launch for an intent has
     /// already started connecting; an app whose session was closed in the
     /// background opens a new one.

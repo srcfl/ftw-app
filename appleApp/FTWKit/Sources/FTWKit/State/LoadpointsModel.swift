@@ -409,22 +409,22 @@ public final class LoadpointsModel: Activatable {
     /// Charge now: the charger's full current, held until Back to the plan
     /// or an unplug. No time limit and no level gate: the level is often a
     /// guess, and a guess must not lock the owner out (Fredrik, 4 Sep 2026).
-    public func chargeNow(_ lp: Loadpoint) async {
+    public func chargeNow(_ lp: Loadpoint, cmdId: String? = nil) async {
         let range = EVText.current(lp)
-        await hold(lp, .chargeNow, [("id", .text(lp.id)), ("power_w", .number(EVText.watts(lp, amps: range.maxA))), ("hold_s", .int(0)), ("phase_mode", .text(range.phases == 1 ? "1p" : "3p"))])
+        await hold(lp, .chargeNow, [("id", .text(lp.id)), ("power_w", .number(EVText.watts(lp, amps: range.maxA))), ("hold_s", .int(0)), ("phase_mode", .text(range.phases == 1 ? "1p" : "3p"))], cmdId: cmdId)
     }
 
     /// A zero hold: the charger stays off until the owner chooses.
-    public func pause(_ lp: Loadpoint) async {
-        await hold(lp, .pause, [("id", .text(lp.id)), ("power_w", .int(0)), ("hold_s", .int(0))])
+    public func pause(_ lp: Loadpoint, cmdId: String? = nil) async {
+        await hold(lp, .pause, [("id", .text(lp.id)), ("power_w", .int(0)), ("hold_s", .int(0))], cmdId: cmdId)
     }
 
     /// Release the hold; the plan takes back over.
-    public func backToPlan(_ lp: Loadpoint) async {
-        await hold(lp, .resume, [("id", .text(lp.id)), ("clear", .bool(true))])
+    public func backToPlan(_ lp: Loadpoint, cmdId: String? = nil) async {
+        await hold(lp, .resume, [("id", .text(lp.id)), ("clear", .bool(true))], cmdId: cmdId)
     }
 
-    private func hold(_ lp: Loadpoint, _ ask: EVText.Step.Ask, _ args: [(String, CBOR)]) async {
+    private func hold(_ lp: Loadpoint, _ ask: EVText.Step.Ask, _ args: [(String, CBOR)], cmdId: String? = nil) async {
         if let step = holdStep[lp.id], !step.settled { return }
         // Charge now shows outside the app as the receipt does inside it:
         // sent at once, received on the box's `cmd.ack`, on only once the
@@ -438,7 +438,7 @@ public final class LoadpointsModel: Activatable {
                 self.showChargeNow(id, .received(atMs: self.site.scheduler.nowMs))
             }
         }
-        await follow(lp.id, ask, op: Contract.opLoadpointHold, args: args, into: \.holdStep, tag: "hold", acked: acked)
+        await follow(lp.id, ask, op: Contract.opLoadpointHold, args: args, into: \.holdStep, tag: "hold", acked: acked, cmdId: cmdId)
         // The box's answer moves the Live Activity at once: the read below
         // can take a while.
         let result = holdStep[lp.id]?.ask == ask ? holdStep[lp.id]?.result : nil
@@ -501,7 +501,7 @@ public final class LoadpointsModel: Activatable {
 
     /// One command, written into `into` at every stage: sent, received,
     /// and what the box did or why not.
-    private func follow(_ id: String, _ ask: EVText.Step.Ask, op: String, args: [(String, CBOR)], into path: ReferenceWritableKeyPath<LoadpointsModel, [String: EVText.Step]>, tag: String, acked: (@MainActor () -> Void)? = nil) async {
+    private func follow(_ id: String, _ ask: EVText.Step.Ask, op: String, args: [(String, CBOR)], into path: ReferenceWritableKeyPath<LoadpointsModel, [String: EVText.Step]>, tag: String, acked: (@MainActor () -> Void)? = nil, cmdId: String? = nil) async {
         let key = "\(tag) \(id)"
         clearing[key]?.cancel()
         self[keyPath: path][id] = EVText.Step(ask: ask)
@@ -511,7 +511,7 @@ public final class LoadpointsModel: Activatable {
                 guard let self, self[keyPath: path][id]?.ask == ask else { return }
                 self[keyPath: path][id]?.acked = true
                 acked?()
-            })
+            }, cmdId: cmdId)
             switch r.state {
             case .applied: result = .applied(observed: r.observedValue)
             case .superseded: result = .superseded(observed: r.observedValue)
@@ -632,7 +632,7 @@ public final class LoadpointsModel: Activatable {
     /// says how it ended. The Live Activity moves as it does for a tap in
     /// the car view. A notification names its charger in `loadpointID`;
     /// the others let the box's account pick one.
-    public func perform(_ command: RemoteCommand, loadpointID: String? = nil, waitMs: Double = LoadpointsModel.remoteStreamWaitMs) async -> RemoteOutcome {
+    public func perform(_ command: RemoteCommand, loadpointID: String? = nil, waitMs: Double = LoadpointsModel.remoteStreamWaitMs, cmdId: String? = nil) async -> RemoteOutcome {
         // A Live Activity's button names its home. One from another home,
         // or from the demo, never reaches this one: its card closes instead.
         if case .backToPlan(let id, let home?) = command, home != activityHome {
@@ -670,7 +670,7 @@ public final class LoadpointsModel: Activatable {
         case .chargeNow, .backToPlan:
             guard !holdSending(lp) else { return RemoteOutcome(.failed, busy) }
             let ask: EVText.Step.Ask = command == .chargeNow ? .chargeNow : .resume
-            if ask == .chargeNow { await chargeNow(lp) } else { await backToPlan(lp) }
+            if ask == .chargeNow { await chargeNow(lp, cmdId: cmdId) } else { await backToPlan(lp, cmdId: cmdId) }
             return remoteOutcome(holdStep[lp.id], lp.id, ask: ask, busy: busy)
         case .setLevel(let pct):
             guard !levelSending.contains(lp.id) else { return RemoteOutcome(.failed, busy) }
