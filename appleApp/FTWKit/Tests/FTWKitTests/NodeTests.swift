@@ -606,6 +606,41 @@ import FTWShared
         }
     }
 
+    /// A change of the person's own sets the new plan beside the one
+    /// before it, until the next plan; the stops of the style's scale sit
+    /// at even steps.
+    @MainActor
+    @Test func aChangeShowsWhatThePlanMoved() async throws {
+        try await AppWords.$language.withValue(.en) {
+            let rig = DemoRig()
+            rig.app.startDemo()
+            let home = try #require(rig.app.home)
+            let mode = home.nodes.mode, plan = home.nodes.plan
+            mode.activate()
+            plan.activate()
+            await rig.run(1_500)
+            let before = try #require(plan.plan)
+            #expect(plan.move == nil)
+            let change = Task { await mode.setStyle(ModeModel.styles[0]) }
+            await rig.run(2_000)
+            await change.value
+            await rig.run(8_000)
+            let move = try #require(plan.move)
+            #expect(move.before == before)
+            #expect(plan.plan?.rev != before.rev)
+            // Asked again past the hold, the box's next plan is its own.
+            await rig.run(PlanModel.moveHoldMs + 1_000)
+            mode.deactivate()
+            plan.follow()
+            await rig.run(1_000)
+            #expect(plan.move == nil || plan.move == move)
+        }
+        #expect(ModeModel.stop(at: 0) == 0 && ModeModel.stop(at: 1) == 4)
+        #expect(ModeModel.stop(at: 0.6) == 2 && ModeModel.stop(at: 0.63) == 3)
+        #expect(ModeModel.stop(at: -1) == 0 && ModeModel.stop(at: .nan) == 2)
+        #expect(ModeModel.fraction(of: 2) == 0.5 && ModeModel.fraction(of: 9) == 1)
+    }
+
     @MainActor
     @Test func aRefusalSnapsBack() async throws {
         try await AppWords.$language.withValue(.en) {

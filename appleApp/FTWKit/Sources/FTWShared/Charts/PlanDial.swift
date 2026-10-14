@@ -192,6 +192,13 @@ public struct PlanDial: Equatable, Sendable {
         return lo == 0 ? nil : lo - 1
     }
 
+    /// The quarters whose battery or car a new plan changed, on the same
+    /// turn. A dial that moved on by a quarter compares nothing.
+    public func moved(from old: PlanDial) -> [Int] {
+        guard old.grid == grid, old.quarters.count == quarters.count else { return [] }
+        return quarters.indices.filter { old.quarters[$0].battery != quarters[$0].battery || old.quarters[$0].car != quarters[$0].car }
+    }
+
     // MARK: Where things sit
 
     /// Radians clockwise from the top for a moment on the household clock:

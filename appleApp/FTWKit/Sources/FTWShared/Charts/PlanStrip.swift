@@ -188,6 +188,16 @@ public struct PlanStrip: Equatable, Sendable {
         )
     }
 
+    /// The quarters whose battery or car a new plan changed, on the same
+    /// quarters. A strip that moved on by a quarter compares nothing: that
+    /// is the clock, not a new plan.
+    public func moved(from old: PlanStrip) -> [Int] {
+        guard old.grid == grid else { return [] }
+        return (0..<min(count, Self.count)).filter { old.battery[$0] != battery[$0] || old.car[$0] != car[$0] }
+    }
+
+    private var count: Int { battery.count }
+
     /// The price in eight levels within the window, the dearest at 7. A flat
     /// window sits in the middle rather than at either end.
     static func level(_ v: Double, lo: Double, hi: Double) -> Int {

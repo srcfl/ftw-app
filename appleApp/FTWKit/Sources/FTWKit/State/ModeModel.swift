@@ -34,6 +34,18 @@ public final class ModeModel {
         Style(key: "very_bold", name: "Very bold", k: 0, help: "Plans on the forecast as it is. Earns the most when it is right and costs more when it is wrong."),
     ]
 
+    /// The stop nearest a place along the scale, 0 at very careful and 1
+    /// at very bold.
+    public nonisolated static func stop(at fraction: Double) -> Int {
+        guard fraction.isFinite else { return 2 }
+        return min(styles.count - 1, max(0, Int((fraction * Double(styles.count - 1)).rounded())))
+    }
+
+    /// Where a stop sits along the scale, 0 to 1.
+    public nonisolated static func fraction(of stop: Int) -> Double {
+        Double(min(styles.count - 1, max(0, stop))) / Double(styles.count - 1)
+    }
+
     /// The style nearest a margin, the way the box page picks one.
     public nonisolated static func style(k: Double) -> Style {
         styles.min { abs($0.k - k) < abs($1.k - k) } ?? styles[2]
@@ -100,6 +112,8 @@ public final class ModeModel {
 
     /// Runs after the box applied a change, so the plan can be read again.
     @ObservationIgnored public var applied: (@MainActor () -> Void)?
+    /// Runs as a change leaves for the box, before any answer.
+    @ObservationIgnored public var willSend: (@MainActor () -> Void)?
     @ObservationIgnored private unowned let site: SiteModel
     @ObservationIgnored private var clearing: Cancellable?
     @ObservationIgnored private var ask: LiveAsk?
@@ -277,6 +291,7 @@ public final class ModeModel {
         guard !sending else { return }
         clearing?.cancel()
         change = Change(ask: ask)
+        willSend?()
         if !connected {
             change?.waiting = true
             let up = await stream(within: Self.streamWaitMs)

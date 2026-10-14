@@ -192,5 +192,6 @@ public final class NodeModels {
         planShare = PlanShare(site: site, plan: plan, loadpoints: loadpoints, prices: prices, cache: cache)
         // A change the box applied is followed by its new plan.
         mode.applied = { [plan] in plan.follow() }
+        mode.willSend = { [plan] in plan.expectChange() }
     }
 }

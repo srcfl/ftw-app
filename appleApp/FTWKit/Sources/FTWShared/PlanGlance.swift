@@ -528,6 +528,41 @@ public enum PlanGlance {
         }
     }
 
+    /// What a new plan moved, in one line: "New plan 16:53: stores 22:45
+    /// instead of 03:45." The first move that changed, by when it starts:
+    /// the battery's charging, its giving power or the car's charge, moved,
+    /// new or gone. Nil when nothing a person would see moved.
+    public static func moved(from old: PlanEntry, to new: PlanEntry, atMs t: Double, calendar given: Calendar? = nil) -> String? {
+        let calendar = given ?? .household(new.timeZone)
+        let clock = Clock(calendar: calendar)
+        let before = events(old, fromMs: t, toMs: t + horizonMs).filter { $0.kind != .cheap }
+        let after = events(new, fromMs: t, toMs: t + horizonMs).filter { $0.kind != .cheap }
+        let made = ahead(t, asEnd: false, from: t, clock: clock)
+        func word(_ k: Kind) -> String {
+            switch k {
+            case .charge: return PlanWord.stores.text
+            case .discharge: return PlanWord.gives.text
+            case .car, .cheap: return PlanWord.carChargesWord.text
+            }
+        }
+        func at(_ e: Event) -> String { ahead(e.startMs, asEnd: false, from: t, clock: clock) }
+        var lines: [(ms: Double, text: String)] = []
+        for kind in [Kind.charge, .discharge, .car] {
+            let a = before.first { $0.kind == kind }, b = after.first { $0.kind == kind }
+            switch (a, b) {
+            case let (a?, b?) where abs(a.startMs - b.startMs) >= 60_000:
+                lines.append((min(a.startMs, b.startMs), PlanWord.movedInstead.format(made, word(kind), at(b), at(a))))
+            case let (nil, b?):
+                lines.append((b.startMs, PlanWord.movedNew.format(made, word(kind), at(b))))
+            case let (a?, nil):
+                lines.append((a.startMs, PlanWord.movedGone.format(made, word(kind), at(a))))
+            default:
+                break
+            }
+        }
+        return lines.min { $0.ms < $1.ms }?.text
+    }
+
     /// "02–05", "02:15–04:47", "now–05". Tomorrow is named only when the
     /// clock alone would read as later today, as the price widget does: at
     /// 20:00 "02–04" can only be tonight, at 14:00 "15–17" cannot.
@@ -622,6 +657,10 @@ enum PlanWord: String, CaseIterable {
     case whySun = "%@ from spare sun"
     case whySell = "%@, as selling pays"
     case whyLimit = "%@ to hold the grid limit"
+    // What a new plan moved.
+    case movedInstead = "New plan %@: %@ %@ instead of %@."
+    case movedNew = "New plan %@: %@ %@."
+    case movedGone = "New plan %@: no longer %@ %@."
     // Where a battery run leaves the battery.
     case levelDown = "%@, and leaves %@"
     case levelUp = "%@, and reaches %@"

@@ -241,4 +241,42 @@ import Testing
         #expect(s.levels[31] != nil && s.levels[32] == nil)
         #expect(strip(at: at(12, 20, 5)).pending.isEmpty)
     }
+
+    // MARK: What a new plan moved
+
+    /// `night()` with the charging moved from 22:00 to 02:00.
+    func movedCharge() -> PlanEntry {
+        var entry = glance.night()
+        entry.battery = entry.battery?.map { s in
+            var s = s
+            if s.startMs >= at(12, 22) && s.startMs < at(12, 23, 30) { s.batteryW = 40 }
+            if s.startMs >= at(13, 2) && s.startMs < at(13, 3, 30) { s.batteryW = 3_000 }
+            return s
+        }
+        return entry
+    }
+
+    @Test func aNewPlanSaysWhatItMoved() {
+        let old = glance.night(), new = movedCharge()
+        #expect(PlanGlance.moved(from: old, to: new, atMs: at(12, 20, 5), calendar: calendar) == "New plan 20:05: stores 02:00 instead of 22:00.")
+        // Nothing a person would see moved: nothing to say.
+        #expect(PlanGlance.moved(from: old, to: old, atMs: at(12, 20, 5), calendar: calendar) == nil)
+        // A move that is new, or gone.
+        var none = old
+        none.charges = []
+        #expect(PlanGlance.moved(from: none, to: old, atMs: at(12, 20, 5), calendar: calendar) == "New plan 20:05: car charges 01:00.")
+        #expect(PlanGlance.moved(from: old, to: none, atMs: at(12, 20, 5), calendar: calendar) == "New plan 20:05: no longer car charges 01:00.")
+    }
+
+    /// Only the quarters a new plan changed cross-fade; a strip that moved
+    /// on by a quarter is the clock, not a new plan.
+    @Test func onlyTheMovedQuartersChange() {
+        let a = PlanStrip.build(glance.night(), moment: PlanGlance.live(glance.night(), nowMs: at(12, 20, 5), calendar: calendar), hasCar: true)
+        let entry = movedCharge()
+        let b = PlanStrip.build(entry, moment: PlanGlance.live(entry, nowMs: at(12, 20, 5), calendar: calendar), hasCar: true)
+        #expect(b.moved(from: a) == Array(8..<14) + Array(24..<30))
+        #expect(a.moved(from: a).isEmpty)
+        let later = PlanStrip.build(entry, moment: PlanGlance.live(entry, nowMs: at(12, 20, 20), calendar: calendar), hasCar: true)
+        #expect(later.moved(from: a).isEmpty)
+    }
 }

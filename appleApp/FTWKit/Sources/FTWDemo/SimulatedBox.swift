@@ -362,6 +362,8 @@ public final class SimulatedBox {
                 house.modeKey = house.batteryExport == "allowed" ? "planner_arbitrage" : "planner_passive_arbitrage"
             }
             controlRev += 1
+            // New prefs make a new plan, as Core replans on them.
+            house.planRev += 1
             result(cmdId, "applied", observed: house.safetyK)
             sendBulk(Envelope(t: "plan", b: sessionPlan().wire))
         case Contract.opLoadpointHold:

@@ -105,6 +105,14 @@ public final class PlanShare {
         return (entry, PlanGlance.waiting(entry, nowMs: nowMs, note: plan.problem))
     }
 
+    /// "New plan 16:53: stores 22:45 instead of 03:45.", after a change of
+    /// the person's own, until the next plan.
+    public var moved: String? {
+        guard let move = plan.move else { return nil }
+        let before = PlanEntry.live(plan: move.before, points: loadpoints.points, windows: loadpoints.windows, prices: prices.prices, timeZone: loadpoints.zone.identifier)
+        return PlanGlance.moved(from: before, to: entry, atMs: move.atMs)
+    }
+
     /// What would make the record different. Cheap enough for every tick.
     var key: String {
         let w = loadpoints.points.map { lp in "\(lp.id):\((loadpoints.windows[lp.id] ?? lp.planWindows).map { "\($0.fromMs)-\($0.toMs)" }.joined(separator: ",")):\(lp.targetSocPct ?? lp.schedule?.socPct ?? -1)" }

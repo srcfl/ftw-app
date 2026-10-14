@@ -42,6 +42,9 @@
 "%@ from spare sun" = "%@ from spare sun";
 "%@, as selling pays" = "%@, as selling pays";
 "%@ to hold the grid limit" = "%@ to hold the grid limit";
+"New plan %@: %@ %@ instead of %@." = "New plan %@: %@ %@ instead of %@.";
+"New plan %@: %@ %@." = "New plan %@: %@ %@.";
+"New plan %@: no longer %@ %@." = "New plan %@: no longer %@ %@.";
 "%@, and leaves %@" = "%@, and leaves %@";
 "%@, and reaches %@" = "%@, and reaches %@";
 

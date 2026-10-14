@@ -134,6 +134,21 @@ import Testing
         #expect(d.what(ten) == "Battery stores 3.0 kW · \(50 + ten % 40)\u{00A0}%")
     }
 
+    /// Only the quarters a new plan changed cross-fade on the dial.
+    @Test func onlyTheMovedTicksChange() {
+        var plan = watch.plan()
+        let a = PlanDial(plan: plan, prices: watch.prices(), nowMs: at(14, 12, 7))
+        plan.battery = plan.battery?.map { s in
+            var s = s
+            if s.startMs >= at(14, 22) && s.startMs < at(14, 23) { s.batteryW = 40 }
+            return s
+        }
+        let b = PlanDial(plan: plan, prices: watch.prices(), nowMs: at(14, 12, 7))
+        let ten = a.grid.index(atMs: at(14, 22))!
+        #expect(b.moved(from: a) == Array(ten..<(ten + 4)))
+        #expect(PlanDial(plan: plan, prices: watch.prices(), nowMs: at(14, 12, 20)).moved(from: a).isEmpty)
+    }
+
     @Test func thePlannedLine() {
         let zone = TimeZone(identifier: WatchTests.zone)!
         #expect(PlanDial.planned(atMs: at(14, 16, 51), old: false, zone: zone) == "PLANNED 16:51 · REPLANS EVERY 15 MIN")
