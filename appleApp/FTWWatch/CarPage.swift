@@ -54,11 +54,11 @@ private struct CarBlock: View {
     let ask: (CarPage.Ask) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 2) {
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 // "20 % antaget": a level FTW assumed says so.
                 Text(car.levelText ?? "—")
-                    .font(Theme.figure(26))
+                    .font(Theme.figure(22))
                     .foregroundStyle(Theme.ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -67,21 +67,26 @@ private struct CarBlock: View {
                     Meter(cells: cells, hue: Theme.car)
                 }
             }
-            Text(car.state)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(Theme.ink)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+            // What it does, and when the box said so.
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(car.state)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Spacer(minLength: 2)
+                Text(car.asOf)
+                    .font(Theme.mono(.caption2))
+                    .foregroundStyle(Theme.ink3)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
             Text([car.goal, car.next].compactMap { $0 }.joined(separator: " · "))
                 .font(.caption2)
                 .foregroundStyle(Theme.ink2)
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            Text(car.asOf)
-                .font(Theme.mono(.caption2))
-                .foregroundStyle(Theme.ink3)
-                .lineLimit(1)
-            Spacer(minLength: 2)
+                .minimumScaleFactor(0.7)
+            Spacer(minLength: 0)
             // Room for the receipt, above the buttons, so nothing moves
             // when it lands.
             ZStack(alignment: .topLeading) {
@@ -117,9 +122,10 @@ private struct CarBlock: View {
             Image(systemName: glyph)
                 .font(.system(size: 17, weight: .semibold))
                 .foregroundStyle(on ? Theme.car : Theme.ink)
-                .frame(maxWidth: .infinity, minHeight: 34)
+                .frame(maxWidth: .infinity, minHeight: 26)
         }
         .buttonStyle(.bordered)
+        .controlSize(.small)
         .disabled(off)
         .accessibilityLabel(title)
     }

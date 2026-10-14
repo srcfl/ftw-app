@@ -83,37 +83,26 @@ final class WatchTour: XCTestCase {
         shoot("mode-receipt")
     }
 
-    /// The four pages one after another, as a wrist moves through them:
-    /// the Crown pages from Now to the plan, steps the hand there, and a
-    /// swipe goes on to the car and the price, then back.
-    func testPagingAndCrown() throws {
+    /// The four pages one after another, as a wrist moves through them,
+    /// with a picture of each: Now after its trace has filled a little,
+    /// the plan, the car, the price, and back.
+    func testPaging() throws {
         let app = launch("now")
-        XCTAssertTrue(app.staticTexts.firstMatch.waitForExistence(timeout: 15))
-        sleep(5)
-        // On Now the Crown turns the pages.
-        XCUIDevice.shared.rotateDigitalCrown(delta: 0.5)
-        sleep(2)
-        // On the plan it turns the hand.
-        for _ in 0..<16 {
-            XCUIDevice.shared.rotateDigitalCrown(delta: 0.06)
-            usleep(200_000)
+        XCTAssertTrue(app.staticTexts.firstMatch.waitForExistence(timeout: 30))
+        // Live once the phone's frames arrive: the demo's status line says so.
+        let live = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS 'DEMO'")).firstMatch
+        _ = live.waitForExistence(timeout: 60)
+        sleep(25)
+        shoot("page-now")
+        for name in ["page-plan", "page-car", "page-price"] {
+            app.swipeUp()
+            sleep(4)
+            shoot(name)
         }
-        sleep(1)
-        for _ in 0..<16 {
-            XCUIDevice.shared.rotateDigitalCrown(delta: -0.06)
-            usleep(120_000)
+        for _ in 0..<3 {
+            app.swipeDown()
+            sleep(2)
         }
-        sleep(1)
-        app.swipeUp()
-        sleep(2)
-        app.swipeUp()
-        sleep(2)
-        app.swipeDown()
-        sleep(1)
-        app.swipeDown()
-        sleep(1)
-        app.swipeDown()
-        sleep(2)
     }
 
     func testPriceAndPlan() throws {

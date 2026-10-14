@@ -75,9 +75,10 @@ struct ReceiptLine: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
             Text(receipt.text)
-                .font(.footnote)
+                .font(.caption2)
                 .foregroundStyle(tone)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
                 .contentTransition(.opacity)
         }
         .animation(Theme.spring, value: receipt)
