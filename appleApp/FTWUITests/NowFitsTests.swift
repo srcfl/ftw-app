@@ -305,7 +305,11 @@ final class NowFitsTests: XCTestCase {
     /// the finger, and closes once the box applied the mode.
     @MainActor
     func testTheModeSheetFitsWaitsInPlaceAndClosesOnceApplied() throws {
-        let app = launchDemo()
+        // The box answers after 2.5 s, so the look while it waits comes well
+        // before: XCTest's wait for the app to settle after a tap can take a
+        // second, and the turning mark keeps it busy that long.
+        let app = launchDemo(more: ["-FTWDemoResultDelayMs", "2500"])
+        XCTAssertTrue(app.buttons["now.node.home"].waitForExistence(timeout: 15), "Now never drew the home")
         let button = app.buttons["now.mode"]
         // The choices rest until the stream is up.
         openSettings(app)
@@ -323,7 +327,7 @@ final class NowFitsTests: XCTestCase {
         XCTAssertTrue(window.contains(idle.frame), "\(idle.frame) is outside \(window)")
         let top = idle.frame.minY
         idle.tap()
-        // The demo box answers after 0.9 s; look well before that.
+        // Look well before the box answers.
         Thread.sleep(forTimeInterval: 0.15)
         XCTAssertTrue(plan.isSelected, "the box's mode lost its tick before the box answered")
         XCTAssertEqual(idle.frame.minY, top, accuracy: 1, "the row moved under the finger")

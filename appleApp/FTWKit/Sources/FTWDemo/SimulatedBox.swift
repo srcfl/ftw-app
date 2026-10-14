@@ -810,6 +810,9 @@ extension SimulatedBox {
         box.resultDelayMs = 900
         box.house.chargerRampMs = 4_000
         #if DEBUG
+        // For UI tests that look while a command waits: `-FTWDemoResultDelayMs
+        // 2500` answers later than XCTest's wait for the app to settle.
+        if UserDefaults.standard.object(forKey: "FTWDemoResultDelayMs") != nil { box.resultDelayMs = UserDefaults.standard.double(forKey: "FTWDemoResultDelayMs") }
         // For screenshots: `-FTWDemoCar unplugged` and the like.
         if let name = UserDefaults.standard.string(forKey: "FTWDemoCar"), let car = DemoCar(rawValue: name) {
             car.apply(to: box.house, nowMs: scheduler.nowMs)
