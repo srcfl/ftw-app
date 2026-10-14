@@ -258,6 +258,47 @@ import Testing
 
     /// Every sentence a widget shows has a Swedish line with the same
     /// placeholders.
+    // MARK: The block strip
+
+    /// Twelve hours from the one that holds now, each the mean of its
+    /// slots, as one of eight levels and a third of the range: the small
+    /// widget's bars and the lock screen's glyphs.
+    @Test func theStripIsTwelveHoursOfBlocks() {
+        let quarter = Self.hourMs / 4
+        // Quarters: hour h costs 10 × h, so the strip climbs one step a hour.
+        let r = read(slots(from: at(12, 0), count: 96, dtMs: quarter) { i in Double(10 * (i / 4)) }, readAtMs: at(12, 13, 5))
+        let m = PriceGlance.moment(r, atMs: at(12, 6, 40), calendar: calendar)
+        #expect(m.hours.count == 12)
+        #expect(m.hours.first?.startMs == at(12, 6))
+        #expect(m.hours.first?.current == true)
+        #expect(m.hours.dropFirst().allSatisfy { !$0.current })
+        #expect(m.hours.map(\.minor) == (6..<18).map { Double(10 * $0) })
+        #expect(m.hours.first?.level == 1 && m.hours.last?.level == 8)
+        #expect(m.hours.first?.third == .cheap && m.hours.last?.third == .dear)
+        #expect(m.glyphs.count == 12)
+        #expect(m.glyphs.first == "▁" && m.glyphs.last == "█")
+        // Where the market has not priced, the strip ends.
+        let late = PriceGlance.moment(r, atMs: at(12, 17), calendar: calendar)
+        #expect(late.hours.count == 7)
+        #expect(late.glyphs.count == 7)
+    }
+
+    /// A flat day is the middle of the scale, not its floor.
+    @Test func aFlatDayIsTheMiddleBlock() {
+        #expect(PriceBlocks.levels([50, 50, 50]) == [4, 4, 4])
+        #expect(PriceBlocks.thirds([50, 50]) == [.middle, .middle])
+        #expect(PriceBlocks.levels([0, 100]) == [1, 8])
+        #expect(PriceBlocks.levels([-10, 0, 10]) == [1, 5, 8])
+    }
+
+    /// Every widget says when the app fetched what it shows.
+    @Test func everyMomentSaysAsOf() {
+        let r = read(slots(from: at(12, 0), count: 48), readAtMs: at(12, 13, 5))
+        #expect(PriceGlance.moment(r, atMs: at(12, 14), calendar: calendar).asOfText == "AS OF 13:05")
+        #expect(PriceGlance.moment(r, atMs: at(13, 9), calendar: calendar).asOfText == "AS OF MON 13:05")
+        #expect(PriceGlance.moment(nil, atMs: at(12, 14), calendar: calendar).asOfText == nil)
+    }
+
     @Test func everyWidgetWordHasSwedish() throws {
         let url = try #require(Words.bundle.url(forResource: "Localizable", withExtension: "strings", subdirectory: nil, localization: "sv"))
         let table = try #require(NSDictionary(contentsOf: url) as? [String: String])
