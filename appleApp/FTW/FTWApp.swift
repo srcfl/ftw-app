@@ -63,13 +63,19 @@ struct FTWApp: App {
                 }
                 .onChange(of: scenePhase, initial: true) { _, phase in
                     // Inactive is a glance at Control Center or the app
-                    // switcher: slow the stream, keep the session. Only the
-                    // background closes it.
-                    app.setVisible(phase == .active)
+                    // switcher, or the way back from the background: the
+                    // stream keeps 1 Hz, and a return dials here, not at
+                    // active. Only the background closes the session.
                     PricesInBackground.inBackground = phase == .background
-                    if phase == .background {
+                    switch phase {
+                    case .background:
+                        app.setVisible(false)
                         app.suspend()
                         Task { await PricesInBackground.schedule(app) }
+                    case .inactive:
+                        app.glance()
+                    default:
+                        app.setVisible(true)
                     }
                 }
         }
