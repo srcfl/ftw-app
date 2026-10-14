@@ -7,8 +7,8 @@ import SwiftUI
 /// node is a door to its own view, and grows into it.
 ///
 /// Dots move along a line only while that node's reading is live. A cached,
-/// quiet or lagging node holds still and says how old it is, because motion
-/// claims power is flowing right now.
+/// quiet or lagging node holds still in ink, because motion claims power is
+/// flowing right now.
 struct FlowDiagram: View {
     let readings: [NodeReading]
     let zoom: Namespace.ID
@@ -80,7 +80,9 @@ struct FlowDiagram: View {
             box = CGSize(width: size.width, height: min(size.height, size.width * 1.2))
             scale = min(1.25, max(1, box.height / 380))
             bubbleWidth = min(136, max(96, size.width * 0.3)) * min(scale, 1.1)
-            hubDiameter = min(132 * scale, max(104, min(size.width * 0.34, box.height * 0.42)))
+            // Wide enough for the home's word in Swedish at the largest
+            // size the drawing allows.
+            hubDiameter = min(132 * scale, max(112, min(size.width * 0.34, box.height * 0.42)))
         }
 
         func alignment(_ node: EnergyNode) -> Alignment {
@@ -208,8 +210,8 @@ private struct PressStyle: ButtonStyle {
 }
 
 /// One corner of the flow: what it is, how much, which way, and how full
-/// for the battery and the car. A reading that is not live says how old it
-/// is in place of looking live.
+/// for the battery and the car. A reading that is not live is drawn in ink
+/// with a dashed edge; the status line says how old it is.
 struct NodeBubble: View, Equatable {
     let reading: NodeReading
     let width: CGFloat
@@ -231,16 +233,15 @@ struct NodeBubble: View, Equatable {
             }
             NodeValue(watts: reading.watts, size: 18 * scale)
                 .foregroundStyle(reading.watts == nil ? Theme.fgMuted : color)
-            Text(reading.word)
+            // Every row is kept, filled or not, so a corner never changes
+            // height when its word or level arrives.
+            Text(reading.word.isEmpty ? " " : reading.word)
                 .font(.caption2)
                 .foregroundStyle(Theme.fgDim)
                 .lineLimit(1)
-            if let level = reading.levelPct {
-                LevelBar(pct: level, assumed: reading.levelAssumed, tint: reading.node == .car ? Theme.mobility : Theme.storage)
-            }
-            if !live, reading.watts != nil {
-                FreshnessTag(freshness: reading.freshness)
-            }
+            LevelBar(pct: reading.levelPct ?? 0, assumed: reading.levelAssumed, tint: reading.node == .car ? Theme.mobility : Theme.storage)
+                .opacity(reading.levelPct == nil ? 0 : 1)
+                .accessibilityHidden(reading.levelPct == nil)
         }
         .padding(.vertical, 8 * scale)
         .padding(.horizontal, 6)
@@ -279,9 +280,6 @@ struct HubBubble: View, Equatable {
                 .foregroundStyle(Theme.fgDim)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
-            if !live, reading.watts != nil {
-                FreshnessTag(freshness: reading.freshness)
-            }
         }
         .padding(8)
         .frame(width: diameter, height: diameter)
@@ -339,21 +337,6 @@ struct LevelBar: View {
                     .contentTransition(.numericText(value: pct))
             }
         }
-    }
-}
-
-/// A reading that is not live, said as its age.
-struct FreshnessTag: View {
-    let freshness: NodeFreshness
-
-    var body: some View {
-        HStack(spacing: 3) {
-            Image(systemName: "clock")
-            Text(NodeLook.age(freshness))
-        }
-        .font(.caption2)
-        .foregroundStyle(Theme.freshStale)
-        .lineLimit(1)
     }
 }
 

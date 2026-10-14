@@ -1,8 +1,11 @@
 import XCTest
 
 /// Now is built to be read without scrolling. On the smallest and the
-/// largest iPhone that runs iOS 26, at the standard text size, its last
-/// element can be tapped where it stands, and every node opens its view.
+/// largest iPhone that runs iOS 26, at the standard text size and the
+/// largest one that is not an accessibility size, its last element can be
+/// tapped where it stands, nothing on it moves while readings arrive, and
+/// every node opens its view. The status line opens the control sheet, the
+/// title's menu holds the rest.
 ///
 ///     xcodebuild test -project FTW.xcodeproj -scheme FTW \
 ///       -destination 'platform=iOS Simulator,name=iPhone SE (3rd generation)' \
@@ -74,7 +77,7 @@ final class NowFitsTests: XCTestCase {
     @MainActor
     func testTheFootOfNowIsTappableWithoutScrolling() throws {
         let app = launchDemo()
-        let foot = app.buttons["Source & licenses"]
+        let foot = app.buttons["now.plan"]
         XCTAssertTrue(foot.waitForExistence(timeout: 5))
         // On screen as laid out: inside the window, hittable, and with no
         // scroll view on Now that could have carried it there.
@@ -85,7 +88,19 @@ final class NowFitsTests: XCTestCase {
             XCTAssertTrue(app.buttons["now.node.\(node)"].isHittable, "\(node) cannot be tapped")
         }
         XCTAssertTrue(app.buttons["now.mode"].isHittable)
-        foot.tap()
+        XCTAssertTrue(app.buttons["status.line"].isHittable)
+        // About, Privacy and the build moved from the foot into the title's menu.
+        XCTAssertFalse(app.buttons["Source & licenses"].exists)
+        app.buttons["now.title"].tap()
+        let about = app.buttons["About FTW"]
+        XCTAssertTrue(about.waitForExistence(timeout: 5))
+        shoot(app, "title-menu")
+        XCTAssertTrue(app.buttons["Homes"].exists)
+        XCTAssertTrue(app.buttons["Settings"].exists)
+        XCTAssertTrue(app.buttons["Privacy"].exists)
+        XCTAssertTrue(app.buttons["Exit demo"].exists)
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'FTW 0.'")).firstMatch.exists, "no build in the menu")
+        about.tap()
         XCTAssertTrue(app.navigationBars["Source & licenses"].waitForExistence(timeout: 5))
     }
 
@@ -93,11 +108,98 @@ final class NowFitsTests: XCTestCase {
     @MainActor
     func testAtTheLargestStandardTextSizeNowStillFits() throws {
         let app = launchDemo(text: Self.largest)
-        let foot = app.buttons["Source & licenses"]
+        let foot = app.buttons["now.plan"]
         XCTAssertTrue(foot.waitForExistence(timeout: 5))
         XCTAssertTrue(app.windows.firstMatch.frame.contains(foot.frame), "\(foot.frame) is outside \(app.windows.firstMatch.frame)")
         XCTAssertTrue(foot.isHittable)
         XCTAssertEqual(app.scrollViews.count, 0, "Now scrolls at the largest standard text size")
+        for node in ["solar", "battery", "home", "grid", "car"] {
+            XCTAssertTrue(app.buttons["now.node.\(node)"].isHittable, "\(node) cannot be tapped at the largest standard size")
+        }
+        XCTAssertTrue(app.buttons["status.line"].isHittable)
+        shoot(app, "now-xxxl")
+    }
+
+    /// Nothing on Now moves or changes size while it runs: every node, the
+    /// plan and the mode keep their frames from the first live seconds on,
+    /// whatever the readings say.
+    @MainActor
+    func testNowHoldsItsShapeWhileReadingsArrive() throws {
+        let app = launchDemo()
+        let ids = ["now.node.solar", "now.node.battery", "now.node.home", "now.node.grid", "now.node.car", "now.plan", "status.line", "now.title"]
+        let before = ids.map { app.buttons[$0].frame }
+        Thread.sleep(forTimeInterval: 6)
+        let after = ids.map { app.buttons[$0].frame }
+        for (id, (a, b)) in zip(ids, zip(before, after)) {
+            XCTAssertEqual(a.minX, b.minX, accuracy: 0.5, "\(id) moved")
+            XCTAssertEqual(a.minY, b.minY, accuracy: 0.5, "\(id) moved")
+            XCTAssertEqual(a.height, b.height, accuracy: 0.5, "\(id) changed height")
+        }
+    }
+
+    /// The status line says live, opens the box's own answer to "Are we in
+    /// control?" with a section per device, and closes again.
+    @MainActor
+    func testTheStatusLineOpensTheControlSheet() throws {
+        let app = launchDemo()
+        let line = app.buttons["status.line"]
+        XCTAssertTrue(line.waitForExistence(timeout: 10))
+        let live = NSPredicate(format: "value == 'DEMO · SIMULATED HOME'")
+        expectation(for: live, evaluatedWith: line)
+        waitForExpectations(timeout: 10)
+        line.tap()
+        XCTAssertTrue(app.navigationBars["Are we in control?"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["control.summary"].waitForExistence(timeout: 5))
+        let battery = app.staticTexts["Following FTW"]
+        XCTAssertTrue(battery.waitForExistence(timeout: 5), "the box's answer for the battery never came")
+        Thread.sleep(forTimeInterval: 1)
+        shoot(app, "control-sheet")
+        // Full height, so the list draws the battery's rows, then its receipt.
+        app.navigationBars["Are we in control?"].swipeUp()
+        let receipt = app.buttons["How FTW knows"].firstMatch
+        if !receipt.waitForExistence(timeout: 3) || !receipt.isHittable {
+            app.collectionViews.firstMatch.swipeUp()
+        }
+        XCTAssertTrue(receipt.waitForExistence(timeout: 3))
+        receipt.tap()
+        XCTAssertTrue(app.staticTexts["SENT"].waitForExistence(timeout: 3))
+        shoot(app, "control-sheet-receipt")
+        app.buttons["control.close"].tap()
+        XCTAssertTrue(app.navigationBars["Are we in control?"].waitForNonExistence(timeout: 5))
+    }
+
+    /// A mode from the menu beside the title: the button names it at once,
+    /// the status line walks the box's receipt, and then returns.
+    @MainActor
+    func testTheModeMenuChangesTheModeAndTheLineFollowsTheBox() throws {
+        let app = launchDemo()
+        let button = app.buttons["now.mode"]
+        let line = app.buttons["status.line"]
+        XCTAssertTrue(button.waitForExistence(timeout: 10))
+        // The menu rests until the box has spoken.
+        Thread.sleep(forTimeInterval: 3)
+        XCTAssertEqual(button.value as? String, "Balanced")
+        let frame = button.frame
+        button.tap()
+        let own = app.buttons["Own use"]
+        XCTAssertTrue(own.waitForExistence(timeout: 5))
+        shoot(app, "mode-menu")
+        own.tap()
+        let confirmed = NSPredicate(format: "value CONTAINS 'CONFIRMED'")
+        expectation(for: confirmed, evaluatedWith: line)
+        waitForExpectations(timeout: 10)
+        shoot(app, "mode-confirmed")
+        XCTAssertEqual(button.value as? String, "Own use")
+        XCTAssertEqual(button.frame.maxX, frame.maxX, accuracy: 0.5, "the mode button moved its trailing edge")
+        let back = NSPredicate(format: "value == 'DEMO · SIMULATED HOME'")
+        expectation(for: back, evaluatedWith: line)
+        waitForExpectations(timeout: 10)
+        // Back to the plan, for the next test.
+        button.tap()
+        let plan = app.buttons["Plan"]
+        XCTAssertTrue(plan.waitForExistence(timeout: 5))
+        plan.tap()
+        Thread.sleep(forTimeInterval: 2)
     }
 
     /// At the largest accessibility size the drawing gives way to a row
@@ -122,10 +224,7 @@ final class NowFitsTests: XCTestCase {
     @MainActor
     func testAtTheLargestAccessibilitySizeTheModeSheetShowsItsChoices() throws {
         let app = launchDemo(text: "UICTContentSizeCategoryAccessibilityXXXL")
-        let button = app.buttons["now.mode"]
-        XCTAssertTrue(button.waitForExistence(timeout: 10))
-        Thread.sleep(forTimeInterval: 3)
-        button.tap()
+        openSettings(app)
         let plan = app.buttons["mode.choice.plan"]
         XCTAssertTrue(plan.waitForExistence(timeout: 5))
         Thread.sleep(forTimeInterval: 1.5)
@@ -161,9 +260,7 @@ final class NowFitsTests: XCTestCase {
         let app = launchDemo()
         let button = app.buttons["now.mode"]
         // The choices rest until the stream is up.
-        XCTAssertTrue(button.waitForExistence(timeout: 10))
-        Thread.sleep(forTimeInterval: 3)
-        button.tap()
+        openSettings(app)
         let plan = app.buttons["mode.choice.plan"]
         XCTAssertTrue(plan.waitForExistence(timeout: 5))
         Thread.sleep(forTimeInterval: 1.5)
@@ -215,6 +312,18 @@ final class NowFitsTests: XCTestCase {
         XCTAssertTrue(app.windows.firstMatch.frame.contains(scan.frame))
         XCTAssertTrue(app.buttons["pair.demo"].exists)
         XCTAssertEqual(app.buttons.matching(identifier: "pair.primary").count, 1, "more than one prominent action")
+    }
+
+    /// How the home is run, in full: Settings, in the title's menu.
+    @MainActor
+    private func openSettings(_ app: XCUIApplication) {
+        let title = app.buttons["now.title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 3)
+        title.tap()
+        let settings = app.buttons["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        settings.tap()
     }
 
     @MainActor

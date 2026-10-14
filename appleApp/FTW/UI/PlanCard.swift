@@ -3,9 +3,10 @@ import FTWKit
 import SwiftUI
 
 /// The plan on Now: one line that says what happens over the next hours,
-/// and a calm timeline under it. The car and the battery each have a lane;
-/// the prices are the faint background, not the subject. A tap opens the
-/// plan's own view.
+/// and a calm timeline under it, on the ground with no card. Its height
+/// never depends on what the plan says. The car and the battery each have
+/// a lane; the prices are the faint background, not the subject. A tap
+/// opens the plan's own view.
 struct PlanCard: View, Equatable {
     let moment: PlanGlance.Moment
     /// "103", the price now, beside the title. Nil when there is none.
@@ -50,12 +51,9 @@ struct PlanCard: View, Equatable {
             PlanLanes(moment: moment, compact: true)
                 .frame(height: 50)
         }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 14)
+        // On the ground, with no card: space separates it from the flow.
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surfaceRaised, in: RoundedRectangle(cornerRadius: Theme.radius))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radius).strokeBorder(Theme.line, lineWidth: 1))
-        .contentShape(RoundedRectangle(cornerRadius: Theme.radius))
+        .contentShape(Rectangle())
         .animation(Theme.spring, value: moment.summary)
         .animation(Theme.spring, value: moment.ageText)
         .accessibilityElement(children: .ignore)

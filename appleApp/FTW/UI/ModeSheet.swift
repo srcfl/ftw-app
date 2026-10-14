@@ -9,6 +9,9 @@ import SwiftUI
 /// finger. A mode the box applied closes the sheet.
 struct ModeSheet: View {
     let mode: ModeModel
+    /// Opened as the home's settings, from the title's menu: the same
+    /// choices, with this phone's own settings under them.
+    var app: AppModel?
     @Environment(\.dismiss) private var dismiss
     /// The sheet's height for its content, measured once laid out.
     @State private var fitted: CGFloat = 520
@@ -19,6 +22,7 @@ struct ModeSheet: View {
             List {
                 planSection
                 manualSection
+                phoneSection
             }
             .listStyle(.insetGrouped)
             .safeAreaBar(edge: .bottom) { ReceiptBar(mode: mode) }
@@ -30,7 +34,7 @@ struct ModeSheet: View {
             }
             .animation(Theme.spring, value: mode.pending)
             .animation(Theme.spring, value: mode.shown)
-            .navigationTitle(L("Mode"))
+            .navigationTitle(app == nil ? L("Mode") : L("Settings"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -131,6 +135,23 @@ struct ModeSheet: View {
                 Text(L("Manual"))
             } footer: {
                 Text(L("A manual mode runs until you choose another. FTW does not plan meanwhile."))
+            }
+        }
+    }
+
+    /// FTW Cloud and removing this phone, for a paired home. The demo has
+    /// neither.
+    @ViewBuilder private var phoneSection: some View {
+        if let app, !app.isDemo {
+            Section(AboutWords.text("This phone")) {
+                NavigationLink { CloudSettingsView(app: app) } label: {
+                    Label(CloudWords.text("FTW Cloud"), systemImage: "cloud")
+                }
+                if AboutView.canRemove(app) {
+                    NavigationLink { RemovePhoneView(app: app) { dismiss() } } label: {
+                        Text(AboutWords.text("Remove this phone")).foregroundStyle(Theme.alarm)
+                    }
+                }
             }
         }
     }
