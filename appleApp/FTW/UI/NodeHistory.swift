@@ -306,7 +306,7 @@ struct AheadChartArea: View {
 
     var body: some View {
         let strip: CGFloat = 18
-        let frame = ChartFrame(top: tag * 1.35 + 8, bottom: 6 + strip + axis * 1.4 + 4, trailing: axis * 3.2)
+        let frame = ChartFrame(top: tag * 1.35 + 8, bottom: 6 + strip + axis * 1.4 + 4, trailing: axis * 3.8)
         let made = build(frame.plot(in: size).size)
         ZStack {
             Color.clear

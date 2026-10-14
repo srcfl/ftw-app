@@ -469,15 +469,41 @@ public final class LoadpointsModel: Activatable {
         lp.manualActive && !EVText.isPaused(lp)
     }
 
-    /// MEASURED on the receipt: lane 0 shows the car drawing power, live.
-    /// Lane 0 has one figure for every charger, so it lights the Live
-    /// Activity only when the home has one up.
+    /// MEASURED on the receipt: lane 0 shows the car doing what was asked,
+    /// live, once the box has the command. Lane 0 has one car figure for
+    /// every charger, so it lights the Live Activity only when the home has
+    /// one up, and the car view's receipt only for a home with one charger.
     private func noticeDrawing() {
-        guard ReceiptLog.measures(evW: site.session.fields[Contract.FID.evW], live: site.isLive),
-              let host = activityHost else { return }
-        let ids = host.loadpointIDs(home: activityHome)
-        guard ids.count == 1 else { return }
-        showChargeNow(ids[0], .measured(atMs: site.scheduler.nowMs))
+        let evW = site.session.fields[Contract.FID.evW]
+        let live = site.isLive
+        if ReceiptLog.measures(evW: evW, live: live), let host = activityHost {
+            let ids = host.loadpointIDs(home: activityHome)
+            if ids.count == 1 { showChargeNow(ids[0], .measured(atMs: site.scheduler.nowMs)) }
+        }
+        guard live, let evW, points.count == 1, let lp = points.first,
+              let step = holdStep[lp.id], step.acked, !step.measured else { return }
+        switch step.result {
+        case .refused?, .superseded?: return
+        case .applied?, .unconfirmed?, nil: break
+        }
+        let planned = (windows[lp.id] ?? lp.planWindows).contains { $0.fromMs <= site.nowMs && site.nowMs < $0.toMs }
+        guard Self.measures(step.ask, evW: evW, planCharges: planned) else { return }
+        holdStep[lp.id]?.measured = true
+        // Its last slot has lit: a success fades a while after this.
+        if case .applied? = step.result { fadeLater("hold \(lp.id)", \.holdStep, lp.id, afterMs: Self.doneShownMs) }
+    }
+
+    /// Whether lane 0's car power is what the command asked for: drawing
+    /// for Charge now, still for Pause, and for Back to the plan whatever
+    /// the plan says for this moment.
+    nonisolated static func measures(_ ask: EVText.Step.Ask, evW: Double, planCharges: Bool) -> Bool {
+        let drawing = evW > ReceiptLog.drawingW
+        switch ask {
+        case .chargeNow: return drawing
+        case .pause: return !drawing
+        case .resume: return drawing == planCharges
+        case .level: return false
+        }
     }
 
     /// The Live Activity's home key: the site, or the demo's own.
@@ -543,16 +569,28 @@ public final class LoadpointsModel: Activatable {
         guard self[keyPath: path][id]?.ask == ask else { return }
         self[keyPath: path][id]?.result = result
         // A success fades once the screen shows its effect; a refusal stays
-        // until the next tap.
+        // until the next tap. A charge command waits up to a minute for
+        // MEASURED, which comes when the car has started or stopped.
         if case .applied = result {
-            clearing[key] = site.scheduler.after(Self.doneShownMs) { [weak self] in
-                guard let self, self[keyPath: path][id]?.result == result else { return }
-                self[keyPath: path][id] = nil
-            }
+            let waits = tag == "hold" && self[keyPath: path][id]?.measured == false
+            fadeLater(key, path, id, afterMs: waits ? Self.measureWaitMs : Self.doneShownMs)
+        }
+    }
+
+    /// A settled success leaves the screen after `afterMs`, unless another
+    /// command took its place.
+    private func fadeLater(_ key: String, _ path: ReferenceWritableKeyPath<LoadpointsModel, [String: EVText.Step]>, _ id: String, afterMs: Double) {
+        guard let step = self[keyPath: path][id], case .applied? = step.result else { return }
+        clearing[key]?.cancel()
+        clearing[key] = site.scheduler.after(afterMs) { [weak self] in
+            guard let self, let now = self[keyPath: path][id], now.ask == step.ask, case .applied? = now.result else { return }
+            self[keyPath: path][id] = nil
         }
     }
 
     static let doneShownMs: Double = 20_000
+    /// How long a confirmed charge command waits for lane 0 to show it.
+    static let measureWaitMs: Double = 60_000
 
     // MARK: The goal
 
@@ -631,6 +669,16 @@ public final class LoadpointsModel: Activatable {
 
     public func outcome(hold lp: Loadpoint) -> EVText.Outcome? {
         holdStep[lp.id].map { EVText.outcome($0, lp) }
+    }
+
+    /// The receipt log for the last level and the last charge command:
+    /// `SENT ▸ ACCEPTED ▸ MEASURED ▸ CONFIRMED`, each lit on its evidence.
+    public func receipt(level lp: Loadpoint) -> ReceiptLog? {
+        levelStep[lp.id].map { EVText.receipt($0, lp) }
+    }
+
+    public func receipt(hold lp: Loadpoint) -> ReceiptLog? {
+        holdStep[lp.id].map { EVText.receipt($0, lp) }
     }
 
     public func holdSending(_ lp: Loadpoint) -> Bool {
