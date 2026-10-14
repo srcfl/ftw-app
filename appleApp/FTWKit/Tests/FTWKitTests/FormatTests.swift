@@ -99,3 +99,207 @@ import Testing
     }
 
 }
+
+/// The beams on Now: what width, speed and light a reading gives, and how a
+/// beam moves between frames. Light means live: a cache never glows.
+@Suite struct FlowBeamTests {
+    func target(_ kw: Double, live: Bool, node: EnergyNode = .battery) -> Flow.BeamTarget {
+        Flow.BeamTarget(node: node, kw: kw, live: live, flowing: kw * 1000 > Flow.idleW, towardHome: true)
+    }
+
+    /// Steps a beam at 120 Hz from `from` to `to` seconds, giving each frame.
+    func run(_ m: inout Flow.BeamMotion, _ t: Flow.BeamTarget, from: Double, to: Double, reduceMotion: Bool = false) -> [Flow.BeamFrame] {
+        var out = [Flow.BeamFrame]()
+        var s = from
+        while s <= to + 1e-9 {
+            out.append(m.step(t, at: s, reduceMotion: reduceMotion))
+            s += 1.0 / 120
+        }
+        return out
+    }
+
+    @Test func figuresStepAsTheirDigitsDo() {
+        #expect(Flow.quantised(3) == 0)
+        #expect(Flow.quantised(994) == 990)
+        #expect(Flow.quantised(996) == 1_000)
+        #expect(Flow.quantised(2_349) == 2_300)
+        #expect(Flow.quantised(2_351) == 2_400)
+        #expect(Flow.quantised(9_949) == 9_900)
+        #expect(Flow.quantised(9_951) == 10_000)
+        #expect(Flow.quantised(12_340) == 12_000)
+        #expect(Flow.quantised(-634) == -630)
+        #expect(Flow.quantised(.nan) == 0)
+        // The value changes exactly when the digits on screen do, so a
+        // figure rolls only when it says something new.
+        var w = 0.0
+        while w < 20_000 {
+            let a = Flow.quantised(w), b = Flow.quantised(w + 3)
+            #expect((a == b) == (PowerFormat.parts(a).text == PowerFormat.parts(b).text), "\(w)")
+            w += 3
+        }
+    }
+
+    @Test func widthAndSpeedFollowThePower() {
+        #expect(Flow.beamWidth(kw: 0) == 1.25)
+        #expect(abs(Flow.beamWidth(kw: 1) - 2.35) < 1e-9)
+        #expect(Flow.beamWidth(kw: -1) == Flow.beamWidth(kw: 1))
+        #expect(Flow.beamWidth(kw: 10) == 6)
+        #expect(abs(Flow.waveSpeed(kw: 0.1) - 19.2) < 0.1)
+        #expect(abs(Flow.waveSpeed(kw: 1) - 31.4) < 0.1)
+        #expect(abs(Flow.waveSpeed(kw: 10) - 51.5) < 0.1)
+    }
+
+    @Test func theWaveIsSoftCrestsAWavelengthApart() {
+        let lam = Flow.wavelength
+        #expect(abs(Flow.wave(0.3 * lam, phase: 0.3) - 1) < 1e-9)
+        #expect(abs(Flow.wave(0.8 * lam, phase: 0.3) - 0.45) < 1e-9)
+        for s in stride(from: 0.0, to: 90, by: 1.7) {
+            #expect(abs(Flow.wave(s, phase: 0.1) - Flow.wave(s + lam, phase: 0.1)) < 1e-9)
+            #expect((0.45...1).contains(Flow.wave(s, phase: 0.1)))
+        }
+    }
+
+    @Test func aFollowSwellsWithoutOvershootAndStepsExactly() {
+        var f = Flow.Follow(1)
+        var peak = 1.0
+        for _ in 0..<(120 * 3) {
+            f.step(toward: 3, dt: 1.0 / 120, tau: 0.4)
+            peak = max(peak, f.value)
+        }
+        #expect(peak <= 3)
+        #expect(abs(f.value - 3) < 0.01)
+        // One long frame lands where many short ones would.
+        var long = Flow.Follow(1), short = Flow.Follow(1)
+        long.step(toward: 3, dt: 0.5, tau: 0.4)
+        for _ in 0..<60 { short.step(toward: 3, dt: 0.5 / 60, tau: 0.4) }
+        #expect(abs(long.value - short.value) < 1e-9)
+    }
+
+    @Test func aCacheNeverGlows() {
+        // A beam drawn from the cache, frame after frame, never lights.
+        var m = Flow.BeamMotion(target(2.3, live: false), at: 0)
+        for f in run(&m, target(2.3, live: false), from: 0, to: 10) {
+            #expect(f.light == 0)
+            #expect(f.alpha == 0.35)
+            #expect(f.depth == 0)
+            #expect(f.phase == 0)
+        }
+        // A reading kept on the phone reads back as the cache, not live.
+        let kept = NodeReading(node: .battery, watts: 2_300, word: "", tone: .discharging, towardHome: true, levelPct: 61, levelAssumed: false,
+                               freshness: NodeFreshness(carrier: .cache, srcState: .live, ageMs: 4_000, sourceName: nil))
+        #expect(!Flow.BeamTarget(kept).live)
+        #expect(Flow.Light(live: false, at: 0).level(at: 100) == 0)
+    }
+
+    @Test func theFirstLiveFrameIgnitesWithTheSpringAndLiveEndingDecays() {
+        var m = Flow.BeamMotion(target(2.3, live: false), at: 0)
+        _ = run(&m, target(2.3, live: false), from: 0, to: 1)
+        let lit = run(&m, target(2.3, live: true), from: 1, to: 3)
+        // Up together: not at once, nearly full after the spring's 0.35 s,
+        // a brief flash at most.
+        #expect(lit[0].light < 0.05)
+        #expect(lit[Int(0.4 * 120)].light > 0.98)
+        #expect((lit.map(\.light).max() ?? 0) < 1.08)
+        #expect(lit.last!.phase > 0, "the wave never ran")
+        // Decay: exponential, τ 0.4 s, and the wave at rest in 0.35 s.
+        var light = Flow.Light(live: true, at: 0)
+        light.set(live: false, at: 10)
+        #expect(abs(light.level(at: 10.4) - exp(-1)) < 1e-9)
+        #expect(light.motion(at: 10.35) < 1e-9)
+        #expect(light.motion(at: 10.5) == 0)
+        let cooled = run(&m, target(2.3, live: false), from: 3, to: 4)
+        #expect(abs(cooled[Int(0.4 * 120)].light - exp(-1)) < 0.02)
+        let rest = cooled[Int(0.35 * 120) + 1].phase
+        #expect(cooled.last!.phase == rest, "the wave kept running after its rest")
+    }
+
+    @Test func theLightRunsSourceToSinkAtThePowersSpeed() {
+        var m = Flow.BeamMotion(target(1, live: true), at: 0)
+        let frames = run(&m, target(1, live: true), from: 0, to: 2)
+        let expected = 2 * Flow.waveSpeed(kw: 1) / Flow.wavelength
+        #expect(abs(frames.last!.phase - expected) < 0.01)
+        // Phase grows: crests at s = λ(φ + j) move away from the source.
+        #expect(zip(frames, frames.dropFirst()).allSatisfy { $0.phase < $1.phase })
+    }
+
+    @Test func aNewReadingSwellsTheBeamRatherThanSnapping() {
+        var m = Flow.BeamMotion(target(0.5, live: true), at: 0)
+        let frames = run(&m, target(3, live: true), from: 0, to: 3)
+        #expect(frames[1].width < Flow.beamWidth(kw: 0.5) + 0.05)
+        #expect(zip(frames, frames.dropFirst()).allSatisfy { $0.width <= $1.width + 1e-9 })
+        #expect(frames.allSatisfy { $0.width <= Flow.beamWidth(kw: 3) + 1e-9 })
+        #expect(abs(frames.last!.width - Flow.beamWidth(kw: 3)) < 0.02)
+    }
+
+    @Test func aNodeAtRestIsAStillHairlineAndCrossFadesIntoABeam() {
+        var m = Flow.BeamMotion(target(0.02, live: true), at: 0)
+        #expect(m.step(target(0.02, live: true), at: 0, reduceMotion: false).idle == 1)
+        let start = run(&m, target(1.5, live: true), from: 0, to: 1.5)
+        #expect(start[1].idle > 0.9)
+        #expect(start.last!.idle < 0.01)
+    }
+
+    @Test func reduceMotionHoldsTheLightStillAndSnaps() {
+        var m = Flow.BeamMotion(target(0.5, live: false), at: 0)
+        let frames = run(&m, target(3, live: true), from: 0, to: 1, reduceMotion: true)
+        #expect(frames.allSatisfy { $0.phase == 0 })
+        #expect(frames[0].width == Flow.beamWidth(kw: 3))
+        // Live still shows, at once.
+        #expect(frames[0].light == 1)
+        let off = run(&m, target(3, live: false), from: 1, to: 1.1, reduceMotion: true)
+        #expect(off[0].light == 0)
+    }
+}
+
+/// Where the flow's parts sit, by the box's own rules, and the beams
+/// between them.
+@Suite struct FlowPlanTests {
+    let all: [EnergyNode] = [.solar, .battery, .home, .grid, .car]
+
+    @Test func eachNodeHasItsCornerAndAMissingPartnerMovesItOntoTheAxis() {
+        #expect(all.map { FlowPlan.spot($0, among: all) } == [.topLeading, .topTrailing, .center, .bottomLeading, .bottomTrailing])
+        // No car: a Y with the grid under the home.
+        let noCar: [EnergyNode] = [.solar, .battery, .home, .grid]
+        #expect(FlowPlan.spot(.grid, among: noCar) == .bottom)
+        #expect(FlowPlan.spot(.solar, among: noCar) == .topLeading)
+        // Only the sun and the grid: a straight line.
+        let line: [EnergyNode] = [.solar, .home, .grid]
+        #expect(FlowPlan.spot(.solar, among: line) == .top)
+        #expect(FlowPlan.spot(.grid, among: line) == .bottom)
+        // The axis needs more height than the corners.
+        #expect(FlowPlan.least(all) == NowLayout.minFlow)
+        #expect(FlowPlan.least(noCar) > NowLayout.minFlow)
+        #expect(FlowPlan.least(line) == FlowPlan.least(noCar))
+    }
+
+    @Test func beamsRunStraightFromJustPastTheTextToJustOutsideTheRing() throws {
+        let size = CGSize(width: 343, height: 224), w: CGFloat = 98, h: CGFloat = 70
+        let hub = CGRect(x: size.width / 2 - 46, y: size.height / 2 - 46, width: 92, height: 92)
+        let frames: [FlowPlan.Spot: CGRect] = [
+            .topLeading: CGRect(x: 0, y: 0, width: w, height: h),
+            .topTrailing: CGRect(x: size.width - w, y: 0, width: w, height: h),
+            .bottomLeading: CGRect(x: 0, y: size.height - h, width: w, height: h),
+            .bottomTrailing: CGRect(x: size.width - w, y: size.height - h, width: w, height: h),
+        ]
+        var lengths = [CGFloat]()
+        for (spot, frame) in frames {
+            let ends = try #require(FlowPlan.beam(node: frame, at: spot, hub: hub))
+            // 8 pt outside the ring, on the line to its centre.
+            #expect(abs(hypot(ends.hub.x - hub.midX, ends.hub.y - hub.midY) - (46 + FlowPlan.hubGap)) < 1e-6)
+            // Clear of the node's text, on the hub's side of it.
+            #expect(!frame.contains(ends.node))
+            #expect(spot.onTop ? ends.node.y > frame.maxY : ends.node.y < frame.minY)
+            #expect(ends.length >= FlowPlan.shortest)
+            lengths.append(ends.length)
+        }
+        // All the same length, so the light reads the same on each.
+        #expect((lengths.max() ?? 0) - (lengths.min() ?? 0) < 1e-6)
+        // On the axis the beam is straight down.
+        let top = CGRect(x: size.width / 2 - w / 2, y: 0, width: w, height: 60)
+        let tall = CGRect(x: size.width / 2 - 46, y: 150 - 46, width: 92, height: 92)
+        let axis = try #require(FlowPlan.beam(node: top, at: .top, hub: tall))
+        #expect(abs(axis.node.x - axis.hub.x) < 1e-6)
+        // No room, no beam.
+        #expect(FlowPlan.beam(node: top, at: .top, hub: hub) == nil)
+    }
+}

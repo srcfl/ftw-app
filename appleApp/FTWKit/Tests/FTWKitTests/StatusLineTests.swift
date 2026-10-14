@@ -232,22 +232,28 @@ import FTWShared
     }
 }
 
-/// Now's fixed page: the flow's size and place come from the screen alone.
+/// Now's fixed page: the flow's size and place come from the screen and the
+/// home's shape alone.
 @Suite struct NowLayoutTests {
     @Test func theFlowTakesItsShareOfTheRoomWithinItsBounds() {
         // An SE: the floor.
         let se = NowLayout(room: 400)
-        #expect(se.flow == 232)
-        #expect(abs(se.above - (400 - 232) * 0.42) < 0.001)
-        // A Pro Max: 45 % of the room.
+        #expect(se.flow == 224)
+        #expect(abs(se.above - (400 - 224) * 0.42) < 0.001)
+        // A Pro Max: 40 % of the room, smaller than the 45 % it had.
         let pm = NowLayout(room: 640)
-        #expect(abs(pm.flow - 288) < 0.001)
-        // Never more than 340 pt, and never more than the room.
-        #expect(NowLayout(room: 2_000).flow == 340)
+        #expect(abs(pm.flow - 256) < 0.001)
+        // Never more than 300 pt, and never more than the room.
+        #expect(NowLayout(room: 2_000).flow == 300)
         #expect(NowLayout(room: 180).flow == 180)
         #expect(NowLayout(room: 180).above == 0)
         #expect(NowLayout(room: -5).flow == 0)
         // Above the middle: less room over the flow than under it.
         #expect(pm.above < 640 - pm.flow - pm.above)
+        // A node on the axis asks for more, past the cap, within the room.
+        let y = FlowPlan.least([.solar, .battery, .home, .grid])
+        #expect(NowLayout(room: 400, least: y).flow == y)
+        #expect(NowLayout(room: 2_000, least: y).flow == max(y, 300))
+        #expect(NowLayout(room: 250, least: y).flow == 250)
     }
 }

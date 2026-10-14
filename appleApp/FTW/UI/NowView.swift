@@ -76,10 +76,7 @@ private struct NowPage: View {
     var body: some View {
         VStack(spacing: 24) {
             GeometryReader { geo in
-                let layout = NowLayout(room: geo.size.height)
-                FlowSection(site: home.site, loadpoints: home.loadpoints, zoom: zoom, canCommand: home.site.canConfigure && home.site.heardFromBox)
-                    .frame(height: layout.flow)
-                    .offset(y: layout.above)
+                FlowSection(site: home.site, loadpoints: home.loadpoints, zoom: zoom, canCommand: home.site.canConfigure && home.site.heardFromBox, room: geo.size.height)
             }
             PlanSlot(app: app, home: home, zoom: zoom)
         }
@@ -196,11 +193,15 @@ private struct NothingYet: View {
 
 // MARK: The flow
 
+/// The flow in its row: its height from the room and the home's shape
+/// (`NowLayout`), which the node set fixes from the cache on frame one.
 private struct FlowSection: View {
     let site: SiteModel
     let loadpoints: LoadpointsModel
     let zoom: Namespace.ID
     let canCommand: Bool
+    /// The height between the bar and the plan.
+    var room: CGFloat = 0
 
     /// What the drawing shows: the stream's readings, the cached home's
     /// nodes before the first one, or the bare shape of a home on a phone
@@ -214,7 +215,15 @@ private struct FlowSection: View {
     }
 
     var body: some View {
-        FlowDiagram(readings: Self.readings(site: site, loadpoints: loadpoints), zoom: zoom, car: carActions)
+        let readings = Self.readings(site: site, loadpoints: loadpoints)
+        let layout = NowLayout(room: room, least: FlowPlan.least(readings.map(\.node)))
+        FlowDiagram(readings: readings, zoom: zoom, car: carActions)
+            // A drawing with fixed places: past this size its words would
+            // collide, and every figure in it is also said in the node's
+            // view. Capped here, so the drawing's scaled sizes see the cap.
+            .dynamicTypeSize(...DynamicTypeSize.xLarge)
+            .frame(height: layout.flow)
+            .offset(y: layout.above)
             .sensoryFeedback(trigger: carPoint.flatMap { loadpoints.outcome(hold: $0)?.tone }) { _, tone in ModeSheet.feedback(tone) }
     }
 

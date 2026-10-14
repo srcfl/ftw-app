@@ -113,10 +113,17 @@ native, and smooth enough to impress.
   `.contentTransition(.numericText(value:))`, new points animate in, and
   everything that moves uses one spring, `Theme.spring`. The car row on
   Now zooms into the car view (`navigationTransition(.zoom)`).
-- **The flow moves at the display's rate** while Now is on screen in an
-  active app. Under Reduce Motion it stops and a still arrow shows the
-  direction; in Low Power Mode it drops to 20 fps. The live curve glides
-  over each second, except under Reduce Motion or in Low Power Mode.
+- **The flow is beams of light** (Fredrik, 13 Oct 2026: "smaller and
+  smoother, flowing, not dots"). Straight beams whose width says the power
+  and whose soft wave of light runs from source to sink, faster with more
+  power (`Flow.beamWidth`, `Flow.waveSpeed`, `Flow.BeamMotion`, tested). The
+  light runs at the display's rate while a beam is live and Now is on
+  screen in an active app, ignites on the first live frame and decays when
+  live ends; otherwise the timeline rests. Under Reduce Motion it holds
+  still and a still chevron shows the direction; in Low Power Mode it drops
+  to 20 fps. A node at 42 W or less is a still dotted hairline. The live
+  curve glides over each second, except under Reduce Motion or in Low
+  Power Mode.
 - **No layout jumps.** Reserve room for receipts, labels and pending
   marks, so a row never moves under the finger. Freshness and state
   changes cross-fade, and a transition can be interrupted.

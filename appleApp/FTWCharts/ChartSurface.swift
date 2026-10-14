@@ -56,6 +56,18 @@ enum ChartDraws {
     static var traceMs = 0.0
     static var traceWorstMs = 0.0
 
+    /// The flow's beams on Now: frames and what they cost.
+    static var flows = 0
+    static var flowMs = 0.0
+    static var flowWorstMs = 0.0
+
+    static func flow(_ d: Duration) {
+        let ms = d / .milliseconds(1)
+        flows += 1
+        flowMs += ms
+        flowWorstMs = max(flowWorstMs, ms)
+    }
+
     static func trace(_ d: Duration) {
         let ms = d / .milliseconds(1)
         traces += 1
@@ -70,8 +82,11 @@ enum ChartDraws {
         worstMs = max(worstMs, ms)
     }
 
-    static func take() -> (surface: Int, overlay: Int, changes: Int, overlayMs: Double, worstMs: Double, traces: Int, traceMs: Double, traceWorstMs: Double) {
+    static func take() -> (surface: Int, overlay: Int, changes: Int, overlayMs: Double, worstMs: Double, traces: Int, traceMs: Double, traceWorstMs: Double, flows: Int, flowMs: Double, flowWorstMs: Double) {
         defer {
+            flows = 0
+            flowMs = 0
+            flowWorstMs = 0
             surface = 0
             overlay = 0
             changes = 0
@@ -81,7 +96,7 @@ enum ChartDraws {
             traceMs = 0
             traceWorstMs = 0
         }
-        return (surface, overlay, changes, overlayMs, worstMs, traces, traceMs, traceWorstMs)
+        return (surface, overlay, changes, overlayMs, worstMs, traces, traceMs, traceWorstMs, flows, flowMs, flowWorstMs)
     }
 }
 #endif

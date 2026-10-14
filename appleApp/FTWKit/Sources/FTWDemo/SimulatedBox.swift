@@ -786,6 +786,17 @@ extension SimulatedBox {
         // `-FTWDemoPartial YES` leaves a fifth of it unpriced.
         if UserDefaults.standard.bool(forKey: "FTWDemoSunny") { box.house.sunny = true }
         if UserDefaults.standard.bool(forKey: "FTWDemoPartial") { box.pricedShare = 0.8 }
+        // For recordings of light and its decay: `-FTWDemoQuiet 8` keeps
+        // the box quiet for 8 s in every 16, so Now goes from live to quiet
+        // and back.
+        let quiet = UserDefaults.standard.double(forKey: "FTWDemoQuiet")
+        if quiet > 0 {
+            func flip() {
+                box.mute.toggle()
+                scheduler.after(quiet * 1_000) { flip() }
+            }
+            scheduler.after(quiet * 1_000) { flip() }
+        }
         #endif
         current = box
         return LoopbackCarrier(box: box, scheduler: scheduler)

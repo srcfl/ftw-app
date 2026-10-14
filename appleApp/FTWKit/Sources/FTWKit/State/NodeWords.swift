@@ -188,6 +188,7 @@ public enum NodeWords {
         "idle": "vilar",
         "dark": "mörkt",
         "using": "använder",
+        "%@ · home": "%@ · hemmet",
         "no reading": "ingen mätning",
         "not live": "inte live",
         "live": "live",
