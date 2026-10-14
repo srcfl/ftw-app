@@ -46,6 +46,9 @@ public final class HistoryModel {
     @ObservationIgnored private var primed = false
     /// Tiles that land within one display frame are drawn as one change.
     @ObservationIgnored private var drawing: Cancellable?
+    /// The load on the wire. A second caller waits for it rather than
+    /// asking again.
+    @ObservationIgnored private var running: Task<Void, Error>?
     @ObservationIgnored let calendar: Calendar
 
     public init(site: SiteModel, calendar: Calendar = .current) {
@@ -89,7 +92,16 @@ public final class HistoryModel {
         return (HistoryGeometry.plan(.fiveMinutes, fromMs: from, toMs: to, maxPoints: Self.maxPoints), from, to)
     }
 
+    /// Ask for the window, or wait for the ask already on the wire.
     func load() async throws {
+        if let running { return try await running.value }
+        let task = Task { @MainActor in try await self.fetchWindow() }
+        running = task
+        defer { running = nil }
+        try await task.value
+    }
+
+    private func fetchWindow() async throws {
         token += 1
         let mine = token
         let (plan, from, to) = window()
