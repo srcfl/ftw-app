@@ -1,3 +1,4 @@
+import Charts
 import FTWKit
 import SwiftUI
 
@@ -374,4 +375,95 @@ private extension String {
         guard let first else { return self }
         return first.uppercased() + dropFirst()
     }
+}
+
+/// The hours ahead as lanes: the car's charging on top, the battery under
+/// it (charging one colour, giving power another), the cheapest hours as a
+/// thin mark, and the prices as a low strip along the bottom. The price is
+/// the ground the plan stands on, not the subject.
+struct PlanLanes: View, Equatable {
+    let moment: PlanGlance.Moment
+    var compact = false
+
+    private static let car = 0.68...0.96
+    private static let battery = 0.34...0.62
+    private static let cheap = 0.23...0.27
+    static let priceFloor = 0.03
+    static let priceRise = 0.15
+
+    var body: some View {
+        let from = moment.atMs
+        let to = from + PlanGlance.horizonMs
+        let top = max(1, moment.backdrop.map(\.minor).max() ?? 1)
+        let grey = moment.isGrey
+        Chart {
+            ForEach(moment.backdrop) { bar in
+                RectangleMark(
+                    xStart: .value("From", date(max(from, bar.startMs))),
+                    xEnd: .value("To", date(min(to, bar.endMs))),
+                    yStart: .value("Bottom", 0),
+                    yEnd: .value("Price", Self.priceFloor + Self.priceRise * max(0, bar.minor) / top)
+                )
+                .foregroundStyle(grey ? Theme.fgMuted : Theme.price(bar.tone))
+                .opacity(0.4)
+            }
+            ForEach(moment.events) { e in
+                let lane = Self.lane(e.kind)
+                RectangleMark(
+                    xStart: .value("From", date(max(from, e.startMs))),
+                    xEnd: .value("To", date(min(to, e.endMs))),
+                    yStart: .value("Low", lane.lowerBound),
+                    yEnd: .value("High", lane.upperBound)
+                )
+                .foregroundStyle(grey ? Theme.fgMuted : Self.color(e.kind))
+                .cornerRadius(5)
+                .annotation(position: .overlay, alignment: .center) {
+                    if !compact || e.endMs - e.startMs >= 90 * 60_000, let pct = e.targetPct, e.kind == .car {
+                        Text(AppWords.percent(pct))
+                            .font(.system(size: 9, weight: .bold).monospacedDigit())
+                            .foregroundStyle(Theme.ground)
+                    }
+                }
+            }
+            RuleMark(x: .value("Now", date(from)))
+                .foregroundStyle(Theme.accentFill)
+                .lineStyle(StrokeStyle(lineWidth: 1.5))
+        }
+        .chartXScale(domain: date(from)...date(to))
+        .chartYScale(domain: 0...1)
+        .chartYAxis(.hidden)
+        .chartXAxis {
+            AxisMarks(preset: .aligned, values: .stride(by: .hour, count: 3)) { value in
+                AxisValueLabel { hourLabel(value) }
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    static func lane(_ kind: PlanGlance.Kind) -> ClosedRange<Double> {
+        switch kind {
+        case .car: return car
+        case .charge, .discharge: return battery
+        case .cheap: return cheap
+        }
+    }
+
+    static func color(_ kind: PlanGlance.Kind) -> Color {
+        switch kind {
+        case .car: return Theme.car
+        case .charge: return Theme.stores
+        case .discharge: return Theme.gives
+        case .cheap: return Theme.ink2
+        }
+    }
+
+    private func date(_ ms: Double) -> Date { Date(timeIntervalSince1970: ms / 1000) }
+}
+
+/// "15", on the 24-hour clock FTW uses in both languages: an English phone
+/// would otherwise label the afternoon "03".
+private func hourLabel(_ value: AxisValue) -> some View {
+    Text(value.as(Date.self).map { String(format: "%02d", Calendar.current.component(.hour, from: $0)) } ?? "")
+        .font(.caption2)
+        .foregroundStyle(Theme.ink3)
 }

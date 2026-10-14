@@ -83,11 +83,18 @@ public final class PlanShare {
     /// dated; else the card's shape until the box answers. "No plan" is
     /// said only after the box has answered without one.
     public func moment(nowMs: Double) -> PlanGlance.Moment {
+        shown(nowMs: nowMs).moment
+    }
+
+    /// The moment, and the plan it was read from, for a drawing that needs
+    /// every quarter and not only the events.
+    public func shown(nowMs: Double) -> (entry: PlanEntry, moment: PlanGlance.Moment) {
+        let entry = self.entry
         if let s = plan.stamped {
-            return s.fromCache ? PlanGlance.kept(entry, readAtMs: s.asOfMs, nowMs: nowMs) : PlanGlance.live(entry, nowMs: nowMs)
+            return (entry, s.fromCache ? PlanGlance.kept(entry, readAtMs: s.asOfMs, nowMs: nowMs) : PlanGlance.live(entry, nowMs: nowMs))
         }
-        if let kept { return PlanGlance.kept(kept.value, readAtMs: kept.record.readAtMs, nowMs: nowMs) }
-        return PlanGlance.waiting(entry, nowMs: nowMs, note: plan.problem)
+        if let kept { return (kept.value, PlanGlance.kept(kept.value, readAtMs: kept.record.readAtMs, nowMs: nowMs)) }
+        return (entry, PlanGlance.waiting(entry, nowMs: nowMs, note: plan.problem))
     }
 
     /// What would make the record different. Cheap enough for every tick.

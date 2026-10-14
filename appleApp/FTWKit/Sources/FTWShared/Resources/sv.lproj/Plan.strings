@@ -21,3 +21,31 @@
 "Cheapest power" = "Billigast el";
 "Planned %@" = "Planerad %@";
 "Plan from %@ · open FTW" = "Plan från %@ · öppna FTW";
+
+/* Now's strip: the next thing and the one after it. */
+"Battery stores until %@" = "Batteriet lagrar till %@";
+"Battery gives power until %@" = "Batteriet ger ström till %@";
+"Car charges until %@" = "Bilen laddar till %@";
+"Battery stores %@" = "Batteriet lagrar %@";
+"Battery gives power %@" = "Batteriet ger ström %@";
+"Car charges %@" = "Bilen laddar %@";
+"%@, to %@" = "%@, mål %@";
+"%@." = "%@.";
+"%@, then stores %@." = "%@, lagrar sedan %@.";
+"%@, then gives power %@." = "%@, ger sedan ström %@.";
+"%@, then the battery stores %@." = "%@, sedan lagrar batteriet %@.";
+"%@, then the battery gives power %@." = "%@, sedan ger batteriet ström %@.";
+"%@, then the car charges %@." = "%@, sedan laddar bilen %@.";
+
+/* The strip's header and what a finger reads on it. */
+"NEXT 12 H" = "NÄSTA 12 H";
+"PLANNED %@" = "PLANERAD %@";
+"OLD PLAN · %@" = "GAMMAL PLAN · %@";
+"NOW" = "NU";
+"stores" = "lagrar";
+"gives power" = "ger ström";
+"waits" = "vilar";
+"car charges" = "bilen laddar";
+"car at %@" = "bilen når %@";
+"below zero" = "under noll";
+"no price yet" = "inget pris än";
