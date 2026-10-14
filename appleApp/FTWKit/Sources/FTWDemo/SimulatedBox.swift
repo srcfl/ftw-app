@@ -42,6 +42,9 @@ public final class SimulatedBox {
     /// `priced_coverage_pct`. Below 0.95 the grid widget marks its cost
     /// partial.
     public var pricedShare: Double = 1
+    /// The hour tomorrow's prices publish, local. 24 holds them back all
+    /// day, as on a day the market is late.
+    public var publishHour: Double = 13
     /// A Core with srcfl/ftw#1586 reads and sends the ready time as
     /// `time_of_day_min` on the household clock. Off, it is a Core that
     /// knows only `time_of_day_min_utc`.
@@ -298,7 +301,7 @@ public final class SimulatedBox {
         let slotMs: Double = 900_000
         // Tomorrow's rates publish at 13:00 local.
         let midnight = scheduler.nowMs - house.hourOfDay(scheduler.nowMs) * 3_600_000
-        let published = midnight + (house.hourOfDay(scheduler.nowMs) >= 13 ? 48 : 24) * 3_600_000
+        let published = midnight + (house.hourOfDay(scheduler.nowMs) >= publishHour ? 48 : 24) * 3_600_000
         let end = min(to, published)
         var slots = [CBOR]()
         var t = (from / slotMs).rounded(.down) * slotMs
@@ -816,6 +819,11 @@ extension SimulatedBox {
         // `-FTWDemoPartial YES` leaves a fifth of it unpriced.
         if UserDefaults.standard.bool(forKey: "FTWDemoSunny") { box.house.sunny = true }
         if UserDefaults.standard.bool(forKey: "FTWDemoPartial") { box.pricedShare = 0.8 }
+        // For the plan's pictures: `-FTWDemoUnpublished YES` holds
+        // tomorrow's prices back, and `-FTWDemoSafetyK 0.6` starts on
+        // another planning style.
+        if UserDefaults.standard.bool(forKey: "FTWDemoUnpublished") { box.publishHour = 24 }
+        if UserDefaults.standard.object(forKey: "FTWDemoSafetyK") != nil { box.house.safetyK = UserDefaults.standard.double(forKey: "FTWDemoSafetyK") }
         // For recordings of light and its decay: `-FTWDemoQuiet 8` keeps
         // the box quiet for 8 s in every 16, so Now goes from live to quiet
         // and back.
