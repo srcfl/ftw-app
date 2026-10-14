@@ -435,10 +435,12 @@ public final class Session {
     /// because they are three events: no ack means it never reached the box;
     /// ack but no result means the hardware has not confirmed; a result is
     /// what actually happened. `onAck` runs when the box takes the intent,
-    /// so a screen can say so before the result.
-    public func command(_ op: String, args: [(String, CBOR)], guards: [Guard] = [], onAck: (@MainActor () -> Void)? = nil) async throws -> CmdResult {
+    /// so a screen can say so before the result. `cmdId` is given when the
+    /// intent was made elsewhere (the Apple Watch), so the box runs it once
+    /// whichever way it arrives.
+    public func command(_ op: String, args: [(String, CBOR)], guards: [Guard] = [], onAck: (@MainActor () -> Void)? = nil, cmdId given: String? = nil) async throws -> CmdResult {
         guard let carrier else { throw SessionError.noCarrier }
-        let cmdId = Self.uuidv7(nowMs: scheduler.nowMs)
+        let cmdId = given ?? Self.uuidv7(nowMs: scheduler.nowMs)
         let body = CBOR.map([
             ("cmdId", .text(cmdId)),
             ("op", .text(op)),

@@ -28,7 +28,9 @@ jobs:
       # Signed ad hoc, as FTW.xcconfig sets for the simulator, so the App
       # Group entitlement travels with the app and the widget. Device
       # builds need a team, which the project does not have yet.
-      - name: Build the app and its widgets for the iOS Simulator
+      # The iPhone app embeds the Apple Watch app, so this builds the watch
+      # app and its complications for the watchOS Simulator too.
+      - name: Build the app, its widgets and the watch app for the simulators
         working-directory: appleApp
         run: >-
           xcodebuild build -quiet -project FTW.xcodeproj -scheme FTW

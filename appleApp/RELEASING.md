@@ -10,7 +10,7 @@ Apple moves menus, so trust the screen if it differs.
 |---|---|
 | Seller | Sourceful Labs AB (reg. no. 559382-0458), Kalmar, Sweden |
 | Team ID | `L66M368PZ6` |
-| Bundle IDs | `energy.ftw.app` (registered), `energy.ftw.app.widgets` |
+| Bundle IDs | `energy.ftw.app` (registered), `energy.ftw.app.widgets`, `energy.ftw.app.notify`, `energy.ftw.app.watchkitapp`, `energy.ftw.app.watchkitapp.widgets` |
 | App Group | `group.energy.ftw.app` |
 | Workflow | [`.github/workflows/ios-release.yml`](../.github/workflows/ios-release.yml) |
 | Store texts | [`store/`](store/) |

@@ -1,0 +1,108 @@
+import Foundation
+import Testing
+@testable import FTWKit
+import FTWDemo
+import FTWShared
+
+/// The Apple Watch through this phone, against the simulated box: the
+/// records it is handed, and its commands from tap to the box's answer.
+@MainActor
+@Suite struct WatchShareTests {
+    typealias Rig = RemoteTests.Rig
+
+    /// Run a watch command the way the bridge does, keeping every step.
+    func run(_ op: WatchCommand.Op, _ rig: Rig, home: String = "demo", id: String? = nil, sentAtMs: Double? = nil, for ms: Double = 6_000) async throws -> (end: WatchReceipt, steps: [WatchReceipt]) {
+        let homeModels = try #require(rig.app.home)
+        let c = WatchCommand(id: id, op: op, home: home, sentAtMs: sentAtMs ?? rig.scheduler.nowMs)
+        var steps = [WatchReceipt]()
+        let task = Task { await WatchShare.run(c, home: homeModels, nowMs: rig.scheduler.nowMs) { steps.append($0) } }
+        await rig.run(ms)
+        return (await task.value, steps)
+    }
+
+    /// The box gets the watch's own `cmdId`, and the receipt moves sent,
+    /// accepted, confirmed: CONFIRMED only once the box's result says so.
+    @Test func chargeNowFromTheWatchCarriesItsIdAndTheBoxsReceipt() async throws {
+        try await AppWords.$language.withValue(.en) {
+            let rig = Rig()
+            _ = try rig.start()
+            let id = WatchCommand.newID(nowMs: rig.scheduler.nowMs)
+            let (end, steps) = try await run(.chargeNow(loadpointID: "garage"), rig, id: id)
+            let cmd = try #require(rig.wire?.commands.last)
+            #expect(cmd.cmdId == id)
+            #expect(cmd.op == Contract.opLoadpointHold)
+            #expect(end.confirmed == .done && end.tone == .done && end.commandID == id)
+            // In order, and never confirmed before the box's result.
+            let confirmedAt = try #require(steps.firstIndex { $0.confirmed == .done })
+            let acceptedAt = try #require(steps.firstIndex { $0.accepted == .done })
+            #expect(acceptedAt < confirmedAt)
+            #expect(steps.prefix(confirmedAt).allSatisfy { $0.confirmed != .done && $0.tone == .working })
+            #expect(steps.allSatisfy { $0.commandID == id })
+        }
+    }
+
+    @Test func aCommandForAnotherHomeOrTooLateSendsNothing() async throws {
+        try await AppWords.$language.withValue(.en) {
+            let rig = Rig()
+            _ = try rig.start()
+            let other = try await run(.chargeNow(loadpointID: "garage"), rig, home: "s9", for: 500)
+            #expect(other.end.tone == .failed && other.end.sent == .failed)
+            #expect(other.end.text == WatchWord.otherHome.text)
+            let late = try await run(.pause(loadpointID: "garage"), rig, sentAtMs: rig.scheduler.nowMs - WatchCommand.lifeMs - 1, for: 500)
+            #expect(late.end.text == WatchWord.tooLate.text)
+            let odd = try await run(.pause(loadpointID: "garage"), rig, id: UUID().uuidString, for: 500)
+            #expect(odd.end.tone == .failed)
+            #expect(rig.wire?.commands.isEmpty ?? true)
+        }
+    }
+
+    @Test func pauseAndBackToThePlanFromTheWatch() async throws {
+        try await AppWords.$language.withValue(.en) {
+            let rig = Rig()
+            _ = try rig.start()
+            let pause = try await run(.pause(loadpointID: "garage"), rig)
+            #expect(pause.end.confirmed == .done)
+            #expect(rig.wire?.commands.last?.args["power_w"]?.double == 0)
+            let back = try await run(.backToPlan(loadpointID: "garage"), rig)
+            #expect(back.end.confirmed == .done)
+            #expect(rig.wire?.commands.last?.args["clear"]?.bool == true)
+        }
+    }
+
+    @Test func theModeFromTheWatchGoesWithItsId() async throws {
+        try await AppWords.$language.withValue(.en) {
+            let rig = Rig()
+            _ = try rig.start()
+            await rig.run(2_000)
+            let home = try #require(rig.app.home)
+            let modes = try #require(WatchShare.context(home, isDemo: true, nowMs: rig.scheduler.nowMs).modes)
+            let manual = try #require(modes.modes.first { !$0.isPlan && $0.key != modes.shown })
+            let (end, _) = try await run(.mode(manual.key), rig)
+            #expect(rig.wire?.commands.last?.op == Contract.opSetMode)
+            #expect(rig.wire?.commands.last?.cmdId == end.commandID)
+            #expect(end.confirmed == .done)
+        }
+    }
+
+    /// The demo's records, dated, and none of them claiming to be the cache
+    /// while the stream is live; Now's figures as the phone holds them.
+    @Test func theContextHoldsTheRecordsTheWidgetsWouldRead() async throws {
+        let rig = Rig()
+        _ = try rig.start()
+        let home = try #require(rig.app.home)
+        let done = WatchShare.looking(home)
+        defer { done() }
+        await rig.run(6_000)
+        let ctx = WatchShare.context(home, isDemo: true, nowMs: rig.scheduler.nowMs)
+        #expect(ctx.home == "demo" && ctx.isDemo)
+        let now = try #require(ctx.now)
+        #expect(now.carrier != .cache)
+        #expect(now.value.readings.contains { $0.node == .battery && $0.levelPct != nil })
+        #expect(ctx.cars?.value.cars.first?.loadpointID == "garage")
+        #expect(ctx.prices != nil)
+        #expect(ctx.modes?.mayControl == true)
+        // Packs small enough to hand over.
+        #expect(try ctx.packed().count < 40_000)
+        #expect(WatchShare.context(nil, isDemo: false, nowMs: 0).hasHome == false)
+    }
+}

@@ -38,6 +38,18 @@ in M1. FTW Cloud (an opt-in state cache, push and statistics, readable by
 Sourceful rather than end-to-end encrypted) is designed separately; nothing
 in M1 may depend on it.
 
+**Apple Watch (`appleApp/FTWWatch*`).** W1, asked for by Fredrik on
+2026-10-14: Now, the plan dial (the Crown steps it by quarter hour), the car
+and the price, Charge now, Pause, Back to the plan and the mode, and
+complications. watchOS 26 is the minimum. watchOS gives an ordinary app no
+WebSocket (TN3135), so in W1 the watch reads and commands through the iPhone
+(`WatchBridge`, WatchConnectivity); FTW Cloud never controls. The app is
+built to stand alone (`WKRunsIndependentlyOfCompanionApp`): it opens on its
+own cache, makes its own key and its own `cmdId`, and reads and sends
+through two seams, `ReadPath` and `CommandPath`. `PhonePath` is the only
+path now; FTW Cloud reads and the relay's exchange (ADR 0009) come later.
+An unlocked watch on the wrist counts as unlocked for commands.
+
 **Android (`androidApp/`, `shared/`).** Pair + Now, shipped on `main` as of
 2026-08-22. Do not add Energy / History / Plan / EV, commands, escrow, LAN,
 push, or store listing on Android until Pair + Now is solid there, including
@@ -223,7 +235,9 @@ The rules below put these into practice.
   `ThemeTests` holds the contrast (text 4.5:1 on ground and raised; energy
   4.5:1 in light and 7:1 in dark) and fails on any colour written in code.
   Increase Contrast turns ink3 into ink2 and hairlines into 2 px; Reduce
-  Transparency drops the glow.
+  Transparency drops the glow. watchOS compiles no dark appearance and a
+  watch is always dark, so each set also has a `watch` variant that equals
+  its dark one; `ThemeTests` holds them equal.
 - The 0.3 names in `FTW/UI/Theme.swift` (`fg`, `surface`, `accent` and the
   rest) point at these roles until each screen is rebuilt. New code reads
   the roles.
@@ -288,7 +302,11 @@ On iPhone, one Swift package in `appleApp/FTWKit` holds three modules:
   Review; FTWKit never does.
 
 `appleApp/FTW` owns the camera, the passkey ceremony, the Keychain and every
-pixel. `appleApp/FTWWidgets` owns the widgets. Keep logic out of views: if a
+pixel. `appleApp/FTWWidgets` owns the widgets. `appleApp/FTWWatch` is the
+watch app, `FTWWatchWidgets` its complications and `FTWWatchShared` what
+both draw (the dial). The watch links `FTWShared` and `FTWCharts`, never
+FTWKit. What the phone and the watch say to each other lives in
+`FTWShared/Watch/`, and the phone's side of it in `FTWKit`'s `WatchShare`. Keep logic out of views: if a
 sentence or a rule can be tested, it belongs in a package module with a
 test. The App Group name is written once, in `appleApp/FTW.xcconfig`; the
 entitlements and Info.plists read it from there.
