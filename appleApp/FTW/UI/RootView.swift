@@ -20,6 +20,9 @@ struct RootView: View {
         .tint(Theme.accent)
         .onAppear { LaunchClock.mark("first frame") }
         .cloudConsent(app)
+        #if DEBUG
+        .overlay(alignment: .topLeading) { if FrameGapProbe.enabled { FrameGapProbe() } }
+        #endif
     }
 }
 

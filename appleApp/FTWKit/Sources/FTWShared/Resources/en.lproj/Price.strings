@@ -1,0 +1,8 @@
+/* The price chart. Keys are the English (PriceWord). */
+"CHEAPEST %@ · %@" = "CHEAPEST %@ · %@";
+"AVG" = "AVG";
+"NOW" = "NOW";
+"TOMORROW ~13:00" = "TOMORROW ~13:00";
+"TOMORROW" = "TOMORROW";
+"No price yet" = "No price yet";
+"Below zero: you are paid to use power" = "Below zero: you are paid to use power";

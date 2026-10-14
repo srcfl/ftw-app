@@ -1,4 +1,5 @@
 import Foundation
+import FTWShared
 import Observation
 
 /// The latest `capacity` values, oldest dropped first. Appending is O(1)
@@ -226,6 +227,12 @@ public final class LiveTrace {
     public func points(_ fid: Int, sinceMs: Double) -> [Point] {
         _ = revision
         return (rings[fid]?.elements ?? []).filter { $0.t >= sinceMs }
+    }
+
+    /// One node's readings as its trace draws them: solar as what it makes,
+    /// and a point kept from before this launch not seen live.
+    public func samples(_ node: EnergyNode, sinceMs: Double) -> [LiveSample] {
+        points(node.fid, sinceMs: sinceMs).map { LiveSample(t: $0.t, v: node.shown($0.v), seen: !$0.restored) }
     }
 
     /// Where the curve breaks: each run numbered from zero in order, so a

@@ -23,17 +23,20 @@ public enum Contract {
 
     public static let roleOwner = "owner"
     public static let roleViewer = "viewer"
+    public static let roleWatch = "watch"
 
     /// What each role carries, with the registry's `*` expanded. Used only
     /// for a box from before roles, which sends no scope list.
     public static let roleScopes: [String: [String]] = [
         roleOwner: scopes,
         roleViewer: ["ftw.live.read"],
+        roleWatch: ["ftw.live.read", "ftw.plan.read", "ftw.events.read", "ftw.dispatch.write"],
     ]
 
     public static let roleLabels: [String: String] = [
         roleOwner: "Owner",
         roleViewer: "Viewer",
+        roleWatch: "Watch",
     ]
 
     public static let scopeModeWrite = "ftw.mode.write"
@@ -44,7 +47,7 @@ public enum Contract {
         "cmd.lease", "cmd.precondition", "cmd.readback",
         "der.battery", "der.ev", "der.v2x",
         "plan.dispatch", "net.webrtc", "price.spot", "api.passthrough",
-        "cloud.link",
+        "cloud.link", "cmd.exchange",
     ]
 
     public static let capHistory5m = "history.5m"
@@ -55,6 +58,8 @@ public enum Contract {
     /// The box can run the FTW Cloud uplink. Absent, the app offers no FTW
     /// Cloud and reads through the relay alone.
     public static let capCloudLink = "cloud.link"
+    /// The box can take a watch. Absent, the phone offers no Add watch.
+    public static let capCmdExchange = "cmd.exchange"
 
     /// The scopes an FTW Cloud grant may name, and what its data may be
     /// used for: the registry's `cloud_scopes` and `cloud_purposes`.

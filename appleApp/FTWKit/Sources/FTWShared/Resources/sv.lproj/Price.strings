@@ -1,0 +1,8 @@
+/* Prisdiagrammet. Nyckeln är engelskan (PriceWord). */
+"CHEAPEST %@ · %@" = "BILLIGAST %@ · %@";
+"AVG" = "SNITT";
+"NOW" = "NU";
+"TOMORROW ~13:00" = "I MORGON ~13:00";
+"TOMORROW" = "I MORGON";
+"No price yet" = "Inget pris än";
+"Below zero: you are paid to use power" = "Under noll: du får betalt för att använda el";
