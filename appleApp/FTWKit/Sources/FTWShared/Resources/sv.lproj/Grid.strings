@@ -13,3 +13,8 @@
 "%@ kWh net with the grid today" = "%@ kWh netto mot nätet i dag";
 "cost %@" = "kostnad %@";
 "earned %@" = "tjänat %@";
+"bought, net" = "köpt netto";
+"sold, net" = "sålt netto";
+"even, net" = "jämnt netto";
+"BUYING" = "KÖPER";
+"SELLING" = "SÄLJER";
