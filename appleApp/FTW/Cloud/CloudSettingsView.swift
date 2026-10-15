@@ -55,8 +55,9 @@ struct CloudSettingsView: View {
                 Label {
                     // The transport's own name, not translated: QUIC, or the
                     // WebSocket where UDP does not get through.
-                    Text(CloudWords.text(site.cloudStatus?.isOpen == true || box?.connected == true ? "Connected" : "Not connected"))
-                        + Text(site.cloudTransport.map { " · \(Self.transportName($0))" } ?? "").font(Theme.mono(.footnote))
+                    let state = Text(CloudWords.text(site.cloudStatus?.isOpen == true || box?.connected == true ? "Connected" : "Not connected"))
+                    let transport = Text(site.cloudTransport.map { " · \(Self.transportName($0))" } ?? "").font(Theme.mono(.footnote))
+                    Text("\(state)\(transport)")
                 } icon: {
                     Image(systemName: "dot.radiowaves.left.and.right")
                 }
@@ -87,14 +88,14 @@ struct CloudSettingsView: View {
         }
     }
 
-    /// Off, then the receipt: the box has it once the service confirms the
-    /// copy is gone, usually within seconds. Asked a few times after the
-    /// tap, never on a timer of its own.
     /// The registry's transport names, as people write them.
     static func transportName(_ transport: String) -> String {
         transport == Contract.transportQUIC ? "QUIC" : "WebSocket"
     }
 
+    /// Off, then the receipt: the box has it once the service confirms the
+    /// copy is gone, usually within seconds. Asked a few times after the
+    /// tap, never on a timer of its own.
     private func followErasure(_ site: SiteModel) async {
         guard await consent.turnOff(site) else { return }
         for _ in 0..<5 where consent.box?.erasing == true {
