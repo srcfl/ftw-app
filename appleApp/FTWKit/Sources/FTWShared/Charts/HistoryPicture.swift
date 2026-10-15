@@ -146,6 +146,24 @@ public struct HistoryPicture: Equatable, Sendable {
         return HistoryPicture(layers: layers, grid: grid, domain: domain, size: size, nowMs: nowMs, limit: limit, asOfMs: asOf, ticks: ticks)
     }
 
+    /// Where the data reaches across a plot `width` wide, for the corner
+    /// words: each slot's band of every series, and each ghost's slots.
+    public func reach(width: CGFloat) -> [ChartReach] {
+        var out: [ChartReach] = []
+        for layer in layers {
+            for b in layer.series.buckets {
+                guard let lo = b.low, let hi = b.high else { continue }
+                out.append(ChartReach(x: grid.x(atMs: b.atMs, width: width), low: lo, high: hi))
+            }
+            guard let ghost = layer.ghost else { continue }
+            for i in ghost.values.indices {
+                guard let v = ghost.values[i] else { continue }
+                out.append(ChartReach(x: ghost.grid.x(atMs: ghost.grid.startMs(i), width: width), low: v, high: v))
+            }
+        }
+        return out
+    }
+
     /// Local midnight before `ms` and the next one, through any turn of the
     /// clocks: Today's fixed window.
     public static func day(_ ms: Double, clock: ZoneClock) -> (fromMs: Double, toMs: Double) {

@@ -4,7 +4,8 @@ import SwiftUI
 /// The price: what power costs now as the hero, the next 24 hours as a bar
 /// per slot, and what the plan does in each. A finger on the bars gives
 /// the hero the slot's price and time, and the lines under the chart what
-/// the plan does then. One screen, no cards.
+/// the plan does then. Under them one mono line says what the plan does at
+/// these prices. One screen, no cards; the chart takes half of it.
 struct PriceView: View {
     let home: HomeModels
     @State private var scrub = ScrubModel()
@@ -91,9 +92,9 @@ private struct PricePage: View, Equatable {
                     .foregroundStyle(Theme.ink2)
                     .padding(.top, 24)
             } else {
-                // 240 pt on an SE, up to 340 on a tall phone.
+                // Half the screen: 240 pt on an SE, up to 440 on a tall phone.
                 PriceBarsChart(chart: chart, scrub: scrub)
-                    .containerRelativeFrame(.vertical) { height, _ in min(max(height * 0.38, 240), 340) }
+                    .containerRelativeFrame(.vertical) { height, _ in min(max(height * 0.5, 240), 440) }
                     .padding(.top, 24)
                     .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                     .accessibilityElement()
@@ -102,6 +103,8 @@ private struct PricePage: View, Equatable {
                     .accessibilityIdentifier("price.chart")
                 PriceReadout(chart: chart, included: included, planned: plan != nil, scrub: scrub)
                     .padding(.top, 16)
+                PlanAtThesePrices(line: chart.planLine)
+                    .padding(.top, 8)
             }
             if fill { Spacer(minLength: 0) }
         }
@@ -164,7 +167,7 @@ private struct PriceBarsChart: View {
     @ScaledMetric(relativeTo: .caption) private var tag: CGFloat = 11
 
     var body: some View {
-        let frame = PriceBarsDrawing.frame(axis: axis, kicker: kicker, tag: tag)
+        let frame = PriceBarsDrawing.frame(axis: axis, kicker: kicker, tag: tag, labels: [PriceChart.averageWord, chart.meanText])
         ZStack {
             ChartSurface(drawing: PriceBarsDrawing(chart: chart, frame: frame, axis: axis, kicker: kicker))
                 .equatable()
@@ -175,6 +178,27 @@ private struct PriceBarsChart: View {
                 tagSize: tag,
                 spanTag: { [chart] r in chart.when(r) + "  " + (chart.mean(r).map { NodeWords.format("avg %@", chart.figure($0)) } ?? "—") }
             )
+        }
+    }
+}
+
+/// `STORES 09:15–15:30 AT 58–90 · GIVES 17–20 AT 150–176 ÖRE`: what the
+/// plan already read does at these prices, in the kickers' mono. Nothing
+/// when there is no plan.
+private struct PlanAtThesePrices: View {
+    let line: String
+    @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 10.5
+
+    var body: some View {
+        if !line.isEmpty {
+            Text(line)
+                .font(.system(size: min(size, 15), weight: .medium, design: .monospaced))
+                .tracking(0.5)
+                .foregroundStyle(Theme.ink2)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("price.plan")
         }
     }
 }

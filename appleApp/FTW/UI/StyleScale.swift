@@ -84,7 +84,9 @@ struct StyleScale: View {
             track
                 .frame(height: look == .line ? 32 : 84)
                 .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
-                .contentShape(Rectangle())
+                // The screen's leading 20 pt are the back swipe's; a finger
+                // past the careful end still lands on its stop, clamped.
+                .leavesTheEdge()
                 .gesture(drag, isEnabled: live)
                 .onChange(of: dragging) { _, now in if !now { release() } }
             caption
