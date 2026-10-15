@@ -80,10 +80,16 @@ public struct WatchNow: CacheValue {
 
     public var readings: [Reading]
     public var control: Control
+    /// How long the phone itself counts this reading live with no newer
+    /// one: its stream's gap rule (3.5 s at 1 Hz, longer for a slower
+    /// stream or FTW Cloud). The watch glows no longer than this and the
+    /// hop. Nil from a phone before 0.4.4.
+    public var standsMs: Double?
 
-    public init(readings: [Reading], control: Control) {
+    public init(readings: [Reading], control: Control, standsMs: Double? = nil) {
         self.readings = readings
         self.control = control
+        self.standsMs = standsMs
     }
 
     public func reading(_ node: Node) -> Reading? { readings.first { $0.node == node } }

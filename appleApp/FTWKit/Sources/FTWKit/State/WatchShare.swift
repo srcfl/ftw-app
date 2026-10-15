@@ -35,10 +35,13 @@ public enum WatchShare {
 
     /// The models the watch's pages show, read as if a screen showing them
     /// had appeared: the prices, the chargers, the plan with the forecast
-    /// that gives the dial its sun, and the mode. Call the returned closure
-    /// when the watch looks away.
+    /// that gives the dial its sun, and the mode. The stream runs as for a
+    /// screen meanwhile, at 1 Hz, even with the phone locked in a pocket, so
+    /// the wrist sees what the app would. Call the returned closure when the
+    /// watch looks away.
     public static func looking(_ home: HomeModels) -> @MainActor () -> Void {
-        let (prices, chargers, plan, mode) = (home.prices, home.loadpoints, home.nodes.plan, home.nodes.mode)
+        let (site, prices, chargers, plan, mode) = (home.site, home.prices, home.loadpoints, home.nodes.plan, home.nodes.mode)
+        site.beginWatching()
         prices.activate()
         chargers.activate()
         plan.activate(forecast: true)
@@ -48,6 +51,7 @@ public enum WatchShare {
             chargers.deactivate()
             plan.deactivate(forecast: true)
             mode.deactivate()
+            site.endWatching()
         }
     }
 
@@ -128,7 +132,7 @@ public enum WatchShare {
         case .warning: control = .notInControl
         case .neutral, .stale: control = .unknown
         }
-        return CacheRecord(siteId: key ?? homeKey(home), carrier: site.carrier, srcState: site.isLive ? .live : .stale, readAtMs: at, value: WatchNow(readings: readings, control: control))
+        return CacheRecord(siteId: key ?? homeKey(home), carrier: site.carrier, srcState: site.isLive ? .live : .stale, readAtMs: at, value: WatchNow(readings: readings, control: control, standsMs: site.readingGapMs))
     }
 
     static func reading(_ r: NodeReading) -> WatchNow.Reading {

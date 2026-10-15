@@ -266,9 +266,12 @@ public final class AppModel {
     }
 
     /// The app went to the background: close the session and keep what is
-    /// on screen. The demo has no socket to free and keeps running.
+    /// on screen. The demo has no socket to free and keeps running. While an
+    /// Apple Watch looks through this phone nothing closes; the look's end
+    /// calls this again.
     public func suspend() {
-        guard let site else { return }
+        // A watch looking keeps the session; the end of its look suspends.
+        guard let site, !site.watched else { return }
         if isDemo {
             site.setVisible(false)
         } else {

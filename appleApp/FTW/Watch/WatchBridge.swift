@@ -46,9 +46,18 @@ final class WatchBridge: NSObject {
     /// readings followed.
     private var look: Task<Void, Never>?
     private var lookTimer: Task<Void, Never>?
-    /// The watch says it still looks each time it comes to the front. Past
-    /// this without word, the session is let go.
+    /// The time iOS gives this app in the background for a look, taken anew
+    /// with each word from the watch.
+    private var lookTime: BackgroundTime?
+    /// The watch says it still looks each time it comes to the front, and
+    /// every 20 s while it stays there. Past this without word, the session
+    /// is let go.
     private static let lookMs: Double = 120_000
+    /// When Now last went to the watch.
+    private var forwardedAtMs: Double = 0
+    /// A look asked again after this long without Now gets the last three
+    /// minutes again: the watch missed them.
+    private static let missedMs: Double = 10_000
 
     private var nowMs: Double { Date.now.timeIntervalSince1970 * 1000 }
 
@@ -131,19 +140,24 @@ final class WatchBridge: NSObject {
 
     private func startLooking() {
         send()
+        // Each word from the watch takes the time in the background anew
+        // before the last runs out, so a steady look with the phone locked
+        // never gaps.
+        let time = BackgroundTime("FTW watch looks") { [weak self] in self?.stopLooking() }
+        lookTime?.end()
+        lookTime = time
         // Asked again while it looks: keep the session, and only the clock
-        // that lets it go starts over. The watch was away meanwhile, so it
-        // gets the last three minutes again.
-        if look != nil, let home = app?.home {
+        // that lets it go starts over. A watch that went without Now
+        // meanwhile gets the last three minutes again.
+        if look != nil, nowMs - forwardedAtMs > Self.missedMs, let home = app?.home {
             send(news: .recent(WatchShare.recent(home, nowMs: nowMs)))
         }
         if look == nil, let runner {
             look = Task { [weak self] in
-                let time = BackgroundTime("FTW watch looks") { self?.stopLooking() }
-                defer { time.end() }
                 _ = await runner.hold { home in
                     await self?.forwardNow(home)
                 }
+                self?.lookEnded()
             }
         }
         lookTimer?.cancel()
@@ -159,6 +173,14 @@ final class WatchBridge: NSObject {
         look = nil
         lookTimer?.cancel()
         lookTimer = nil
+    }
+
+    /// The look's session is let go and suspended: the time in the
+    /// background goes too, unless a new look has begun.
+    private func lookEnded() {
+        guard look == nil else { return }
+        lookTime?.end()
+        lookTime = nil
     }
 
     /// Now's readings to the watch as each frame lands, until the watch
@@ -177,6 +199,7 @@ final class WatchBridge: NSObject {
         // opens whole, then Now as it stands.
         send(news: .recent(WatchShare.recent(home, nowMs: nowMs)))
         send(news: WatchShare.now(home).map(WatchNews.now))
+        forwardedAtMs = nowMs
         // Ends when the look is let go; a watch out of reach meanwhile gets
         // nothing, and its reachability ends the look.
         for await _ in frames.stream {
@@ -184,6 +207,7 @@ final class WatchBridge: NSObject {
             guard let record = WatchShare.now(home), record.readAtMs != lastAt else { continue }
             lastAt = record.readAtMs
             send(news: .now(record))
+            forwardedAtMs = nowMs
         }
         Self.log.info("watch looked away: Now no longer sent")
     }

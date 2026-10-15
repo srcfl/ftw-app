@@ -8,8 +8,9 @@ import Foundation
 /// live carrier with its own source live. Everything read from the
 /// context or the watch's cache is ink, with the time it was read.
 public enum WatchGlance {
-    /// How long a forwarded frame stays lit after it arrived: the relay's
-    /// gap rule (3.5 s), with room for the hop from the phone.
+    /// The least time a forwarded frame stays lit after it arrived: the
+    /// relay's gap rule (3.5 s), with room for the hop from the phone.
+    /// `Glow` lengthens it to the stream's own pace.
     public static let liveForMs: Double = 4_000
     /// How long a complication shows the battery's level after the phone
     /// read it. Past this the level may have moved, and the centre is
@@ -20,11 +21,53 @@ public enum WatchGlance {
 
     /// Whether Now is live at `nowMs`. `arrivedAtMs` is when the frame
     /// reached the watch, by the watch's clock; nil for a record from the
-    /// context or the cache, which never glows.
-    public static func lit(_ record: CacheRecord<WatchNow>?, arrivedAtMs: Double?, nowMs: Double) -> Bool {
+    /// context or the cache, which never glows. `forMs` is how long a frame
+    /// stays lit, from `Glow`.
+    public static func lit(_ record: CacheRecord<WatchNow>?, arrivedAtMs: Double?, forMs: Double = liveForMs, nowMs: Double) -> Bool {
         guard let record, let arrivedAtMs else { return false }
         guard record.carrier.connected, record.srcState == .live else { return false }
-        return nowMs - arrivedAtMs >= -1_000 && nowMs - arrivedAtMs <= liveForMs
+        return nowMs - arrivedAtMs >= -1_000 && nowMs - arrivedAtMs <= forMs
+    }
+
+    /// How long a live frame stays lit on the wrist: as long as the phone
+    /// itself counts it live (`WatchNow.standsMs`), and at least about 2.5
+    /// of the stream's last intervals, each with the hop from the phone,
+    /// never less than `liveForMs`. A stream at 1 Hz stays lit through a
+    /// late frame; one at 0.2 Hz from a phone in a pocket does not blink
+    /// between frames. A real silence still goes dark: the interval counted
+    /// is at most `longestMs`, so without the phone's word no frame stays
+    /// lit longer than `longestForMs`.
+    public struct Glow: Equatable, Sendable {
+        /// The phone's own pace, from the times it read the last two frames.
+        public private(set) var intervalMs: Double?
+        /// The phone's own word for how long the last frame stands.
+        public private(set) var standsMs: Double?
+        private var lastReadAtMs: Double?
+
+        public static let hopMs: Double = 1_000
+        public static let longestMs: Double = 6_000
+        public static var longestForMs: Double { 2.5 * longestMs + hopMs }
+
+        public init() {}
+
+        /// A live frame, read by the phone at `readAtMs`.
+        public mutating func frame(readAtMs: Double, standsMs: Double? = nil) {
+            if let last = lastReadAtMs, readAtMs > last { intervalMs = min(readAtMs - last, Self.longestMs) }
+            lastReadAtMs = max(readAtMs, lastReadAtMs ?? readAtMs)
+            self.standsMs = standsMs
+        }
+
+        /// The stream stopped, or the watch looked away: the next frame
+        /// starts a new pace.
+        public mutating func reset() {
+            self = Glow()
+        }
+
+        public var forMs: Double {
+            let pace = intervalMs.map { 2.5 * $0 + Self.hopMs } ?? 0
+            let phone = standsMs.map { $0 + Self.hopMs } ?? 0
+            return max(WatchGlance.liveForMs, pace, phone)
+        }
     }
 
     /// One figure on Now.

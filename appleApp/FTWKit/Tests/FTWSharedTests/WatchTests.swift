@@ -170,6 +170,69 @@ import Testing
         #expect(WatchGlance.lit(now(carrier: .cloud, readAtMs: t), arrivedAtMs: t, nowMs: t))
     }
 
+    /// The watch's rule, step by step: each frame lights Now from its
+    /// arrival for the glow's time. Counts the 50 ms moments that were dark
+    /// between the first frame and the last.
+    func darkMoments(reads: [Double], hop: (Int) -> Double, standsMs: Double? = nil) -> Int {
+        var glow = WatchGlance.Glow()
+        var lit: [(at: Double, forMs: Double)] = []
+        for (i, read) in reads.enumerated() {
+            glow.frame(readAtMs: read, standsMs: standsMs)
+            lit.append((read + hop(i), glow.forMs))
+        }
+        var dark = 0, k = 0
+        var t = lit[0].at
+        while t <= lit[lit.count - 1].at {
+            while k + 1 < lit.count, lit[k + 1].at <= t { k += 1 }
+            if t - lit[k].at > lit[k].forMs { dark += 1 }
+            t += 50
+        }
+        return dark
+    }
+
+    /// A phone at 1 Hz, at 0.2 Hz from a pocket, or with one frame late,
+    /// never makes Now blink: frames that keep their pace keep the light.
+    @Test func aSteadyStreamNeverBlinks() {
+        var g = Seeded(3)
+        let jitter = (0..<200).map { _ in Double(Int.random(in: 50...700, using: &g)) }
+        let everySecond = (0..<120).map { Double($0) * 1_000 }
+        #expect(darkMoments(reads: everySecond, hop: { jitter[$0] }, standsMs: 3_500) == 0)
+        #expect(darkMoments(reads: everySecond, hop: { jitter[$0] }) == 0)
+        // A phone in a pocket streams every 5 s, and says so.
+        let everyFive = (0..<30).map { Double($0) * 5_000 }
+        #expect(darkMoments(reads: everyFive, hop: { jitter[$0] }, standsMs: 17_500) == 0)
+        // One frame 2.5 s late at 1 Hz, and one 6 s late at 0.2 Hz.
+        let late = everySecond.enumerated().map { $0.offset == 40 ? $0.element + 2_500 : $0.element }
+        #expect(darkMoments(reads: late, hop: { jitter[$0] }, standsMs: 3_500) == 0)
+        // From a phone that does not say, the pace alone holds 2 s late.
+        let lateBare = everySecond.enumerated().map { $0.offset == 40 ? $0.element + 2_000 : $0.element }
+        #expect(darkMoments(reads: lateBare, hop: { jitter[$0] }) == 0)
+        let lateFive = everyFive.enumerated().map { $0.offset == 12 ? $0.element + 6_000 : $0.element }
+        #expect(darkMoments(reads: lateFive, hop: { jitter[$0] }, standsMs: 17_500) == 0)
+    }
+
+    /// Never fake live: a real silence goes dark, after the phone's own
+    /// time for a reading and the hop, and never later than that.
+    @Test func aRealSilenceGoesDark() {
+        var glow = WatchGlance.Glow()
+        for i in 0..<10 { glow.frame(readAtMs: Double(i) * 1_000, standsMs: 3_500) }
+        #expect(glow.forMs == 4_500)
+        // Ten seconds of nothing is dark.
+        #expect(darkMoments(reads: [0, 1_000, 2_000, 12_000], hop: { _ in 300 }, standsMs: 3_500) > 100)
+        // Without the phone's word the pace alone never holds a frame past
+        // the longest a hidden stream waits.
+        var bare = WatchGlance.Glow()
+        bare.frame(readAtMs: 0)
+        #expect(bare.forMs == WatchGlance.liveForMs)
+        bare.frame(readAtMs: 60_000)
+        #expect(bare.forMs == WatchGlance.Glow.longestForMs)
+        bare.reset()
+        #expect(bare.forMs == WatchGlance.liveForMs)
+        let frame = now(readAtMs: 0)
+        #expect(WatchGlance.lit(frame, arrivedAtMs: 0, forMs: 4_500, nowMs: 4_400))
+        #expect(!WatchGlance.lit(frame, arrivedAtMs: 0, forMs: 4_500, nowMs: 4_600))
+    }
+
     @Test func aFigureGlowsOnlyWhenItsOwnReadingIsLive() {
         let figures = WatchGlance.figures(now(readAtMs: 0).value, lit: true)
         #expect(figures.map(\.lit) == [true, true, false])

@@ -20,7 +20,8 @@ final class WatchModel {
     private(set) var context: WatchContext?
     /// Now: the latest live frame, or the context's copy.
     private(set) var now: CacheRecord<WatchNow>?
-    /// Whether Now glows. Off `WatchGlance.liveForMs` after the last frame.
+    /// Whether Now glows: on with each live frame, off once the stream's
+    /// own pace has passed with none (`WatchGlance.Glow`).
     private(set) var lit = false
     /// Commands can leave now.
     private(set) var canSend = false
@@ -55,7 +56,11 @@ final class WatchModel {
     /// When the latest live frame reached this watch. Nil for a copy from
     /// a context or the cache, which never glows.
     @ObservationIgnored private var nowArrivedAtMs: Double?
+    @ObservationIgnored private var glow = WatchGlance.Glow()
     @ObservationIgnored private var cooling: Task<Void, Never>?
+    /// On screen, so the phone should be sending Now.
+    @ObservationIgnored private var looking = false
+    @ObservationIgnored private var askedAtMs: Double = 0
     @ObservationIgnored private var lineClearing: Task<Void, Never>?
 
     private var nowMs: Double { Date.now.timeIntervalSince1970 * 1000 }
@@ -89,11 +94,21 @@ final class WatchModel {
         }
     }
 
-    func look() { read.look() }
+    /// How often a steady look tells the phone it still looks, well inside
+    /// the phone's own time in the background and its 2 minutes.
+    static let renewMs: Double = 20_000
+
+    func look() {
+        looking = true
+        askedAtMs = nowMs
+        read.look()
+    }
 
     /// Off screen: keep the newest frame and the trace's last minutes as
     /// the last truth, dated, for the next open.
     func away() {
+        looking = false
+        glow.reset()
         read.away()
         guard var ctx = context, ctx.hasHome else { return }
         if let now, now.readAtMs > (ctx.now?.readAtMs ?? 0) { ctx.now = now }
@@ -182,26 +197,41 @@ final class WatchModel {
 
     private func frame(_ record: CacheRecord<WatchNow>) {
         guard context == nil || record.siteId == context?.home else { return }
+        glow.frame(readAtMs: record.readAtMs, standsMs: record.value.standsMs)
         now = record
         nowArrivedAtMs = nowMs
         relight()
         trace.add(record, lit: lit)
+        // A steady look renews itself with the frames, so the phone never
+        // lets it go while the wrist is up.
+        if looking, nowMs - askedAtMs > Self.renewMs { look() }
     }
 
-    /// Glow while the last frame is fresh, then cool once: one wake per
-    /// frame, no ticking timer.
+    /// Glow while the last frame is fresh for the stream's pace, then cool
+    /// once: one wake per frame, no ticking timer.
     private func relight() {
-        lit = WatchGlance.lit(now, arrivedAtMs: nowArrivedAtMs, nowMs: nowMs)
+        let forMs = glow.forMs
+        lit = WatchGlance.lit(now, arrivedAtMs: nowArrivedAtMs, forMs: forMs, nowMs: nowMs)
         cooling?.cancel()
-        guard lit else {
+        guard lit, let arrived = nowArrivedAtMs else {
             trace.settle()
             return
         }
+        let left = max(0, arrived + forMs - nowMs)
         cooling = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(Int(WatchGlance.liveForMs) + 50))
+            try? await Task.sleep(for: .milliseconds(Int(left) + 50))
             guard !Task.isCancelled else { return }
-            self?.relight()
+            self?.cooled()
         }
+    }
+
+    /// No frame came in the stream's own time: dark, and one more ask in
+    /// case the phone let the look go.
+    private func cooled() {
+        relight()
+        guard !lit else { return }
+        glow.reset()
+        if looking { look() }
     }
 
     // MARK: Commands

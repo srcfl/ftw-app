@@ -153,4 +153,44 @@ import FTWShared
         #expect(WatchContext.merging(opening, over: kept) == kept)
         #expect(WatchContext.merging(out, over: kept)?.hasHome == false)
     }
+
+    /// A watch looking through a phone locked in a pocket gets Now at 1 Hz,
+    /// not the 0.2 Hz a hidden app asks for; the phone going to the
+    /// background meanwhile closes nothing; the end of the look lets the
+    /// phone rest again.
+    @Test func aLookingWatchKeepsTheStreamAtOneHertz() async throws {
+        let rig = Rig()
+        _ = try rig.start()
+        let home = try #require(rig.app.home)
+        let site = home.site
+        final class Frames { var at = Set<Double>() }
+        func frames(over ms: Double) async -> Int {
+            let seen = Frames()
+            let token = site.observe { if let t = site.lastFrameAtMs { seen.at.insert(t) } }
+            await rig.run(ms)
+            site.unobserve(token)
+            return seen.at.count
+        }
+        await rig.run(3_000)
+        rig.app.setVisible(false)
+        rig.app.suspend()
+        await rig.run(6_000)
+        #expect(await frames(over: 20_000) <= 6)
+
+        let done = WatchShare.looking(home)
+        #expect(site.documentVisible && site.watched)
+        await rig.run(3_000)
+        #expect(await frames(over: 20_000) >= 17)
+        rig.app.setVisible(false)
+        rig.app.suspend()
+        #expect(site.documentVisible)
+        #expect(await frames(over: 10_000) >= 8)
+        // The phone's word for how long a reading stands goes with it.
+        #expect(WatchShare.now(home)?.value.standsMs == LiveTrace.gapMs)
+
+        done()
+        #expect(!site.documentVisible && !site.watched)
+        await rig.run(6_000)
+        #expect(await frames(over: 20_000) <= 6)
+    }
 }
