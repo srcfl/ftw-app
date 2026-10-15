@@ -32,6 +32,11 @@ struct FTWApp: App {
             build: AppInfo.build,
             ua: AppInfo.userAgent,
             relayURL: Self.relayURL,
+            // FTW Cloud over QUIC, with the WebSocket 250 ms behind where
+            // UDP does not get through; the winner per network goes first.
+            makeCloudSocket: CloudSockets.racing(
+                quic: QUICCloudSocket.factory(), webSocket: URLSessionWebSocket.factory(),
+                scheduler: LiveScheduler.shared, memory: CloudTransportMemory(network: { NetworkState.shared.name })),
             // App Review and anyone without a box can try a simulated home.
             demo: SimulatedBox.loopback
         )

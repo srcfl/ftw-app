@@ -42,6 +42,9 @@ public final class CloudCarrier {
     static let closeNormal = 1000
 
     public private(set) var status: Status = .connecting
+    /// How the session travels, by the registry's `cloud_transports`: QUIC,
+    /// or the WebSocket where UDP does not get through. Nil while closed.
+    public var transportName: String? { status.isOpen ? socket?.transportName : nil }
 
     private let endpoint: CloudEndpoint
     private let home: String
@@ -252,8 +255,18 @@ public final class CloudCarrier {
     private func receive(_ bytes: Bytes) {
         let arrival = scheduler.nowMs
         if let transport {
-            guard let frame = try? transport.decrypt(bytes),
-                  let payload = try? CloudWire.decodeFrame(frame),
+            let frame: Bytes
+            do {
+                frame = try transport.decrypt(bytes)
+            } catch let e as Noise.NoiseError where e.code == "E_NOISE_REPLAY" {
+                // Over QUIC a datagram can come after newer messages, past
+                // the window: it is old news, and the session goes on.
+                return
+            } catch {
+                fail(code: CloudWire.closeProtocol, retrying: true)
+                return
+            }
+            guard let payload = try? CloudWire.decodeFrame(frame),
                   let env = try? CloudWire.Envelope.decode(payload) else {
                 fail(code: CloudWire.closeProtocol, retrying: true)
                 return

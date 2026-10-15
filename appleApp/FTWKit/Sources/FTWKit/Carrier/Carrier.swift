@@ -64,6 +64,12 @@ extension Carrier {
 public protocol WebSocketConnection: AnyObject {
     func send(_ data: Bytes)
     func close()
+    /// How it travels, by the registry's `cloud_transports`.
+    var transportName: String { get }
+}
+
+extension WebSocketConnection {
+    public var transportName: String { Contract.transportWebSocket }
 }
 
 @MainActor

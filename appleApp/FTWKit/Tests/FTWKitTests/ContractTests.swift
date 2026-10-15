@@ -54,6 +54,8 @@ import FTWDemo
         }
         #expect(yaml.contains("source_states: [\(Contract.sourceStates.joined(separator: ", "))]"))
         #expect(yaml.contains("carrier_states: [\(Contract.carrierStates.joined(separator: ", "))]"))
+        #expect(yaml.contains("cloud_transports: [\(Contract.cloudTransports.joined(separator: ", "))]"))
+        #expect(Contract.cloudTransports == [Contract.transportQUIC, Contract.transportWebSocket])
     }
 
     /// FTWShared spells the same states as enums, for widgets that never

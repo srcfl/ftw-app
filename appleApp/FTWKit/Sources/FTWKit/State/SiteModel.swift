@@ -1115,6 +1115,10 @@ extension SiteModel {
     /// are empty then.
     public var cloudOn: Bool { cloudIdentity?.copyOn ?? false }
 
+    /// How FTW Cloud's session travels now: QUIC, or the WebSocket where UDP
+    /// does not get through. Nil while it is closed.
+    public var cloudTransport: String? { cloud?.transportName }
+
     private func startCloud() {
         guard cloud == nil, !destroyed, let endpoint = cloudEndpoint, let device = cloudDevice,
               let socket = cloudSocket, let home = storedHome ?? cloudIdentity?.home else { return }
