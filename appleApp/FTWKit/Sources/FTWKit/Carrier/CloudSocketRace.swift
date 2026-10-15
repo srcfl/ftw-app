@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 /// The race for FTW Cloud's socket (srcfl/ftw `docs/protocol-cloud.md`,
@@ -10,27 +11,40 @@ import Foundation
 public final class CloudTransportMemory {
     /// The network the phone is on now: its interfaces and gateways.
     private let network: @MainActor () -> String
+    private let now: @MainActor () -> Double
     private let defaults: UserDefaults?
-    private var winners: [String: String] = [:]
+    /// Network, as a hash, to the winner and when it won.
+    private var winners: [String: [String: Any]] = [:]
     static let key = "ftw.cloud.transports"
+    /// A winner holds for a day, so a network that blocked UDP once gets
+    /// QUIC first again.
+    static let holdsMs: Double = 24 * 3600 * 1000
 
-    public init(network: @escaping @MainActor () -> String = { "" }, defaults: UserDefaults? = .standard) {
+    public init(network: @escaping @MainActor () -> String = { "" }, now: @escaping @MainActor () -> Double = { Date().timeIntervalSince1970 * 1000 },
+                defaults: UserDefaults? = .standard) {
         self.network = network
+        self.now = now
         self.defaults = defaults
-        winners = defaults?.dictionary(forKey: Self.key) as? [String: String] ?? [:]
+        winners = defaults?.dictionary(forKey: Self.key) as? [String: [String: Any]] ?? [:]
     }
 
     /// The transport to start with on this network: QUIC unless the
-    /// WebSocket won here last.
+    /// WebSocket won here within the last day.
     func first() -> String {
-        winners[network()] == Contract.transportWebSocket ? Contract.transportWebSocket : Contract.transportQUIC
+        guard let w = winners[here()], let t = w["t"] as? String, let at = w["at"] as? Double, now() - at < Self.holdsMs else {
+            return Contract.transportQUIC
+        }
+        return t == Contract.transportWebSocket ? Contract.transportWebSocket : Contract.transportQUIC
     }
 
     func remember(_ transport: String) {
-        let here = network()
-        guard winners[here] != transport else { return }
-        winners[here] = transport
+        winners[here()] = ["t": transport, "at": now()]
         defaults?.set(winners, forKey: Self.key)
+    }
+
+    /// The network's name as a hash, so no gateway address is kept.
+    private func here() -> String {
+        SHA256.hash(data: Data(network().utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 }
 

@@ -175,13 +175,26 @@ struct CloudSocketRaceTests {
         conn.close()
     }
 
-    @Test func eachNetworkRemembersItsOwnWinner() {
+    @Test func eachNetworkRemembersItsOwnWinnerForADay() {
         var here = "wifi"
-        let memory = CloudTransportMemory(network: { here }, defaults: nil)
+        var now: Double = 1_790_000_000_000
+        let memory = CloudTransportMemory(network: { here }, now: { now }, defaults: nil)
         memory.remember(Contract.transportWebSocket)
         #expect(memory.first() == Contract.transportWebSocket)
         here = "cellular"
         #expect(memory.first() == Contract.transportQUIC)
+        here = "wifi"
+        now += CloudTransportMemory.holdsMs
+        #expect(memory.first() == Contract.transportQUIC, "a day on, QUIC goes first again")
+    }
+
+    @Test func noNetworkNameIsKeptInTheClear() {
+        let defaults = UserDefaults(suiteName: "ftw-quic-test-\(UUID().uuidString)")!
+        let memory = CloudTransportMemory(network: { "wifi,192.168.1.1" }, defaults: defaults)
+        memory.remember(Contract.transportQUIC)
+        let kept = defaults.dictionary(forKey: CloudTransportMemory.key) ?? [:]
+        #expect(kept.count == 1)
+        #expect(!kept.keys.contains { $0.contains("192.168") })
     }
 }
 
