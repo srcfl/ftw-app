@@ -92,6 +92,7 @@ struct NodeView: View {
             models.sources.activate(node)
             home.prices.activate()
             if node == .car { models.carEnergy.activate() }
+            if node == .home { home.savings.activate() }
             LaunchClock.mark("first content")
         }
         .onDisappear {
@@ -101,6 +102,7 @@ struct NodeView: View {
             models.sources.deactivate(node)
             home.prices.deactivate()
             if node == .car { models.carEnergy.deactivate() }
+            if node == .home { home.savings.deactivate() }
             trace.stopSound()
         }
         .onChange(of: timebase) { _, now in
@@ -175,6 +177,10 @@ struct NodeView: View {
                     .padding(.top, 4)
             } else if node == .car {
                 CarRow(loadpoints: home.loadpoints, zoom: zoom)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 4)
+            } else if node == .home {
+                SavingsRow(home: home, zoom: zoom)
                     .padding(.horizontal, 20)
                     .padding(.top, 4)
             } else if node == .grid, let phases = site.gridPhases {
@@ -863,6 +869,39 @@ private struct CarRow: View {
             .matchedTransitionSource(id: HomeRoute.car(lp.id), in: zoom)
             .accessibilityIdentifier("node.car.open")
         }
+    }
+}
+
+/// The home's one extra row: what it saved today, into the savings view.
+/// The row is there before the box answers, so nothing moves when it does.
+private struct SavingsRow: View {
+    let home: HomeModels
+    let zoom: Namespace.ID
+
+    var body: some View {
+        NavigationLink(value: HomeRoute.savings) {
+            HStack(spacing: 6) {
+                Text(L("Savings")).foregroundStyle(Theme.ink2)
+                if let today = SavingsGlance.row(home.savings.week, nowMs: home.site.minuteMs, currency: home.prices.currency) {
+                    Text(verbatim: "·").foregroundStyle(Theme.ink3)
+                    Text(today)
+                        .foregroundStyle(Theme.ink)
+                        .contentTransition(.numericText())
+                }
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.ink3)
+                Spacer(minLength: 0)
+            }
+            .font(.subheadline)
+            .lineLimit(1)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .matchedTransitionSource(id: HomeRoute.savings, in: zoom)
+        .animation(Theme.spring, value: home.savings.week?.value)
+        .accessibilityIdentifier("node.savings.open")
     }
 }
 

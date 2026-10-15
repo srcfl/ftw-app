@@ -44,7 +44,7 @@ import FTWDemo
         home.status.activate()
         await run(s, 3_000)
         #expect(home.prices.prices?.currency == "SEK")
-        #expect(home.savings.periods?.week.available == true)
+        #expect(home.savings.week?.value.totals?.priced == true)
         #expect(home.status.fresh)
         #expect(Flow.fuse(status: home.status.status!) != nil)
     }

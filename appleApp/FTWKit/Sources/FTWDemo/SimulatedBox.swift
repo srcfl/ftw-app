@@ -554,8 +554,7 @@ public final class SimulatedBox {
             return (200, ["days": .array(rows)])
         case ("GET", "/api/savings/daily"):
             let days = max(1, min(90, Int(query["days"] ?? "7") ?? 7))
-            let rows: [JSON] = (0..<days).reversed().map { savingsRow(dayOffset: $0, nowMs: now) }
-            return (200, ["days": .array(rows), "tz": .string(house.timeZone.identifier), "value_scope": "site_total"])
+            return (200, savingsAnswer(days: days, nowMs: now))
         case ("GET", "/api/loadpoints"):
             return (200, ["enabled": true, "loadpoints": [loadpointJSON()]])
         case ("GET", "/api/planner/prefs"):

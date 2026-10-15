@@ -104,6 +104,47 @@ final class NowFitsTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Source & licenses"].waitForExistence(timeout: 5))
     }
 
+    /// What the home saved opens from the home's own view and from the
+    /// title's menu. It fits the screen at the standard size and the
+    /// largest, its periods are in reach, and changing one moves nothing
+    /// above the chart.
+    @MainActor
+    func testSavingsOpensFromTheHomeAndTheTitleMenuAndFits() throws {
+        for text in [Self.standard, Self.largest] {
+            let app = launchDemo(text: text)
+            app.buttons["now.node.home"].tap()
+            let row = app.buttons["node.savings.open"]
+            XCTAssertTrue(row.waitForExistence(timeout: 5))
+            XCTAssertTrue(row.isHittable)
+            row.tap()
+            XCTAssertTrue(app.navigationBars["Savings"].waitForExistence(timeout: 5))
+            let hero = app.descendants(matching: .any)["savings.hero"]
+            XCTAssertTrue(hero.waitForExistence(timeout: 5))
+            let periods = app.segmentedControls["savings.period"]
+            let footer = app.staticTexts["savings.footer"]
+            XCTAssertTrue(footer.waitForExistence(timeout: 5))
+            XCTAssertEqual(app.scrollViews.count, 0, "Savings scrolls at \(text)")
+            let top = hero.frame.minY
+            for name in ["Day", "Week", "Month"] {
+                let b = periods.buttons[name]
+                XCTAssertTrue(b.isHittable, "\(name) is out of reach at \(text)")
+                b.tap()
+                XCTAssertEqual(hero.frame.minY, top, accuracy: 0.5, "the hero moved on \(name)")
+                XCTAssertTrue(app.windows.firstMatch.frame.contains(footer.frame), "the footer left the screen on \(name)")
+            }
+            shoot(app, "savings-\(text)")
+            app.terminate()
+        }
+        let app = launchDemo()
+        let title = app.buttons["now.title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        title.tap()
+        let savings = app.buttons["Savings"]
+        XCTAssertTrue(savings.waitForExistence(timeout: 5))
+        savings.tap()
+        XCTAssertTrue(app.navigationBars["Savings"].waitForExistence(timeout: 5))
+    }
+
     /// Only the accessibility sizes may scroll.
     @MainActor
     func testAtTheLargestStandardTextSizeNowStillFits() throws {
