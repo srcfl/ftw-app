@@ -35,7 +35,9 @@ struct PlanView: View {
             }
             .scrollDisabled(dialHolds)
             // Every touch, beside the scroll, for the dial's ring: a
-            // gesture on the ring itself stops the page scrolling.
+            // gesture on the ring itself stops the page scrolling. None
+            // from the screen's leading 20 pt, which are the back swipe's.
+            .leavesTheEdge()
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .global)
                     .onChanged { dialTouch.changed?($0) }
