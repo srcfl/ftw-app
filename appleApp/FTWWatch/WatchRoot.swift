@@ -4,6 +4,8 @@ import SwiftUI
 /// Four pages, one idea each, each on one screen with nothing to scroll:
 /// Now alive, the plan, the car and the price. The Crown turns the pages,
 /// except on the plan, where it steps the hand; a swipe goes on from there.
+/// Each page takes the space rule (`pageSpace`): no title, and the screen
+/// down to its corner.
 struct WatchRoot: View {
     let model: WatchModel
     @State private var page: Page = WatchRoot.firstPage
@@ -31,6 +33,20 @@ struct WatchRoot: View {
     static var firstPage: Page {
         UserDefaults.standard.string(forKey: "FTWWatchPage").flatMap(Page.init(rawValue:)) ?? .now
     }
+
+    /// What a page leaves free at the screen's foot for its rounded corner.
+    static let cornerRoom: CGFloat = 8
+}
+
+extension View {
+    /// The space rule for every page. No navigation title: the clock stays
+    /// and the content starts under it. The content runs into the bottom
+    /// safe area and stops `WatchRoot.cornerRoom` short of the edge, as the
+    /// system's own apps do. Now has it; Plan, Car and Price take it next.
+    func pageSpace() -> some View {
+        padding(.bottom, WatchRoot.cornerRoom)
+            .ignoresSafeArea(.container, edges: .bottom)
+    }
 }
 
 /// Before the phone has handed over a home, or after it signed out.
@@ -54,12 +70,15 @@ private struct NoHome: View {
     }
 }
 
-/// The box's modes, as the phone last read them. A choice asks once more
-/// and then goes through the phone; the receipt stays under the list.
+/// The box's modes, as the phone last read them. A choice asks once more,
+/// goes through the phone and returns to Now, whose status line carries
+/// the box's receipt for its time; the receipt also stays under the list.
 struct ModeList: View {
     let model: WatchModel
     let modes: WatchModes
     @State private var asking: WatchModes.Mode?
+    @State private var sent = false
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         List {
@@ -94,9 +113,12 @@ struct ModeList: View {
             }
         }
         .navigationTitle(WatchWord.mode.text)
-        .sheet(item: $asking) { m in
+        .sheet(item: $asking, onDismiss: {
+            if sent { dismiss() }
+        }) { m in
             Confirm(question: WatchWord.modeAsk.format(m.name), action: m.name) {
                 model.send(.mode(m.key))
+                sent = true
             }
         }
     }

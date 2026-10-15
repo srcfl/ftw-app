@@ -39,8 +39,17 @@ public enum WatchGlance {
         public let level: String?
         /// Lit: the frame is live and so is this reading.
         public let lit: Bool
+        /// Which way the battery or the grid runs, for the mark on its
+        /// glyph: up while it stores or the home buys, down while it gives
+        /// or sells, as the trace draws them. Nil for the rest, and at rest.
+        public let direction: Direction?
         public var id: WatchNow.Node { node }
     }
+
+    public enum Direction: Sendable, Equatable { case up, down }
+
+    /// Below this a node rests: the threshold Now uses for a beam.
+    public static let restW: Double = 42
 
     public static func figures(_ now: WatchNow?, lit: Bool) -> [Figure] {
         guard let now else { return [] }
@@ -58,8 +67,40 @@ public enum WatchGlance {
                 unit: parts?.unit ?? "",
                 word: word(r.way),
                 level: level,
-                lit: lit && r.live
+                lit: lit && r.live,
+                direction: direction(r.node, r.way)
             )
+        }
+    }
+
+    public static func direction(_ node: WatchNow.Node, _ way: WatchNow.Way) -> Direction? {
+        guard node == .battery || node == .grid else { return nil }
+        switch way {
+        case .charging, .buying: return .up
+        case .giving, .selling: return .down
+        default: return nil
+        }
+    }
+
+    /// The reading under a finger on the trace, as the large figure says
+    /// it: its value and the word for its direction. Never lit: it is a
+    /// moment past, under the finger.
+    public static func figure(_ node: WatchNow.Node, at sample: LiveSample) -> Figure {
+        let watts = abs(sample.v)
+        let way = way(node, signedW: sample.v)
+        let parts = PowerFormat.parts(watts)
+        return Figure(node: node, title: title(node), value: Words.decimal(parts.text), unit: parts.unit, word: word(way), level: nil, lit: false, direction: direction(node, way))
+    }
+
+    /// The word for a signed reading of `node`, as the trace draws it.
+    public static func way(_ node: WatchNow.Node, signedW v: Double) -> WatchNow.Way {
+        let resting = abs(v) <= restW
+        switch node {
+        case .solar: return resting ? .resting : .making
+        case .battery: return resting ? .resting : (v > 0 ? .charging : .giving)
+        case .home: return .using
+        case .grid: return resting ? .balanced : (v > 0 ? .buying : .selling)
+        case .car: return resting ? .resting : .charging
         }
     }
 
@@ -87,33 +128,78 @@ public enum WatchGlance {
         }
     }
 
-    /// The mono line under the title, in the phone's words: `● LIVE · FTW
-    /// IN CONTROL`, or `○ AS OF 14:05 · FTW IN CONTROL`. It never counts
-    /// seconds; a cached reading names the minute it was read.
+    /// The mono line at the top of Now, in the phone's words and in the
+    /// watch's short form: `● LIVE · FTW IN CONTROL`, `○ 07:00 · FTW IN
+    /// CONTROL`. It never counts seconds and never says "as of": a hollow
+    /// ring and the minute the reading was read are the age. For its time
+    /// after a change of mode, the box's receipt takes the line:
+    /// `SENT ▸ ACCEPTED ▸`, then `SENT ▸ CONFIRMED`.
     public struct Status: Equatable, Sendable {
+        public enum Tone: Equatable, Sendable { case ink, live, alarm }
+
+        public struct Part: Equatable, Sendable {
+            public let text: String
+            public let tone: Tone
+        }
+
         public let lit: Bool
-        public let text: String
-        /// The second half is a warning.
-        public let alarm: Bool
+        public let parts: [Part]
+
+        /// The line as one string, for VoiceOver and as its identity.
+        public var text: String { parts.map(\.text).joined(separator: " · ") }
+        /// Some part of it is a warning.
+        public var alarm: Bool { parts.contains { $0.tone == .alarm } }
     }
 
-    public static func status(_ record: CacheRecord<WatchNow>?, lit: Bool, demo: Bool, zone: TimeZone) -> Status {
-        guard let record else { return Status(lit: false, text: WatchWord.noReadingYet.text, alarm: false) }
-        var parts = [String]()
+    /// How long a settled receipt keeps the line, as on the phone.
+    public static let receiptShownMs: Double = 4_000
+
+    public static func status(_ record: CacheRecord<WatchNow>?, lit: Bool, demo: Bool, zone: TimeZone, receipt: WatchReceipt? = nil) -> Status {
+        typealias Part = Status.Part
+        if let receipt { return Status(lit: lit, parts: receiptParts(receipt)) }
+        guard let record else { return Status(lit: false, parts: [Part(text: WatchWord.noReadingYet.text, tone: .ink)]) }
+        var parts = [Part]()
         if lit {
-            parts.append(demo ? WatchWord.demo.text : WatchWord.live.text)
+            parts.append(Part(text: demo ? WatchWord.demo.text : WatchWord.live.text, tone: .ink))
         } else {
-            parts.append(WatchWord.asOf.format(ZoneClock.of(zone).label(record.readAtMs)))
+            parts.append(Part(text: ZoneClock.of(zone).label(record.readAtMs), tone: .ink))
         }
-        var alarm = false
         switch record.value.control {
-        case .inControl: parts.append(WatchWord.inControl.text)
-        case .notInControl:
-            parts.append(WatchWord.notInControl.text)
-            alarm = true
+        case .inControl: parts.append(Part(text: WatchWord.inControl.text, tone: .ink))
+        case .notInControl: parts.append(Part(text: WatchWord.notInControl.text, tone: .alarm))
         case .unknown: break
         }
-        return Status(lit: lit, text: parts.joined(separator: " · "), alarm: alarm)
+        return Status(lit: lit, parts: parts)
+    }
+
+    /// A command's receipt in the status line's words: how far the box has
+    /// come, never a mark the box has not given.
+    static func receiptParts(_ r: WatchReceipt) -> [Status.Part] {
+        let sent = ReceiptLog.word(.sent) + " ▸"
+        switch r.tone {
+        case .done:
+            return [Status.Part(text: "\(sent) \(ReceiptLog.word(.confirmed))", tone: .live)]
+        case .failed:
+            let word = r.sent == .failed ? WatchWord.notSent.text : "▲ " + ReceiptLog.refusedWord
+            return [Status.Part(text: word, tone: .alarm)]
+        case .warning:
+            return [Status.Part(text: WatchWord.notConfirmed.text, tone: .alarm)]
+        case .working:
+            if r.accepted == .done { return [Status.Part(text: "\(sent) \(ReceiptLog.word(.accepted)) ▸", tone: .ink)] }
+            if r.sent == .done { return [Status.Part(text: sent, tone: .ink)] }
+            return [Status.Part(text: WatchWord.sending.text, tone: .ink)]
+        }
+    }
+
+    /// The longest ordinary line in the phone's language, in characters,
+    /// so the watch can set one size that holds it on every screen: "07:00
+    /// · FTW IN CONTROL" in English, "SKICKAT ▸ MOTTAGET ▸" in Swedish. A
+    /// warning may run longer and take a second line.
+    public static var statusChars: Int {
+        let readings = [WatchWord.live.text, WatchWord.demo.text, "00:00"].map { "\($0) · \(WatchWord.inControl.text)" }
+        let sent = ReceiptLog.word(.sent) + " ▸"
+        let receipts = [WatchWord.sending.text, sent, "\(sent) \(ReceiptLog.word(.accepted)) ▸", "\(sent) \(ReceiptLog.word(.confirmed))"]
+        return (readings + receipts + [WatchWord.noReadingYet.text]).map(\.count).max() ?? 22
     }
 
     /// The household's zone, from whichever record names it.

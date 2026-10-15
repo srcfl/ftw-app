@@ -86,7 +86,9 @@ final class WatchBridge: NSObject {
             Self.log.info("no watch to hand the context to: paired \(session.isPaired, privacy: .public), FTW on it \(session.isWatchAppInstalled, privacy: .public)")
             return
         }
-        let ctx = WatchShare.context(app.home, isDemo: app.isDemo, receipt: lastReceipt, nowMs: nowMs)
+        // No home and no paired site is a sign-out; no home with a site is
+        // a phone still opening it, which the watch leaves be.
+        let ctx = WatchShare.context(app.home, isDemo: app.isDemo, signedOut: app.home == nil && app.sites.current() == nil, receipt: lastReceipt, nowMs: nowMs)
         if let lastSent, lastSent.sameAs(ctx) { return }
         do {
             let data = try ctx.packed()
@@ -130,7 +132,11 @@ final class WatchBridge: NSObject {
     private func startLooking() {
         send()
         // Asked again while it looks: keep the session, and only the clock
-        // that lets it go starts over.
+        // that lets it go starts over. The watch was away meanwhile, so it
+        // gets the last three minutes again.
+        if look != nil, let home = app?.home {
+            send(news: .recent(WatchShare.recent(home, nowMs: nowMs)))
+        }
         if look == nil, let runner {
             look = Task { [weak self] in
                 let time = BackgroundTime("FTW watch looks") { self?.stopLooking() }
@@ -167,6 +173,9 @@ final class WatchBridge: NSObject {
             done()
         }
         var lastAt: Double?
+        // The reply to the look: the last three minutes first, so the trace
+        // opens whole, then Now as it stands.
+        send(news: .recent(WatchShare.recent(home, nowMs: nowMs)))
         send(news: WatchShare.now(home).map(WatchNews.now))
         // Ends when the look is let go; a watch out of reach meanwhile gets
         // nothing, and its reachability ends the look.

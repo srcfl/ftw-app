@@ -26,7 +26,12 @@ final class WatchModel {
     private(set) var canSend = false
     /// The receipt of the last command for each target: a charger's id, or
     /// `modeTarget`.
-    private(set) var receipts: [String: WatchReceipt] = [:]
+    private(set) var receipts: [String: WatchReceipt] = [:] {
+        didSet { if receipts[Self.modeTarget] != oldValue[Self.modeTarget] { showModeReceipt() } }
+    }
+    /// The mode's receipt while it takes Now's status line: from the tap
+    /// until `WatchGlance.receiptShownMs` after the box answered.
+    private(set) var lineReceipt: WatchReceipt?
 
     static let modeTarget = "mode"
 
@@ -51,6 +56,7 @@ final class WatchModel {
     /// a context or the cache, which never glows.
     @ObservationIgnored private var nowArrivedAtMs: Double?
     @ObservationIgnored private var cooling: Task<Void, Never>?
+    @ObservationIgnored private var lineClearing: Task<Void, Never>?
 
     private var nowMs: Double { Date.now.timeIntervalSince1970 * 1000 }
 
@@ -71,7 +77,10 @@ final class WatchModel {
 
     /// Open on the last truth, then listen.
     func start() {
-        if let kept = cache?.load() { take(kept, keep: false) }
+        if let kept = cache?.load().map(Self.forPictures) {
+            if let recent = kept.recent { trace.backfill(recent) }
+            take(kept, keep: false)
+        }
         read.start { [weak self] in self?.handle($0) }
         // The watch's own key, made once, for the day it reaches the box
         // without the phone.
@@ -82,21 +91,36 @@ final class WatchModel {
 
     func look() { read.look() }
 
-    /// Off screen: keep the newest frame as the last truth, dated.
+    /// Off screen: keep the newest frame and the trace's last minutes as
+    /// the last truth, dated, for the next open.
     func away() {
         read.away()
-        if var ctx = context, let now, now.readAtMs > (ctx.now?.readAtMs ?? 0) {
-            ctx.now = now
-            context = ctx
-            keep(ctx)
-        }
+        guard var ctx = context, ctx.hasHome else { return }
+        if let now, now.readAtMs > (ctx.now?.readAtMs ?? 0) { ctx.now = now }
+        ctx.recent = trace.recent() ?? ctx.recent
+        context = ctx
+        keep(ctx)
     }
 
     private func handle(_ event: PathEvent) {
+        #if DEBUG
+        if Self.noReading {
+            switch event {
+            case .news(.now), .news(.recent): return
+            case .context(let ctx): return take(Self.forPictures(ctx), keep: false)
+            default: break
+            }
+        }
+        #endif
         switch event {
         case .context(let ctx): take(ctx, keep: true)
         case .news(.now(let record)): frame(record)
         case .news(.receipt(let r)): receipt(r)
+        case .news(.recent(let r)):
+            guard let ctx = context, ctx.hasHome else { return }
+            trace.backfill(r)
+            // Kept at once, so an open after a kill has these minutes too.
+            keep(ctx)
         case .canSend(let ok): canSend = ok
         case .notSent(let id):
             guard let hit = receipts.first(where: { $0.value.commandID == id }), hit.value.sent == .active else { return }
@@ -106,8 +130,34 @@ final class WatchModel {
 
     // MARK: The context
 
-    private func take(_ ctx: WatchContext, keep: Bool) {
+    /// `-FTWWatchNoReading YES` (debug builds) keeps Now's readings away,
+    /// for pictures of the shape Now shows before its first one.
+    private static var noReading: Bool {
+        #if DEBUG
+        UserDefaults.standard.bool(forKey: "FTWWatchNoReading")
+        #else
+        false
+        #endif
+    }
+
+    private static func forPictures(_ ctx: WatchContext) -> WatchContext {
+        guard noReading else { return ctx }
+        var out = ctx
+        out.now = nil
+        out.recent = nil
+        return out
+    }
+
+    /// A context from a path or the cache. Only a sign-out forgets; a
+    /// record the phone did not send keeps the one the watch has.
+    private func take(_ next: WatchContext, keep: Bool) {
+        guard let ctx = WatchContext.merging(next, over: context) else { return }
         if let old = context, old.sameAs(ctx) { return }
+        if !ctx.hasHome {
+            trace.clear()
+            now = nil
+            nowArrivedAtMs = nil
+        }
         context = ctx
         // A live frame newer than the context's copy keeps its place.
         if nowArrivedAtMs == nil || (ctx.now?.readAtMs ?? 0) > (now?.readAtMs ?? 0) {
@@ -121,9 +171,13 @@ final class WatchModel {
         if keep { self.keep(ctx) }
     }
 
+    /// Keep `ctx` with the trace as it stands, so an open after a kill
+    /// still has its last minutes.
     private func keep(_ ctx: WatchContext) {
         guard let cache else { return }
-        Task { await cache.save(ctx) }
+        var ctx = ctx
+        if ctx.hasHome { ctx.recent = trace.recent() ?? ctx.recent }
+        Task { [ctx] in await cache.save(ctx) }
     }
 
     private func frame(_ record: CacheRecord<WatchNow>) {
@@ -139,7 +193,10 @@ final class WatchModel {
     private func relight() {
         lit = WatchGlance.lit(now, arrivedAtMs: nowArrivedAtMs, nowMs: nowMs)
         cooling?.cancel()
-        guard lit else { return }
+        guard lit else {
+            trace.settle()
+            return
+        }
         cooling = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(Int(WatchGlance.liveForMs) + 50))
             guard !Task.isCancelled else { return }
@@ -187,5 +244,18 @@ final class WatchModel {
         let target = Self.target(r.op)
         guard let mine = receipts[target], let next = mine.taking(r) else { return }
         receipts[target] = next
+    }
+
+    /// The mode's receipt on Now's line while the box answers, and for a
+    /// moment after: one wait, no ticking timer.
+    private func showModeReceipt() {
+        lineClearing?.cancel()
+        lineReceipt = receipts[Self.modeTarget]
+        guard let r = lineReceipt, r.settled else { return }
+        lineClearing = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(Int(WatchGlance.receiptShownMs)))
+            guard !Task.isCancelled else { return }
+            self?.lineReceipt = nil
+        }
     }
 }

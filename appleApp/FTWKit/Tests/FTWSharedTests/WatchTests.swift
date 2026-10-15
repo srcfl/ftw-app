@@ -97,7 +97,8 @@ import Testing
         #expect(a.sameAs(b))
         b.home = "s2"
         #expect(!a.sameAs(b))
-        #expect(!WatchContext.empty(sentAtMs: 1).hasHome)
+        #expect(!WatchContext.signOut(sentAtMs: 1).hasHome)
+        #expect(!WatchContext.opening(sentAtMs: 1).hasHome)
     }
 
     @Test func asksAndNewsRoundTrip() throws {
@@ -178,17 +179,90 @@ import Testing
         #expect(figures[2].value == "120" && figures[2].word == "buying")
     }
 
+    /// The watch's short form: live is a word, anything else the minute it
+    /// was read, never "as of" and never seconds.
     @Test func theStatusLineSaysLiveOrTheMinuteItWasRead() {
         let t = at(14, 10, 5)
         let zone = TimeZone(identifier: Self.zone)!
         #expect(WatchGlance.status(now(readAtMs: t), lit: true, demo: false, zone: zone).text == "LIVE · FTW IN CONTROL")
-        #expect(WatchGlance.status(now(readAtMs: t), lit: false, demo: false, zone: zone).text == "AS OF 10:05 · FTW IN CONTROL")
+        #expect(WatchGlance.status(now(readAtMs: t), lit: false, demo: false, zone: zone).text == "10:05 · FTW IN CONTROL")
         #expect(WatchGlance.status(now(readAtMs: t), lit: true, demo: true, zone: zone).text == "DEMO · FTW IN CONTROL")
         #expect(WatchGlance.status(nil, lit: false, demo: false, zone: zone).text == "NO READING YET")
         var out = now(readAtMs: t)
         out.value.control = .notInControl
         let warn = WatchGlance.status(out, lit: true, demo: false, zone: zone)
         #expect(warn.alarm && warn.text == "LIVE · ▲ FTW NOT IN CONTROL")
+        #expect(warn.parts.map(\.tone) == [.ink, .alarm])
+    }
+
+    /// One size holds every ordinary line, so the line never shrinks
+    /// between live and cached: the cached one is one character longer.
+    @Test func theStatusLineHasOneWidthInEveryState() {
+        let t = at(14, 23, 59)
+        let zone = TimeZone(identifier: Self.zone)!
+        #expect(WatchGlance.statusChars == 22)
+        for lit in [true, false] {
+            for demo in [true, false] {
+                #expect(WatchGlance.status(now(readAtMs: t), lit: lit, demo: demo, zone: zone).text.count <= WatchGlance.statusChars)
+            }
+        }
+        // So do the line before the first reading and a receipt on its way.
+        #expect(WatchGlance.status(nil, lit: false, demo: false, zone: zone).text.count <= WatchGlance.statusChars)
+        let c = WatchCommand(op: .mode("idle"), home: "s1", sentAtMs: t)
+        for accepted in [WatchReceipt.Mark.waiting, .done] {
+            let r = WatchReceipt(commandID: c.id, op: c.op, sent: .done, accepted: accepted, confirmed: .waiting, text: "", tone: .working)
+            #expect(WatchGlance.status(now(readAtMs: t), lit: true, demo: false, zone: zone, receipt: r).text.count <= WatchGlance.statusChars)
+        }
+    }
+
+    /// After a change of mode the box's receipt takes the line for its
+    /// time, mark by mark, and never a mark the box has not given.
+    @Test func theReceiptTakesTheLineMarkByMark() {
+        let t = at(14, 10)
+        let zone = TimeZone(identifier: Self.zone)!
+        let c = WatchCommand(op: .mode("idle"), home: "s1", sentAtMs: t)
+        func line(_ r: WatchReceipt) -> WatchGlance.Status {
+            WatchGlance.status(now(readAtMs: t), lit: true, demo: false, zone: zone, receipt: r)
+        }
+        #expect(line(.tapped(c)).text == "SENDING…")
+        var r = WatchReceipt(commandID: c.id, op: c.op, sent: .done, accepted: .waiting, confirmed: .waiting, text: "", tone: .working)
+        #expect(line(r).text == "SENT ▸")
+        r.accepted = .done
+        #expect(line(r).text == "SENT ▸ ACCEPTED ▸")
+        r.confirmed = .done
+        r.tone = .done
+        #expect(line(r).text == "SENT ▸ CONFIRMED" && line(r).parts.first?.tone == .live)
+        #expect(line(.unreachable(c)).text == "▲ NOT SENT" && line(.unreachable(c)).alarm)
+        #expect(line(WatchReceipt.tapped(c).noAnswer()).text == "▲ NOT CONFIRMED")
+        r.sent = .done
+        r.confirmed = .failed
+        r.tone = .failed
+        #expect(line(r).text == "▲ REFUSED")
+        // The dot still says whether Now is live.
+        #expect(line(r).lit)
+    }
+
+    // MARK: Now's figures
+
+    @Test func theBatteryAndTheGridMarkTheirWay() {
+        let figures = WatchGlance.figures(now(readAtMs: 0).value, lit: false)
+        #expect(figures.map(\.direction) == [nil, .down, .up])
+        let shape = WatchGlance.figures(WatchNow.shape, lit: true)
+        #expect(Set(shape.map(\.node)) == Set(WatchNow.Node.allCases))
+        #expect(shape.allSatisfy { !$0.lit })
+    }
+
+    /// Under a finger the large figure gives the reading and its way, with
+    /// no minus sign.
+    @Test func aFingerOnTheTraceReadsTheWay() {
+        let selling = WatchGlance.figure(.grid, at: LiveSample(t: 0, v: -1_200))
+        #expect(selling.value == "1.2" && selling.unit == "kW" && selling.word == "selling" && selling.direction == .down)
+        let storing = WatchGlance.figure(.battery, at: LiveSample(t: 0, v: 800))
+        #expect(storing.value == "800" && storing.word == "charging" && storing.direction == .up)
+        #expect(WatchGlance.figure(.battery, at: LiveSample(t: 0, v: -30)).direction == nil)
+        #expect(WatchGlance.figure(.home, at: LiveSample(t: 0, v: 412)).word == "using")
+        #expect(WatchGlance.figure(.solar, at: LiveSample(t: 0, v: 2_000)).direction == nil)
+        #expect(!WatchGlance.figure(.home, at: LiveSample(t: 0, v: 412)).lit)
     }
 
     // MARK: The dial
@@ -326,12 +400,156 @@ import Testing
         #expect(r(.solar, 2_000, .making) == 2_000)
         #expect(r(.home, 412, .using) == 412)
         #expect(r(.grid, nil, .noReading) == nil)
-        #expect(WatchNow.Node.home.floorW == 2_000 && WatchNow.Node.car.floorW == 3_700)
+        #expect(WatchNow.Node.home.floorW == 500 && WatchNow.Node.car.floorW == 925)
     }
 
     @Test func aCheapWindowHasOneFigureForASmallSlot() {
         let w = WatchGlance.cheapWindows(prices(), nowMs: at(14, 12))
         #expect(w.map(\.short) == ["70", "30"])
+    }
+
+    // MARK: The last three minutes
+
+    /// Readings at about 1 Hz with the jitter of a real stream, and values
+    /// that move every second.
+    func samples(from: Double, to: Double, everyMs: Double = 1_000, seed: UInt64 = 7) -> [LiveSample] {
+        var g = Seeded(seed)
+        var out = [LiveSample]()
+        var t = from
+        var v = 1_500.0
+        while t <= to {
+            v = max(-9_000, min(9_000, v + Double(Int.random(in: -400...400, using: &g))))
+            out.append(LiveSample(t: t, v: v + Double.random(in: -0.5..<0.5, using: &g)))
+            t += everyMs + Double(Int.random(in: -40...40, using: &g))
+        }
+        return out
+    }
+
+    /// Five nodes for three minutes at 1 Hz fit one reply with room to
+    /// spare, and come back to the millisecond and the watt.
+    @Test func theLastThreeMinutesFitOneReply() throws {
+        let t = at(14, 12)
+        var all = [WatchNow.Node: [LiveSample]]()
+        for (i, node) in WatchNow.Node.allCases.enumerated() {
+            all[node] = samples(from: t - 4 * 60_000, to: t, seed: UInt64(i + 1))
+        }
+        let recent = WatchRecent.make(all, nowMs: t)
+        #expect(recent.lanes.count == 5)
+        #expect(recent.wireBytes <= WatchRecent.maxBytes)
+        // Nothing thinned: every reading in the window is there.
+        for node in WatchNow.Node.allCases {
+            let sent = try #require(all[node]).filter { $0.t >= t - WatchRecent.windowMs }
+            let back = recent.samples(node)
+            #expect(back.count == sent.count)
+            for (a, b) in zip(sent, back) {
+                #expect(abs(a.t - b.t) <= 1)
+                #expect(abs(a.v - b.v) <= 1)
+                #expect(!b.seen)
+            }
+        }
+        let news = try WatchNews.recent(recent).data()
+        #expect(news.count <= WatchRecent.maxBytes)
+        #expect(WatchNews.from(news) == .recent(recent))
+        #expect(recent.newestMs == WatchNow.Node.allCases.compactMap { recent.samples($0).last?.t }.max())
+    }
+
+    /// A window too dense for one reply keeps every other reading until it
+    /// fits, and always the newest.
+    @Test func aWindowTooDenseIsThinnedToFit() {
+        let t = at(14, 12)
+        var all = [WatchNow.Node: [LiveSample]]()
+        for (i, node) in WatchNow.Node.allCases.enumerated() {
+            all[node] = samples(from: t - WatchRecent.windowMs, to: t, everyMs: 100, seed: UInt64(10 + i))
+        }
+        let recent = WatchRecent.make(all, nowMs: t)
+        #expect(recent.wireBytes <= WatchRecent.maxBytes)
+        for node in WatchNow.Node.allCases {
+            let back = recent.samples(node)
+            #expect(back.count > 100)
+            #expect(abs((back.last?.t ?? 0) - (all[node]?.last?.t ?? 0)) <= 1)
+            #expect(zip(back, back.dropFirst()).allSatisfy { $0.t < $1.t })
+        }
+        #expect(WatchRecent.make([:], nowMs: t).lanes.isEmpty)
+    }
+
+    // MARK: What the watch keeps
+
+    func context(home: String = "s1", readAtMs t: Double, prices: Bool = true, plan: Bool = true, now: Bool = true) -> WatchContext {
+        WatchContext(
+            home: home, isDemo: false,
+            prices: prices ? CacheRecord(siteId: home, carrier: .relay, srcState: .live, readAtMs: t, value: self.prices()) : nil,
+            plan: plan ? CacheRecord(siteId: home, carrier: .relay, srcState: .live, readAtMs: t, value: self.plan()) : nil,
+            now: now ? self.now(readAtMs: t) : nil,
+            modes: WatchModes(modes: [.init(key: "planner_self", name: "Plan", isPlan: true)], shown: "planner_self", label: "Plan · Balanced", mayControl: true),
+            sentAtMs: t
+        )
+    }
+
+    /// A phone that has not read its prices or its plan since it opened
+    /// sends a context without them: the watch keeps the ones it has.
+    @Test func aNilRecordKeepsTheOldOne() throws {
+        let t = at(14, 12)
+        let kept = context(readAtMs: t)
+        var next = context(readAtMs: t + 60_000, prices: false, plan: false)
+        next.modes = nil
+        let merged = try #require(WatchContext.merging(next, over: kept))
+        #expect(merged.prices == kept.prices)
+        #expect(merged.plan == kept.plan)
+        #expect(merged.modes == kept.modes)
+        #expect(merged.now == next.now)
+        // An older record never takes the place of a newer one.
+        let late = context(readAtMs: t - 60_000)
+        #expect(WatchContext.merging(late, over: kept)?.now == kept.now)
+        #expect(WatchContext.merging(late, over: kept)?.prices == kept.prices)
+    }
+
+    /// Only an explicit sign-out forgets; a phone still opening its home
+    /// changes nothing; another home replaces the whole.
+    @Test func onlyASignOutForgets() throws {
+        let t = at(14, 12)
+        let kept = context(readAtMs: t)
+        #expect(WatchContext.merging(.opening(sentAtMs: t + 1), over: kept) == kept)
+        #expect(WatchContext.merging(.opening(sentAtMs: t + 1), over: nil) == nil)
+        let out = try #require(WatchContext.merging(.signOut(sentAtMs: t + 1), over: kept))
+        #expect(!out.hasHome && out.signedOut == true && out.prices == nil && out.now == nil)
+        let other = context(home: "s2", readAtMs: t - 1, prices: false)
+        #expect(WatchContext.merging(other, over: kept) == other)
+        // The two differ on the wire.
+        let opening = try #require(WatchContext.unpacked(try WatchContext.opening(sentAtMs: 1).packed()))
+        let signedOut = try #require(WatchContext.unpacked(try WatchContext.signOut(sentAtMs: 1).packed()))
+        #expect(opening.signedOut == nil && signedOut.signedOut == true)
+    }
+
+    /// The dial keeps the last sun the box forecast until a newer forecast
+    /// comes; the trace the watch kept stays with the newer of the two.
+    @Test func theDialKeepsTheLastSunAndTheTraceItsNewest() throws {
+        let t = at(14, 12)
+        var kept = context(readAtMs: t)
+        let sun = PlanEntry.Daylight(covered: .init(fromMs: t, toMs: t + 86_400_000), sun: [.init(fromMs: at(15, 7), toMs: at(15, 17))])
+        kept.plan?.value.daylight = sun
+        kept.recent = WatchRecent.make([.home: samples(from: t - 60_000, to: t)], nowMs: t)
+        var next = context(readAtMs: t + 900_000)
+        #expect(WatchContext.merging(next, over: kept)?.plan?.value.daylight == sun)
+        #expect(WatchContext.merging(next, over: kept)?.recent == kept.recent)
+        let later = PlanEntry.Daylight(covered: .init(fromMs: t + 1, toMs: t + 86_400_000), sun: [])
+        next.plan?.value.daylight = later
+        #expect(WatchContext.merging(next, over: kept)?.plan?.value.daylight == later)
+    }
+
+    /// The watch's own cache from before this build, without the trace or
+    /// the sign-out mark, still opens.
+    @Test func aContextKeptByTheLastBuildStillOpens() throws {
+        let t = at(14, 12)
+        var ctx = context(readAtMs: t)
+        ctx.recent = WatchRecent.make([.home: samples(from: t - 60_000, to: t)], nowMs: t)
+        let packed = try ctx.packed()
+        #expect(WatchContext.unpacked(packed) == ctx)
+        var json = try #require(try JSONSerialization.jsonObject(with: try JSONEncoder().encode(ctx)) as? [String: Any])
+        json["recent"] = nil
+        json["signedOut"] = nil
+        let old = try (JSONSerialization.data(withJSONObject: json) as NSData).compressed(using: .lzfse) as Data
+        let back = try #require(WatchContext.unpacked(old))
+        #expect(back.recent == nil && back.prices == ctx.prices)
     }
 
     // MARK: Words
@@ -344,5 +562,17 @@ import Testing
             #expect(!swedish.isEmpty)
             #expect(word.rawValue.components(separatedBy: "%@").count == swedish.components(separatedBy: "%@").count, "\(word.rawValue)")
         }
+    }
+}
+
+/// A small fixed generator, so the noisy readings are the same each run.
+struct Seeded: RandomNumberGenerator {
+    var state: UInt64
+    init(_ seed: UInt64) { state = seed &* 0x9E37_79B9_7F4A_7C15 | 1 }
+    mutating func next() -> UInt64 {
+        state ^= state << 13
+        state ^= state >> 7
+        state ^= state << 17
+        return state
     }
 }

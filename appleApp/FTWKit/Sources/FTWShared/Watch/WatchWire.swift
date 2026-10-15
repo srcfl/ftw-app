@@ -20,13 +20,16 @@ public struct WatchNow: CacheValue {
     public enum Node: String, Codable, Sendable, CaseIterable {
         case solar, battery, home, grid, car
 
-        /// The least a trace's scale reaches, as the phone's node view has
-        /// it (`EnergyNode.scaleFloorW`), so a quiet node draws flat.
+        /// The least a trace's scale reaches, so a quiet node draws flat: a
+        /// quarter of the phone's (`EnergyNode.scaleFloorW`), because the
+        /// wrist's trace is about a quarter as tall. Noise of 60 W then
+        /// spreads as few points as on the phone, and a home using 400 W
+        /// fills the trace rather than hugging its floor.
         public var floorW: Double {
             switch self {
-            case .home: return 2_000
-            case .grid, .battery, .solar: return 3_000
-            case .car: return 3_700
+            case .home: return 500
+            case .grid, .battery, .solar: return 750
+            case .car: return 925
             }
         }
     }
@@ -84,6 +87,16 @@ public struct WatchNow: CacheValue {
     }
 
     public func reading(_ node: Node) -> Reading? { readings.first { $0.node == node } }
+
+    /// Now's shape, drawn redacted while nothing is known. Never shown as
+    /// a reading.
+    public static let shape = WatchNow(readings: [
+        Reading(node: .home, watts: 1_500, way: .using, live: false),
+        Reading(node: .solar, watts: 2_000, way: .making, live: false),
+        Reading(node: .battery, watts: 1_000, way: .charging, levelPct: 50, live: false),
+        Reading(node: .grid, watts: 500, way: .buying, live: false),
+        Reading(node: .car, watts: 0, way: .resting, live: false),
+    ], control: .unknown)
 }
 
 /// How the home is run, and what the watch may ask for: the box's modes in
@@ -141,6 +154,14 @@ public struct WatchContext: Codable, Sendable, Equatable {
     /// The last command from the watch, as far as the box has answered it,
     /// so a watch that slept meanwhile still sees how it ended.
     public var receipt: WatchReceipt?
+    /// The last minutes of Now's trace, as this watch last drew them. The
+    /// watch keeps them here for its next open; the phone never fills it
+    /// and sends its own with the reply to `.look` (`WatchNews.recent`).
+    public var recent: WatchRecent?
+    /// The phone signed out, or was never paired, and says so. A context
+    /// with no home that does not say so comes from a phone still opening
+    /// its home, and changes nothing on the watch.
+    public var signedOut: Bool?
     /// Phone clock when the phone sent this.
     public var sentAtMs: Double
 
@@ -157,12 +178,50 @@ public struct WatchContext: Codable, Sendable, Equatable {
         self.sentAtMs = sentAtMs
     }
 
-    /// The phone has signed out, or never paired.
-    public static func empty(sentAtMs: Double) -> WatchContext {
+    /// The phone has signed out, or never paired: the watch forgets the
+    /// home and everything it kept of it.
+    public static func signOut(sentAtMs: Double) -> WatchContext {
+        var ctx = WatchContext(home: "", isDemo: false, sentAtMs: sentAtMs)
+        ctx.signedOut = true
+        return ctx
+    }
+
+    /// The phone has a home but has not opened it yet: nothing to show,
+    /// and nothing for the watch to forget.
+    public static func opening(sentAtMs: Double) -> WatchContext {
         WatchContext(home: "", isDemo: false, sentAtMs: sentAtMs)
     }
 
     public var hasHome: Bool { !home.isEmpty }
+
+    /// What the watch keeps once `next` arrives over `kept`. Only an
+    /// explicit sign-out forgets; a phone still opening its home changes
+    /// nothing; another home replaces the whole. For the same home each
+    /// record is the newer of the two, and one the phone did not send keeps
+    /// the old: a phone that has not read its prices yet since it opened
+    /// does not take them off the wrist. The dial keeps the last sun the
+    /// box forecast until a newer forecast comes. Nil: nothing to keep.
+    public static func merging(_ next: WatchContext, over kept: WatchContext?) -> WatchContext? {
+        if next.signedOut == true { return next }
+        guard next.hasHome else { return kept }
+        guard let kept, kept.home == next.home else { return next }
+        var out = next
+        out.prices = newer(kept.prices, next.prices)
+        out.cars = newer(kept.cars, next.cars)
+        out.plan = newer(kept.plan, next.plan)
+        out.now = newer(kept.now, next.now)
+        out.modes = next.modes ?? kept.modes
+        out.receipt = next.receipt ?? kept.receipt
+        if (kept.recent?.newestMs ?? 0) > (next.recent?.newestMs ?? 0) { out.recent = kept.recent }
+        if out.plan != nil, out.plan?.value.daylight == nil { out.plan?.value.daylight = kept.plan?.value.daylight }
+        return out
+    }
+
+    private static func newer<Value>(_ kept: CacheRecord<Value>?, _ next: CacheRecord<Value>?) -> CacheRecord<Value>? {
+        guard let kept else { return next }
+        guard let next else { return kept }
+        return next.readAtMs >= kept.readAtMs ? next : kept
+    }
 
     /// The same records, whenever the phone sent them. A resend of this
     /// tells the watch nothing new.
@@ -186,6 +245,109 @@ public struct WatchContext: Codable, Sendable, Equatable {
               let ctx = try? JSONDecoder().decode(WatchContext.self, from: json),
               ctx.version == version else { return nil }
         return ctx
+    }
+}
+
+/// The last minutes of each node as the phone recorded them, sent with its
+/// reply to `.look` so the watch's trace opens whole, and kept by the watch
+/// for its next open. The watch saw none of it live, so it draws it in ink.
+///
+/// On the wire as one packed blob, JSON then LZFSE as the context is: three
+/// minutes of five nodes at 1 Hz come to about 3 KB. A window that would
+/// not fit `maxBytes` keeps every other reading until it does.
+public struct WatchRecent: Sendable, Equatable {
+    /// The width of the watch's trace.
+    public static let windowMs: Double = 3 * 60_000
+    /// The most one reply to `.look` carries, as the phone sends it.
+    public static let maxBytes = 8_192
+
+    public struct Lane: Codable, Sendable, Equatable {
+        public var node: WatchNow.Node
+        /// The first reading's time by the phone clock, in whole ms.
+        public var t0: Double
+        /// Each reading's time after the one before, in ms; the first is 0.
+        public var dt: [Int]
+        /// Whole watts, in the direction the trace draws them
+        /// (`WatchNow.Reading.signedW`).
+        public var w: [Int]
+
+        public init(node: WatchNow.Node, samples: [LiveSample]) {
+            self.node = node
+            t0 = samples.first?.t.rounded() ?? 0
+            var last = t0
+            dt = samples.map { s in
+                let t = s.t.rounded()
+                defer { last = t }
+                return Int(t - last)
+            }
+            w = samples.map { Int($0.v.rounded()) }
+        }
+
+        /// Not seen live on this watch: drawn in ink.
+        public var samples: [LiveSample] {
+            var t = t0
+            return zip(dt, w).map { step, watts in
+                t += Double(step)
+                return LiveSample(t: t, v: Double(watts), seen: false)
+            }
+        }
+
+        /// Every other reading, the last one kept.
+        func thinned() -> Lane {
+            let all = samples
+            let keep = all.indices.filter { ($0 - all.count + 1) % 2 == 0 }
+            return Lane(node: node, samples: keep.map { all[$0] })
+        }
+    }
+
+    public var lanes: [Lane]
+
+    public init(lanes: [Lane]) {
+        self.lanes = lanes
+    }
+
+    /// Each node's readings in the window that ends at `nowMs`, thinned
+    /// until one reply carries them.
+    public static func make(_ samples: [WatchNow.Node: [LiveSample]], nowMs: Double) -> WatchRecent {
+        let from = nowMs - windowMs
+        var recent = WatchRecent(lanes: WatchNow.Node.allCases.compactMap { node in
+            let kept = (samples[node] ?? []).filter { $0.t >= from && $0.t <= nowMs }
+            return kept.isEmpty ? nil : Lane(node: node, samples: kept)
+        })
+        while recent.wireBytes > maxBytes {
+            guard recent.lanes.contains(where: { $0.w.count > 2 }) else { return WatchRecent(lanes: []) }
+            recent.lanes = recent.lanes.map { $0.thinned() }
+        }
+        return recent
+    }
+
+    public func samples(_ node: WatchNow.Node) -> [LiveSample] {
+        lanes.first { $0.node == node }?.samples ?? []
+    }
+
+    /// The newest reading in any lane.
+    public var newestMs: Double? {
+        lanes.compactMap { lane in lane.dt.isEmpty ? nil : lane.t0 + Double(lane.dt.reduce(0, +)) }.max()
+    }
+
+    /// The bytes the phone sends: the whole message, as `WatchNews`.
+    public var wireBytes: Int {
+        (try? WatchNews.recent(self).data().count) ?? .max
+    }
+}
+
+extension WatchRecent: Codable {
+    public init(from decoder: Decoder) throws {
+        let packed = try decoder.singleValueContainer().decode(Data.self)
+        guard let json = try? (packed as NSData).decompressed(using: .lzfse) as Data else {
+            throw DecodingError.dataCorrupted(.init(codingPath: decoder.codingPath, debugDescription: "not a packed trace"))
+        }
+        lanes = try JSONDecoder().decode([Lane].self, from: json)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encode(try (JSONEncoder().encode(lanes) as NSData).compressed(using: .lzfse) as Data)
     }
 }
 
@@ -260,6 +422,9 @@ public enum WatchAsk: Codable, Sendable, Equatable {
 public enum WatchNews: Codable, Sendable, Equatable {
     case now(CacheRecord<WatchNow>)
     case receipt(WatchReceipt)
+    /// The last three minutes of each node, with the reply to `.look`, so
+    /// the trace opens whole rather than growing from one dot.
+    case recent(WatchRecent)
 
     public func data() throws -> Data { try JSONEncoder().encode(self) }
     public static func from(_ data: Data) -> WatchNews? { try? JSONDecoder().decode(WatchNews.self, from: data) }
