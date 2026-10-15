@@ -4,9 +4,9 @@ import SwiftUI
 
 /// The car, in the node view's material: the power now as the hero, with
 /// the car's level, its meter and where the level comes from beside it;
-/// whether that is live and from which charger; the car's plan for the
-/// hours ahead with the price under it; then the level and the goal. Plan,
-/// Charge now and Pause sit in a glass bar at the foot, where the thumb is
+/// what the charger does in words; the car's plan for the hours ahead with
+/// the price under it; then the level and the goal. Plan, Charge now and
+/// Pause sit in a glass bar at the foot, where the thumb is
 /// and in the same places whatever the car does, with the receipt log
 /// under them: SENT ▸ ACCEPTED ▸ MEASURED ▸ CONFIRMED, each slot lit on
 /// its own evidence. The screen shows intent at once and a result only
@@ -35,15 +35,10 @@ struct CarView: View {
                     NodeHero(site: home.site, node: .car, home: home, trace: trace, scrub: scrub, timebase: .ahead, text: text)
                         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                         .padding(.horizontal, 20)
-                    // A scaled metric reads the size where it is placed:
-                    // the caps sit here, as in the node view.
-                    NodeStatusRow(site: home.site, node: .car)
-                        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 16)
+                    // The status line under the title is the only one.
                     StatusLines(lp: lp, model: model, site: home.site)
                         .padding(.horizontal, 20)
-                        .padding(.top, 6)
+                        .padding(.top, 16)
                     CarPlan(lp: lp, model: model, home: home, scrub: scrub, text: text)
                         .padding(.top, 24)
                     // Drawn from what the last launch kept; inert until the
@@ -106,8 +101,8 @@ struct CarView: View {
 
 // MARK: What it does now
 
-/// Under the status line: what the charger does in words, this plug-in's
-/// energy, and when the box last said so once that is old.
+/// Under the hero: what the charger does in words, this plug-in's energy,
+/// and when the box last said so once that is old.
 private struct StatusLines: View {
     let lp: Loadpoint
     let model: LoadpointsModel

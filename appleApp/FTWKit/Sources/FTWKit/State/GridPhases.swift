@@ -48,9 +48,10 @@ public struct GridPhases: Equatable, Sendable {
         return NodeWords.format("PHASES · FUSE %@", Self.amps(fuseA, decimals: 0))
     }
 
-    /// "6,0 A", or a dash while not live.
-    public func reading(_ phase: Phase) -> String {
-        phase.amps.map { Self.amps($0, decimals: 1) } ?? "—"
+    /// "6,0 A", or a dash while not live. The largest standard text size
+    /// drops the decimal, "6 A", so three phases fit one line.
+    public func reading(_ phase: Phase, decimals: Int = 1) -> String {
+        phase.amps.map { Self.amps($0, decimals: decimals) } ?? "—"
     }
 
     /// One sentence for VoiceOver: each phase, which one is nearest the

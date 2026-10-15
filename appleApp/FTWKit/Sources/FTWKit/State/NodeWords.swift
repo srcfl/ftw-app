@@ -43,7 +43,7 @@ public enum NodeWords {
         // Live, history and the plan
         "Live": "Live",
         "Live · last 5 min": "Live · senaste 5 min",
-        // The node view's status line, footer and live range line.
+        // The node view's footer and live range line.
         "LIVE": "LIVE",
         "CALCULATED": "BERÄKNAD",
         "NO READING YET": "INGEN MÄTNING ÄN",
@@ -69,6 +69,8 @@ public enum NodeWords {
         "5 min: charged %@": "5 min: laddat %@",
         "earns ≈ %@": "tjänar ≈ %@",
         "%@ of forecast": "%@ av prognosen",
+        "%@ expected": "%@ väntas",
+        "sun from about %@": "sol från cirka %@",
         "Live, the last five minutes": "Live, de senaste fem minuterna",
         "calculated": "beräknad",
         "Play as sound": "Spela som ljud",
@@ -306,7 +308,7 @@ public enum NodeWords {
         "There is no FTW pairing code in that picture. Try a closer screenshot of the QR.": "Bilden har ingen FTW-kod för parkoppling. Prova en närmare skärmbild av QR-koden.",
 
         // The status line under Now's title: short words in mono caps.
-        // LIVE and AS OF are the node status row's, above.
+        // LIVE and AS OF are the node view's, above.
         "DEMO": "DEMO",
         "CONNECTING…": "ANSLUTER…",
         "CAN'T REACH THE BOX": "NÅR INTE BOXEN",

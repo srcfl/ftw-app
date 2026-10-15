@@ -1,25 +1,21 @@
 import Foundation
 import FTWShared
 
-/// What a node's view says around its live trace: the status line under
-/// the title, the footer that says how the reading reaches the phone and
-/// how often the device reads, the line under the chart, and the hero's
-/// second fact. Plain values, so each can be tested.
+/// What a node's view says around its live trace: the footer that says how
+/// the reading reaches the phone, from which device and how often it reads,
+/// the line under the chart, and the hero's words and second fact. Plain
+/// values, so each can be tested.
 public enum NodeLive {
-    /// "● LIVE · SUNGROW", "○ AS OF 14:05 · SUNGROW", "○ NO READING YET".
-    /// The home has no device of its own: the box calculates it.
-    public static func status(_ node: EnergyNode, _ f: NodeFreshness, nowMs: Double, zone: TimeZone) -> String {
-        let source = node == .home ? NodeWords.text("CALCULATED") : f.sourceName.map { $0.uppercased() }
-        func with(_ head: String) -> String { [head, source].compactMap { $0 }.joined(separator: " · ") }
-        if f.live { return with("● " + NodeWords.text("LIVE")) }
-        if f.srcState == .never && f.ageMs == nil { return "○ " + NodeWords.text("NO READING YET") }
-        guard let age = f.ageMs else { return with("○ " + NodeWords.text("NOT LIVE")) }
-        return with("○ " + NodeWords.format("AS OF %@", AppWords.clock(nowMs - age, zone: zone)))
-    }
-
-    /// "VIA RELAY · READS EVERY 1 S". A switch between the relay and FTW
-    /// Cloud changes the first word and nothing else on the screen.
-    public static func footer(_ carrier: CarrierKind, periodMs: Double?) -> String {
+    /// The foot of a node's view: how the reading reaches the phone, the
+    /// device behind it, and how often that device reads, as in "VIA RELAY
+    /// · SUNGROW · READS EVERY 1 S". The home has no device of its own: the
+    /// box calculates it. The status line under the title speaks for the
+    /// whole home; while it gives the home's age (`titleSaysAge`) the footer
+    /// does not repeat it. Otherwise a node that is not live starts with its
+    /// own: "○ AS OF 14:05 · VIA RELAY · SUNGROW", a clock time, never a
+    /// count of seconds. A switch between the relay and FTW Cloud changes the
+    /// path's word and nothing else.
+    public static func footer(_ node: EnergyNode, _ f: NodeFreshness, carrier: CarrierKind, periodMs: Double?, titleSaysAge: Bool, nowMs: Double, zone: TimeZone) -> String {
         let via: String
         switch carrier {
         case .relay: via = NodeWords.text("VIA RELAY")
@@ -28,9 +24,28 @@ public enum NodeLive {
         case .cache: via = NodeWords.text("SAVED ON THIS PHONE")
         case .none: via = NodeWords.text("NOT CONNECTED")
         }
-        guard let periodMs, carrier != .cache, carrier != .none else { return via }
-        let seconds = max(1, Int((periodMs / 1000).rounded()))
-        return via + " · " + NodeWords.format("READS EVERY %@ S", String(seconds))
+        let device = node == .home ? NodeWords.text("CALCULATED") : deviceName(f.sourceName)
+        var parts = [via] + [device].compactMap { $0 }
+        if !titleSaysAge && !f.live {
+            let head: String
+            if f.srcState == .never && f.ageMs == nil { head = NodeWords.text("NO READING YET") }
+            else if let age = f.ageMs { head = NodeWords.format("AS OF %@", AppWords.clock(nowMs - age, zone: zone)) }
+            else { head = NodeWords.text("NOT LIVE") }
+            // A device that is not live reads at no cadence worth naming.
+            return (["○ " + head] + parts).joined(separator: " · ")
+        }
+        if let periodMs, carrier != .cache, carrier != .none {
+            let seconds = max(1, Int((periodMs / 1000).rounded()))
+            parts.append(NodeWords.format("READS EVERY %@ S", String(seconds)))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    /// The device as the box names it, in the footer's caps: "sungrow_sh10"
+    /// reads "SUNGROW SH10". Nil when the box gives no name.
+    public static func deviceName(_ name: String?) -> String? {
+        let words = (name ?? "").split(whereSeparator: { $0 == "_" || $0 == "-" || $0 == " " })
+        return words.isEmpty ? nil : words.joined(separator: " ").uppercased()
     }
 
     /// Energy in and out of the site over the runs, up to `untilMs`, by
@@ -95,6 +110,41 @@ public enum NodeLive {
     public static func solarShare(madeW: Double, forecastW: Double?) -> String? {
         guard let forecastW, forecastW > 100, madeW >= 0 else { return nil }
         return NodeWords.format("%@ of forecast", AppWords.percent((madeW / forecastW * 100).rounded()))
+    }
+
+    /// The sun's outlook from the forecast the box already sent: "11 kWh
+    /// expected" for the rest of today while it shines, and "sun from about
+    /// 07:45" while it is down or nearly gone. Nil with no forecast, so the
+    /// view invents nothing.
+    public static func solarOutlook(_ forecast: [PlanModel.Forecast], nowMs: Double, zone: TimeZone) -> String? {
+        let ahead = forecast.filter { $0.startMs + $0.durationMs > nowMs }.sorted { $0.startMs < $1.startMs }
+        // A plan made this minute may start a few seconds from now; one
+        // that starts more than a slot away says nothing of the sun now.
+        guard let current = ahead.first, current.startMs - nowMs < max(current.durationMs, 60_000) else { return nil }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = zone
+        let now = Date(timeIntervalSince1970: nowMs / 1000)
+        let midnightMs = (calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: now))?.timeIntervalSince1970 ?? 0) * 1000
+        let restWh = ahead.reduce(0.0) { sum, slot in
+            let from = max(slot.startMs, nowMs), to = min(slot.startMs + slot.durationMs, midnightMs)
+            return to > from ? sum + slot.pvW * (to - from) / 3_600_000 : sum
+        }
+        if current.pvW > Flow.idleW, restWh >= 100 {
+            return NodeWords.format("%@ expected", AppWords.energy(restWh))
+        }
+        // The next rise: the first slot with sun after the dark one now or
+        // the next one to come.
+        let dark = current.pvW > Flow.idleW ? ahead.firstIndex { $0.pvW <= Flow.idleW } : 0
+        guard let dark, let rise = ahead[dark...].first(where: { $0.pvW > Flow.idleW }) else { return nil }
+        return NodeWords.format("sun from about %@", AppWords.clock(rise.startMs, zone: zone))
+    }
+
+    /// The hero's words over two fingers on the live trace, short enough to
+    /// keep one size on one line: "05:44–05:47 · avg 437 W", or "05:44 · avg
+    /// 437 W" inside one minute. The tag on the chart keeps the seconds.
+    public static func spanWords(fromMs: Double, toMs: Double, meanW: Double, zone: TimeZone) -> String {
+        let a = AppWords.clock(fromMs, zone: zone), b = AppWords.clock(toMs, zone: zone)
+        return (a == b ? a : a + "–" + b) + " · " + NodeWords.format("avg %@", AppWords.power(abs(meanW)))
     }
 
     /// Where the home's power comes from this second, as shares of one:
