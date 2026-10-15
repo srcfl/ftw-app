@@ -76,6 +76,7 @@ public enum PushText {
         PushKind.boxUnreachable: Sentence(title: "Your box is out of reach", body: "It stopped answering. Power cut, or the internet at home is down."),
         PushKind.cloudGranted: Sentence(title: "FTW Cloud is on", body: "Your box now shares a copy of its readings with FTW Cloud. You can turn it off in the app or on the box."),
         PushKind.cloudRevoked: Sentence(title: "FTW Cloud is off", body: "Your box stopped sharing with FTW Cloud and asked it to delete its copy."),
+        PushKind.carWhich: Sentence(title: "Which car is plugged in?", body: "Tap the car so the box plans for its level and goal."),
     ]
 
     static let sv: [String: Sentence] = [
@@ -89,6 +90,7 @@ public enum PushText {
         PushKind.boxUnreachable: Sentence(title: "Din box går inte att nå", body: "Den har slutat svara. Strömavbrott, eller så är internet hemma nere."),
         PushKind.cloudGranted: Sentence(title: "FTW Cloud är på", body: "Din box delar nu en kopia av sina mätvärden med FTW Cloud. Du kan stänga av det i appen eller på boxen."),
         PushKind.cloudRevoked: Sentence(title: "FTW Cloud är av", body: "Din box har slutat dela med FTW Cloud och bett den radera sin kopia."),
+        PushKind.carWhich: Sentence(title: "Vilken bil är inkopplad?", body: "Tryck på bilen så planerar boxen efter dess nivå och mål."),
     ]
 
     /// The arguments that will do, ready to show. The box signed them, and
