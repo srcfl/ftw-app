@@ -56,6 +56,10 @@ public final class SiteModel {
     /// every H.
     @ObservationIgnored public private(set) var readingGapMs: Double = LiveTrace.gapMs
     public private(set) var documentVisible = true
+    /// The app itself is on screen; `documentVisible` also counts a watch.
+    @ObservationIgnored private var appVisible = true
+    /// Apple Watches looking at Now through this phone.
+    @ObservationIgnored private var watchers = 0
     /// The clock screens read for ages. It moves with every reading, and
     /// between readings only when something on screen would change: the
     /// minute, a stream going quiet, a grade lapsing, or a counter the band
@@ -285,11 +289,35 @@ public final class SiteModel {
         persistNow(wait: true)
     }
 
-    /// Match the stream's cadence to whether anyone can see it.
+    /// Match the stream's cadence to whether anyone can see it: this app on
+    /// screen, or an Apple Watch looking through it.
     public func setVisible(_ visible: Bool) {
-        guard visible else {
+        appVisible = visible
+        if !visible { persistNow() }
+        follow()
+    }
+
+    /// An Apple Watch looks at Now through this phone. While one does, the
+    /// stream runs as it does with the app on screen, whatever the phone's
+    /// own state: 1 Hz from the box, looking on FTW Cloud, and reads as for
+    /// a screen. Pair each call with `endWatching`.
+    public func beginWatching() {
+        watchers += 1
+        follow()
+    }
+
+    public func endWatching() {
+        watchers = max(0, watchers - 1)
+        follow()
+    }
+
+    /// A watch looks: the session stays open while the app is in the
+    /// background, until the look ends.
+    public var watched: Bool { watchers > 0 }
+
+    private func follow() {
+        guard appVisible || watchers > 0 else {
             hide()
-            persistNow()
             return
         }
         let was = documentVisible

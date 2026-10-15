@@ -3,9 +3,14 @@ import Observation
 import SwiftUI
 
 /// Now's live trace on the wrist: the phone's node view trace (`LiveSeries`,
-/// drawn in `TraceInk`), for one node at a time, from the frames the phone
-/// passes on while the watch looks. A reading counts as seen only when its
+/// drawn in `TraceInk`), for one node at a time. It opens whole: the phone
+/// sends its last three minutes with the reply to a look, and the watch
+/// keeps them for its next open. A reading counts as seen only when its
 /// frame came live, so the line glows only then and is ink otherwise.
+///
+/// While live the window ends now and scrolls. Otherwise it ends at the
+/// newest reading and holds still, so a cached open shows the three
+/// minutes it last knew, dated by the status line.
 ///
 /// Built once per frame or change of node or size; the view only scrolls
 /// and strokes it.
@@ -13,11 +18,17 @@ import SwiftUI
 @MainActor
 final class WatchTrace {
     /// Three minutes: about one point of width per second on a watch.
-    static let windowMs: Double = 3 * 60_000
+    static let windowMs: Double = WatchRecent.windowMs
+    /// A reading from the phone this close to one the watch already has is
+    /// the same reading, stamped on its way.
+    static let sameMs: Double = 900
 
     private(set) var frame: TraceFrame?
     /// The node the trace follows.
     private(set) var node: WatchNow.Node
+    /// Whether the newest frame came live: the window then follows the
+    /// clock.
+    private(set) var live = false
 
     @ObservationIgnored private var samples: [WatchNow.Node: [LiveSample]] = [:]
     @ObservationIgnored private var size: CGSize = .zero
@@ -28,17 +39,54 @@ final class WatchTrace {
 
     /// One frame from the phone. `lit` says whether it came live just now.
     func add(_ record: CacheRecord<WatchNow>, lit: Bool) {
-        let from = record.readAtMs - Self.windowMs
         for r in record.value.readings {
             guard let v = r.signedW else { continue }
             var run = samples[r.node, default: []]
             // A frame the trace already has, or an older one, adds nothing.
             if let last = run.last, last.t >= record.readAtMs { continue }
             run.append(LiveSample(t: record.readAtMs, v: v, seen: lit && r.live))
-            if let cut = run.firstIndex(where: { $0.t >= from }), cut > 1 { run.removeFirst(cut - 1) }
-            samples[r.node] = run
+            samples[r.node] = Self.cut(run, to: record.readAtMs)
         }
+        live = lit
         rebuild(keepScale: true)
+    }
+
+    /// The last minutes the phone recorded, or this watch kept, in ink. A
+    /// reading the trace already has keeps its place, so what this watch saw
+    /// live stays seen.
+    func backfill(_ recent: WatchRecent) {
+        for lane in recent.lanes {
+            let own = samples[lane.node] ?? []
+            let times = own.map(\.t)
+            let fill = lane.samples.filter { s in
+                guard let i = SlotGrid.nearest(times, to: s.t) else { return true }
+                return abs(times[i] - s.t) > Self.sameMs
+            }
+            guard !fill.isEmpty else { continue }
+            let run = (own + fill).sorted { $0.t < $1.t }
+            samples[lane.node] = Self.cut(run, to: run.last?.t ?? 0)
+        }
+        rebuild(keepScale: false)
+    }
+
+    /// The live frames have stopped: the window holds at the newest reading.
+    func settle() {
+        guard live else { return }
+        live = false
+        rebuild(keepScale: true)
+    }
+
+    /// The phone signed out: nothing of that home stays.
+    func clear() {
+        samples = [:]
+        live = false
+        frame = nil
+    }
+
+    /// The last minutes of every node, for the watch's own cache.
+    func recent() -> WatchRecent? {
+        guard let newest = newestMs else { return nil }
+        return WatchRecent.make(samples, nowMs: newest)
     }
 
     func follow(_ node: WatchNow.Node) {
@@ -53,14 +101,24 @@ final class WatchTrace {
         rebuild(keepScale: false)
     }
 
+    private var newestMs: Double? { samples.values.compactMap { $0.last?.t }.max() }
+
+    /// Keep the window and the reading before it, so the line runs off the
+    /// left edge.
+    private static func cut(_ run: [LiveSample], to endMs: Double) -> [LiveSample] {
+        guard let first = run.firstIndex(where: { $0.t >= endMs - windowMs }), first > 1 else { return run }
+        return Array(run[(first - 1)...])
+    }
+
     private func rebuild(keepScale: Bool) {
         guard size.width > 0 else { return }
         let now = Date()
+        let end = live ? now.timeIntervalSince1970 * 1000 : (newestMs ?? now.timeIntervalSince1970 * 1000)
         let series = LiveSeries.build(
             samples[node] ?? [],
             sourceGapMs: WatchGlance.liveForMs,
             windowMs: Self.windowMs,
-            nowMs: now.timeIntervalSince1970 * 1000,
+            nowMs: end,
             size: size,
             previous: keepScale ? frame?.series.domain : nil,
             floor: node.floorW

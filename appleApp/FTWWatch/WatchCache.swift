@@ -3,8 +3,8 @@ import FTWShared
 import WidgetKit
 
 /// The watch's own copy of the last truth: the whole context it last had,
-/// so it opens on it with no phone near, and the records its
-/// complications read. Kept in this watch's App Group, which stays on the
+/// with the last minutes of Now's trace, so it opens on it with no phone
+/// near, and the records its complications read. Kept in this watch's App Group, which stays on the
 /// watch. Each record keeps the time it was read, so what opens from here
 /// is dated and never glows.
 struct WatchCache: Sendable {
@@ -19,13 +19,15 @@ struct WatchCache: Sendable {
         return WatchContext.unpacked(data)
     }
 
-    /// Keep `ctx`. With no home, forget everything: the phone signed out.
+    /// Keep `ctx`. Only a sign-out forgets everything; a context with no
+    /// home that does not say so never reaches here (`WatchContext.merging`).
     func save(_ ctx: WatchContext) async {
-        guard ctx.hasHome else {
+        if ctx.signedOut == true {
             files.removeAll()
             reload()
             return
         }
+        guard ctx.hasHome else { return }
         let asked = files.clearCount
         do {
             if let r = ctx.prices { _ = try await files.write(r, asked: asked) }
