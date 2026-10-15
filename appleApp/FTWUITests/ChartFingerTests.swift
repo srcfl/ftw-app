@@ -1,13 +1,13 @@
 import XCTest
 
 /// The finger on the charts (UX pass 3, U4). A tap on a node chart opens
-/// it on the whole screen and a drag only scrubs; a swipe from the screen's
-/// leading edge goes back, also over a chart, the price and the style
-/// scale; a swipe up that starts on the plan dial's ring scrolls the plan,
-/// and once the ring scrubs, the page holds still.
+/// it on the whole screen and a drag only scrubs; a swipe up that starts
+/// on the plan dial's ring scrolls the plan, and once the ring scrubs, the
+/// page holds still.
 ///
-/// The simulator's touches are synthesized: the back swipe and the timing
-/// of a real thumb still need a device.
+/// The back swipe from the screen's edge is not here: a swipe the test
+/// runner makes from the edge does not go back even where no chart is, so
+/// it proves nothing. That and a real thumb's timing need a device.
 final class ChartFingerTests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -23,16 +23,6 @@ final class ChartFingerTests: XCTestCase {
         ] + more
         app.launch()
         return app
-    }
-
-    /// From `x` points in from the window's leading edge to most of the way
-    /// across, at the height `y`, as a thumb sweeps back.
-    @MainActor
-    private func sweep(_ app: XCUIApplication, fromX x: CGFloat, y: CGFloat) {
-        let window = app.windows.firstMatch
-        let origin = window.coordinate(withNormalizedOffset: .zero)
-        origin.withOffset(CGVector(dx: x, dy: y))
-            .press(forDuration: 0.02, thenDragTo: origin.withOffset(CGVector(dx: window.frame.width * 0.85, dy: y)), withVelocity: .fast, thenHoldForDuration: 0)
     }
 
     @MainActor
@@ -57,38 +47,6 @@ final class ChartFingerTests: XCTestCase {
     }
 
     @MainActor
-    func testASwipeFromTheEdgeOverTheNodeChartGoesBack() throws {
-        let app = launch(["-FTWNode", "battery", "-FTWPeriod", "today"])
-        let chart = app.descendants(matching: .any)["node.period.chart"]
-        XCTAssertTrue(chart.waitForExistence(timeout: 15))
-        Thread.sleep(forTimeInterval: 2)
-        sweep(app, fromX: 2, y: chart.frame.midY)
-        XCTAssertTrue(app.buttons["now.node.home"].waitForExistence(timeout: 3), "the swipe over the chart did not go back")
-    }
-
-    @MainActor
-    func testASwipeFromTheEdgeOverThePriceGoesBack() throws {
-        let app = launch(["-FTWTab", "price"])
-        let chart = app.descendants(matching: .any)["price.chart"]
-        XCTAssertTrue(chart.waitForExistence(timeout: 15))
-        Thread.sleep(forTimeInterval: 2)
-        sweep(app, fromX: 2, y: chart.frame.midY)
-        XCTAssertTrue(chart.waitForNonExistence(timeout: 3), "the swipe over the price did not go back")
-    }
-
-    @MainActor
-    func testASwipeFromTheEdgeOverTheStyleScaleGoesBack() throws {
-        let app = launch(["-FTWTab", "plan", "-FTWPlanStyle", "dial"])
-        let scale = app.descendants(matching: .any)["style.scale"]
-        XCTAssertTrue(app.descendants(matching: .any)["plan.dial"].waitForExistence(timeout: 15))
-        for _ in 0..<4 where !scale.isHittable { app.swipeUp() }
-        XCTAssertTrue(scale.isHittable)
-        Thread.sleep(forTimeInterval: 1)
-        sweep(app, fromX: 2, y: scale.frame.midY)
-        XCTAssertTrue(app.buttons["now.node.home"].waitForExistence(timeout: 3), "the swipe over the style scale did not go back")
-    }
-
-    @MainActor
     func testTheDialRingScrollsUpAndDownAndHoldsThePageWhileItScrubs() throws {
         let app = launch(["-FTWTab", "plan", "-FTWPlanStyle", "dial"])
         let dial = app.descendants(matching: .any)["plan.dial"]
@@ -106,6 +64,9 @@ final class ChartFingerTests: XCTestCase {
         // o'clock and down: the dial scrubs and the page holds still.
         let top = dial.frame.minY
         ring(1).press(forDuration: 0.3, thenDragTo: ring(4), withVelocity: .slow, thenHoldForDuration: 0.2)
+        XCTAssertEqual(dial.frame.minY, top, accuracy: 1, "the page moved under a scrub")
+        // A quick move along the top of the ring scrubs too, at once.
+        ring(0).press(forDuration: 0.02, thenDragTo: ring(0).withOffset(CGVector(dx: 60, dy: 8)), withVelocity: .slow, thenHoldForDuration: 0.2)
         XCTAssertEqual(dial.frame.minY, top, accuracy: 1, "the page moved under a scrub")
         // A swipe up from the ring at nine o'clock scrolls the plan.
         ring(9).press(forDuration: 0.02, thenDragTo: ring(9).withOffset(CGVector(dx: 0, dy: -220)), withVelocity: .fast, thenHoldForDuration: 0)

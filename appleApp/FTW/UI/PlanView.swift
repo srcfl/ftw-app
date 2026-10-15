@@ -16,6 +16,7 @@ struct PlanView: View {
     @AppStorage("FTWPlanStyle") private var style: PlanStyle = .dial
     /// A finger scrubs the dial: the page holds still under it.
     @State private var dialHolds = false
+    @State private var dialTouch = DialTouch()
 
     private var models: NodeModels { home.nodes }
 
@@ -23,7 +24,7 @@ struct PlanView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    PlanBody(site: home.site, models: models, loadpoints: home.loadpoints, prices: home.prices, style: style, chooseMode: { choosingMode = true }, dialHolds: $dialHolds) { levers in
+                    PlanBody(site: home.site, models: models, loadpoints: home.loadpoints, prices: home.prices, style: style, chooseMode: { choosingMode = true }, dialHolds: $dialHolds, dialTouch: dialTouch) { levers in
                         withAnimation(.easeInOut(duration: 0.35)) { proxy.scrollTo(levers ? PlanBody.leversID : PlanBody.topID, anchor: levers ? .bottom : .top) }
                     }
                 }
@@ -33,6 +34,13 @@ struct PlanView: View {
                 .frame(maxWidth: .infinity)
             }
             .scrollDisabled(dialHolds)
+            // Every touch, beside the scroll, for the dial's ring: a
+            // gesture on the ring itself stops the page scrolling.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .onChanged { dialTouch.changed?($0) }
+                    .onEnded { _ in dialTouch.ended?() }
+            )
         }
         .scrollBounceBehavior(.basedOnSize)
         .background(Theme.ground)
@@ -99,6 +107,7 @@ private struct PlanBody: View {
     let style: PlanStyle
     let chooseMode: () -> Void
     @Binding var dialHolds: Bool
+    let dialTouch: DialTouch
     /// Scrolls to the levers, or back to the plan, for the style scale's
     /// recording.
     let reveal: (Bool) -> Void
@@ -117,7 +126,7 @@ private struct PlanBody: View {
             case .dial:
                 let dial = dials.dial(models.planShare.entry, nowMs: minute)
                 VStack(alignment: .leading, spacing: 12) {
-                    PlanDialCard(dial: dial, grey: moment.isGrey, fade: DialFade.make(models.planShare.before, dial: dial, nowMs: minute), holds: $dialHolds)
+                    PlanDialCard(dial: dial, grey: moment.isGrey, fade: DialFade.make(models.planShare.before, dial: dial, nowMs: minute), holds: $dialHolds, touch: dialTouch)
                     VStack(alignment: .leading, spacing: 6) {
                         // The words are the dial's legend: each verb takes
                         // the colour its ticks have.
