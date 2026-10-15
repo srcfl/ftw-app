@@ -87,12 +87,16 @@ native, and smooth enough to impress.
   the time from process start to the first frame and the first content;
   quote the numbers in any PR that touches launch.
 - **The handshake runs beside the first frame, never ahead of it.**
-- **No timer loops.** Lane 0 drives Now. Until the box streams charger
-  state (M5, or FTW Cloud C3), the chargers are read when someone starts
-  looking and the last read is over a minute old, after a command, and
-  when the stream says the car started or stopped drawing. The plan's
-  shortfall is read when the car view opens and when the car's plan
-  changes.
+- **No timer loops.** Lane 0 drives Now. The box pushes its plan, with
+  each car's windows, cable and shortfall, whenever it replans, and Now,
+  the plan, the car view and the watch redraw from that push. The chargers
+  are read when someone starts looking and the last read is over a minute
+  old, after a command, when the stream says the car started or stopped
+  drawing, and when FTW Cloud or a pushed plan says a cable went in or out.
+  A box whose plan comes without cars pushes none: its chargers are also
+  read each quarter while a car is plugged in and every 15 s while its plan
+  is being made or for half a minute after a cable moved, and its shortfall
+  when the car view opens and when the car's plan changes.
 - **Ask by the data's age.** `LiveAsk` names what it wants by how old the
   data is (the five minutes, the quarter, the day) and keeps an answer
   while that name holds. A view appearing or a redial asks only when the

@@ -223,7 +223,8 @@ extension SimulatedBox {
             uptimeMs: uptimeMs,
             slots: steps.map { PlanSlot(startMs: $0.startMs.rounded(), durationMs: $0.durationMs.rounded(), batteryW: $0.batteryW, gridW: $0.gridW, priceMinor: $0.priceMinor, reason: $0.reason, socPermille: ($0.soc * 1000).rounded()) },
             stale: false,
-            ceilingW: nil
+            ceilingW: nil,
+            cars: pushesPlan ? [planCar(nowMs: scheduler.nowMs)] : nil
         )
         madePlan = (quarter, house.planRev, plan)
         return plan
