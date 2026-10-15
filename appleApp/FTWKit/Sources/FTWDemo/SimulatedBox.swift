@@ -49,7 +49,7 @@ public final class SimulatedBox {
     /// `time_of_day_min` on the household clock. Off, it is a Core that
     /// knows only `time_of_day_min_utc`.
     public var readsHouseholdClock = true
-    /// A Core with srcfl/ftw#1643 puts each car's share on the plan and
+    /// A Core with srcfl/ftw#1643 puts each charger's share on the plan and
     /// pushes the plan when it replans. Off, it is a Core that does neither.
     public var pushesPlan = true
     /// How long the box takes to replan after a cable, a goal, a level or
@@ -869,10 +869,11 @@ extension SimulatedBox {
         replan()
     }
 
-    /// The car's share of the plan, as Core puts it on the plan it sends.
-    func planCar(nowMs: Double) -> PlanCar {
+    /// The charger's share of the plan, as Core puts it on the plan it
+    /// sends. A box that keeps no cars names none.
+    func planCharger(nowMs: Double) -> PlanCharger {
         let quiet = replanning != nil
-        var car = PlanCar(id: "garage", pluggedIn: house.carPluggedIn, pending: quiet, outdated: quiet, windows: [], totalWh: 0)
+        var car = PlanCharger(id: "garage", pluggedIn: house.carPluggedIn, pending: quiet, outdated: quiet, windows: [], totalWh: 0)
         if !quiet, let p = house.carPlan(nowMs), p.endMs > p.startMs, p.endMs > nowMs {
             car.windows = [Loadpoint.Window(fromMs: p.startMs.rounded(), toMs: p.endMs.rounded(), peakW: nil, energyWh: p.wh)]
             car.totalWh = p.wh

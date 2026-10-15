@@ -13,19 +13,20 @@ import FTWDemo
 
     func reads(_ box: SimulatedBox) -> Int { box.receivedRequests.filter { $0 == "GET /api/loadpoints" }.count }
 
-    /// The bytes srcfl/ftw pins in TestThePlanWithCarsVector.
-    @Test func thePlanWithCarsDecodesFromTheBoxsBytes() throws {
-        let hex = "a66372657607646361727382a76269646565617365656770656e64696e67f467746f74616c5768191ce86777696e646f777381a3627768191ce865656e644d731b000001a1325825806773746172744d731b000001a131ea4880686f75746461746564f469706c7567676564496ef56b73686f727466616c6c57681904b0a6626964666761726167656770656e64696e67f567746f74616c5768006777696e646f777380686f75746461746564f569706c7567676564496ef465736c6f747381a765677269645719012c66726561736f6e70657870656e736976655f696d706f72746773746172744d731b000001a131ea48806862617474657279573904af6a6475726174696f6e4d731a000dbba06a70726963654d696e6f7218576b736f635065726d696c6c65190280657374616c65f4686365696c696e6757f668757074696d654d731a0036ee80"
+    /// The bytes srcfl/ftw pins in TestThePlanWithChargersVector.
+    @Test func thePlanWithChargersDecodesFromTheBoxsBytes() throws {
+        let hex = "a6637265760765736c6f747381a765677269645719012c66726561736f6e70657870656e736976655f696d706f72746773746172744d731b000001a131ea48806862617474657279573904af6a6475726174696f6e4d731a000dbba06a70726963654d696e6f7218576b736f635065726d696c6c65190280657374616c65f4686365696c696e6757f668636861726765727382a76269646565617365656770656e64696e67f467746f74616c5768191ce86777696e646f777381a3627768191ce865656e644d731b000001a1325825806773746172744d731b000001a131ea4880686f75746461746564f469706c7567676564496ef56b73686f727466616c6c57681904b0a762696466676172616765656361724964782030313233343536373839616263646566303132333435363738396162636465666770656e64696e67f567746f74616c5768006777696e646f777380686f75746461746564f569706c7567676564496ef468757074696d654d731a0036ee80"
         let plan = Plan(try decodeCBOR(Bytes(hex: hex)))
         #expect(plan.rev == 7)
         #expect(plan.slots.first?.socPermille == 640)
-        let cars = try #require(plan.cars)
-        #expect(cars == [
-            PlanCar(id: "easee", pluggedIn: true, windows: [Loadpoint.Window(fromMs: 1_791_838_800_000, toMs: 1_791_846_000_000, peakW: nil, energyWh: 7_400)], totalWh: 7_400, shortfallWh: 1_200),
-            PlanCar(id: "garage", pluggedIn: false, pending: true, outdated: true, windows: [], totalWh: 0),
+        let chargers = try #require(plan.chargers)
+        #expect(chargers == [
+            PlanCharger(id: "easee", pluggedIn: true, windows: [Loadpoint.Window(fromMs: 1_791_838_800_000, toMs: 1_791_846_000_000, peakW: nil, energyWh: 7_400)], totalWh: 7_400, shortfallWh: 1_200),
+            PlanCharger(id: "garage", carId: "0123456789abcdef0123456789abcdef", pluggedIn: false, pending: true, outdated: true, windows: [], totalWh: 0),
         ])
-        // A plan from a box without cars says so with nil, not an empty list.
-        #expect(Plan(Plan(rev: 1, uptimeMs: 0, slots: [], stale: false, ceilingW: nil).wire).cars == nil)
+        // A plan from a box without chargers says so with nil, not an empty
+        // list.
+        #expect(Plan(Plan(rev: 1, uptimeMs: 0, slots: [], stale: false, ceilingW: nil).wire).chargers == nil)
         #expect(Plan(plan.wire) == plan)
     }
 
@@ -128,12 +129,12 @@ import FTWDemo
         let box = try #require(rig.box)
         box.pushesPlan = false
         box.replanMs = 40_000
-        // Now asks for the plan, which comes without cars: an older box.
+        // Now asks for the plan, which comes without chargers: an older box.
         home.nodes.plan.activate()
         home.loadpoints.activate()
         await rig.run(2_000)
         #expect(home.site.session.plan != nil)
-        #expect(home.site.session.plan?.cars == nil)
+        #expect(home.site.session.plan?.chargers == nil)
 
         box.house.schedule = (0.95, 7 * 60, true, 0b0011111, 0)
         box.replan()
