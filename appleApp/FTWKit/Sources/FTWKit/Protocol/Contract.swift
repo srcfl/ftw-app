@@ -154,6 +154,7 @@ public enum Contract {
         "E_BAD_SIGNATURE": false,
         "E_NO_APPROVAL_KEY": false,
         "E_NOT_FOUND": false,
+        "E_CLOCK_SKEW": true,
         "E_RESPONSE_TOO_LARGE": false,
         "E_NO_ACK": true,
         "E_NO_ANSWER": true,
