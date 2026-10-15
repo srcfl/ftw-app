@@ -112,9 +112,10 @@ struct PriceBarsDrawing: ChartDrawing {
     var axis: CGFloat = 10
     var kicker: CGFloat = 10.5
 
-    /// The frame this chart draws in, for axis and kicker sizes.
-    static func frame(axis: CGFloat, kicker: CGFloat, tag: CGFloat) -> ChartFrame {
-        ChartFrame(top: tag * 1.35 + 6, bottom: 6 + 3 + kicker * 1.35 + 3 + axis * 1.35, trailing: axis * 2.8)
+    /// The frame this chart draws in, for axis and kicker sizes; the right
+    /// gutter holds the widest of `labels` (the average's word and figure).
+    static func frame(axis: CGFloat, kicker: CGFloat, tag: CGFloat, labels: [String]) -> ChartFrame {
+        ChartFrame(top: tag * 1.35 + 6, bottom: 6 + 3 + kicker * 1.35 + 3 + axis * 1.35, trailing: ChartGutter.trailing(labels, size: axis))
     }
 
     func draw(in g: inout GraphicsContext, size: CGSize) {
@@ -150,25 +151,12 @@ struct PriceBarsDrawing: ChartDrawing {
             g.draw(figure, at: CGPoint(x: x, y: y + 1), anchor: .topLeading)
         }
 
-        // The time axis: NOW first, then each hour label that has room.
-        var taken: [ClosedRange<CGFloat>] = []
-        if let x = p.nowX {
+        // The time axis as every chart draws it: NOW under its rule, then
+        // each hour label that has room.
+        if p.nowX != nil {
             g.stroke(p.nowRule, with: .color(Theme.ink), style: StrokeStyle(lineWidth: px, lineCap: .butt, lineJoin: .round))
-            let now = g.resolve(ChartText.label(PriceChart.nowWord, size: axis, weight: .semibold, color: Theme.ink2))
-            let w = now.measure(in: size).width
-            let left = min(max(plot.minX, x - w / 2), plot.maxX - w)
-            taken.append(left...(left + w))
-            g.draw(now, at: CGPoint(x: left, y: size.height), anchor: .bottomLeading)
         }
-        for tick in chart.hours {
-            let text = g.resolve(ChartText.label(tick.label, size: axis))
-            let w = text.measure(in: size).width
-            let x = plot.minX + chart.grid.x(atMs: tick.ms, width: plot.width)
-            let span = (x - w / 2 - 4)...(x + w / 2 + 4)
-            guard span.lowerBound >= plot.minX, span.upperBound <= size.width, !taken.contains(where: { $0.overlaps(span) }) else { continue }
-            taken.append(span)
-            g.draw(text, at: CGPoint(x: x, y: size.height), anchor: .bottom)
-        }
+        ChartAxes.time(in: &g, plot: plot, size: size, grid: chart.grid, ticks: chart.hours.map { ($0.ms, $0.label) }, nowMs: p.nowX == nil ? nil : chart.nowMs, nowWord: PriceChart.nowWord, axis: axis)
 
         if let span = p.bracketSpan {
             g.stroke(p.bracket, with: .color(Theme.ink.opacity(0.7)), style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round))

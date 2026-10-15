@@ -42,6 +42,11 @@ struct ScrubTrack: Equatable {
 /// never vanishes while it is down. It reads only the scrub model and
 /// redraws once per slot change, however fast the finger moves.
 ///
+/// It owns the tap too (`FingerGate`): a touch that lifts before it moves
+/// 6 pt and before 150 ms calls `onTap` and never moves the scrub, so the
+/// marker, the hero and the haptics stay still. A touch that starts within
+/// 20 pt of the screen's leading edge is the system's back swipe.
+///
 /// The marks are the lock-on: a 1 px rule, a dot in the series colour with
 /// a ring of the ground, corner brackets that close on it and an
 /// inverse-video tag at the top of the rule. The position never animates;
@@ -55,9 +60,13 @@ struct ScrubOverlay: View {
     /// The tag over two fingers' span: "02:00–04:00  51,9 öre". Called once
     /// per change of the span.
     var spanTag: (ClosedRange<Int>) -> String = { _ in "" }
+    /// A touch that lifted before it scrubbed: the node view opens the chart
+    /// on the whole screen.
+    var onTap: (() -> Void)?
 
     @GestureState private var touching = false
     @State private var size: CGSize = .zero
+    @State private var gate = FingerGate()
     #if DEBUG
     /// The newest track, for the debug driver: its task keeps the view
     /// value it started with, often from before the data came.
@@ -86,17 +95,26 @@ struct ScrubOverlay: View {
         }
         .opacity(down ? 1 : 0)
         .animation(.easeOut(duration: down ? 0.08 : 0.15), value: down)
-        .contentShape(Rectangle())
+        .leavesTheEdge()
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
         .gesture(
-            // Every touch at once: one finger scrubs, two hold a span.
+            // Every touch at once: one finger scrubs, two hold a span, once
+            // the gate says it is no tap.
             SpatialEventGesture()
                 .updating($touching) { _, state, _ in state = true }
-                .onChanged { events in follow(events) }
-                .onEnded { _ in model.lift() }
+                .onChanged { events in gate.changed(events) { follow($0) } }
+                .onEnded { _ in
+                    if gate.ended() { onTap?() }
+                    model.lift()
+                }
         )
         // A gesture the system takes away ends without onEnded.
-        .onChange(of: touching) { _, now in if !now { model.lift() } }
+        .onChange(of: touching) { _, now in
+            if !now {
+                gate.cancelled()
+                model.lift()
+            }
+        }
         .sensoryFeedback(.selection, trigger: model.ticks)
         .sensoryFeedback(.impact(weight: .light), trigger: model.bumps)
         #if DEBUG
@@ -238,6 +256,111 @@ struct ScrubOverlay: View {
         model.lift()
     }
     #endif
+}
+
+/// A touch on a chart, held until `TouchIntent` says it is a scrub or a
+/// tap. Nothing that draws reads it, so a touch costs no redraw while it
+/// waits. A finger that rests is a scrub after 150 ms, with no event to
+/// say so; one short sleep per touch decides it.
+@MainActor
+final class FingerGate {
+    private var intent: TouchIntent?
+    private var hold: Task<Void, Never>?
+    private var last: SpatialEventCollection?
+    private var scrub: ((SpatialEventCollection) -> Void)?
+
+    private static func ms() -> Double { ProcessInfo.processInfo.systemUptime * 1000 }
+
+    /// The fingers moved. `scrub` takes every event once the touch is a
+    /// scrub.
+    func changed(_ events: SpatialEventCollection, scrub: @escaping (SpatialEventCollection) -> Void) {
+        let down = events.filter { $0.phase == .active }
+        self.scrub = scrub
+        last = events
+        guard let first = down.first else {
+            if intent?.state == .scrub { scrub(events) }
+            return
+        }
+        if intent == nil {
+            intent = TouchIntent(at: first.location, ms: Self.ms())
+            hold = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(Int(TouchIntent.holdMs)))
+                guard !Task.isCancelled else { return }
+                self?.rested()
+            }
+        }
+        guard var touch = intent else { return }
+        let was = touch.state
+        touch.moved(to: first.location, atMs: Self.ms(), fingers: down.count)
+        intent = touch
+        guard touch.state == .scrub else { return }
+        if was == .waiting {
+            ScrubModel.log.debug("scrub starts: moved \(Double(touch.travel), format: .fixed(precision: 1)) pt, fingers \(down.count)")
+            hold?.cancel()
+        }
+        scrub(events)
+    }
+
+    /// The finger rested 150 ms where it came down.
+    private func rested() {
+        guard var touch = intent, touch.state == .waiting else { return }
+        touch.held(atMs: Self.ms())
+        intent = touch
+        guard touch.state == .scrub, let last else { return }
+        ScrubModel.log.debug("scrub starts: rested \(Int(TouchIntent.holdMs)) ms, moved \(Double(touch.travel), format: .fixed(precision: 1)) pt")
+        scrub?(last)
+    }
+
+    /// Every finger lifted. True when the touch never scrubbed: a tap.
+    func ended() -> Bool {
+        defer { reset() }
+        guard var touch = intent else { return false }
+        let tap = touch.lifted() == .tap
+        if tap {
+            ScrubModel.log.debug("tap: lifted after \(Int(Self.ms() - touch.startMs)) ms, moved \(Double(touch.travel), format: .fixed(precision: 1)) pt, no scrub")
+        }
+        return tap
+    }
+
+    /// The system took the touch: no tap, no scrub.
+    func cancelled() {
+        reset()
+    }
+
+    private func reset() {
+        hold?.cancel()
+        hold = nil
+        intent = nil
+        last = nil
+        scrub = nil
+    }
+}
+
+/// The view takes no touch that starts within 20 pt of the screen's
+/// leading edge (`EdgeRule`), so the system's back swipe goes back.
+struct LeavesTheEdge: ViewModifier {
+    @State private var minX: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .contentShape(EdgeClear(leading: EdgeRule.inset(minX: minX)))
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minX } action: { minX = $0 }
+    }
+}
+
+/// A rectangle with its leading `leading` points cut away.
+struct EdgeClear: Shape {
+    var leading: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let cut = min(max(0, leading), rect.width)
+        return Path(CGRect(x: rect.minX + cut, y: rect.minY, width: rect.width - cut, height: rect.height))
+    }
+}
+
+extension View {
+    /// Leaves the screen's leading 20 pt to the system's back swipe.
+    func leavesTheEdge() -> some View { modifier(LeavesTheEdge()) }
 }
 
 /// The lock-on, one of the six TUI details: what the finger is on, drawn
