@@ -49,7 +49,7 @@ private struct PhaseMeter: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(verbatim: phase.name)
                     .font(Theme.mono(.footnote, weight: nearest ? .bold : .regular))
                     .foregroundStyle(nearest ? Theme.ink : Theme.ink2)

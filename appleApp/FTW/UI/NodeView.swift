@@ -818,16 +818,21 @@ private struct NodeFooter: View {
         // the device reads, so the footer does not guess.
         let period = LiveSeries.period(of: points.map { LiveSample(t: $0.t, v: $0.v) })
         let text = NodeLive.footer(node, site.freshness(node), carrier: site.carrier, periodMs: period, titleSaysAge: titleSaysAge, nowMs: site.minuteMs, zone: .current)
-        Text(text)
-            .font(.system(size: size, design: .monospaced))
-            .tracking(0.5)
-            .foregroundStyle(Theme.ink3)
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
-            .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-            .contentTransition(.opacity)
-            .animation(.default, value: text)
-            .accessibilityIdentifier("node.footer")
+        // A long line shrinks to fit, but its row keeps the full size's
+        // height, so nothing over it moves when the cadence joins it.
+        ZStack(alignment: .leading) {
+            Text(verbatim: " ")
+            Text(text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .contentTransition(.opacity)
+                .animation(.default, value: text)
+                .accessibilityIdentifier("node.footer")
+        }
+        .font(.system(size: size, design: .monospaced))
+        .tracking(0.5)
+        .foregroundStyle(Theme.ink3)
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 }
 
