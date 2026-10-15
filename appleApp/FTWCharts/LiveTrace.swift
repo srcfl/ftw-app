@@ -44,6 +44,18 @@ struct TraceFrame: Equatable {
         var rest = Path()
     }
 
+    /// The frame after `old`. Its slide starts where `old` draws its head
+    /// now, so a reading that lands while the last one still slides carries
+    /// on from there rather than jumping to where that slide was headed.
+    init(series: LiveSeries, after old: TraceFrame?, arrivedAt: Date) {
+        var from = old?.series
+        if let old, let before = old.previous {
+            let progress = TraceInk.ease(arrivedAt.timeIntervalSince(old.arrivedAt), TraceInk.slide)
+            if progress < 1 { from = old.series.midSlide(from: before, progress: progress) }
+        }
+        self.init(series: series, previous: from, arrivedAt: arrivedAt)
+    }
+
     init(series: LiveSeries, previous: LiveSeries?, arrivedAt: Date) {
         self.series = series
         self.previous = previous

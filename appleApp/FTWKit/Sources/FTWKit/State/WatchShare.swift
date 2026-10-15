@@ -135,6 +135,21 @@ public enum WatchShare {
         return CacheRecord(siteId: key ?? homeKey(home), carrier: site.carrier, srcState: site.isLive ? .live : .stale, readAtMs: at, value: WatchNow(readings: readings, control: control, standsMs: site.readingGapMs))
     }
 
+    /// Whether Now is worth a message to the watch after `last`: what the
+    /// wrist shows moved (a figure, a word, a level, the glow or the
+    /// answer to "in control"), or a second has passed. Through FTW Cloud
+    /// frames come as readings land, up to five a second; the watch draws
+    /// about a point a second, and its radio is the cost.
+    public static func worthSending(_ next: CacheRecord<WatchNow>, after last: CacheRecord<WatchNow>?) -> Bool {
+        guard let last else { return true }
+        guard next.readAtMs > last.readAtMs else { return false }
+        if next.carrier != last.carrier || next.srcState != last.srcState || next.value.control != last.value.control
+            || WatchGlance.figures(next.value, lit: true) != WatchGlance.figures(last.value, lit: true) {
+            return true
+        }
+        return next.readAtMs - last.readAtMs >= LiveSample.repeatMs
+    }
+
     static func reading(_ r: NodeReading) -> WatchNow.Reading {
         let way: WatchNow.Way
         switch r.node {

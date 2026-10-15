@@ -264,7 +264,8 @@ public final class LiveTrace {
 
 /// The live rings as `ring-<site>` keeps them: per field, times as steps in
 /// whole ms after the first, the values, and where each run starts. About
-/// 15 KB for five minutes of Now's fields.
+/// 15 KB for five minutes of Now's fields read once a second, and up to five
+/// times that when a fast driver moves them five times a second.
 struct RingFile: Codable, Equatable, Sendable {
     static let version = 1
 

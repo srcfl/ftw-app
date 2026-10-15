@@ -29,8 +29,9 @@ private let askLog = Logger(subsystem: "energy.ftw.app", category: "asks")
 public final class SiteModel {
     /// Fields the Now screen draws. Their sources drive the freshness band.
     static let nowFids = [Contract.FID.gridW, Contract.FID.pvW, Contract.FID.batteryW, Contract.FID.batterySoc, Contract.FID.loadW, Contract.FID.evW]
-    /// A 1 Hz stream is always a moment behind and a dropped tick is normal
-    /// on a phone; past a couple of beats the silence is real.
+    /// The box beats at least once a second, and through FTW Cloud sends
+    /// each reading between beats as it lands. A dropped frame is normal on
+    /// a phone; past a couple of beats the silence is real.
     static let streamQuietAfterMs: Double = 3_000
     /// How long a foreground stream gets to prove its socket still works.
     public static let foregroundFrameDeadlineMs: Double = 2_500
@@ -51,9 +52,9 @@ public final class SiteModel {
     /// FTW Cloud: the send time rule U gives. The live trace stamps by it.
     @ObservationIgnored public private(set) var readingStampMs: Double?
     /// How long the newest reading stands before a silence is a gap. The
-    /// box streams at 1 Hz in front and 0.2 Hz hidden, and misses a beat
-    /// now and then; FTW Cloud sends on change and a heartbeat at least
-    /// every H.
+    /// box beats at least once a second in front and every 5 s hidden, and
+    /// misses a beat now and then; FTW Cloud's copy sends on change and a
+    /// heartbeat at least every H.
     @ObservationIgnored public private(set) var readingGapMs: Double = LiveTrace.gapMs
     public private(set) var documentVisible = true
     /// The app itself is on screen; `documentVisible` also counts a watch.

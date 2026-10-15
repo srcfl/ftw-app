@@ -12,7 +12,10 @@ import Foundation
 public final class NoiseTransport {
     public static let seqBytes = 8
     public static let overhead = seqBytes + Noise.tagBytes
-    /// At 1 Hz on lane 0, 64 frames is a minute of tolerance and one word.
+    /// One word. Over the relay lane 0 goes once a second, so 64 frames is
+    /// a minute; through FTW Cloud up to five a second, about 13 s, while
+    /// the box's link holds a paced bulk frame at most about 9 s (srcfl/ftw
+    /// `cloudlink.MaxBulkWait`).
     public static let replayWindow: UInt64 = 64
 
     public let handshakeHash: Bytes
