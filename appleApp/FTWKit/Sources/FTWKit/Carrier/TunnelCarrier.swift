@@ -18,6 +18,10 @@ import FTWShared
 public final class TunnelCarrier: Carrier {
     static let backoffBaseMs: Double = 500
     static let backoffCapMs: Double = 60_000
+    /// A session that carried this long before it ended starts the backoff
+    /// over. A shorter one does not, so two sessions of one device cannot
+    /// take the box's slot from each other in a loop.
+    static let settledMs: Double = 30_000
 
     public let kind: CarrierKind = .tunnel
     public private(set) var status: CarrierStatus = .connecting
@@ -32,6 +36,12 @@ public final class TunnelCarrier: Carrier {
     /// this backoff.
     private var ended = false
     private var attempt = 0
+    /// Frames from the box in this session: message 2, then transport.
+    private var framesThisSession = 0
+    /// When the box's first transport frame of this session arrived: the
+    /// box claims the device's slot on the phone's first transport frame,
+    /// so only its answer to that shows the session is this phone's.
+    private var carryingSinceMs: Double?
     private var retry: Cancellable?
     private var shutdown = false
 
@@ -58,6 +68,8 @@ public final class TunnelCarrier: Carrier {
     public func beginSession() {
         sid = UInt32.random(in: 1...UInt32.max)
         first = nil
+        framesThisSession = 0
+        carryingSinceMs = nil
     }
 
     @discardableResult
@@ -115,7 +127,8 @@ public final class TunnelCarrier: Carrier {
             end()
             return
         }
-        attempt = 0
+        framesThisSession += 1
+        if framesThisSession == 2 { carryingSinceMs = scheduler.nowMs }
         onFrame(tun.d)
     }
 
@@ -146,12 +159,17 @@ public final class TunnelCarrier: Carrier {
 
     // MARK: Inside
 
-    /// The box dropped the session, or FTW Cloud had no box to give it to.
-    /// A new one starts after a backoff, so a box that is away is not asked
-    /// in a loop.
+    /// An empty `d`: the box dropped the session, another session of this
+    /// device took its slot, the box does not hold it, or FTW Cloud had no
+    /// box to give it to. The phone cannot tell which. A new session starts
+    /// after a backoff that grows with each end and starts over only after
+    /// a session carried for `settledMs`, so neither an absent box nor a
+    /// second session of this device is asked in a loop.
     private func end() {
         first = nil
         ended = true
+        if let since = carryingSinceMs, scheduler.nowMs - since >= Self.settledMs { attempt = 0 }
+        carryingSinceMs = nil
         setStatus(.closed(reason: Self.endedReason, retryable: true))
         let ceiling = min(Self.backoffCapMs, Self.backoffBaseMs * pow(2, Double(attempt)))
         attempt = min(attempt + 1, 16)

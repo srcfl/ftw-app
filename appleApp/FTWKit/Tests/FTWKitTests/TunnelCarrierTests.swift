@@ -14,6 +14,9 @@ final class FakeTunnelBox {
     var paired: Set<Bytes> = []
     /// The QR code on the box's screen. Spent once.
     var code: Bytes?
+    /// End each session at the phone's first transport frame, as the box
+    /// does when another session of the device holds the slot.
+    var endsOnFirstFrame = false
     let simulated: SimulatedBox?
     private(set) var opened: [UInt32] = []
     private(set) var ended: [UInt32] = []
@@ -39,6 +42,10 @@ final class FakeTunnelBox {
         }
         if let s = sessions[tun.sid] {
             guard let frame = try? s.transport.decrypt(tun.d) else { return }
+            if endsOnFirstFrame {
+                end(tun.sid)
+                return
+            }
             frames.append(frame)
             if let simulated {
                 simulated.receive(frame)
@@ -126,15 +133,18 @@ final class TunnelRig {
     var relays: [StandInRelay] = []
     var frames: [Bytes] = []
     var statuses: [CarrierStatus] = []
+    /// Send one frame the moment the session opens, as `Session` sends its
+    /// hello.
+    var sayHello = false
 
-    init(paired: Bool = true, pair: Bytes? = nil) {
+    init(paired: Bool = true, pair: Bytes? = nil, endpoint: ((FakeCloudService) -> CloudEndpoint)? = nil) {
         service = FakeCloudService(scheduler: scheduler)
         service.tunBox = box
         if paired {
             service.roster = [device.publicKey]
             box.paired = [device.publicKey]
         }
-        cloud = CloudCarrier(endpoint: service.endpoint, home: Self.home, deviceKey: device, looking: true, pair: pair, scheduler: scheduler, makeSocket: service.factory)
+        cloud = CloudCarrier(endpoint: endpoint?(service) ?? service.endpoint, home: Self.home, deviceKey: device, looking: true, pair: pair, scheduler: scheduler, makeSocket: service.factory)
         cloud.setHandlers(onSnapshot: { _, _ in }, onEnvelope: { _, _ in }, onStatus: { _ in })
     }
 
@@ -153,7 +163,10 @@ final class TunnelRig {
                                  prologue: box.prologue, handshakePayload: code, scheduler: scheduler)
         noise.setHandlers(
             onFrame: { [unowned self] f in self.frames.append(f) },
-            onStatus: { [unowned self] s in self.statuses.append(s) }
+            onStatus: { [unowned self, weak noise] s in
+                self.statuses.append(s)
+                if self.sayHello, s.isOpen { noise?.send([0x68]) }
+            }
         )
         return noise
     }
@@ -197,6 +210,22 @@ final class TunnelRig {
         #expect(rig.box.frames == [frame])
         #expect(rig.frames == [frame])
         #expect(!rig.service.tunsFromPhone.contains { holds($0.d, Bytes(frame.prefix(32))) })
+    }
+
+    /// The service already runs on the app's other key and refuses message
+    /// 1 under the first. The retry on the next key carries the box
+    /// session's message 1 again, or the box would never see it.
+    @Test func aRetryOnTheOtherServiceKeyCarriesMessage1Again() async throws {
+        let rig = TunnelRig { service in
+            CloudEndpoint(url: URL(string: "wss://cloud.test/v1/app")!, serviceKeys: [Primitives.generateKeyPair().publicKey, service.staticKey.publicKey])
+        }
+        rig.cloud.start()
+        let noise = rig.session()
+        await rig.run(80)
+        #expect(rig.service.dialled.count == 2)
+        #expect(rig.service.nowBodies.count == 1)
+        #expect(rig.service.nowBodies.first?["tun"] != nil)
+        #expect(noise.status.isOpen)
     }
 
     /// A session already dialling has sent its message 1: the box session's
@@ -252,6 +281,46 @@ final class TunnelRig {
         #expect(rig.message1Sids.count == 2)
         #expect(rig.message1Sids[1] != first)
         #expect(rig.service.dialled.count == 1)
+    }
+
+    /// The box ends each session at the phone's first transport frame, as
+    /// when another session of this device holds the slot. The phone cannot
+    /// tell that from a box that dropped it, so it starts again, but ever
+    /// more slowly: no loop.
+    @Test func endsAfterEachHandshakeSlowDown() async throws {
+        let rig = TunnelRig()
+        rig.sayHello = true
+        rig.box.endsOnFirstFrame = true
+        rig.cloud.start()
+        let noise = rig.session()
+        await rig.run(60_000, step: 50)
+        withExtendedLifetime(noise) {}
+        // 0.25, 0.5, 1, 2, 4, 8, 16 and 30 s apart at the scheduler's
+        // midpoint: eight sessions in a minute, not two hundred.
+        #expect(rig.message1Sids.count <= 9)
+        #expect(rig.message1Sids.count >= 6)
+        #expect(rig.service.dialled.count == 1)
+    }
+
+    /// A session that carried for a while and then ended, as when the box
+    /// restarts, starts again at once whatever ended before it.
+    @Test func aSettledSessionThatEndsStartsAgainAtOnce() async throws {
+        let rig = TunnelRig()
+        rig.sayHello = true
+        rig.box.endsOnFirstFrame = true
+        rig.cloud.start()
+        let noise = rig.session()
+        await rig.run(8_000, step: 50)
+        let before = rig.message1Sids.count
+        rig.box.endsOnFirstFrame = false
+        await rig.run(20_000, step: 50)
+        #expect(noise.status.isOpen)
+        await rig.run(TunnelCarrier.settledMs, step: 100)
+        let carried = try #require(rig.message1Sids.last)
+        rig.box.end(carried)
+        await rig.run(TunnelCarrier.backoffBaseMs, step: 10)
+        #expect(rig.message1Sids.count == before + 2)
+        #expect(noise.status.isOpen)
     }
 
     /// A frame or an end that arrives for a session this phone has left is
@@ -365,6 +434,22 @@ private func holds(_ hay: Bytes, _ needle: Bytes) -> Bool {
         #expect(rig.frames.count == 5)
     }
 
+    /// The box answered the handshake and ended the session at the phone's
+    /// first transport frame: the tunnel never carried, so the relay at
+    /// once. The box takes the slot only on that frame, so its handshake
+    /// answer alone proves nothing.
+    @Test func aHandshakeAnswerAloneIsNotCarrying() async throws {
+        let rig = TunnelRig()
+        rig.sayHello = true
+        rig.box.endsOnFirstFrame = true
+        rig.cloud.start()
+        let noise = rig.session(fallback: true)
+        await rig.run(60)
+        #expect(rig.message1Sids.count == 1)
+        #expect(rig.relays.count == 1)
+        #expect(noise.kind == .relay)
+    }
+
     /// No session for this phone at FTW Cloud: the relay at once.
     @Test func aRefusedAppSessionMovesToTheRelay() async throws {
         let rig = TunnelRig()
@@ -446,6 +531,25 @@ private func holds(_ hay: Bytes, _ needle: Bytes) -> Bool {
         rig.service.silentTun = true
         rig.service.close(code: 1006)
         await rig.run(FallbackCarrier.tunnelWaitMs + 200, step: 50)
+        #expect(rig.relays.count == 1)
+        #expect(noise.kind == .relay)
+    }
+
+    /// A wake dials the tunnel afresh, so it has to carry again within the
+    /// wait: a new dial that hangs moves to the relay, not after a socket
+    /// timeout.
+    @Test func aWakeGivesTheTunnelTheWaitAgain() async throws {
+        let rig = TunnelRig()
+        rig.cloud.start()
+        let noise = rig.session(fallback: true)
+        await rig.run(40)
+        #expect(noise.send([1]))
+        await rig.run(30)
+        rig.service.silentTun = true
+        noise.wake()
+        await rig.run(FallbackCarrier.tunnelWaitMs - 200, step: 50)
+        #expect(rig.relays.isEmpty)
+        await rig.run(400, step: 50)
         #expect(rig.relays.count == 1)
         #expect(noise.kind == .relay)
     }
@@ -587,8 +691,10 @@ private func holds(_ hay: Bytes, _ needle: Bytes) -> Bool {
         #expect(site.session.phase == .streaming)
         #expect(site.carrier == .tunnel)
         #expect(world.relayDials.isEmpty)
+        // The proof rides along while the phone holds a code; the service
+        // admits a phone the roster lists by its key.
         #expect(world.service.nowBodies.count == 2)
-        #expect(world.service.nowBodies.last?["pair"] == nil)
+        #expect(world.service.pending.isEmpty)
     }
 
     /// A box whose hello does not say `cloud.tun` is reached through the

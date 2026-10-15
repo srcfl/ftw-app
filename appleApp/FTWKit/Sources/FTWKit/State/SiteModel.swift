@@ -156,7 +156,7 @@ public final class SiteModel {
     /// The home id as the phone keeps it with the home, from the QR or an
     /// earlier hello. The box's word at hello wins.
     @ObservationIgnored private var storedHome: String?
-    /// A new phone's pairing proof for message 1, until the box has spoken.
+    /// The pairing proof for message 1, while the phone holds a code.
     @ObservationIgnored private var cloudPair: Bytes?
     /// The box named its home id at hello and it was not the one kept. The
     /// shell keeps it with the home, so the next start can dial it.
@@ -1046,8 +1046,9 @@ extension SiteModel {
     /// phone keeps it (`home`). It carries the readable copy while the
     /// owner has it on, and the box session when the box takes the tunnel.
     ///
-    /// `pairingCode` makes the pairing proof a new phone needs before the
-    /// roster lists it. It is used only while the box has never spoken.
+    /// `pairingCode` makes the pairing proof a phone needs while the roster
+    /// does not list it: a new phone, or one paired again after it was
+    /// removed. FTW Cloud ignores the proof from a phone the roster lists.
     public func connectCloud(deviceKey: Primitives.KeyPair, makeSocket: @escaping WebSocketFactory, endpoint: CloudEndpoint? = CloudEndpoint.current, home: String? = nil, pairingCode: Bytes? = nil) {
         guard !destroyed, !isDemo else { return }
         cloudDevice = deviceKey
@@ -1055,7 +1056,7 @@ extension SiteModel {
         cloudEndpoint = endpoint
         if let home, CloudWire.validHome(home) { storedHome = home }
         cloudPair = nil
-        if let code = pairingCode, let home = storedHome, neverHeard {
+        if let code = pairingCode, let home = storedHome {
             cloudPair = CloudWire.pairingHash(home: home, code: code)
         }
         startCloud()
@@ -1088,7 +1089,7 @@ extension SiteModel {
 
     private func startCloud() {
         guard cloud == nil, !destroyed, let endpoint = cloudEndpoint, let device = cloudDevice,
-              let socket = cloudSocket, let home = cloudIdentity?.home ?? storedHome else { return }
+              let socket = cloudSocket, let home = storedHome ?? cloudIdentity?.home else { return }
         let c = CloudCarrier(endpoint: endpoint, home: home, deviceKey: device, looking: documentVisible, pair: cloudPair, scheduler: scheduler, makeSocket: socket)
         c.setHandlers(
             onSnapshot: { [weak self] snap, at in self?.onCloudSnapshot(snap, at) },
@@ -1152,7 +1153,6 @@ extension SiteModel {
             return
         }
         adoptCloud(identity, offset: nil)
-        cloudPair = nil
         if identity.home != storedHome {
             storedHome = identity.home
             learnedHome?(identity.home)

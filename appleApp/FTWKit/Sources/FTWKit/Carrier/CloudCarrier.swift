@@ -55,6 +55,10 @@ public final class CloudCarrier {
     /// The box session riding this one. Weak: the carrier stack above owns
     /// it, and leaves when it closes.
     weak var tunnel: TunnelCarrier?
+    /// The box session's message 1 that rode this dial's message 1, kept
+    /// until message 2 so a retry on the app's other service key carries it
+    /// again.
+    private var riding: CloudWire.Tun?
     /// What the service last heard: message 1's `hz`, then each `watch`.
     /// Nil until message 1 of this dial goes.
     private var told: Bool?
@@ -231,7 +235,9 @@ public final class CloudCarrier {
         }
         // The box session's message 1 rides along when it waits, so that
         // session is up one round trip after TLS.
-        let now = CloudWire.now(hz: looking ? CloudWire.hzLooking : CloudWire.hzAway, pair: pair, tun: tunnel?.takeFirst())
+        let tun = riding ?? tunnel?.takeFirst()
+        riding = tun
+        let now = CloudWire.now(hz: looking ? CloudWire.hzLooking : CloudWire.hzAway, pair: pair, tun: tun)
         guard let msg1 = try? hs.writeMessage(now) else { return }
         handshake = hs
         socket.send(msg1)
@@ -274,6 +280,7 @@ public final class CloudCarrier {
         }
         deadline?.cancel()
         handshake = nil
+        riding = nil
         transport = NoiseTransport(keys)
         attempt = 0
         refusals = 0
@@ -294,13 +301,17 @@ public final class CloudCarrier {
 
     private func closed(code: Int) {
         let beforeMessage2 = transport == nil
+        let carried = riding
+        riding = nil
         socket = nil
         generation += 1
         deadline?.cancel()
         switch code {
         case CloudWire.closeDenied where beforeMessage2 && keyIndex + 1 < endpoint.serviceKeys.count:
-            // Perhaps the service already runs on the app's other key.
+            // Perhaps the service already runs on the app's other key. The
+            // box session still waits for an answer to its message 1.
             keyIndex += 1
+            riding = carried
             dial()
         case CloudWire.closeReplaced:
             setStatus(.closed(code: code, retrying: false))
@@ -355,6 +366,7 @@ public final class CloudCarrier {
         socket?.close()
         socket = nil
         handshake = nil
+        riding = nil
         transport = nil
     }
 
