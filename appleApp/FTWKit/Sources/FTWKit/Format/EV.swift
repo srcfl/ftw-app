@@ -549,6 +549,32 @@ public enum AppWords {
         "This phone is paired to it and keeps trying on its own. Your home appears here as soon as the box answers.": "Telefonen är parkopplad och försöker själv. Hemmet visas här så fort boxen svarar.",
         "Get this phone back in": "Släpp in telefonen igen",
         "This app is older than your box. Some things are hidden until it updates.": "Appen är äldre än din box. En del döljs tills appen uppdateras.",
+
+        // Savings (Savings.swift, SavingsView)
+        "Savings": "Besparing",
+        "Day": "Dag",
+        "Week": "Vecka",
+        "Month": "Månad",
+        "Saved today so far": "Sparat hittills i dag",
+        "Cost more today so far": "Kostade mer hittills i dag",
+        "Saved %@": "Sparat %@",
+        "Cost more %@": "Kostade mer %@",
+        "Cost %@": "Kostade %@",
+        "Earned %@": "Tjänade %@",
+        "with no solar or battery %@": "utan sol och batteri %@",
+        "Bought for %@, sold for %@": "Köpt för %@, sålt för %@",
+        "Bought %@, sold %@": "Köpt %@, sålt %@",
+        "The box had prices for %@ of the time.": "Boxen hade priser för %@ av tiden.",
+        "The box had no prices then, so it counts no money.": "Boxen hade inga priser då och räknar inga pengar.",
+        "Your box counts savings once it knows your price area.": "Boxen räknar besparing när den vet ditt elområde.",
+        "Reading the savings from your box…": "Läser besparingen från boxen…",
+        "PARTIAL": "DELVIS",
+        "TODAY": "I DAG",
+        "NO PRICES": "INGA PRISER",
+        "%@ today": "%@ i dag",
+        "cost %@ more today": "kostade %@ mer i dag",
+        "Savings by day": "Besparing per dag",
+        "%@ DAYS": "%@ DAGAR",
     ]
 }
 

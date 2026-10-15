@@ -22,6 +22,10 @@ struct ScrubTrack: Equatable {
     /// slot under the finger lights up as its whole bar and the rest dims,
     /// in place of a dot on a line.
     var bars = false
+    /// How much of its slot a bar fills, centred, and its corner: a day's
+    /// bar stands apart from its neighbours, a quarter's touches them.
+    var barShare: CGFloat = 1
+    var barRadius: CGFloat = 1.25
     /// The last slot a finger may reach: the slots after it have not
     /// happened yet.
     var limit: Int?
@@ -183,11 +187,16 @@ struct ScrubOverlay: View {
         let base = plot.minY + snap(map.baseline)
         for i in r where track.values.indices.contains(i) {
             guard let v = track.values[i], v != 0 else { continue }
-            let a = snap(plot.minX + grid.x(atMs: max(grid.startMs(i), grid.fromMs), width: plot.width))
-            let b = snap(plot.minX + grid.x(atMs: min(grid.endMs(i), grid.toMs), width: plot.width)) - px
+            var a = snap(plot.minX + grid.x(atMs: max(grid.startMs(i), grid.fromMs), width: plot.width))
+            var b = snap(plot.minX + grid.x(atMs: min(grid.endMs(i), grid.toMs), width: plot.width)) - px
+            if track.barShare < 1 {
+                let inset = snap((b - a) * (1 - track.barShare) / 2)
+                a += inset
+                b -= inset
+            }
             let y = plot.minY + snap(map.y(v))
             let bar = CGRect(x: a, y: min(y, base), width: max(px, b - a), height: abs(y - base))
-            let radius = min(1.25, bar.width / 2, bar.height)
+            let radius = min(track.barRadius, bar.width / 2, bar.height)
             let radii = v > 0
                 ? RectangleCornerRadii(topLeading: radius, bottomLeading: 0, bottomTrailing: 0, topTrailing: radius)
                 : RectangleCornerRadii(topLeading: 0, bottomLeading: radius, bottomTrailing: radius, topTrailing: 0)

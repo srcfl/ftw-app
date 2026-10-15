@@ -300,46 +300,6 @@ public final class PriceModel: Activatable {
     }
 }
 
-/// Money saved today and this week, GET /api/savings/daily.
-@Observable
-@MainActor
-public final class SavingsModel: Activatable {
-    public private(set) var periods: Savings.Periods?
-
-    @ObservationIgnored private unowned let site: SiteModel
-    @ObservationIgnored private var ask: LiveAsk?
-    @ObservationIgnored private var active = 0
-    @ObservationIgnored private let calendar: Calendar
-
-    public init(site: SiteModel, calendar: Calendar = .current) {
-        self.site = site
-        self.calendar = calendar
-    }
-
-    public func activate() {
-        active += 1
-        if ask == nil {
-            ask = LiveAsk(site: site, want: { [weak self] in
-                guard let self, self.active > 0, self.site.hasPassthrough else { return nil }
-                return "savings \(self.calendar.startOfDay(for: Date(timeIntervalSince1970: self.site.nowMs / 1000)).timeIntervalSince1970)"
-            }, ask: { [weak self] in try await self?.load() })
-        }
-        ask?.evaluate()
-    }
-
-    public func deactivate() {
-        active = max(0, active - 1)
-        ask?.evaluate()
-    }
-
-    func load() async throws {
-        let wire = try await site.callBox(.get, "/api/savings/daily", query: ["days": "7"])
-        let days = (wire?["days"]?.array ?? []).compactMap(Savings.day)
-        let next = Savings.periods(days)
-        periods = next.today.available || next.week.available ? next : nil
-    }
-}
-
 /// "Is FTW in control?" in one calm line, from the stream alone: lane 0
 /// carries the box's dispatch block and each source's state, so the line
 /// needs no request and no timer. It is green only while frames arrive

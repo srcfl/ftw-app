@@ -36,6 +36,8 @@ enum HomeRoute: Hashable {
     case plan
     /// The price ahead, from the plan.
     case price
+    /// What the home saved, from the home's node and the title's menu.
+    case savings
 
     /// Where a home opens. Debug builds take `-FTWTab car` or
     /// `-FTWNode battery` and the like, so every screen of the demo can be
@@ -48,6 +50,7 @@ enum HomeRoute: Hashable {
         case "car": return [.car(nil)]
         case "plan": return [.plan]
         case "price": return [.plan, .price]
+        case "savings": return [.savings]
         default: return []
         }
         #else
@@ -79,7 +82,9 @@ struct HomeView: View {
                     // status line under it: the name opens the menu, the
                     // line opens the control sheet.
                     ToolbarItem(placement: .title) {
-                        TitleMenu(app: app, sheet: $sheet)
+                        TitleMenu(app: app, sheet: $sheet) { route in
+                            if path.last != route { path.append(route) }
+                        }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         ModeMenu(mode: home.nodes.mode) { sheet = .mode }
@@ -99,6 +104,8 @@ struct HomeView: View {
                             PlanView(app: app, home: home)
                         case .price:
                             PriceView(home: home)
+                        case .savings:
+                            SavingsView(home: home)
                         }
                     }
                     .statusLine(app: app, home: home)
@@ -140,10 +147,11 @@ enum HomeSheet: Hashable, Identifiable {
 struct TitleMenu: View {
     let app: AppModel
     @Binding var sheet: HomeSheet?
+    let open: (HomeRoute) -> Void
 
     var body: some View {
         Menu {
-            HomeMenu(app: app, sheet: $sheet)
+            HomeMenu(app: app, sheet: $sheet, open: open)
         } label: {
             HStack(spacing: 6) {
                 Text(app.homeName)
@@ -165,14 +173,21 @@ struct TitleMenu: View {
     }
 }
 
-/// The title's menu: the homes on this phone, how this one is run, what the
-/// app is and how it treats your data, the way out of the demo, and the
-/// build, in that order.
+/// The title's menu: what the home saved, the homes on this phone, how
+/// this one is run, what the app is and how it treats your data, the way
+/// out of the demo, and the build, in that order.
 struct HomeMenu: View {
     let app: AppModel
     @Binding var sheet: HomeSheet?
+    let open: (HomeRoute) -> Void
 
     var body: some View {
+        Section {
+            Button { open(.savings) } label: {
+                Label(L("Savings"), systemImage: "banknote")
+            }
+            .accessibilityIdentifier("menu.savings")
+        }
         Section {
             Menu {
                 ForEach(app.homes) { h in

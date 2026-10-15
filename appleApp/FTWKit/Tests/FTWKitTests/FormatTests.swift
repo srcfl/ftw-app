@@ -27,17 +27,6 @@ import Testing
         #expect(!explain([F.gridW: -3000, F.pvW: -5000, F.batteryW: -100, F.loadW: 2000]).headline.contains("-"))
     }
 
-    @Test func savingsAreSignedMajorUnits() {
-        #expect(Savings.compact(1240) == "+12.4")
-        #expect(Savings.compact(-310) == "−3.10")
-        #expect(Savings.compact(12_345) == "+123")
-        let days = (1...9).map { Savings.Day(day: String(format: "2026-09-%02d", $0), savedOre: 100, resolution: $0 == 9 ? "no_prices" : "slot") }
-        let p = Savings.periods(days)
-        #expect(!p.today.available)
-        #expect(p.week.savedMinor == 600)
-        #expect(!p.week.complete)
-    }
-
     @Test func evSentencesSayOnlyWhatTheBoxSaid() throws {
         try AppWords.$language.withValue(.en) {
             let unplugged = Loadpoint(try JSON(parsing: Array(#"{"id":"a","plugged_in":false,"current_soc":0.5}"#.utf8)))
