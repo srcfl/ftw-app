@@ -7,7 +7,9 @@ import Foundation
 /// and `ContractTests` reads the registry back and fails when anything has
 /// stopped matching. Add nothing here that is not in the registry.
 public enum Contract {
-    /// One object axis, two verb axes: `<object>.<read|write>`.
+    /// An object and a verb: `<object>.<read|write|run|hold|request>`.
+    /// read and write are a phone's; run, hold and request are an agent's
+    /// (docs/agents.md in srcfl/ftw).
     public static let scopes = [
         "ftw.live.read",
         "ftw.history.read",
@@ -19,6 +21,12 @@ public enum Contract {
         "ftw.mode.write",
         "ftw.members.read",
         "ftw.members.write",
+        "ftw.logs.read",
+        "ftw.config.read",
+        "ftw.diag.run",
+        "ftw.dispatch.hold",
+        "ftw.goals.request",
+        "ftw.update.request",
     ]
 
     public static let roleOwner = "owner"
@@ -47,7 +55,7 @@ public enum Contract {
         "cmd.lease", "cmd.precondition", "cmd.readback",
         "der.battery", "der.ev", "der.v2x",
         "plan.dispatch", "net.webrtc", "price.spot", "api.passthrough",
-        "cloud.link", "cloud.tun", "cmd.exchange",
+        "cloud.link", "cloud.tun", "cmd.exchange", "access.agents",
     ]
 
     public static let capHistory5m = "history.5m"
@@ -138,6 +146,15 @@ public enum Contract {
         "E_UNSUPPORTED_MEDIA": false,
         "E_WHOLE_DOCUMENT": false,
         "E_LOCAL_ONLY": false,
+        "E_GRANT_EXPIRED": false,
+        "E_OP_NOT_GRANTED": false,
+        "E_CAP_EXCEEDED": false,
+        "E_RATE_LIMITED": true,
+        "E_NEEDS_OWNER": false,
+        "E_BAD_SIGNATURE": false,
+        "E_NO_APPROVAL_KEY": false,
+        "E_NOT_FOUND": false,
+        "E_CLOCK_SKEW": true,
         "E_RESPONSE_TOO_LARGE": false,
         "E_NO_ACK": true,
         "E_NO_ANSWER": true,

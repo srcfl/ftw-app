@@ -114,4 +114,62 @@ final class WatchTour: XCTestCase {
         sleep(5)
         shoot("plan")
     }
+
+    /// A change of mode from the toolbar's button returns to Now, whose
+    /// status line carries the box's receipt for its time.
+    func testModeReceiptOnNow() throws {
+        let app = launch("now")
+        let mode = app.buttons["watch.mode"].firstMatch
+        XCTAssertTrue(mode.waitForExistence(timeout: 30))
+        sleep(4)
+        shoot("mode-before")
+        mode.tap()
+        let idle = app.buttons["watch.mode.idle"]
+        XCTAssertTrue(idle.waitForExistence(timeout: 5))
+        if !idle.isHittable { app.swipeUp() }
+        idle.tap()
+        let yes = app.buttons["watch.confirm"]
+        XCTAssertTrue(yes.waitForExistence(timeout: 5))
+        yes.tap()
+        // Back on Now, with no tap of the person's own.
+        let line = app.descendants(matching: .any)["watch.status"]
+        XCTAssertTrue(line.waitForExistence(timeout: 5))
+        XCTAssertTrue(mode.waitForExistence(timeout: 5))
+        shoot("mode-receipt-now")
+        sleep(2)
+        shoot("mode-receipt-later")
+        // Put the home back on the plan for the next test.
+        mode.tap()
+        let plan = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'watch.mode.planner_'")).firstMatch
+        if plan.waitForExistence(timeout: 5) {
+            if !plan.isHittable { app.swipeDown() }
+            plan.tap()
+            if yes.waitForExistence(timeout: 5) { yes.tap() }
+        }
+        sleep(6)
+    }
+
+    /// A drag across the trace reads it and leaves the page where it is; a
+    /// drag up the screen still turns the page. On the simulator, with
+    /// XCUITest's synthesised touches; a real wrist is another check.
+    func testDragAcrossTheTraceKeepsThePage() throws {
+        let app = launch("now")
+        let line = app.descendants(matching: .any)["watch.status"]
+        XCTAssertTrue(line.waitForExistence(timeout: 30))
+        sleep(6)
+        let window = app.windows.firstMatch
+        let from = window.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.55))
+        let to = window.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.56))
+        from.press(forDuration: 0.05, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 2.5)
+        sleep(1)
+        // Still on Now: the status line and the hero are on screen.
+        XCTAssertTrue(line.isHittable, "a drag across the trace turned the page")
+        XCTAssertTrue(app.descendants(matching: .any)["watch.now.hero"].exists)
+        shoot("drag-across-after")
+        // A swipe up from the middle of the screen, which is the trace on
+        // 40 and 46 mm, still turns the page after a read.
+        app.swipeUp()
+        XCTAssertTrue(app.otherElements["watch.plan.dial"].waitForExistence(timeout: 5), "a swipe up from the trace did not turn the page")
+        shoot("drag-up-pages")
+    }
 }

@@ -4,7 +4,11 @@ import SwiftUI
 /// The price: what power costs now as the hero, the next 24 hours as a bar
 /// per slot, and what the plan does in each. A finger on the bars gives
 /// the hero the slot's price and time, and the lines under the chart what
-/// the plan does then. One screen, no cards.
+/// the plan does then. Under them one mono line says what the plan does at
+/// these prices. One screen, no cards. The chart takes a little over half
+/// the screen's height, or what the rest leaves, never under 240 pt; what
+/// is left sits between the chart and the lines under it, never at the
+/// foot.
 struct PriceView: View {
     let home: HomeModels
     @State private var scrub = ScrubModel()
@@ -16,9 +20,13 @@ struct PriceView: View {
             // page. Chosen by the size, never by a fit, so the page never
             // swaps branches under a finger.
             if typeSize.isAccessibilitySize {
-                ScrollView { page(fill: false) }
+                ScrollView { page(chartMax: nil) }
             } else {
-                page(fill: true)
+                // 0.55 of the screen: at half, a Pro Max kept 129 pt of ground
+                // between the chart and its lines.
+                GeometryReader { geo in
+                    page(chartMax: (geo.size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom) * 0.55)
+                }
             }
         }
         .background(Theme.ground)
@@ -35,13 +43,15 @@ struct PriceView: View {
         }
     }
 
-    private func page(fill: Bool) -> some View {
-        PriceBody(site: home.site, prices: home.prices, plan: home.nodes.planShare, scrub: scrub, fill: fill)
+    /// `chartMax` is the chart's most on the fixed page, nil where the page
+    /// scrolls.
+    private func page(chartMax: CGFloat?) -> some View {
+        PriceBody(site: home.site, prices: home.prices, plan: home.nodes.planShare, scrub: scrub, chartMax: chartMax)
             .padding(.horizontal, 16)
             .padding(.top, 12)
             .padding(.bottom, 16)
             .frame(maxWidth: 640, alignment: .topLeading)
-            .frame(maxWidth: .infinity, maxHeight: fill ? .infinity : nil, alignment: .top)
+            .frame(maxWidth: .infinity, maxHeight: chartMax == nil ? nil : .infinity, alignment: .top)
     }
 }
 
@@ -52,11 +62,11 @@ private struct PriceBody: View {
     let prices: PriceModel
     let plan: PlanShare
     let scrub: ScrubModel
-    let fill: Bool
+    let chartMax: CGFloat?
 
     var body: some View {
         if let window = prices.prices {
-            PricePage(window: window, minuteMs: site.minuteMs, plan: plan.entry, scrub: scrub, fill: fill)
+            PricePage(window: window, minuteMs: site.minuteMs, plan: plan.entry, scrub: scrub, chartMax: chartMax)
                 .equatable()
         } else {
             Text(L("Reading the prices from your box…"))
@@ -72,10 +82,10 @@ private struct PricePage: View, Equatable {
     let minuteMs: Double
     let plan: PlanEntry?
     let scrub: ScrubModel
-    let fill: Bool
+    let chartMax: CGFloat?
 
     nonisolated static func == (a: Self, b: Self) -> Bool {
-        a.window == b.window && a.minuteMs == b.minuteMs && a.plan == b.plan && a.fill == b.fill && a.scrub === b.scrub
+        a.window == b.window && a.minuteMs == b.minuteMs && a.plan == b.plan && a.chartMax == b.chartMax && a.scrub === b.scrub
     }
 
     var body: some View {
@@ -85,25 +95,34 @@ private struct PricePage: View, Equatable {
         VStack(alignment: .leading, spacing: 0) {
             PriceHero(chart: chart, zone: window.zone, scrub: scrub)
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                .fixedSize(horizontal: false, vertical: true)
             if chart.isEmpty {
                 Text(L("No prices ahead yet."))
                     .font(.subheadline)
                     .foregroundStyle(Theme.ink2)
                     .padding(.top, 24)
             } else {
-                // 240 pt on an SE, up to 340 on a tall phone.
+                // What the rest leaves, up to 0.55 of the screen: about
+                // 330 pt on an SE, 526 on a Pro Max.
                 PriceBarsChart(chart: chart, scrub: scrub)
-                    .containerRelativeFrame(.vertical) { height, _ in min(max(height * 0.38, 240), 340) }
+                    .frame(minHeight: 240, idealHeight: 240, maxHeight: chartMax ?? 240)
+                    .layoutPriority(1)
                     .padding(.top, 24)
                     .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                     .accessibilityElement()
                     .accessibilityLabel(L("Electricity price"))
                     .accessibilityChartDescriptor(PriceDescriptor(chart: chart))
                     .accessibilityIdentifier("price.chart")
-                PriceReadout(chart: chart, included: included, planned: plan != nil, scrub: scrub)
-                    .padding(.top, 16)
+                if chartMax != nil { Spacer(minLength: 0) }
+                VStack(alignment: .leading, spacing: 0) {
+                    PriceReadout(chart: chart, included: included, planned: plan != nil, scrub: scrub)
+                        .padding(.top, 16)
+                    PlanAtThesePrices(line: chart.planLine, short: chart.planLineShort)
+                        .padding(.top, 8)
+                }
+                .fixedSize(horizontal: false, vertical: true)
             }
-            if fill { Spacer(minLength: 0) }
+            if chartMax != nil, chart.isEmpty { Spacer(minLength: 0) }
         }
     }
 }
@@ -164,7 +183,7 @@ private struct PriceBarsChart: View {
     @ScaledMetric(relativeTo: .caption) private var tag: CGFloat = 11
 
     var body: some View {
-        let frame = PriceBarsDrawing.frame(axis: axis, kicker: kicker, tag: tag)
+        let frame = PriceBarsDrawing.frame(axis: axis, kicker: kicker, tag: tag, labels: [PriceChart.averageWord, chart.meanText])
         ZStack {
             ChartSurface(drawing: PriceBarsDrawing(chart: chart, frame: frame, axis: axis, kicker: kicker))
                 .equatable()
@@ -175,6 +194,35 @@ private struct PriceBarsChart: View {
                 tagSize: tag,
                 spanTag: { [chart] r in chart.when(r) + "  " + (chart.mean(r).map { NodeWords.format("avg %@", chart.figure($0)) } ?? "—") }
             )
+        }
+    }
+}
+
+/// `STORES 09:15–15:30 AT 58–90 · GIVES 17–20 AT 150–176 ÖRE`: what the
+/// plan already read does at these prices, in the kickers' mono. Where the
+/// line has no room it drops its second part, never ends in "…". Nothing
+/// when there is no plan.
+private struct PlanAtThesePrices: View {
+    let line: String
+    let short: String
+    @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 10.5
+
+    var body: some View {
+        if !line.isEmpty {
+            ViewThatFits(in: .horizontal) {
+                ForEach([line, short], id: \.self) { form in
+                    Text(form)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+            }
+            .font(.system(size: min(size, 15), weight: .medium, design: .monospaced))
+            .tracking(0.5)
+            .foregroundStyle(Theme.ink2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(line)
+            .accessibilityIdentifier("price.plan")
         }
     }
 }

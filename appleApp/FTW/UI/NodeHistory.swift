@@ -134,7 +134,9 @@ final class PeriodText {
 /// trace's material: each chosen series with its band, the node's own with
 /// its body, holes as they are, and the finger reading one slot at a time,
 /// up to the last slot with data. Under the finger the hero and the line
-/// below speak as on Live.
+/// below speak as on Live. The rest of today is the ghost of what the box
+/// plans or forecasts for each series, so the whole day reads as one
+/// picture. A tap opens the chart on the whole screen.
 struct HistoryChartArea: View {
     let site: SiteModel
     let node: EnergyNode
@@ -143,15 +145,29 @@ struct HistoryChartArea: View {
     let period: NodeView.Timebase
     let series: [EnergyNode]
     let text: PeriodText
+    var onTap: (() -> Void)?
     @State private var size: CGSize = .zero
     @State private var shown: YDomain?
     @ScaledMetric(relativeTo: .caption2) private var axis: CGFloat = 10
     @ScaledMetric(relativeTo: .caption) private var tag: CGFloat = 11
 
+    /// The frame for a scale: the right gutter holds its widest label.
+    private func frame(_ domain: YDomain?) -> ChartFrame {
+        ChartFrame(top: tag * 1.35 + 8, bottom: axis * 1.4 + 4, trailing: ChartAxes.gutter(domain, axis: axis))
+    }
+
+    /// The picture and its frame: built for the scale on screen, and again
+    /// in the rare case the new scale's labels need another gutter.
+    private func made() -> (frame: ChartFrame, picture: HistoryPicture?) {
+        let first = frame(shown)
+        let picture = build(first.plot(in: size).size)
+        guard let domain = picture?.domain, frame(domain) != first else { return (first, picture) }
+        let fitted = frame(domain)
+        return (fitted, build(fitted.plot(in: size).size))
+    }
+
     var body: some View {
-        let frame = ChartFrame(top: tag * 1.35 + 8, bottom: axis * 1.4 + 4, trailing: axis * 3.2)
-        let plot = frame.plot(in: size).size
-        let picture = build(plot)
+        let (frame, picture) = made()
         let own = picture?.layers.first
         ZStack {
             Color.clear
@@ -183,7 +199,8 @@ struct HistoryChartArea: View {
                         let when = (readouts.when[r.lowerBound].components(separatedBy: "–").first ?? "") + "–" + (readouts.when[r.upperBound].components(separatedBy: "–").last ?? "")
                         let means = own.series.buckets[r].compactMap(\.mean)
                         return means.isEmpty ? when : when + "  " + NodeWords.format("avg %@", AppWords.power(abs(means.reduce(0, +) / Double(means.count))))
-                    }
+                    },
+                    onTap: onTap
                 )
             } else if let problem = home.nodes.history.problem {
                 Text(problem).font(.footnote).foregroundStyle(Theme.ink3).multilineTextAlignment(.center)
@@ -205,15 +222,41 @@ struct HistoryChartArea: View {
         let now = site.minuteMs + 60_000
         let window = period == .today ? HistoryPicture.day(now, clock: clock) : HistoryPicture.twoDays(now)
         var inputs: [(key: String, samples: [ChartSample])] = []
+        var ahead: [String: (kind: AheadPicture.Kind, slots: [AheadPicture.Mark])] = [:]
         for n in series {
             let samples = Self.samples(n, home: home, fromMs: window.fromMs)
             if !samples.isEmpty || n == node { inputs.append((n.rawValue, samples)) }
+            // Today runs to midnight: the rest of it as the box sees it.
+            if period == .today, let plan = Self.ahead(n, home: home, nowMs: site.minuteMs) { ahead[n.rawValue] = plan }
         }
         let words = ReadoutWords(value: { AppWords.power(abs($0)) }, range: { "\(AppWords.decimal(PowerFormat.fixed(abs($0) / 1000, 1)))–\(AppWords.decimal(PowerFormat.fixed(abs($1) / 1000, 1)))" }, none: NodeWords.text("no data"))
         let weekday: @Sendable (Double) -> String = { ms in
             Date(timeIntervalSince1970: ms / 1000).formatted(.dateTime.weekday(.abbreviated).locale(Locale(identifier: AppWords.language == .sv ? "sv_SE" : "en_US"))).uppercased().replacingOccurrences(of: ".", with: "")
         }
-        return HistoryPicture.build(inputs, fromMs: window.fromMs, toMs: window.toMs, nowMs: now, size: plot, previous: shown, floor: node.scaleFloorW(), clock: clock, everyHours: period == .today ? 6 : 12, weekday: period == .today ? nil : weekday, words: words)
+        return HistoryPicture.build(inputs, ahead: ahead, fromMs: window.fromMs, toMs: window.toMs, nowMs: now, size: plot, previous: shown, floor: node.scaleFloorW(), clock: clock, everyHours: period == .today ? 6 : 12, weekday: period == .today ? nil : weekday, words: words)
+    }
+
+    /// What the box plans or forecasts for a node from now on, as Ahead
+    /// draws it: the battery's and the grid's plan, the car's windows, the
+    /// sun's and the home's forecast. Nil where it has none.
+    static func ahead(_ node: EnergyNode, home: HomeModels, nowMs: Double) -> (kind: AheadPicture.Kind, slots: [AheadPicture.Mark])? {
+        let plan = home.nodes.plan
+        let marks: [AheadPicture.Mark]
+        var kind = AheadPicture.Kind.plan
+        switch node {
+        case .battery, .grid:
+            marks = (plan.plan?.slots ?? []).filter { $0.endMs > nowMs }.map { AheadPicture.Mark(startMs: $0.startMs, endMs: $0.endMs, watts: node == .battery ? $0.batteryW : $0.gridW) }
+        case .solar, .home:
+            kind = .forecast
+            marks = plan.forecast.filter { $0.startMs + $0.durationMs > nowMs }.map { AheadPicture.Mark(startMs: $0.startMs, endMs: $0.startMs + $0.durationMs, watts: node == .solar ? $0.pvW : $0.loadW) }
+        case .car:
+            marks = home.loadpoints.points.flatMap { lp in
+                (home.loadpoints.windows[lp.id] ?? lp.planWindows).filter { $0.toMs > nowMs }.map { w in
+                    AheadPicture.Mark(startMs: w.fromMs, endMs: w.toMs, watts: w.peakW ?? (w.energyWh ?? 0) * 3_600_000 / max(1, w.toMs - w.fromMs))
+                }
+            }
+        }
+        return marks.isEmpty ? nil : (kind, marks)
     }
 
     /// One node's five-minute means as the chart reads them. The box keeps
@@ -301,14 +344,32 @@ struct AheadChartArea: View {
     let home: HomeModels
     let scrub: ScrubModel
     let text: PeriodText
+    var onTap: (() -> Void)?
     @State private var size: CGSize = .zero
+    @State private var shown: YDomain?
     @ScaledMetric(relativeTo: .caption2) private var axis: CGFloat = 10
     @ScaledMetric(relativeTo: .caption) private var tag: CGFloat = 11
 
+    private static let strip = AheadDrawing.stripHeight
+
+    /// The frame for a scale: the right gutter holds its widest label.
+    private func frame(_ domain: YDomain?) -> ChartFrame {
+        ChartFrame(top: tag * 1.35 + 8, bottom: 6 + Self.strip + axis * 1.4 + 4, trailing: ChartAxes.gutter(domain, axis: axis))
+    }
+
+    /// What is drawn and its frame, as on Today: built again only when the
+    /// new scale's labels need another gutter.
+    private func fitted() -> (frame: ChartFrame, made: Built?) {
+        let first = frame(shown)
+        let made = build(first.plot(in: size).size)
+        guard let domain = made?.picture.domain, frame(domain) != first else { return (first, made) }
+        let fitted = frame(domain)
+        return (fitted, build(fitted.plot(in: size).size))
+    }
+
     var body: some View {
-        let strip: CGFloat = 18
-        let frame = ChartFrame(top: tag * 1.35 + 8, bottom: 6 + strip + axis * 1.4 + 4, trailing: axis * 3.8)
-        let made = build(frame.plot(in: size).size)
+        let strip = Self.strip
+        let (frame, made) = fitted()
         ZStack {
             Color.clear
             if let made {
@@ -333,7 +394,8 @@ struct AheadChartArea: View {
                     frame: frame,
                     model: scrub,
                     tagSize: tag,
-                    spanTag: { r in Readouts.span(picture.grid.startMs(r.lowerBound), picture.grid.endMs(r.upperBound)) }
+                    spanTag: { r in Readouts.span(picture.grid.startMs(r.lowerBound), picture.grid.endMs(r.upperBound)) },
+                    onTap: onTap
                 )
                 .onChange(of: picture, initial: true) { _, now in
                     let slots = (0..<now.grid.count).map { i in
@@ -350,6 +412,7 @@ struct AheadChartArea: View {
         }
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
+        .onChange(of: made?.picture.domain) { _, now in shown = now }
         .accessibilityElement()
         .accessibilityLabel(L("Ahead"))
     }
@@ -405,7 +468,11 @@ struct AheadChartArea: View {
             nowMs: now,
             spanMs: PlanModel.aheadMs,
             size: plot,
+            previous: shown,
             floor: node.scaleFloorW(),
+            // The car's scale is its charger at its most, so it never flips
+            // with what the plan holds.
+            top: node == .car ? home.loadpoints.points.compactMap(\.maxChargeW).max() : nil,
             clock: ZoneClock.of(.current)
         )
         return Built(picture: picture, bars: bars, prices: prices, currency: currency, forecast: forecast)

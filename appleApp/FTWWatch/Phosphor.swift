@@ -1,5 +1,6 @@
 import FTWShared
 import SwiftUI
+import WatchKit
 
 // Phosphor on the wrist: light means live. Only a reading the phone just
 // passed on live may light up; everything else is ink and holds still.
@@ -7,21 +8,61 @@ import SwiftUI
 // 10-cell meter, the receipt log and the lit dot. The block price bars
 // live on the dial and the price page.
 
-/// The mono status line: `● LIVE · FTW IN CONTROL`, `○ AS OF 14:05`.
+/// The mono status line in the watch's short form: `● LIVE · FTW IN
+/// CONTROL`, `○ 07:00 · FTW IN CONTROL`, or a command's receipt for its
+/// time. One size in every state, set by the screen's width so that the
+/// longest ordinary line in the phone's language fits: it never shrinks
+/// and never cuts. A warning that runs longer takes a second line rather
+/// than lose its words.
 struct StatusLine: View {
     let status: WatchGlance.Status
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(alignment: .top, spacing: 3) {
             LitDot(isLive: status.lit)
-            Text(status.text)
-                .font(Theme.mono(.caption2))
-                .foregroundStyle(status.alarm ? Theme.alarm : Theme.ink2)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .frame(height: Self.size * 1.2)
+            status.parts.enumerated().reduce(Text(verbatim: "")) { line, item in
+                let (i, part) = item
+                return Text("\(line)\(i == 0 ? "" : "\u{00A0}· ")\(Text(verbatim: part.text).foregroundStyle(Self.color(part.tone)))")
+            }
+            .font(.system(size: Self.size, weight: .medium, design: .monospaced))
+            .foregroundStyle(Theme.ink3)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .contentTransition(.opacity)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .accessibilityElement(children: .combine)
+        .animation(Theme.spring, value: status)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(status.text)
+        .accessibilityIdentifier("watch.status")
     }
+
+    private static func color(_ tone: WatchGlance.Status.Tone) -> Color {
+        switch tone {
+        case .ink: return Theme.ink2
+        case .live: return Theme.live
+        case .alarm: return Theme.alarm
+        }
+    }
+
+    /// SF Mono's advance, in em, with a hair to spare.
+    static let advance: CGFloat = 0.605
+    /// Room kept clear of the page dots at the right edge: 4–5 pt of gap
+    /// on 40 mm.
+    static let clearOfDots: CGFloat = 8
+    /// What the line does not get of the screen's width: the page's edges
+    /// (about 4.5 and 3 pt), the dot and its gap, and `clearOfDots`.
+    static let inset: CGFloat = 28
+
+    /// The size that holds `WatchGlance.statusChars` across this screen:
+    /// 10 pt on 40 mm and 13 pt on 46 mm in English, larger in Swedish,
+    /// whose words are shorter.
+    static let size: CGFloat = {
+        let width = WKInterfaceDevice.current().screenBounds.width
+        let fit = (width - inset) / (CGFloat(WatchGlance.statusChars) * advance)
+        return min(13, max(10, (fit * 2).rounded(.down) / 2))
+    }()
 }
 
 /// The phosphor dot: lit lime while live, a hollow ink ring otherwise. It
@@ -34,12 +75,12 @@ struct LitDot: View {
 
     var body: some View {
         ZStack {
-            Circle().fill(Theme.live.opacity(isLive ? 0.18 : 0)).frame(width: 11, height: 11)
-            Circle().fill(Theme.live.opacity(isLive ? 0.35 : 0)).frame(width: 8, height: 8)
+            Circle().fill(Theme.live.opacity(isLive ? 0.18 : 0)).frame(width: 9.5, height: 9.5)
+            Circle().fill(Theme.live.opacity(isLive ? 0.35 : 0)).frame(width: 7.5, height: 7.5)
             Circle().fill(isLive ? Theme.live : .clear).frame(width: 5.5, height: 5.5)
             Circle().stroke(Theme.ink3, lineWidth: 1).frame(width: 5.5, height: 5.5).opacity(isLive ? 0 : 1)
         }
-        .frame(width: 11, height: 11)
+        .frame(width: 9.5, height: 9.5)
         .animation(reduceMotion ? nil : (isLive ? Theme.spring : .easeOut(duration: 0.4)), value: isLive)
     }
 }
