@@ -6,3 +6,5 @@
 "TOMORROW" = "TOMORROW";
 "No price yet" = "No price yet";
 "Below zero: you are paid to use power" = "Below zero: you are paid to use power";
+"STORES %@ AT %@" = "STORES %@ AT %@";
+"GIVES %@ AT %@" = "GIVES %@ AT %@";

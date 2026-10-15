@@ -16,6 +16,19 @@ public struct AheadPicture: Equatable, Sendable {
         public var label: String
     }
 
+    /// One slot as the box gave it.
+    public struct Mark: Equatable, Sendable {
+        public var startMs: Double
+        public var endMs: Double
+        public var watts: Double
+
+        public init(startMs: Double, endMs: Double, watts: Double) {
+            self.startMs = startMs
+            self.endMs = endMs
+            self.watts = watts
+        }
+    }
+
     public var kind: Kind
     public var grid: SlotGrid
     public var domain: YDomain
@@ -23,8 +36,11 @@ public struct AheadPicture: Equatable, Sendable {
     /// Watts per slot, signed as the node shows them; nil where the box
     /// says nothing.
     public var values: [Double?]
-    /// A forecast's dashed line through each slot's middle, one subpath per
-    /// run; empty for a plan.
+    /// A forecast's own slots, which may be longer than the grid's: its
+    /// line runs through their middles.
+    public var marks: [Mark]
+    /// A forecast's dashed line through its own slots' middles, one
+    /// subpath per run; empty for a plan.
     public var line: ChartPath
     /// The price per slot by third of the window's range, and its height in
     /// eighths of the window's range: the block bars of the strip.
@@ -34,7 +50,9 @@ public struct AheadPicture: Equatable, Sendable {
     public var ticks: [Tick]
 
     /// `slots` and `prices` as they come; the window runs `spanMs` from the
-    /// slot that holds `nowMs`.
+    /// slot that holds `nowMs`. `top`, when known, fixes the scale's top
+    /// (the car's charger at its most), so the scale never flips with
+    /// what the plan holds.
     public static func build(
         kind: Kind,
         slots: [(startMs: Double, endMs: Double, watts: Double?)],
@@ -44,6 +62,7 @@ public struct AheadPicture: Equatable, Sendable {
         size: CGSize,
         previous: YDomain? = nil,
         floor: Double = 1,
+        top: Double? = nil,
         clock: ZoneClock,
         everyHours: Int = 3
     ) -> AheadPicture {
@@ -64,9 +83,10 @@ public struct AheadPicture: Equatable, Sendable {
             minor[i] = value(prices, { $0.startMs }, { $0.endMs }, at: ms)?.minor
         }
         let known = values.compactMap { $0 }
-        let domain = YDomain.stable(low: min(0, known.min() ?? 0), high: max(0, known.max() ?? 0), previous: previous, floor: floor)
+        let domain = Self.domain(low: min(0, known.min() ?? 0), high: max(0, known.max() ?? 0), previous: previous, floor: floor, top: top)
 
-        let line = kind == .forecast ? forecastLine(values, grid: grid, domain: domain, size: size) : ChartPath()
+        let marks = kind == .forecast ? ahead.compactMap { s in s.watts.map { Mark(startMs: s.startMs, endMs: s.endMs, watts: $0) } } : []
+        let line = forecastLine(marks, fromMs: grid.fromMs, toMs: grid.toMs, domain: domain, size: size)
 
         let prices = minor.compactMap { $0 }
         let lo = prices.min() ?? 0, hi = prices.max() ?? 0
@@ -92,22 +112,39 @@ public struct AheadPicture: Equatable, Sendable {
             t += hour
         }
 
-        return AheadPicture(kind: kind, grid: grid, domain: domain, size: size, values: values, line: line, priceThirds: thirds, priceLevels: levels, nowMs: nowMs, ticks: ticks)
+        return AheadPicture(kind: kind, grid: grid, domain: domain, size: size, values: values, marks: marks, line: line, priceThirds: thirds, priceLevels: levels, nowMs: nowMs, ticks: ticks)
     }
 
-    /// A forecast's line through each slot's middle, one monotone subpath
-    /// per run of values.
-    public static func forecastLine(_ values: [Double?], grid: SlotGrid, domain: YDomain, size: CGSize) -> ChartPath {
+    /// The scale for values from `low` to `high`: as `YDomain.stable`, or
+    /// with its top fixed at `top` unless a value goes past it.
+    public static func domain(low: Double, high: Double, previous: YDomain?, floor: Double, top: Double?) -> YDomain {
+        let stable = YDomain.stable(low: low, high: high, previous: previous, floor: floor)
+        guard let top, top.isFinite, top > 0 else { return stable }
+        return YDomain(lower: stable.lower, upper: high > top ? YDomain.nice(high * 1.1) : top)
+    }
+
+    /// A forecast's line, Steffen through the middle of each of its own
+    /// slots across a window from `fromMs` to `toMs`, so an hourly forecast
+    /// on a grid of quarters bends instead of stepping. A slot that holds
+    /// the window's start also gives it a point there, so the line starts
+    /// at the left edge. One subpath per run: where the slots stop touching,
+    /// the line breaks.
+    public static func forecastLine(_ marks: [Mark], fromMs: Double, toMs: Double, domain: YDomain, size: CGSize) -> ChartPath {
+        guard toMs > fromMs else { return ChartPath() }
         let map = YMap(domain: domain, height: size.height)
+        func x(_ ms: Double) -> CGFloat { CGFloat((ms - fromMs) / (toMs - fromMs)) * size.width }
         var line = ChartPath()
         var run: [CGPoint] = []
-        for i in values.indices {
-            guard let v = values[i] else {
+        var end = -Double.infinity
+        for m in marks.sorted(by: { $0.startMs < $1.startMs }) where m.endMs > fromMs && m.startMs < toMs {
+            if m.startMs > end + 1 {
                 line.addMonotone(run)
                 run = []
-                continue
             }
-            run.append(CGPoint(x: grid.midX(i, width: size.width), y: map.y(v)))
+            let mid = (m.startMs + m.endMs) / 2
+            if run.isEmpty, m.startMs <= fromMs, mid > fromMs { run.append(CGPoint(x: 0, y: map.y(m.watts))) }
+            run.append(CGPoint(x: x(mid), y: map.y(m.watts)))
+            end = m.endMs
         }
         line.addMonotone(run)
         return line
@@ -119,12 +156,18 @@ public struct AheadPicture: Equatable, Sendable {
     /// picture starts at zero; one gone is not drawn. Nil when the slots
     /// differ (a new window draws at once) or the move is over.
     public func blended(from old: AheadPicture, progress: Double) -> (values: [Double?], line: ChartPath)? {
-        guard progress < 1, old.kind == kind, old.grid == grid, old.size == size, old.values != values else { return nil }
+        guard progress < 1, old.kind == kind, old.grid == grid, old.size == size, old.values != values || old.marks != marks else { return nil }
         let k = max(0, progress)
         let mixed: [Double?] = zip(old.values, values).map { a, b in
             guard let b else { return nil }
             return (a ?? 0) + (b - (a ?? 0)) * k
         }
-        return (mixed, kind == .forecast ? Self.forecastLine(mixed, grid: grid, domain: domain, size: size) : ChartPath())
+        guard kind == .forecast else { return (mixed, ChartPath()) }
+        var before = [Double: Double](minimumCapacity: old.marks.count)
+        for m in old.marks { before[m.startMs] = m.watts }
+        let moving = marks.map { m in
+            Mark(startMs: m.startMs, endMs: m.endMs, watts: (before[m.startMs] ?? 0) + (m.watts - (before[m.startMs] ?? 0)) * k)
+        }
+        return (mixed, Self.forecastLine(moving, fromMs: grid.fromMs, toMs: grid.toMs, domain: domain, size: size))
     }
 }

@@ -52,6 +52,11 @@ public struct PriceChart: Equatable, Sendable {
     public var tag: [String]
     /// Per slot: a negative price in words, and what the plan does then.
     public var doing: [String]
+    /// What the plan does at these prices, in one mono line: the first time
+    /// in the window the battery stores and the first it gives power, each
+    /// with the prices it meets, `STORES 09:15–15:30 AT 58–90 · GIVES
+    /// 17–20 AT 150–176 ÖRE`. Empty with no plan, or none for the battery.
+    public var planLine: String
     public var currency: String
     /// The clock at each slot's edge: entry `i` starts slot `i`, the last
     /// ends the window.
@@ -198,6 +203,8 @@ public struct PriceChart: Equatable, Sendable {
             doing.append(parts.joined(separator: " · "))
         }
 
+        let planLine = plan.map { Self.planLine($0, grid: grid, minor: minor, currency: currency, clock: clock) } ?? ""
+
         var sums = [0.0], counts = [0]
         for m in minor {
             sums.append(sums[sums.count - 1] + (m ?? 0))
@@ -224,12 +231,35 @@ public struct PriceChart: Equatable, Sendable {
             figure: figures,
             tag: tags,
             doing: doing,
+            planLine: planLine,
             currency: currency,
             edges: edges,
             sums: sums,
             counts: counts,
             landmarks: landmarks
         )
+    }
+
+    /// The plan's first run of storing and of giving power inside the
+    /// grid's window, in the order they come, each with the range of the
+    /// prices under it in whole units.
+    static func planLine(_ plan: PlanEntry, grid: SlotGrid, minor: [Double?], currency: String, clock: ZoneClock) -> String {
+        let runs = PlanGlance.events(plan, fromMs: grid.fromMs, toMs: grid.toMs).filter { $0.kind == .charge || $0.kind == .discharge }
+        var parts: [(startMs: Double, text: String)] = []
+        for kind in [PlanGlance.Kind.charge, .discharge] {
+            guard let e = runs.first(where: { $0.kind == kind }) else { continue }
+            let a = max(e.startMs, grid.fromMs), b = min(e.endMs, grid.toMs)
+            guard b > a else { continue }
+            let prices = (0..<grid.count).filter { grid.startMs($0) < b && grid.endMs($0) > a }.compactMap { minor[$0] }
+            guard let lo = prices.min(), let hi = prices.max() else { continue }
+            func whole(_ m: Double) -> String { String(Int(PriceUnits.display(max(0, m), currency).rounded())) }
+            let range = whole(lo) == whole(hi) ? whole(lo) : whole(lo) + "–" + whole(hi)
+            let onHours = clock.minuteOfDay(a) % 60 == 0 && clock.minuteOfDay(b) % 60 == 0
+            let span = onHours ? String(clock.label(a).prefix(2)) + "–" + String(clock.label(b).prefix(2)) : clock.label(a) + "–" + clock.label(b)
+            parts.append((a, (kind == .charge ? PriceWord.stores : PriceWord.gives).format(span, range)))
+        }
+        guard !parts.isEmpty else { return "" }
+        return parts.sorted { $0.startMs < $1.startMs }.map(\.text).joined(separator: " · ") + " " + PriceUnits.unit(currency).label.uppercased()
     }
 
     /// The same from the bars a summary or a widget moment already holds.
@@ -248,6 +278,8 @@ enum PriceWord: String, CaseIterable {
     case tomorrow = "TOMORROW"
     case noPriceYet = "No price yet"
     case paid = "Below zero: you are paid to use power"
+    case stores = "STORES %@ AT %@"
+    case gives = "GIVES %@ AT %@"
 
     var text: String { Words.bundle.localizedString(forKey: rawValue, value: rawValue, table: "Price") }
 

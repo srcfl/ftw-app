@@ -15,6 +15,40 @@ public struct HistoryPicture: Equatable, Sendable {
     public struct Layer: Equatable, Sendable {
         public var key: String
         public var series: ChartSeries
+        /// What the box plans or forecasts for the rest of the window,
+        /// drawn as Ahead draws it, from now on.
+        public var ghost: Ghost?
+    }
+
+    /// The hours after now as the ghost of the plan or the forecast: a
+    /// plan's slots as faint bars, a forecast as a dashed line through its
+    /// own slots' middles. On the window's own x, so it meets the measured
+    /// line at now.
+    public struct Ghost: Equatable, Sendable {
+        public var kind: AheadPicture.Kind
+        /// The plan's slots across the window: `fromMs` and `toMs` are the
+        /// window's, so a slot's x is the chart's.
+        public var grid: SlotGrid
+        public var values: [Double?]
+        /// A forecast's line on the picture's scale; empty for a plan.
+        public var line: ChartPath
+
+        /// The ghost of `slots` in a window from `fromMs` to `toMs`, from
+        /// the slot that holds `nowMs`: one grid step, the shortest slot.
+        static func build(_ kind: AheadPicture.Kind, slots: [AheadPicture.Mark], fromMs: Double, toMs: Double, nowMs: Double, domain: YDomain, size: CGSize) -> Ghost? {
+            let after = slots.filter { $0.endMs > nowMs && $0.startMs < toMs && $0.endMs > $0.startMs }.sorted { $0.startMs < $1.startMs }
+            guard let first = after.first else { return nil }
+            let stepMs = max(60_000, after.map { $0.endMs - $0.startMs }.min() ?? 900_000)
+            let count = max(1, Int(((min(toMs, after.map(\.endMs).max() ?? toMs) - first.startMs) / stepMs).rounded(.up)))
+            let grid = SlotGrid(firstMs: first.startMs, stepMs: stepMs, count: count, fromMs: fromMs, toMs: toMs)
+            var values = [Double?](repeating: nil, count: count)
+            for i in 0..<count {
+                let ms = grid.startMs(i) + stepMs / 2
+                values[i] = after.first { $0.startMs <= ms && ms < $0.endMs }?.watts
+            }
+            let line = kind == .forecast ? AheadPicture.forecastLine(after, fromMs: fromMs, toMs: toMs, domain: domain, size: size) : ChartPath()
+            return Ghost(kind: kind, grid: grid, values: values, line: line)
+        }
     }
 
     /// A time label: "06", or a weekday at midnight on two days.
@@ -40,8 +74,12 @@ public struct HistoryPicture: Equatable, Sendable {
 
     /// `inputs` in drawing order, the chart's own series first. `everyHours`
     /// spaces the time labels; `weekday` names a midnight on two days.
+    /// `ahead`, per key, is the plan or the forecast for the slots after
+    /// now: its ghost fills the rest of the window, and the scale holds it
+    /// too, so the whole day reads as one picture.
     public static func build(
         _ inputs: [(key: String, samples: [ChartSample])],
+        ahead: [String: (kind: AheadPicture.Kind, slots: [AheadPicture.Mark])] = [:],
         fromMs: Double,
         toMs: Double,
         nowMs: Double?,
@@ -60,10 +98,20 @@ public struct HistoryPicture: Equatable, Sendable {
             let e = DisplayBucket.extent(DisplayBucket.buckets(input.samples, stepMs: stepMs, fromMs: fromMs, toMs: toMs, clock: clock))
             low = min(low, e.low)
             high = max(high, e.high)
+            if let nowMs, let plan = ahead[input.key] {
+                for m in plan.slots where m.endMs > nowMs && m.startMs < toMs {
+                    low = min(low, m.watts)
+                    high = max(high, m.watts)
+                }
+            }
         }
         let domain = YDomain.stable(low: low, high: high, previous: previous, floor: floor)
         let layers = inputs.map { input in
-            Layer(key: input.key, series: ChartSeries.history(input.samples, fromMs: fromMs, toMs: toMs, nowMs: nowMs, size: size, clock: clock, domain: domain, words: words))
+            Layer(
+                key: input.key,
+                series: ChartSeries.history(input.samples, fromMs: fromMs, toMs: toMs, nowMs: nowMs, size: size, clock: clock, domain: domain, words: words),
+                ghost: nowMs.flatMap { now in ahead[input.key].flatMap { Ghost.build($0.kind, slots: $0.slots, fromMs: fromMs, toMs: toMs, nowMs: now, domain: domain, size: size) } }
+            )
         }
         let grid = layers.first?.series.grid ?? SlotGrid(firstMs: fromMs, stepMs: stepMs, count: 0, fromMs: fromMs, toMs: toMs)
         let limit = layers.compactMap(\.series.lastData).max()

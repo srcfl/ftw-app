@@ -80,6 +80,9 @@ public struct LiveSeries: Equatable, Sendable {
     /// The last raw reading, where the head sits.
     public var head: CGPoint?
     public var last: LiveSample?
+    /// Every reading in the window is at rest: the chart draws the dotted
+    /// baseline mid-plot, as Now draws a node at rest, and no line.
+    public var atRest = false
 
     /// Points per ms across the plot.
     public var ptPerMs: CGFloat { windowMs > 0 ? (size.width - inset) / CGFloat(windowMs) : 0 }
@@ -118,7 +121,8 @@ public struct LiveSeries: Equatable, Sendable {
     /// relay); the device's own read period, from its readings unless
     /// `periodMs` is given, can only lengthen it. `previous` is the domain
     /// on screen, so the axis holds still; `floor` is the node's least
-    /// scale.
+    /// scale. With `restW`, the scale comes from the window alone
+    /// (`domain(low:high:restW:previous:)`) and `floor` is not used.
     public static func build(
         _ frames: [LiveSample],
         sourceGapMs: Double,
@@ -128,6 +132,7 @@ public struct LiveSeries: Equatable, Sendable {
         size: CGSize,
         previous: YDomain? = nil,
         floor: Double = 1,
+        restW: Double? = nil,
         sigma: CGFloat = LiveSeries.sigma,
         inset: CGFloat = LiveSeries.headInset
     ) -> LiveSeries {
@@ -148,13 +153,15 @@ public struct LiveSeries: Equatable, Sendable {
                 high = max(high, f.high)
             }
         }
-        let domain = YDomain.stable(low: low, high: high, previous: previous, floor: floor)
+        let domain = restW.map { Self.domain(low: low, high: high, restW: $0, previous: previous) }
+            ?? YDomain.stable(low: low, high: high, previous: previous, floor: floor)
         var series = LiveSeries(
             nowMs: nowMs, windowMs: windowMs, size: size, inset: inset, domain: domain, periodMs: period, gapMs: gap,
             runs: runs, curves: [], frames: frameBands, gaps: [],
             line: ChartPath(), lineUnseen: ChartPath(), body: ChartPath(), bodyUnseen: ChartPath(), band: ChartPath(),
             head: nil, last: runs.last?.last
         )
+        if let restW, !runs.isEmpty { series.atRest = high <= restW && low >= -restW }
         let pt = series.ptPerMs
         // 2.5 pt is about 2 s: enough to calm a 1 Hz meter. A slower device
         // leaves its readings further apart than that, so the Gaussian
@@ -177,6 +184,27 @@ public struct LiveSeries: Equatable, Sendable {
             series.head = CGPoint(x: series.x(last.t), y: series.map.y(last.v))
         }
         return series
+    }
+
+    /// The live scale, from the window's own readings: each side ends on
+    /// nice(1.1 × its peak), and a side is there only when the window goes
+    /// past rest that way, so a window of one sign keeps zero at the edge
+    /// and a 450 W battery fills most of the plot. A window at rest has no
+    /// peak to fit: zero sits mid-plot, on the least scale either side.
+    /// The scale holds still as `YDomain.stable` does, except that the
+    /// rest scale is never held.
+    public static func domain(low: Double, high: Double, restW: Double, previous: YDomain?) -> YDomain {
+        let rest = restDomain(restW)
+        let up = high > restW ? high : 0
+        let down = low < -restW ? low : 0
+        guard up > 0 || down < 0 else { return rest }
+        return YDomain.stable(low: down, high: up, previous: previous == rest ? nil : previous, floor: max(restW, 1))
+    }
+
+    /// Zero mid-plot, on the least scale a side may have.
+    public static func restDomain(_ restW: Double) -> YDomain {
+        let r = YDomain.nice(max(restW, 1) * 1.1)
+        return YDomain(lower: -r, upper: r)
     }
 
     /// One run's curve into the line and body paths, split where this
