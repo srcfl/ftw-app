@@ -57,6 +57,9 @@ public final class SimulatedBox {
     /// plan is pending meanwhile. A hold replans nothing, as in Core.
     public var replanMs: Double = 300
     private var replanning: Cancellable?
+    /// How long an API answer waits to leave after the box made it: a slow
+    /// box, whose answer can land after a newer push.
+    public var answerDelayMs: Double = 0
     /// The last schedule body the app sent, as sent.
     public private(set) var lastScheduleBody: JSON?
     /// The box the demo is showing, for the demo's own controls (plug the
@@ -492,7 +495,11 @@ public final class SimulatedBox {
             break
         }
         let (status, json) = answer(method, route.pattern, route.id, query, requestBody)
-        respond(id, status: status, json: json)
+        guard answerDelayMs > 0 else {
+            respond(id, status: status, json: json)
+            return
+        }
+        scheduler.after(answerDelayMs) { [weak self] in self?.respond(id, status: status, json: json) }
     }
 
     /// Core's answer to "Are we in control?" for the demo's battery and
@@ -872,27 +879,40 @@ extension SimulatedBox {
     /// The charger's share of the plan, as Core puts it on the plan it
     /// sends. A box that keeps no cars names none.
     func planCharger(nowMs: Double) -> PlanCharger {
-        let quiet = replanning != nil
-        var car = PlanCharger(id: "garage", pluggedIn: house.carPluggedIn, pending: quiet, outdated: quiet, windows: [], totalWh: 0)
-        if !quiet, let p = house.carPlan(nowMs), p.endMs > p.startMs, p.endMs > nowMs {
+        let pending = replanning != nil
+        var car = PlanCharger(id: "garage", pluggedIn: house.carPluggedIn, pending: pending, outdated: pending, goalRev: goalRev, windows: [], totalWh: 0)
+        if let p = house.carPlan(nowMs), p.endMs > p.startMs, p.endMs > nowMs {
             car.windows = [Loadpoint.Window(fromMs: p.startMs.rounded(), toMs: p.endMs.rounded(), peakW: nil, energyWh: p.wh)]
             car.totalWh = p.wh
-            car.shortfallWh = p.shortfallWh
+            car.shortfallWh = pending ? nil : p.shortfallWh
         }
         return car
     }
 
+    /// Moves when the goal or solar-only choice does, as Core's does.
+    var goalRev: UInt32 {
+        let s = house.schedule
+        let text = "\(s.map { "\($0.socFraction) \($0.clockMin) \($0.recurring) \($0.days)" } ?? "-") \(house.surplusOnly)"
+        return text.utf8.reduce(2_166_136_261) { ($0 ^ UInt32($1)) &* 16_777_619 }
+    }
+
     /// Something the plan depends on changed: the box replans, saying so
-    /// meanwhile, and a box that pushes sends the new plan to the stream.
+    /// meanwhile. A box that pushes sends the plan when the replan starts,
+    /// pending, and again when the new one is made.
     public func replan() {
         replanning?.cancel()
         replanning = scheduler.after(replanMs) { [weak self] in
             guard let self else { return }
             self.replanning = nil
             self.house.planRev += 1
-            guard self.pushesPlan, self.subscription != nil else { return }
-            self.sendBulk(Envelope(t: "plan", b: self.sessionPlan().wire))
+            self.pushPlan()
         }
+        pushPlan()
+    }
+
+    private func pushPlan() {
+        guard pushesPlan, subscription != nil else { return }
+        sendBulk(Envelope(t: "plan", b: sessionPlan().wire))
     }
 }
 

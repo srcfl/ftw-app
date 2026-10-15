@@ -28,7 +28,8 @@ public protocol ChargeNowHost: AnyObject {
 /// No timer asks the box. The chargers are read when a screen that shows
 /// them appears, after a command, when the stream says the car started or
 /// stopped drawing power, when FTW Cloud or a pushed plan says a cable went
-/// in or out, and when the stream comes back. Each car's plan comes with
+/// in or out, when a pushed plan says the goal changed elsewhere, and when
+/// the stream comes back. Each car's plan comes with
 /// the plan the box pushes when it replans. A box whose plan comes without
 /// chargers pushes none: it is read each quarter while a car is plugged in, and
 /// every 15 s while it says its plan is being made or a cable just moved.
@@ -102,6 +103,11 @@ public final class LoadpointsModel: Activatable {
         didSet { plugNewsAtMs = site.scheduler.nowMs }
     }
     @ObservationIgnored private var plugNewsAtMs: Double?
+    /// Bumped when a pushed plan says a charger's goal changed, wherever
+    /// that was done: the schedule and target are read once.
+    @ObservationIgnored private var goalNews = 0
+    /// Each charger's goal revision as the last pushed plan gave it.
+    @ObservationIgnored private var goalRevs: [String: UInt32] = [:]
     /// The plan whose chargers were last taken, so a pushed plan is taken
     /// once.
     @ObservationIgnored private var planTaken: Plan?
@@ -197,9 +203,13 @@ public final class LoadpointsModel: Activatable {
         var nextShortfall = shortfallWh
         var lps = points
         for car in chargers {
-            let quiet = car.pending || car.outdated
-            nextWindows[car.id] = quiet ? [] : car.windows
-            nextShortfall[car.id] = quiet ? nil : car.shortfallWh
+            // While the next plan is made, the box goes on with this one.
+            nextWindows[car.id] = car.outdated && !car.pending ? [] : car.windows
+            nextShortfall[car.id] = car.pending || car.outdated ? nil : car.shortfallWh
+            if let rev = car.goalRev {
+                if let seen = goalRevs[car.id], seen != rev { goalNews += 1 }
+                goalRevs[car.id] = rev
+            }
             guard let i = lps.firstIndex(where: { $0.id == car.id }) else {
                 plugNews += 1
                 continue
@@ -215,15 +225,16 @@ public final class LoadpointsModel: Activatable {
         ask?.evaluate()
     }
 
-    /// A car's plan as the box pushed it.
+    /// A charger's plan as the box pushed it.
     static func plan(_ lp: inout Loadpoint, from car: PlanCharger) {
-        let quiet = car.pending || car.outdated
+        let gone = car.outdated && !car.pending
         lp.planPending = car.pending
         lp.planOutdated = car.outdated
-        lp.planWindows = quiet ? [] : car.windows
-        lp.planTotalWh = quiet ? nil : car.totalWh
+        lp.planWindows = gone ? [] : car.windows
+        lp.planTotalWh = gone ? nil : car.totalWh
         lp.planStartMs = lp.planWindows.first?.fromMs
         lp.planEndMs = lp.planWindows.first?.toMs
+        lp.gridDeferred = car.gridDeferred
     }
 
     /// Whether this box pushes its plan, chargers and all, each time it
@@ -251,7 +262,7 @@ public final class LoadpointsModel: Activatable {
         if ask == nil {
             ask = LiveAsk(site: site, order: .loadpoints, ttlMs: Self.readStandsMs, want: { [weak self] in
                 guard let self, self.active > 0, self.site.documentVisible, self.site.hasPassthrough else { return nil }
-                return "loadpoints \(self.rereads) \(self.drawing) \(self.plugNews)\(self.unpushedPlan)"
+                return "loadpoints \(self.rereads) \(self.drawing) \(self.plugNews) \(self.goalNews)\(self.unpushedPlan)"
             }, ask: { [weak self] in try await self?.load() })
         }
         ask?.evaluate()
@@ -260,8 +271,8 @@ public final class LoadpointsModel: Activatable {
     /// For a box known to push no plan, because its plan came without
     /// chargers: the quarter while a car is plugged in, since the box replans
     /// each quarter, and every 15 s while it says the plan is being made or
-    /// for half a minute after a cable moved, which is how long the box
-    /// takes to notice the cable and replan. Nothing until a plan has come,
+    /// for a minute after a cable moved: such a box notices a cable within
+    /// 10 s, or 40 s after a replan of its own, and then solves. Nothing until a plan has come,
     /// so a box that pushes never pays for the fallback.
     var unpushedPlan: String {
         guard let plan = site.session.plan, plan.chargers == nil else { return "" }
@@ -273,7 +284,7 @@ public final class LoadpointsModel: Activatable {
     }
 
     nonisolated static let pendingAskMs: Double = 15_000
-    nonisolated static let plugSettleMs: Double = 30_000
+    nonisolated static let plugSettleMs: Double = 60_000
 
     /// Whether the stream says a car is drawing power. A change is a reason
     /// to read the chargers; nothing else on lane 0 is.
@@ -361,11 +372,14 @@ public final class LoadpointsModel: Activatable {
             let before = Dictionary(points.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
             let now = site.scheduler.nowMs
             // A plan pushed while this read was on the wire is at least as
-            // new as the read's: its share of each car stays.
+            // new as the read's: its cable and its share of each charger stay.
             let pushed = planTakes != takes
             let read = list.map { json -> Loadpoint in
                 var lp = Loadpoint(json)
-                if pushed, let car = planTaken?.chargers?.first(where: { $0.id == lp.id }) { Self.plan(&lp, from: car) }
+                if pushed, let car = planTaken?.chargers?.first(where: { $0.id == lp.id }) {
+                    lp.pluggedIn = car.pluggedIn
+                    Self.plan(&lp, from: car)
+                }
                 return lp
             }
             if let taken = Stamped.taking(Stamped(read, asOfMs: now, origin: .relay), over: stamp) { stamp = taken }

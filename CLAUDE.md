@@ -92,10 +92,11 @@ native, and smooth enough to impress.
   the plan, the car view and the watch redraw from that push. The chargers
   are read when someone starts looking and the last read is over a minute
   old, after a command, when the stream says the car started or stopped
-  drawing, and when FTW Cloud or a pushed plan says a cable went in or out.
+  drawing, when FTW Cloud or a pushed plan says a cable went in or out, and
+  when a pushed plan says a goal changed elsewhere.
   A box whose plan comes without chargers pushes none: its chargers are also
   read each quarter while a car is plugged in and every 15 s while its plan
-  is being made or for half a minute after a cable moved, and its shortfall
+  is being made or for a minute after a cable moved, and its shortfall
   when the car view opens and when the car's plan changes.
 - **Ask by the data's age.** `LiveAsk` names what it wants by how old the
   data is (the five minutes, the quarter, the day) and keeps an answer
