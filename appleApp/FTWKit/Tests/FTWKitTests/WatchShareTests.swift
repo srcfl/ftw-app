@@ -105,4 +105,92 @@ import FTWShared
         #expect(try ctx.packed().count < 40_000)
         #expect(WatchShare.context(nil, isDemo: false, nowMs: 0).hasHome == false)
     }
+
+    /// The reply to a look carries the last three minutes the phone
+    /// recorded of each node, in one message the size the watch allows.
+    @Test func theReplyToALookCarriesTheLastThreeMinutes() async throws {
+        let rig = Rig()
+        _ = try rig.start()
+        let home = try #require(rig.app.home)
+        await rig.run(200_000, step: 1_000)
+        let now = rig.scheduler.nowMs
+        let recent = WatchShare.recent(home, nowMs: now)
+        #expect(recent.wireBytes <= WatchRecent.maxBytes)
+        let nodes = Set(recent.lanes.map(\.node))
+        #expect(nodes.isSuperset(of: [.home, .battery, .grid]))
+        let usage = recent.samples(.home)
+        // About one reading a second, across the whole window and no more.
+        #expect(usage.count >= 150 && usage.count <= 200)
+        #expect((usage.first?.t ?? 0) >= now - WatchRecent.windowMs)
+        #expect(now - (usage.last?.t ?? 0) < 3_000)
+        // Solar as what it makes, as the watch's figures say it.
+        #expect(recent.samples(.solar).allSatisfy { $0.v >= 0 })
+        #expect(usage.allSatisfy { !$0.seen })
+    }
+
+    /// While the watch looks, the plan is read with its forecast, so the
+    /// dial has its sun without the phone's plan view ever opening.
+    @Test func aLookingWatchGetsTheSun() async throws {
+        let rig = Rig()
+        _ = try rig.start()
+        let home = try #require(rig.app.home)
+        let done = WatchShare.looking(home)
+        defer { done() }
+        await rig.run(10_000)
+        #expect(home.nodes.plan.forecastStamp != nil)
+        let ctx = WatchShare.context(home, isDemo: true, nowMs: rig.scheduler.nowMs)
+        #expect(ctx.plan?.value.daylight != nil)
+    }
+
+    /// No home on the phone says why: a sign-out the watch forgets, or a
+    /// phone still opening the home the watch keeps.
+    @Test func noHomeSaysWhy() {
+        let out = WatchShare.context(nil, isDemo: false, signedOut: true, nowMs: 1)
+        let opening = WatchShare.context(nil, isDemo: false, nowMs: 1)
+        #expect(out.signedOut == true && !out.hasHome)
+        #expect(opening.signedOut == nil && !opening.hasHome)
+        let kept = WatchContext(home: "s1", isDemo: false, sentAtMs: 0)
+        #expect(WatchContext.merging(opening, over: kept) == kept)
+        #expect(WatchContext.merging(out, over: kept)?.hasHome == false)
+    }
+
+    /// A watch looking through a phone locked in a pocket gets Now at 1 Hz,
+    /// not the 0.2 Hz a hidden app asks for; the phone going to the
+    /// background meanwhile closes nothing; the end of the look lets the
+    /// phone rest again.
+    @Test func aLookingWatchKeepsTheStreamAtOneHertz() async throws {
+        let rig = Rig()
+        _ = try rig.start()
+        let home = try #require(rig.app.home)
+        let site = home.site
+        final class Frames { var at = Set<Double>() }
+        func frames(over ms: Double) async -> Int {
+            let seen = Frames()
+            let token = site.observe { if let t = site.lastFrameAtMs { seen.at.insert(t) } }
+            await rig.run(ms)
+            site.unobserve(token)
+            return seen.at.count
+        }
+        await rig.run(3_000)
+        rig.app.setVisible(false)
+        rig.app.suspend()
+        await rig.run(6_000)
+        #expect(await frames(over: 20_000) <= 6)
+
+        let done = WatchShare.looking(home)
+        #expect(site.documentVisible && site.watched)
+        await rig.run(3_000)
+        #expect(await frames(over: 20_000) >= 17)
+        rig.app.setVisible(false)
+        rig.app.suspend()
+        #expect(site.documentVisible)
+        #expect(await frames(over: 10_000) >= 8)
+        // The phone's word for how long a reading stands goes with it.
+        #expect(WatchShare.now(home)?.value.standsMs == LiveTrace.gapMs)
+
+        done()
+        #expect(!site.documentVisible && !site.watched)
+        await rig.run(6_000)
+        #expect(await frames(over: 20_000) <= 6)
+    }
 }

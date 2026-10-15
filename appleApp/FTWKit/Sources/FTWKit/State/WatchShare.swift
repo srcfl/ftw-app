@@ -14,8 +14,11 @@ import Observation
 public enum WatchShare {
     // MARK: What the watch shows
 
-    public static func context(_ home: HomeModels?, isDemo: Bool, receipt: WatchReceipt? = nil, nowMs: Double) -> WatchContext {
-        guard let home else { return .empty(sentAtMs: nowMs) }
+    /// `signedOut` says why there is no home: the phone signed out or was
+    /// never paired, so the watch forgets; else the phone is still opening
+    /// its home and the watch keeps what it has.
+    public static func context(_ home: HomeModels?, isDemo: Bool, signedOut: Bool = false, receipt: WatchReceipt? = nil, nowMs: Double) -> WatchContext {
+        guard let home else { return signedOut ? .signOut(sentAtMs: nowMs) : .opening(sentAtMs: nowMs) }
         let key = homeKey(home)
         return WatchContext(
             home: key,
@@ -31,19 +34,45 @@ public enum WatchShare {
     }
 
     /// The models the watch's pages show, read as if a screen showing them
-    /// had appeared: the prices, the chargers, the plan and the mode. Call
-    /// the returned closure when the watch looks away.
+    /// had appeared: the prices, the chargers, the plan with the forecast
+    /// that gives the dial its sun, and the mode. The stream runs as for a
+    /// screen meanwhile, at 1 Hz, even with the phone locked in a pocket, so
+    /// the wrist sees what the app would. Call the returned closure when the
+    /// watch looks away.
     public static func looking(_ home: HomeModels) -> @MainActor () -> Void {
-        let (prices, chargers, plan, mode) = (home.prices, home.loadpoints, home.nodes.plan, home.nodes.mode)
+        let (site, prices, chargers, plan, mode) = (home.site, home.prices, home.loadpoints, home.nodes.plan, home.nodes.mode)
+        site.beginWatching()
         prices.activate()
         chargers.activate()
-        plan.activate()
+        plan.activate(forecast: true)
         mode.activate()
         return {
             prices.deactivate()
             chargers.deactivate()
-            plan.deactivate()
+            plan.deactivate(forecast: true)
             mode.deactivate()
+            site.endWatching()
+        }
+    }
+
+    /// The last three minutes of each node as this phone recorded them, for
+    /// the reply to `.look`: the watch's trace opens whole, in ink.
+    public static func recent(_ home: HomeModels, nowMs: Double) -> WatchRecent {
+        let since = nowMs - WatchRecent.windowMs
+        var samples = [WatchNow.Node: [LiveSample]]()
+        for node in EnergyNode.allCases {
+            samples[watchNode(node)] = home.nodes.live.samples(node, sinceMs: since)
+        }
+        return WatchRecent.make(samples, nowMs: nowMs)
+    }
+
+    static func watchNode(_ node: EnergyNode) -> WatchNow.Node {
+        switch node {
+        case .solar: return .solar
+        case .battery: return .battery
+        case .home: return .home
+        case .grid: return .grid
+        case .car: return .car
         }
     }
 
@@ -103,7 +132,7 @@ public enum WatchShare {
         case .warning: control = .notInControl
         case .neutral, .stale: control = .unknown
         }
-        return CacheRecord(siteId: key ?? homeKey(home), carrier: site.carrier, srcState: site.isLive ? .live : .stale, readAtMs: at, value: WatchNow(readings: readings, control: control))
+        return CacheRecord(siteId: key ?? homeKey(home), carrier: site.carrier, srcState: site.isLive ? .live : .stale, readAtMs: at, value: WatchNow(readings: readings, control: control, standsMs: site.readingGapMs))
     }
 
     static func reading(_ r: NodeReading) -> WatchNow.Reading {
@@ -116,15 +145,7 @@ public enum WatchShare {
         case .grid: way = !r.flowing ? .balanced : (r.towardHome ? .buying : .selling)
         case .car: way = r.flowing ? .charging : .resting
         }
-        let node: WatchNow.Node
-        switch r.node {
-        case .solar: node = .solar
-        case .battery: node = .battery
-        case .home: node = .home
-        case .grid: node = .grid
-        case .car: node = .car
-        }
-        return WatchNow.Reading(node: node, watts: r.watts, way: way, levelPct: r.levelPct, levelAssumed: r.levelAssumed, live: r.freshness.live)
+        return WatchNow.Reading(node: watchNode(r.node), watts: r.watts, way: way, levelPct: r.levelPct, levelAssumed: r.levelAssumed, live: r.freshness.live)
     }
 
     static func modes(_ home: HomeModels) -> WatchModes? {
