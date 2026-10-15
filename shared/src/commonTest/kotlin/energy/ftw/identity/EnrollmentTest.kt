@@ -87,12 +87,43 @@ class EnrollmentTest {
 
     @Test
     fun versionDecidesWhoUpdates() {
-        val v3 = assertFailsWith<EnrollmentError> { parseEnrollmentFragment(fragment("v3")) }
-        assertEquals(EnrollmentErrorCode.E_QR_VERSION, v3.code)
-        assertTrue(v3.help.contains("update the app", ignoreCase = true))
+        val v4 = assertFailsWith<EnrollmentError> { parseEnrollmentFragment(fragment("v4")) }
+        assertEquals(EnrollmentErrorCode.E_QR_VERSION, v4.code)
+        assertTrue(v4.help.contains("update the app", ignoreCase = true))
         val v1 = assertFailsWith<EnrollmentError> { parseEnrollmentFragment(fragment("v1")) }
         assertTrue(v1.help.contains("update the box", ignoreCase = true))
         assertEquals(EnrollmentErrorCode.E_QR_NOT_FTW, codeOf { parseEnrollmentFragment(fragment("x1")) })
+    }
+
+    /** The same v3 code the iPhone's and the web app's tests read. */
+    private val v3 =
+        "https://app.ftw.energy/p#v3.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE.AgICAgICAgICAgICAgICAg." +
+            "MTAuMC4wLjI6ODA4MA.AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM.Zmp6eXI2N2J1enB5bmNxbWpsaXdnZXp2ZGU"
+
+    @Test
+    fun readsAV3CodeAndTheHomeItNames() {
+        val parsed = parseEnrollmentUrl(v3)
+        assertEquals(
+            Enrollment(ByteArray(32) { 1 }, ByteArray(16) { 2 }, "10.0.0.2:8080", ByteArray(32) { 3 }, "fjzyr67buzpyncqmjliwgezvde"),
+            parsed,
+        )
+        assertEquals(v3, buildEnrollmentUrl(parsed))
+        assertEquals(null, parseEnrollmentUrl(buildEnrollmentUrl(payload)).home)
+        assertTrue("#v2." in buildEnrollmentUrl(payload))
+    }
+
+    @Test
+    fun aV3CodeMustNameAHome() {
+        val segments = v3.substringAfter('#').split('.')
+        val noHome = segments.dropLast(1).joinToString(".")
+        assertEquals(EnrollmentErrorCode.E_QR_SHAPE, codeOf { parseEnrollmentFragment(noHome) })
+        assertEquals(EnrollmentErrorCode.E_QR_SHAPE, codeOf { parseEnrollmentFragment("$noHome.${segments.last()}.AA") })
+        assertEquals(EnrollmentErrorCode.E_QR_SHAPE, codeOf { parseEnrollmentFragment(fragment() + "." + segments.last()) })
+        val notAHome = encodeBase64url("NOT-A-HOME-AT-ALL-12345678".encodeToByteArray())
+        assertEquals(EnrollmentErrorCode.E_QR_HOME, codeOf { parseEnrollmentFragment("$noHome.$notAHome") })
+        val short = encodeBase64url("fjzyr67buzpyncqmjliwgezvd".encodeToByteArray())
+        assertEquals(EnrollmentErrorCode.E_QR_HOME, codeOf { parseEnrollmentFragment("$noHome.$short") })
+        assertEquals(EnrollmentErrorCode.E_QR_ENCODING, codeOf { parseEnrollmentFragment("$noHome.!!") })
     }
 
     @Test
