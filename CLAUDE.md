@@ -326,8 +326,10 @@ strip, with gold for the battery giving power.
 - **The app expresses intent; the box decides.**
 - **Positive watts flow into the site, negative out.** The UI never shows a
   raw minus sign.
-- **Lane 0 frames are byte-identical in length and constant in cadence.**
-  A test enforces this.
+- **Lane 0 frames are byte-identical in length.** A test enforces this.
+  Over the relay they also keep a constant cadence. Through FTW Cloud the
+  box sends each reading as it lands, and a beat once per subscribed
+  period when nothing moves, so nothing may assume one frame a second.
 - **The cache is a cache, never the original.**
 - **The cache key is not PRF-wrapped.** Cold start paints before Face ID.
   PRF gates enrollment and privileged commands, not reading.
