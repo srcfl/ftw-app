@@ -57,6 +57,9 @@ public struct PriceChart: Equatable, Sendable {
     /// with the prices it meets, `STORES 09:15–15:30 AT 58–90 · GIVES
     /// 17–20 AT 150–176 ÖRE`. Empty with no plan, or none for the battery.
     public var planLine: String
+    /// The same with only its first part, for a width with no room for
+    /// both: the line drops a part rather than end in "…".
+    public var planLineShort: String
     public var currency: String
     /// The clock at each slot's edge: entry `i` starts slot `i`, the last
     /// ends the window.
@@ -203,7 +206,10 @@ public struct PriceChart: Equatable, Sendable {
             doing.append(parts.joined(separator: " · "))
         }
 
-        let planLine = plan.map { Self.planLine($0, grid: grid, minor: minor, currency: currency, clock: clock) } ?? ""
+        let planParts = plan.map { Self.planParts($0, grid: grid, minor: minor, currency: currency, clock: clock) } ?? []
+        let unitWord = " " + PriceUnits.unit(currency).label.uppercased()
+        let planLine = planParts.isEmpty ? "" : planParts.joined(separator: " · ") + unitWord
+        let planLineShort = planParts.first.map { $0 + unitWord } ?? ""
 
         var sums = [0.0], counts = [0]
         for m in minor {
@@ -232,6 +238,7 @@ public struct PriceChart: Equatable, Sendable {
             tag: tags,
             doing: doing,
             planLine: planLine,
+            planLineShort: planLineShort,
             currency: currency,
             edges: edges,
             sums: sums,
@@ -243,7 +250,7 @@ public struct PriceChart: Equatable, Sendable {
     /// The plan's first run of storing and of giving power inside the
     /// grid's window, in the order they come, each with the range of the
     /// prices under it in whole units.
-    static func planLine(_ plan: PlanEntry, grid: SlotGrid, minor: [Double?], currency: String, clock: ZoneClock) -> String {
+    static func planParts(_ plan: PlanEntry, grid: SlotGrid, minor: [Double?], currency: String, clock: ZoneClock) -> [String] {
         let runs = PlanGlance.events(plan, fromMs: grid.fromMs, toMs: grid.toMs).filter { $0.kind == .charge || $0.kind == .discharge }
         var parts: [(startMs: Double, text: String)] = []
         for kind in [PlanGlance.Kind.charge, .discharge] {
@@ -258,8 +265,7 @@ public struct PriceChart: Equatable, Sendable {
             let span = onHours ? String(clock.label(a).prefix(2)) + "–" + String(clock.label(b).prefix(2)) : clock.label(a) + "–" + clock.label(b)
             parts.append((a, (kind == .charge ? PriceWord.stores : PriceWord.gives).format(span, range)))
         }
-        guard !parts.isEmpty else { return "" }
-        return parts.sorted { $0.startMs < $1.startMs }.map(\.text).joined(separator: " · ") + " " + PriceUnits.unit(currency).label.uppercased()
+        return parts.sorted { $0.startMs < $1.startMs }.map(\.text)
     }
 
     /// The same from the bars a summary or a widget moment already holds.

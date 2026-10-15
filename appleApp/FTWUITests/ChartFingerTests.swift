@@ -71,6 +71,13 @@ final class ChartFingerTests: XCTestCase {
         // A swipe up from the ring at nine o'clock scrolls the plan.
         ring(9).press(forDuration: 0.02, thenDragTo: ring(9).withOffset(CGVector(dx: 0, dy: -220)), withVelocity: .fast, thenHoldForDuration: 0)
         Thread.sleep(forTimeInterval: 1)
-        XCTAssertLessThan(dial.frame.minY, top - 40, "a swipe up on the ring did not scroll the plan")
+        guard dial.frame.minY >= top - 40 else { return }
+        // It did not: the same swipe under the dial tells whether the page
+        // scrolls at all. On a tall phone the whole plan fits.
+        let below = app.windows.firstMatch.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: frame.midX, dy: frame.maxY + 60))
+        below.press(forDuration: 0.02, thenDragTo: below.withOffset(CGVector(dx: 0, dy: -220)), withVelocity: .fast, thenHoldForDuration: 0)
+        Thread.sleep(forTimeInterval: 1)
+        if dial.frame.minY >= top - 40 { throw XCTSkip("The whole plan fits this screen, so nothing scrolls; the ring is tried on a smaller phone.") }
+        XCTFail("a swipe up on the ring did not scroll the plan, one under the dial did")
     }
 }

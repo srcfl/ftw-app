@@ -117,7 +117,7 @@ private struct PricePage: View, Equatable {
                 VStack(alignment: .leading, spacing: 0) {
                     PriceReadout(chart: chart, included: included, planned: plan != nil, scrub: scrub)
                         .padding(.top, 16)
-                    PlanAtThesePrices(line: chart.planLine)
+                    PlanAtThesePrices(line: chart.planLine, short: chart.planLineShort)
                         .padding(.top, 8)
                 }
                 .fixedSize(horizontal: false, vertical: true)
@@ -199,22 +199,30 @@ private struct PriceBarsChart: View {
 }
 
 /// `STORES 09:15–15:30 AT 58–90 · GIVES 17–20 AT 150–176 ÖRE`: what the
-/// plan already read does at these prices, in the kickers' mono. Nothing
+/// plan already read does at these prices, in the kickers' mono. Where the
+/// line has no room it drops its second part, never ends in "…". Nothing
 /// when there is no plan.
 private struct PlanAtThesePrices: View {
     let line: String
+    let short: String
     @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 10.5
 
     var body: some View {
         if !line.isEmpty {
-            Text(line)
-                .font(.system(size: min(size, 15), weight: .medium, design: .monospaced))
-                .tracking(0.5)
-                .foregroundStyle(Theme.ink2)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("price.plan")
+            ViewThatFits(in: .horizontal) {
+                ForEach([line, short], id: \.self) { form in
+                    Text(form)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+            }
+            .font(.system(size: min(size, 15), weight: .medium, design: .monospaced))
+            .tracking(0.5)
+            .foregroundStyle(Theme.ink2)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(line)
+            .accessibilityIdentifier("price.plan")
         }
     }
 }

@@ -222,7 +222,10 @@ import Testing
         let chart = PriceChart.build(slots, currency: "SEK", nowMs: from, plan: plan, clock: Self.clock)
         let unit = PriceUnits.unit("SEK").label.uppercased()
         #expect(chart.planLine == PriceWord.stores.format("09:15–15:30", "59–83") + " · " + PriceWord.gives.format("17–20", "150–172") + " " + unit)
+        // Where both do not fit, the first part alone, never "…".
+        #expect(chart.planLineShort == PriceWord.stores.format("09:15–15:30", "59–83") + " " + unit)
         #expect(PriceChart.build(slots, currency: "SEK", nowMs: from, clock: Self.clock).planLine.isEmpty)
+        #expect(PriceChart.build(slots, currency: "SEK", nowMs: from, clock: Self.clock).planLineShort.isEmpty)
         let idle = PlanEntry(battery: [], charges: [], prices: [], currency: "SEK", boxStale: false)
         #expect(PriceChart.build(slots, currency: "SEK", nowMs: from, plan: idle, clock: Self.clock).planLine.isEmpty)
     }
