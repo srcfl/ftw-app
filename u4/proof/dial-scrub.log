@@ -1,0 +1,4 @@
+17:29:54.829 Db FTW[81370:3d2463] [energy.ftw.app:scrub] dial rested 100 ms
+17:29:54.829 Db FTW[81370:3d2463] [energy.ftw.app:scrub] dial scrubs
+17:29:56.760 Db FTW[81370:3d2463] [energy.ftw.app:scrub] dial decides after 46 ms on a move of 0.0, -9.5 pt
+17:29:56.760 Db FTW[81370:3d2463] [energy.ftw.app:scrub] dial passes the touch to the page

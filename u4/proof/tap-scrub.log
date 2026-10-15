@@ -1,0 +1,43 @@
+17:37:14.717 Db FTW[94898:3dfc2d] [energy.ftw.app:scrub] scrub starts: moved 6.5 pt, fingers 1
+17:37:14.717 Db FTW[94898:3dfc2d] [energy.ftw.app:scrub] touching index 0 ticks 0 bumps 1
+17:37:15.218 Db FTW[94898:3dfc2d] [energy.ftw.app:scrub] lifted
+17:37:17.167 Db FTW[94898:3dfc2d] [energy.ftw.app:scrub] tap: lifted after 65 ms, moved 0.0 pt, no scrub
+17:37:28.363 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] scrub starts: moved 6.5 pt, fingers 1
+17:37:28.363 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] touching index 16 ticks 1 bumps 0
+17:37:28.384 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] touching index 17 ticks 1 bumps 0
+17:37:28.401 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] touching index 18 ticks 1 bumps 0
+17:37:28.417 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] touching index 20 ticks 2 bumps 0
+17:37:28.434 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] touching index 21 ticks 2 bumps 0
+17:37:28.451 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] touching index 22 ticks 2 bumps 0
+17:37:28.467 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] touching index 24 ticks 3 bumps 0
+17:37:28.484 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] touching index 25 ticks 3 bumps 0
+17:37:28.501 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] touching index 26 ticks 3 bumps 0
+17:37:28.517 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] touching index 28 ticks 4 bumps 0
+17:37:28.534 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] touching index 29 ticks 4 bumps 0
+17:37:28.551 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] touching index 30 ticks 4 bumps 0
+17:37:28.567 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] touching index 32 ticks 5 bumps 0
+17:37:28.584 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] touching index 33 ticks 5 bumps 0
+17:37:28.601 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] touching index 34 ticks 5 bumps 0
+17:37:28.617 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] touching index 35 ticks 5 bumps 1
+17:37:28.869 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] lifted
+17:37:30.817 Db FTW[95245:3e01ad] [energy.ftw.app:scrub] tap: lifted after 76 ms, moved 0.0 pt, no scrub
+17:37:42.018 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] scrub starts: moved 6.5 pt, fingers 1
+17:37:42.018 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] touching index 33 ticks 1 bumps 0
+17:37:42.034 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] touching index 36 ticks 1 bumps 0
+17:37:42.053 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] touching index 38 ticks 1 bumps 0
+17:37:42.067 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] touching index 41 ticks 2 bumps 0
+17:37:42.084 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] touching index 43 ticks 2 bumps 0
+17:37:42.101 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] touching index 46 ticks 2 bumps 0
+17:37:42.117 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] touching index 49 ticks 3 bumps 0
+17:37:42.134 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] touching index 52 ticks 3 bumps 0
+17:37:42.151 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] touching index 54 ticks 3 bumps 0
+17:37:42.167 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] touching index 57 ticks 4 bumps 0
+17:37:42.184 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] touching index 60 ticks 4 bumps 0
+17:37:42.201 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] touching index 62 ticks 4 bumps 0
+17:37:42.217 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] touching index 65 ticks 5 bumps 0
+17:37:42.234 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] touching index 67 ticks 5 bumps 0
+17:37:42.251 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] touching index 70 ticks 5 bumps 0
+17:37:42.267 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] touching index 72 ticks 6 bumps 0
+17:37:42.284 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] touching index 74 ticks 6 bumps 0
+17:37:42.519 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] lifted
+17:37:44.467 Db FTW[95706:3e06a5] [energy.ftw.app:scrub] tap: lifted after 76 ms, moved 0.0 pt, no scrub
