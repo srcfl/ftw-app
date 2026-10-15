@@ -8,11 +8,18 @@ import energy.ftw.isDevHost
  * The enrollment payload.
  *
  *   https://app.ftw.energy/p#v2.<box_noise_pub>.<pairing_code>.<lan_hint>.<rendezvous_secret>
+ *   https://app.ftw.energy/p#v3.<box_noise_pub>.<pairing_code>.<lan_hint>.<rendezvous_secret>.<home>
  *
  * Everything after the `#` is a URL fragment and is never sent in an HTTP
  * request. The trust anchor reaches the app optically.
+ *
+ * v3 is v2 with the home id at FTW Cloud, base64url of its 26 characters, so
+ * a new phone can reach the box through FTW Cloud before any session with it
+ * (srcfl/ftw docs/protocol-cloud.md, "Pairing through the service"). Both
+ * are read.
  */
 const val ENROLLMENT_VERSION = "v2"
+const val ENROLLMENT_VERSION_HOME = "v3"
 const val BOX_KEY_BYTES = 32
 const val PAIRING_CODE_BYTES = 16
 const val RENDEZVOUS_SECRET_BYTES = 32
@@ -23,6 +30,8 @@ data class Enrollment(
     val pairingCode: ByteArray,
     val lanHint: String,
     val rendezvousSecret: ByteArray,
+    /** The home id at FTW Cloud. Null from a v2 code. */
+    val home: String? = null,
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
@@ -30,7 +39,8 @@ data class Enrollment(
         return boxStaticPublic.contentEquals(other.boxStaticPublic) &&
             pairingCode.contentEquals(other.pairingCode) &&
             lanHint == other.lanHint &&
-            rendezvousSecret.contentEquals(other.rendezvousSecret)
+            rendezvousSecret.contentEquals(other.rendezvousSecret) &&
+            home == other.home
     }
 
     override fun hashCode(): Int {
@@ -38,9 +48,13 @@ data class Enrollment(
         h = 31 * h + pairingCode.contentHashCode()
         h = 31 * h + lanHint.hashCode()
         h = 31 * h + rendezvousSecret.contentHashCode()
+        h = 31 * h + (home?.hashCode() ?: 0)
         return h
     }
 }
+
+/** A home id as FTW Cloud cuts one: 26 characters of lowercase base32. */
+fun isHomeId(s: String): Boolean = s.length == 26 && s.all { it in 'a'..'z' || it in '2'..'7' }
 
 enum class EnrollmentErrorCode {
     E_QR_NOT_FTW,
@@ -51,6 +65,7 @@ enum class EnrollmentErrorCode {
     E_QR_CODE,
     E_QR_HINT,
     E_QR_SECRET,
+    E_QR_HOME,
 }
 
 class EnrollmentError(
@@ -69,7 +84,7 @@ private const val APP_TOO_OLD =
 private const val BOX_TOO_OLD =
     "This box needs a software update before it can pair. Update the box, then scan again."
 
-private val OUR_VERSION = ENROLLMENT_VERSION.removePrefix("v").toInt()
+private val OUR_VERSION = ENROLLMENT_VERSION_HOME.removePrefix("v").toInt()
 
 fun parseEnrollmentUrl(raw: String): Enrollment {
     val url = try {
@@ -104,7 +119,7 @@ fun parseEnrollmentFragment(fragment: String): Enrollment {
     val parts = body.split('.')
     val version = parts[0]
 
-    if (version != ENROLLMENT_VERSION) {
+    if (version != ENROLLMENT_VERSION && version != ENROLLMENT_VERSION_HOME) {
         if (version.matches(Regex("^v\\d+$"))) {
             val n = version.substring(1).toInt()
             val help = if (n < OUR_VERSION) BOX_TOO_OLD else APP_TOO_OLD
@@ -113,8 +128,9 @@ fun parseEnrollmentFragment(fragment: String): Enrollment {
         throw EnrollmentError("fragment does not start with a version", EnrollmentErrorCode.E_QR_NOT_FTW, WRONG_CODE)
     }
 
-    if (parts.size != 5) {
-        throw EnrollmentError("${parts.size} segments, expected 5", EnrollmentErrorCode.E_QR_SHAPE, SCAN_AGAIN)
+    val expected = if (version == ENROLLMENT_VERSION) 5 else 6
+    if (parts.size != expected) {
+        throw EnrollmentError("${parts.size} segments, expected $expected", EnrollmentErrorCode.E_QR_SHAPE, SCAN_AGAIN)
     }
 
     val boxStaticPublic = decodeSegment(parts[1], "box key")
@@ -147,18 +163,31 @@ fun parseEnrollmentFragment(fragment: String): Enrollment {
         )
     }
 
-    return Enrollment(boxStaticPublic, pairingCode, lanHint, rendezvousSecret)
+    // Where the phone dials FTW Cloud, so only a home id the service could
+    // have cut is taken.
+    val home = if (parts.size == 6) {
+        val named = decodeSegment(parts[5], "home").decodeToString()
+        if (!isHomeId(named)) {
+            throw EnrollmentError("home is not a home id", EnrollmentErrorCode.E_QR_HOME, SCAN_AGAIN)
+        }
+        named
+    } else {
+        null
+    }
+
+    return Enrollment(boxStaticPublic, pairingCode, lanHint, rendezvousSecret, home)
 }
 
+/** v3 when the enrollment names a home, else v2. */
 fun buildEnrollmentUrl(enrollment: Enrollment, origin: String = "https://$APP_HOST"): String {
-    val fragment = listOf(
-        ENROLLMENT_VERSION,
+    val segments = listOf(
+        if (enrollment.home == null) ENROLLMENT_VERSION else ENROLLMENT_VERSION_HOME,
         encodeBase64url(enrollment.boxStaticPublic),
         encodeBase64url(enrollment.pairingCode),
         encodeBase64url(enrollment.lanHint.encodeToByteArray()),
         encodeBase64url(enrollment.rendezvousSecret),
-    ).joinToString(".")
-    return "$origin$ENROLLMENT_PATH#$fragment"
+    ) + listOfNotNull(enrollment.home?.let { encodeBase64url(it.encodeToByteArray()) })
+    return "$origin$ENROLLMENT_PATH#${segments.joinToString(".")}"
 }
 
 private fun decodeSegment(segment: String, what: String): ByteArray {

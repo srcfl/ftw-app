@@ -100,7 +100,7 @@ import Testing
         let file = try Self.load("cloud-vectors", as: CloudFile.self)
         let home = try #require(file.boxKey.home)
         let keys = ["box": Data(hex: file.boxKey.pk), "service": Data(hex: file.serviceKey.pk)]
-        #expect(file.messages.count == 16)
+        #expect(file.messages.count == 22)
         for m in file.messages {
             let env = try #require(PushAlert.Envelope(Array(Data(hex: m.envelope))), "\(m.name)")
             #expect(env.t == m.t, "\(m.name)")

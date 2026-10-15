@@ -52,6 +52,7 @@ public enum NodeWords {
         "VIA RELAY": "VIA RELÄ",
         "VIA DIRECT LINK": "VIA DIREKTLÄNK",
         "VIA FTW CLOUD": "VIA FTW CLOUD",
+        "ENCRYPTED VIA FTW CLOUD": "KRYPTERAT VIA FTW CLOUD",
         "SAVED ON THIS PHONE": "SPARAD PÅ TELEFONEN",
         "NOT CONNECTED": "INTE ANSLUTEN",
         // The grid's phases against the main fuse.

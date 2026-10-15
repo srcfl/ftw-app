@@ -148,9 +148,19 @@ public final class SiteModel {
         var cloudView: CloudView?
     }
 
-    // FTW Cloud. All nil while the home has no grant or this build no
-    // endpoint.
+    // FTW Cloud. All nil while this phone knows no home id for the box or
+    // this build has no endpoint.
     @ObservationIgnored private var cloud: CloudCarrier?
+    /// The home the running session dials.
+    @ObservationIgnored private var cloudHome: String?
+    /// The home id as the phone keeps it with the home, from the QR or an
+    /// earlier hello. The box's word at hello wins.
+    @ObservationIgnored private var storedHome: String?
+    /// The pairing proof for message 1, while the phone holds a code.
+    @ObservationIgnored private var cloudPair: Bytes?
+    /// The box named its home id at hello and it was not the one kept. The
+    /// shell keeps it with the home, so the next start can dial it.
+    @ObservationIgnored public var learnedHome: (@MainActor (String) -> Void)?
     @ObservationIgnored private(set) var cloudView: CloudView?
     @ObservationIgnored private(set) var cloudIdentity: CloudIdentity?
     @ObservationIgnored private var cloudDevice: Primitives.KeyPair?
@@ -367,7 +377,7 @@ public final class SiteModel {
         }
         // Every box message over Noise that names its uptime is a chance to
         // learn rule U, once hello has named the boot it belongs to.
-        if s.heardFromBox, let boot = s.cloud?.boot, s.carrier == .relay || s.carrier == .webrtc, s.uptimeMs != previous.uptimeMs || !previous.heardFromBox {
+        if s.heardFromBox, let boot = s.cloud?.boot, [.relay, .tunnel, .webrtc].contains(s.carrier), s.uptimeMs != previous.uptimeMs || !previous.heardFromBox {
             learnRuleU(boot: boot, uptimeMs: s.uptimeMs, phoneMs: now)
         }
         if s.phase == .streaming { scheduleSnapshot() }
@@ -1031,15 +1041,38 @@ struct CloudCache: Codable, Equatable, Sendable {
 }
 
 extension SiteModel {
-    /// Read the home from FTW Cloud beside the box session, with the same
-    /// device key. It starts once the box has said, now or at an earlier
-    /// launch, that FTW Cloud is on and how to check what it forwards.
-    public func connectCloud(deviceKey: Primitives.KeyPair, makeSocket: @escaping WebSocketFactory, endpoint: CloudEndpoint? = CloudEndpoint.current) {
+    /// Open the home's FTW Cloud session with the same device key, once a
+    /// home id is known: from the box at this or an earlier hello, or as the
+    /// phone keeps it (`home`). It carries the readable copy while the
+    /// owner has it on, and the box session when the box takes the tunnel.
+    ///
+    /// `pairingCode` makes the pairing proof a phone needs while the roster
+    /// does not list it: a new phone, or one paired again after it was
+    /// removed. FTW Cloud ignores the proof from a phone the roster lists.
+    public func connectCloud(deviceKey: Primitives.KeyPair, makeSocket: @escaping WebSocketFactory, endpoint: CloudEndpoint? = CloudEndpoint.current, home: String? = nil, pairingCode: Bytes? = nil) {
         guard !destroyed, !isDemo else { return }
         cloudDevice = deviceKey
         cloudSocket = makeSocket
         cloudEndpoint = endpoint
+        if let home, CloudWire.validHome(home) { storedHome = home }
+        cloudPair = nil
+        if let code = pairingCode, let home = storedHome {
+            cloudPair = CloudWire.pairingHash(home: home, code: code)
+        }
         startCloud()
+    }
+
+    /// The box has not spoken to this phone, now or at an earlier launch.
+    var neverHeard: Bool { !core.state.heardFromBox && kept?.hello == nil }
+
+    /// FTW Cloud's session for the box session to ride, when the box takes
+    /// the tunnel: it said `cloud.tun` at its last hello, or has never
+    /// spoken and the QR named its home. Nil sends the box session to the
+    /// relay.
+    public func tunnelCloud() -> CloudCarrier? {
+        guard let cloud, !destroyed else { return nil }
+        let takes = neverHeard ? storedHome != nil : core.state.caps.contains(Contract.capCloudTun)
+        return takes ? cloud : nil
     }
 
     /// An owner pauses FTW Cloud for one of the home's phones, or lifts the
@@ -1049,13 +1082,15 @@ extension SiteModel {
         cloud?.suspend(deviceID: deviceID, on) ?? false
     }
 
-    /// Whether the box said FTW Cloud is on for this home.
-    public var cloudOn: Bool { cloudIdentity != nil }
+    /// Whether the box said the readable copy is on for this home. A linked
+    /// box names its home with the copy off too, for the tunnel; its tables
+    /// are empty then.
+    public var cloudOn: Bool { cloudIdentity?.copyOn ?? false }
 
     private func startCloud() {
         guard cloud == nil, !destroyed, let endpoint = cloudEndpoint, let device = cloudDevice,
-              let socket = cloudSocket, let identity = cloudIdentity else { return }
-        let c = CloudCarrier(endpoint: endpoint, home: identity.home, deviceKey: device, looking: documentVisible, scheduler: scheduler, makeSocket: socket)
+              let socket = cloudSocket, let home = storedHome ?? cloudIdentity?.home else { return }
+        let c = CloudCarrier(endpoint: endpoint, home: home, deviceKey: device, looking: documentVisible, pair: cloudPair, scheduler: scheduler, makeSocket: socket)
         c.setHandlers(
             onSnapshot: { [weak self] snap, at in self?.onCloudSnapshot(snap, at) },
             onEnvelope: { [weak self] env, at in self?.onCloudEnvelope(env, at) },
@@ -1068,8 +1103,9 @@ extension SiteModel {
             }
         )
         cloud = c
+        cloudHome = home
         cloudStatus = c.status
-        installPushSink()
+        if cloudOn { installPushSink() }
         c.start()
     }
 
@@ -1077,13 +1113,16 @@ extension SiteModel {
     private func closeCloud() {
         cloud?.close()
         cloud = nil
+        cloudHome = nil
         cloudStatus = nil
         publish()
     }
 
     private func adoptCloud(_ identity: CloudIdentity, offset: CloudCache.Offset?) {
         if !identity.sameHome(cloudIdentity) {
-            closeCloud()
+            // A session dialled from the kept home id is this home's, and may
+            // carry the very session that brought this hello.
+            if cloudHome != identity.home { closeCloud() }
             cloudView = CloudView(home: identity.home, boxKey: identity.pk)
             ruleU = nil
         }
@@ -1099,8 +1138,9 @@ extension SiteModel {
     private func cloudHello(_ identity: CloudIdentity?) {
         guard let identity else {
             // Off, or never on. What the cloud delivered goes with it, and
-            // so do its pushes.
-            closeCloud()
+            // so do its pushes. A session that carries the box session
+            // stays: it is how this hello arrived.
+            if cloud?.tunnel == nil { closeCloud() }
             if let home = cloudIdentity?.home ?? sharedCloudHome?.home { cloudKeys?.remove(home: home) }
             sharedCloudHome = nil
             uninstallPushSink()
@@ -1113,10 +1153,17 @@ extension SiteModel {
             return
         }
         adoptCloud(identity, offset: nil)
+        if identity.home != storedHome {
+            storedHome = identity.home
+            learnedHome?(identity.home)
+        }
         shareCloudHome()
         cloudDirty = true
         persistNow()
         startCloud()
+        // Alerts come with the readable copy, and only then is the person
+        // asked to allow them.
+        if cloudOn, cloud != nil { installPushSink() } else if !cloudOn { uninstallPushSink() }
     }
 
     // MARK: Pushes

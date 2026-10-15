@@ -19,6 +19,7 @@ public enum NodeLive {
         let via: String
         switch carrier {
         case .relay: via = NodeWords.text("VIA RELAY")
+        case .tunnel: via = NodeWords.text("ENCRYPTED VIA FTW CLOUD")
         case .webrtc: via = NodeWords.text("VIA DIRECT LINK")
         case .cloud: via = NodeWords.text("VIA FTW CLOUD")
         case .cache: via = NodeWords.text("SAVED ON THIS PHONE")

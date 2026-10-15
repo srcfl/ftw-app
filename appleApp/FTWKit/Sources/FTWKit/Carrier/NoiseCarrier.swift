@@ -158,7 +158,9 @@ public final class NoiseCarrier: Carrier {
         }
 
         do {
-            inner.send(try hs.writeMessage(payload))
+            let message1 = try hs.writeMessage(payload)
+            inner.beginSession()
+            inner.send(message1)
         } catch {
             fail("handshake failed", retryable: true)
         }

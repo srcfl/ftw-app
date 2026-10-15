@@ -11,8 +11,18 @@ import Foundation
 /// with it: "connected, but the inverter went quiet 40 seconds ago" needs
 /// both.
 public enum CarrierKind: String, Sendable, Codable {
-    /// `cloud` is data read through FTW Cloud, signed by the box.
-    case webrtc, relay, cloud, cache, none
+    /// `tunnel` is the box's own session carried end to end by FTW Cloud,
+    /// which cannot read it; `cloud` is the box-signed copy FTW Cloud
+    /// holds and can read.
+    case webrtc, relay, tunnel, cloud, cache, none
+
+    /// Readings arrive now, from the box's session or FTW Cloud's copy.
+    public var connected: Bool {
+        switch self {
+        case .webrtc, .relay, .tunnel, .cloud: return true
+        case .cache, .none: return false
+        }
+    }
 }
 
 public enum SourceState: String, Sendable, Codable, Comparable {

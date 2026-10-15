@@ -126,11 +126,46 @@ struct IdentityVectors: Decodable {
             #expect(e.help.contains("box needs a software update"))
         } catch { Issue.record("\(error)") }
         do {
-            _ = try Enrollment.parse(scanned: url.replacingOccurrences(of: "#v2.", with: "#v3."))
-            Issue.record("v3 parsed")
+            _ = try Enrollment.parse(scanned: url.replacingOccurrences(of: "#v2.", with: "#v4."))
+            Issue.record("v4 parsed")
         } catch let e as EnrollmentError {
             #expect(e.help.contains("newer version of the app"))
         } catch { Issue.record("\(error)") }
+    }
+
+    /// v3 is v2 and the home id at FTW Cloud: the same code the box's
+    /// `appenroll` makes, the web app's and Android's parsers read.
+    static let v3 = "https://app.ftw.energy/p#v3.AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE.AgICAgICAgICAgICAgICAg.MTAuMC4wLjI6ODA4MA.AwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwM.Zmp6eXI2N2J1enB5bmNxbWpsaXdnZXp2ZGU"
+
+    @Test func readsAV3CodeAndTheHomeItNames() throws {
+        let e = try Enrollment.parse(scanned: Self.v3)
+        var expected = good
+        expected.home = "fjzyr67buzpyncqmjliwgezvde"
+        #expect(e == expected)
+        #expect(e.url() == Self.v3)
+        // v2 stays as it was, with no home.
+        #expect(try Enrollment.parse(scanned: good.url()).home == nil)
+        #expect(good.url().contains("#v2."))
+    }
+
+    @Test func aV3CodeMustNameAHome() throws {
+        let segments = Self.v3.split(separator: ".").map(String.init)
+        let cases: [(String, String)] = [
+            (segments.dropLast().joined(separator: "."), "E_QR_SHAPE"),
+            (Self.v3 + ".AA", "E_QR_SHAPE"),
+            (good.url() + "." + segments.last!, "E_QR_SHAPE"),
+            ((segments.dropLast() + [Base64url.encode(Array("NOT-A-HOME-AT-ALL-12345678".utf8))]).joined(separator: "."), "E_QR_HOME"),
+            ((segments.dropLast() + [Base64url.encode(Array("fjzyr67buzpyncqmjliwgezvd".utf8))]).joined(separator: "."), "E_QR_HOME"),
+            ((segments.dropLast() + ["!!"]).joined(separator: "."), "E_QR_ENCODING"),
+        ]
+        for (url, code) in cases {
+            do {
+                _ = try Enrollment.parse(scanned: url)
+                Issue.record("parsed \(url)")
+            } catch let e as EnrollmentError {
+                #expect(e.code == code, "\(url)")
+            } catch { Issue.record("\(error)") }
+        }
     }
 
     @Test func refusesNonCanonicalBase64AndWrongLengths() {

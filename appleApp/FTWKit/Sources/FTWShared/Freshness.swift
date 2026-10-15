@@ -38,7 +38,7 @@ public enum Freshness {
         lastReading: String? = nil
     ) -> Band {
         let reaching = !noCarrier && [.idle, .handshaking, .subscribing, .failed, .booting].contains(phase)
-        let connected = carrier == .relay || carrier == .webrtc || carrier == .cloud
+        let connected = carrier.connected
         // The relay turned this phone away because the home already has as
         // many phones watching as it serves. Not a fault, and not ours to fix.
         let turnedAway = busy && !connected && reaching
@@ -57,6 +57,14 @@ public enum Freshness {
             case .never: message = Words.text("FTW Cloud connected · no reading yet")
             case .down: message = Words.text("FTW Cloud connected · a device stopped responding")
             default: message = ageMs == nil ? Words.text("FTW Cloud · age unverified") : Words.text("FTW Cloud connected · readings")
+            }
+        } else if connected, carrier == .tunnel {
+            // The box's own session, end to end; FTW Cloud only carries it.
+            switch srcState {
+            case .live: message = Words.text("Live, encrypted via FTW Cloud")
+            case .never: message = Words.text("Encrypted via FTW Cloud · no reading yet")
+            case .down: message = Words.text("Encrypted via FTW Cloud · a device stopped responding")
+            default: message = Words.text("Encrypted via FTW Cloud · readings")
             }
         } else if connected {
             let webrtc = carrier == .webrtc
@@ -82,6 +90,8 @@ public enum Freshness {
                 message = Words.text("Waiting for live readings")
             } else if phase == .handshaking, transport == .relay {
                 message = Words.text("Securing encrypted relay")
+            } else if phase == .handshaking, transport == .tunnel {
+                message = Words.text("Securing link via FTW Cloud")
             } else if phase == .handshaking, transport == .webrtc {
                 message = Words.text("Securing home link")
             } else {

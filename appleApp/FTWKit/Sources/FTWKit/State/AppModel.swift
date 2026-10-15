@@ -86,6 +86,7 @@ public final class AppModel {
     @ObservationIgnored let build: String
     @ObservationIgnored let ua: String
     @ObservationIgnored let relayURL: URL
+    @ObservationIgnored let cloudEndpoint: CloudEndpoint?
     @ObservationIgnored let makeSocket: WebSocketFactory
     @ObservationIgnored private var connectGeneration = 0
     /// `suspend` closed the session; the next look builds a new one.
@@ -101,6 +102,7 @@ public final class AppModel {
         build: String,
         ua: String,
         relayURL: URL = Origin.relayURL,
+        cloudEndpoint: CloudEndpoint? = CloudEndpoint.current,
         makeSocket: @escaping WebSocketFactory = URLSessionWebSocket.factory(),
         demo: DemoCarrier? = nil
     ) {
@@ -114,6 +116,7 @@ public final class AppModel {
         self.build = build
         self.ua = ua
         self.relayURL = relayURL
+        self.cloudEndpoint = cloudEndpoint
         self.makeSocket = makeSocket
         vault = Vault(store: store)
         sites = SiteList(store: store)
@@ -139,6 +142,9 @@ public final class AppModel {
         let site = SiteModel(siteId: siteId, build: build, ua: ua, scheduler: scheduler, files: files, shared: shared)
         site.stepUp = { [weak self] in await self?.stepUp() ?? .unavailable }
         site.sharedWritten = sharedWritten
+        site.learnedHome = { [weak self] home in
+            self?.sites.update(siteId) { $0.cloudHome = home }
+        }
         home = HomeModels(site: site, cache: shared.map { CacheReader(sources: [$0]) })
         sites.setCurrent(siteId)
         site.start()
@@ -165,9 +171,12 @@ public final class AppModel {
             guard vault.isEnrolled else {
                 throw ConnectError(kind: .notEnrolled, help: AppWords.text("This device has no key for that home."))
             }
-            // Read from the QR, never derived: a handle derived from the box
-            // key would be one household identifier good for years.
-            guard let secret = stored.rendezvousSecret?.byteArray else {
+            // The rendezvous secret is read from the QR, never derived: a
+            // handle derived from the box key would be one household
+            // identifier good for years. A home id reaches the box through
+            // FTW Cloud instead.
+            let secret = stored.rendezvousSecret?.byteArray
+            guard secret != nil || stored.cloudHome != nil else {
                 throw ConnectError(kind: .stalePairing, help: AppWords.text("This home was paired before this app could reach it privately."))
             }
             var wrapping = try vault.silentWrappingKey()
@@ -180,17 +189,33 @@ public final class AppModel {
             guard mine == connectGeneration, home?.site === site else { return }
 
             let box = stored.boxStaticKey.byteArray
-            let relay = RelayCarrier(url: relayURL, secret: secret, scheduler: scheduler, makeSocket: makeSocket)
+            let code = stored.pairingCode?.byteArray
+            // FTW Cloud first: the box session rides it when the box takes
+            // the tunnel.
+            site.connectCloud(deviceKey: device, makeSocket: makeSocket, endpoint: cloudEndpoint, home: stored.cloudHome, pairingCode: code)
+            var relay: (@MainActor () -> Carrier)?
+            if let secret {
+                relay = { [relayURL, scheduler, makeSocket] in
+                    RelayCarrier(url: relayURL, secret: secret, scheduler: scheduler, makeSocket: makeSocket)
+                }
+            }
+            let inner: Carrier
+            if let cloud = site.tunnelCloud() {
+                inner = FallbackCarrier(tunnel: TunnelCarrier(cloud: cloud, scheduler: scheduler), relay: relay, scheduler: scheduler)
+            } else if let relay {
+                inner = relay()
+            } else {
+                throw ConnectError(kind: .stalePairing, help: AppWords.text("This home was paired before this app could reach it privately."))
+            }
             let noise = NoiseCarrier(
-                inner: relay,
+                inner: inner,
                 staticKey: device,
                 remoteStatic: box,
                 prologue: NoiseCarrier.prologue(boxStaticKey: box),
-                handshakePayload: stored.pairingCode?.byteArray ?? [],
+                handshakePayload: code ?? [],
                 scheduler: scheduler
             )
             if site.connect(noise) { connectHelp = nil }
-            site.connectCloud(deviceKey: device, makeSocket: makeSocket)
         } catch is PasskeyCancelled {
             // A closed sheet is not a lost key: say what happened and let
             // the person try again.

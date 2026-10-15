@@ -79,6 +79,10 @@ public final class SimulatedBox {
         "cmd.readback", "der.battery", "der.ev", "plan.dispatch", "price.spot", "api.passthrough",
     ]
 
+    /// Capabilities this box offers beyond `caps`, for a test that needs a
+    /// box of another build.
+    public var moreCaps: [String] = []
+
     public init(scheduler: Scheduler, house: SimulatedHouse = SimulatedHouse(), requireStepUp: Bool = false, uptimeAtStartMs: Double = 3_600_000) {
         self.scheduler = scheduler
         self.house = house
@@ -169,7 +173,7 @@ public final class SimulatedBox {
             ("mode", .text(booting ? "booting" : "full")),
             ("box", .map([("id", .text("demo-box")), ("build", .text("0.131.0-demo")), ("tz", .text(house.timeZone.identifier))])),
             ("clock", .map([("source", .text("ntp")), ("syncedAtMs", .number(scheduler.nowMs - 60_000)), ("uptimeMs", .number(uptimeMs))])),
-            ("caps", .array(Self.caps.map { .text($0) })),
+            ("caps", .array((Self.caps + moreCaps).map { .text($0) })),
             ("capsHash", .text("demo")),
             ("modes", .array(Self.modes.map { .map([("key", .text($0.key)), ("label", .text($0.label)), ("tooltip", .text($0.tooltip)), ("tier", .text($0.tier))]) })),
             ("role", .text(Contract.roleOwner)),

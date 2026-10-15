@@ -55,7 +55,7 @@ public enum WatchShare {
         switch origin {
         case .cache: return .cache
         case .cloud: return .cloud
-        case .relay: return site.carrier == .webrtc ? .webrtc : .relay
+        case .relay: return site.carrier == .webrtc || site.carrier == .tunnel ? site.carrier : .relay
         }
     }
 

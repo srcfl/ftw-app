@@ -10,8 +10,9 @@ import FTWShared
 /// file moves them and checks nothing about them. `CloudView` checks every
 /// signature with the key the box gave this phone over Noise.
 ///
-/// The service reads and never controls. Nothing sent here can change the
-/// house: a command still goes to the box over the relay.
+/// The phone's own session with its box can ride the same socket as `tun`
+/// (`TunnelCarrier`). The service forwards it and cannot read it: nothing
+/// the service says can change the house.
 @MainActor
 public final class CloudCarrier {
     public enum Status: Equatable, Sendable {
@@ -37,6 +38,8 @@ public final class CloudCarrier {
     /// Message 2 is one round trip after message 1; a service this slow is
     /// not one to wait on.
     static let handshakeTimeoutMs: Double = 10_000
+    /// A normal close, said to the tunnel when this session ends for good.
+    static let closeNormal = 1000
 
     public private(set) var status: Status = .connecting
 
@@ -46,6 +49,16 @@ public final class CloudCarrier {
     private let scheduler: Scheduler
     private let makeSocket: WebSocketFactory
     private var looking: Bool
+    /// A new phone's pairing proof for message 1, while the roster does not
+    /// list it yet.
+    private let pair: Bytes?
+    /// The box session riding this one. Weak: the carrier stack above owns
+    /// it, and leaves when it closes.
+    weak var tunnel: TunnelCarrier?
+    /// The box session's message 1 that rode this dial's message 1, kept
+    /// until message 2 so a retry on the app's other service key carries it
+    /// again.
+    private var riding: CloudWire.Tun?
     /// What the service last heard: message 1's `hz`, then each `watch`.
     /// Nil until message 1 of this dial goes.
     private var told: Bool?
@@ -62,16 +75,18 @@ public final class CloudCarrier {
     private var retry: Cancellable?
     private var deadline: Cancellable?
     private var shutdown = false
+    private var dialledAtMs: Double = -.infinity
 
     private var onSnapshot: @MainActor (CloudWire.Snapshot, Double) -> Void = { _, _ in }
     private var onEnvelope: @MainActor (CloudWire.Envelope, Double) -> Void = { _, _ in }
     private var onStatus: @MainActor (Status) -> Void = { _ in }
 
-    public init(endpoint: CloudEndpoint, home: String, deviceKey: Primitives.KeyPair, looking: Bool, scheduler: Scheduler, makeSocket: @escaping WebSocketFactory) {
+    public init(endpoint: CloudEndpoint, home: String, deviceKey: Primitives.KeyPair, looking: Bool, pair: Bytes? = nil, scheduler: Scheduler, makeSocket: @escaping WebSocketFactory) {
         self.endpoint = endpoint
         self.home = home
         self.deviceKey = deviceKey
         self.looking = looking
+        self.pair = pair
         self.scheduler = scheduler
         self.makeSocket = makeSocket
     }
@@ -145,12 +160,36 @@ public final class CloudCarrier {
         dial()
     }
 
+    /// The box session woke with the app or the network: a socket that
+    /// looks open may be dead, so dial afresh, as the relay does. A dial
+    /// started within the last second is kept.
+    func redial() {
+        guard !shutdown else { return }
+        if status == .connecting, socket != nil, scheduler.nowMs - dialledAtMs < 1_000 { return }
+        retry?.cancel()
+        retry = nil
+        attempt = 0
+        refusals = 0
+        keyIndex = 0
+        drop()
+        dial()
+    }
+
+    /// One message of the box session, or false when this session is not
+    /// open and nothing went out.
+    @discardableResult
+    func sendTun(_ tun: CloudWire.Tun) -> Bool {
+        send(CloudWire.msgTun, tun.body)
+    }
+
     public func close() {
         guard !shutdown else { return }
         shutdown = true
         retry?.cancel()
         deadline?.cancel()
         drop()
+        tunnel?.cloudStatus(.closed(code: Self.closeNormal, retrying: false))
+        tunnel = nil
         onSnapshot = { _, _ in }
         onEnvelope = { _, _ in }
         onStatus = { _ in }
@@ -161,6 +200,7 @@ public final class CloudCarrier {
     private func dial() {
         guard !shutdown else { return }
         setStatus(.connecting)
+        dialledAtMs = scheduler.nowMs
         generation += 1
         let mine = generation
         handshake = nil
@@ -193,7 +233,11 @@ public final class CloudCarrier {
             setStatus(.closed(code: CloudWire.closeDenied, retrying: false))
             return
         }
-        let now = CloudWire.encodeUnsigned(t: CloudWire.msgNow, body: .map([("hz", .int(looking ? CloudWire.hzLooking : CloudWire.hzAway))]))
+        // The box session's message 1 rides along when it waits, so that
+        // session is up one round trip after TLS.
+        let tun = riding ?? tunnel?.takeFirst()
+        riding = tun
+        let now = CloudWire.now(hz: looking ? CloudWire.hzLooking : CloudWire.hzAway, pair: pair, tun: tun)
         guard let msg1 = try? hs.writeMessage(now) else { return }
         handshake = hs
         socket.send(msg1)
@@ -216,6 +260,14 @@ public final class CloudCarrier {
             }
             // Only a delivered message proves the path works.
             attempt = 0
+            if env.t == CloudWire.msgTun {
+                guard let tun = try? CloudWire.Tun(body: env.b) else {
+                    fail(code: CloudWire.closeProtocol, retrying: true)
+                    return
+                }
+                tunnel?.receive(tun)
+                return
+            }
             onEnvelope(env, arrival)
             return
         }
@@ -228,6 +280,7 @@ public final class CloudCarrier {
         }
         deadline?.cancel()
         handshake = nil
+        riding = nil
         transport = NoiseTransport(keys)
         attempt = 0
         refusals = 0
@@ -248,13 +301,17 @@ public final class CloudCarrier {
 
     private func closed(code: Int) {
         let beforeMessage2 = transport == nil
+        let carried = riding
+        riding = nil
         socket = nil
         generation += 1
         deadline?.cancel()
         switch code {
         case CloudWire.closeDenied where beforeMessage2 && keyIndex + 1 < endpoint.serviceKeys.count:
-            // Perhaps the service already runs on the app's other key.
+            // Perhaps the service already runs on the app's other key. The
+            // box session still waits for an answer to its message 1.
             keyIndex += 1
+            riding = carried
             dial()
         case CloudWire.closeReplaced:
             setStatus(.closed(code: code, retrying: false))
@@ -309,12 +366,14 @@ public final class CloudCarrier {
         socket?.close()
         socket = nil
         handshake = nil
+        riding = nil
         transport = nil
     }
 
     private func setStatus(_ next: Status) {
         guard next != status else { return }
         status = next
+        tunnel?.cloudStatus(next)
         onStatus(next)
     }
 }

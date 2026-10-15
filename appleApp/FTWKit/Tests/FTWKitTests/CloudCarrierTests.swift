@@ -16,8 +16,21 @@ final class FakeCloudService {
     /// Refuse every handshake made with this key, as a service that has
     /// moved to another key would.
     var refuseKey: Bytes?
+    /// The box behind the service, for the tunnel. Nil: no box takes `tun`,
+    /// and the service ends each box session a phone starts.
+    var tunBox: FakeTunnelBox?
+    /// The roster lists the phone without `tun`, as an older box's does:
+    /// the service passes nothing on and says nothing.
+    var silentTun = false
+    /// Pairing hashes the box lists while its QR shows. Each admits one
+    /// session.
+    var pending: Set<Bytes> = []
     private(set) var dialled: [URL] = []
     private(set) var nows: [Int] = []
+    /// Message 1's `now` bodies, whole.
+    private(set) var nowBodies: [CBOR] = []
+    /// Every `tun` a phone sent, from message 1 or the stream.
+    private(set) var tunsFromPhone: [CloudWire.Tun] = []
     private(set) var received: [CloudWire.Envelope] = []
     private var sessions: [FakeCloudSocket] = []
 
@@ -63,6 +76,7 @@ final class FakeCloudService {
                 return
             }
             received.append(env)
+            if env.t == CloudWire.msgTun, let tun = try? CloudWire.Tun(body: env.b) { phoneTun(tun, on: socket) }
             return
         }
         let home = URLComponents(url: socket.url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "home" }?.value ?? ""
@@ -73,14 +87,35 @@ final class FakeCloudService {
             socket.closeFromService(CloudWire.closeDenied)
             return
         }
-        nows.append((try? decodeCBOR(now.b))?["hz"]?.int ?? -1)
-        guard let msg2 = try? hs.writeMessage(snapshotPayload()), let keys = try? hs.split(),
-              roster.contains(keys.remoteStatic) else {
+        let body = (try? decodeCBOR(now.b)) ?? .null
+        nowBodies.append(body)
+        nows.append(body["hz"]?.int ?? -1)
+        guard let msg2 = try? hs.writeMessage(snapshotPayload()), let keys = try? hs.split() else {
+            socket.closeFromService(CloudWire.closeDenied)
+            return
+        }
+        var admitted = roster.contains(keys.remoteStatic)
+        if !admitted, let pair = body["pair"]?.byteString, pending.remove(pair) != nil { admitted = true }
+        guard admitted else {
             socket.closeFromService(CloudWire.closeDenied)
             return
         }
         socket.transport = NoiseTransport(keys)
+        socket.device = keys.remoteStatic
         socket.deliver(msg2)
+        if let t = body["tun"], let tun = try? CloudWire.Tun(body: encodeCBOR(t)) { phoneTun(tun, on: socket) }
+    }
+
+    /// One `tun` from a phone: to the box, or ended at once when there is
+    /// no box to take it.
+    private func phoneTun(_ tun: CloudWire.Tun, on socket: FakeCloudSocket) {
+        tunsFromPhone.append(tun)
+        if silentTun { return }
+        guard let box = tunBox else {
+            if !tun.ended { socket.tun(CloudWire.Tun(sid: tun.sid, d: [])) }
+            return
+        }
+        box.receive(tun, from: socket.device ?? []) { [weak socket] reply in socket?.tun(reply) }
     }
 
     func snapshotPayload(_ envelopes: [CloudWire.Envelope]? = nil) -> Bytes {
@@ -107,6 +142,8 @@ final class FakeCloudSocket: WebSocketConnection {
     let events: WebSocketEvents
     var closed = false
     var transport: NoiseTransport?
+    /// The key message 1 proved.
+    var device: Bytes?
 
     init(service: FakeCloudService, url: URL, events: WebSocketEvents) {
         self.service = service
@@ -132,6 +169,12 @@ final class FakeCloudSocket: WebSocketConnection {
     func push(_ env: CloudWire.Envelope) {
         guard let transport, let frame = try? CloudWire.encodeFrame(env.encode()), let msg = try? transport.encrypt(frame) else { return }
         deliver(msg)
+    }
+
+    /// One message of the phone's box session, from the box.
+    func tun(_ t: CloudWire.Tun) {
+        guard let env = try? CloudWire.Envelope.decode(CloudWire.encodeUnsigned(t: CloudWire.msgTun, body: t.body)) else { return }
+        push(env)
     }
 
     func closeFromService(_ code: Int) {

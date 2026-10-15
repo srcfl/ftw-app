@@ -71,6 +71,9 @@ public enum CloudWire {
     public static let msgPushRegister = "push.register"
     /// The only kind of push registration so far.
     static let pushKindAlert = "alert"
+    /// Both ways, `{sid, d}`: one message of the phone's own session with
+    /// its box, which the service carries and cannot read (`Tun`).
+    public static let msgTun = "tun"
 
     public static let hzLooking = 1
     public static let hzAway = 0
@@ -299,6 +302,73 @@ public enum CloudWire {
             online: try f.bool("online"),
             more: Int(try f.int("more"))
         )
+    }
+
+    // MARK: - Tunnel
+
+    /// One message of the phone's session with its box, `ftw.session.v1`,
+    /// as it rides the app session: `d` byte for byte as it would cross the
+    /// relay, and an empty `d` ends the session `sid` names. The service
+    /// adds the device from its own handshake on the way to the box, so this
+    /// side never names one.
+    public struct Tun: Equatable, Sendable {
+        /// The phone's number for one session with the box, drawn at random
+        /// for each, so the late end of an older one never ends a newer one.
+        public var sid: UInt32
+        public var d: Bytes
+
+        public init(sid: UInt32, d: Bytes) {
+            self.sid = sid
+            self.d = d
+        }
+
+        public var ended: Bool { d.isEmpty }
+
+        var body: CBOR { .map([("sid", .unsigned(UInt64(sid))), ("d", .bytes(d))]) }
+
+        public init(body: Bytes) throws {
+            let f = try Fields(body: body)
+            let sid = try f.uint("sid")
+            guard sid <= UInt64(UInt32.max) else { throw bodyError("sid", "below 2^32") }
+            self.init(sid: UInt32(sid), d: try f.bytes("d"))
+        }
+    }
+
+    /// The largest `d`: one transport message around the app protocol's
+    /// largest bulk frame.
+    public static let tunDataMax = 16_384 + 24
+
+    /// Starts the hash a pending pairing is listed by.
+    public static let pairingTag = Bytes("ftw.cloud.pair.v1\0".utf8)
+
+    /// What a new phone proves in message 1 so the service admits it before
+    /// the roster lists it: SHA-256(`pairingTag` ‖ home ‖ code). The code
+    /// itself rides inside the box session's message 1, encrypted to the
+    /// box, so the service never sees it.
+    public static func pairingHash(home: String, code: Bytes) -> Bytes {
+        Primitives.sha256(pairingTag + Bytes(home.utf8) + code)
+    }
+
+    /// The box's name for a paired device: the first 8 characters of its
+    /// Noise static key in base64url. The roster names devices this way.
+    public static func deviceID(key: Bytes) -> String {
+        String(Base64url.encode(key).prefix(8))
+    }
+
+    /// A home id as the service cuts one: 26 characters of lowercase
+    /// base32. Anything else in a QR is not a home.
+    public static func validHome(_ s: String) -> Bool {
+        s.utf8.count == 26 && s.utf8.allSatisfy { ($0 >= 0x61 && $0 <= 0x7a) || ($0 >= 0x32 && $0 <= 0x37) }
+    }
+
+    /// Message 1's payload: whether the phone looks, the pairing proof of a
+    /// phone the roster does not list yet, and the box session's own
+    /// message 1, so that session is up one round trip after TLS.
+    public static func now(hz: Int, pair: Bytes? = nil, tun: Tun? = nil) -> Bytes {
+        var body: [CBOR.Entry] = [CBOR.Entry(.text("hz"), .int(hz))]
+        if let pair { body.append(CBOR.Entry(.text("pair"), .bytes(pair))) }
+        if let tun { body.append(CBOR.Entry(.text("tun"), tun.body)) }
+        return encodeUnsigned(t: msgNow, body: .map(body))
     }
 
     // MARK: - Bodies

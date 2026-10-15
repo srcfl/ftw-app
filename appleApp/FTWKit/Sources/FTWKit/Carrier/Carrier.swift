@@ -47,6 +47,14 @@ public protocol Carrier: AnyObject {
     /// never replayed.
     func wake()
     func close(reason: String)
+    /// A new session with the box starts here: the next frame is its
+    /// handshake message 1. A carrier that names sessions on the wire draws
+    /// a new name; one that does not ignores it.
+    func beginSession()
+}
+
+extension Carrier {
+    public func beginSession() {}
 }
 
 // MARK: - WebSockets

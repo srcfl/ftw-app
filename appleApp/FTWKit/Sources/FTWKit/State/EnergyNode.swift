@@ -107,7 +107,7 @@ public struct NodeFreshness: Equatable, Sendable {
     }
 
     public var live: Bool {
-        (carrier == .relay || carrier == .webrtc || carrier == .cloud) && srcState == .live
+        carrier.connected && srcState == .live
     }
 
     /// From the session as it stands: the field's source in the box's
