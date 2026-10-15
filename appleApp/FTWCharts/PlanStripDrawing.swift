@@ -3,25 +3,40 @@ import SwiftUI
 
 /// Where the parts of Now's plan strip sit, from the top of its Canvas:
 /// room for the lock-on's brackets, two 6 pt lanes 4 pt apart (battery,
-/// then car), the price bars on a 20 pt floor, and the hours under them. The surface and the finger's
-/// overlay share it, so a lit quarter and its bar meet.
+/// then car), the price bars in eight levels on a floor of 20 pt or more,
+/// and the hours under them. The surface and the finger's overlay share
+/// it, so a lit quarter and its bar meet.
 struct PlanStripLayout: Equatable {
     static let lane: CGFloat = 6
     static let batteryY: CGFloat = 3
     static let carY: CGFloat = 13
     static let priceTop: CGFloat = 25
-    /// Eight levels of 2.5 pt.
-    static let priceHeight: CGFloat = 20
-    static var priceBottom: CGFloat { priceTop + priceHeight }
-    static let levelStep: CGFloat = 2.5
+    /// The price row at its least: eight levels of 2.5 pt.
+    static let leastPrice: CGFloat = 20
+    /// The most a price row grows to when Now has room.
+    static let mostPrice: CGFloat = 56
 
     /// The hours' mono size, scaled with the text.
     var axis: CGFloat = 10
+    /// The price row's height: 20 pt, or what Now gives it.
+    var priceHeight: CGFloat = Self.leastPrice
 
-    var hoursTop: CGFloat { Self.priceBottom + 3 }
+    var priceBottom: CGFloat { Self.priceTop + priceHeight }
+    var levelStep: CGFloat { priceHeight / CGFloat(PlanStrip.levels) }
+    var hoursTop: CGFloat { priceBottom + 3 }
     var height: CGFloat { hoursTop + (axis * 1.25).rounded(.up) }
+    /// The tallest the strip's drawing grows to.
+    var tallest: CGFloat { height + Self.mostPrice - priceHeight }
     /// What a finger lights: the lanes and the bars, not the hours.
-    func plot(width: CGFloat) -> CGRect { CGRect(x: 0, y: 0, width: width, height: Self.priceBottom) }
+    func plot(width: CGFloat) -> CGRect { CGRect(x: 0, y: 0, width: width, height: priceBottom) }
+
+    /// The same parts in a drawing `height` tall: the price row takes what
+    /// the lanes and the hours leave.
+    func fitting(_ height: CGFloat) -> PlanStripLayout {
+        var out = self
+        out.priceHeight = min(Self.mostPrice, max(Self.leastPrice, height - (self.height - priceHeight)))
+        return out
+    }
 
     /// A quarter run's left and right edge, pixel-snapped, with a 1 px gap
     /// before the next run.
@@ -32,7 +47,7 @@ struct PlanStripLayout: Equatable {
         return (x0, max(x0, x1))
     }
 
-    static func barHeight(_ level: Int) -> CGFloat { CGFloat(level + 1) * levelStep }
+    func barHeight(_ level: Int) -> CGFloat { CGFloat(level + 1) * levelStep }
 }
 
 /// Now's plan strip, in one Canvas: the battery's lane (gold gives, cyan
@@ -46,6 +61,7 @@ struct PlanStripDrawing: ChartDrawing {
     var layout = PlanStripLayout()
 
     func draw(in g: inout GraphicsContext, size: CGSize) {
+        let layout = self.layout.fitting(size.height)
         let scale = max(g.environment.displayScale, 1)
         let px = 1 / scale
         func snap(_ v: CGFloat) -> CGFloat { (v * scale).rounded() / scale }
@@ -89,8 +105,8 @@ struct PlanStripDrawing: ChartDrawing {
         var thirds: [PriceChart.Third: Path] = [:]
         for run in strip.priceRuns {
             let s = PlanStripLayout.span(first: run.first, last: run.last, grid: grid, width: width, scale: scale)
-            let h = PlanStripLayout.barHeight(run.value)
-            let rect = CGRect(x: s.x0, y: PlanStripLayout.priceBottom - h, width: s.x1 - s.x0, height: h)
+            let h = layout.barHeight(run.value)
+            let rect = CGRect(x: s.x0, y: layout.priceBottom - h, width: s.x1 - s.x0, height: h)
             let r = min(1.25, rect.width / 2)
             let bar = Path(roundedRect: rect, cornerRadii: RectangleCornerRadii(topLeading: r, bottomLeading: 0, bottomTrailing: 0, topTrailing: r), style: .circular)
             thirds[PlanStrip.third(run.value), default: Path()].addPath(bar)
@@ -101,10 +117,10 @@ struct PlanStripDrawing: ChartDrawing {
         // Not priced yet: a hatched stub, so a guess never looks like a price.
         if !strip.pending.isEmpty {
             var stubs = Path(), hatch = Path()
-            let stub = PlanStripLayout.levelStep * 2
+            let stub = layout.levelStep * 2
             for run in strip.pending {
                 let s = PlanStripLayout.span(first: run.first, last: run.last, grid: grid, width: width, scale: scale)
-                let rect = CGRect(x: s.x0, y: PlanStripLayout.priceBottom - stub, width: s.x1 - s.x0, height: stub)
+                let rect = CGRect(x: s.x0, y: layout.priceBottom - stub, width: s.x1 - s.x0, height: stub)
                 stubs.addRect(rect)
                 var x = rect.minX - stub
                 while x < rect.maxX {
@@ -120,7 +136,7 @@ struct PlanStripDrawing: ChartDrawing {
 
         // Now, one pixel across the lanes and the bars.
         let nowX = snap(grid.x(atMs: strip.nowMs, width: width))
-        g.fill(Path(CGRect(x: nowX, y: PlanStripLayout.batteryY, width: px, height: PlanStripLayout.priceBottom - PlanStripLayout.batteryY)), with: .color(grey ? Theme.ink3 : Theme.ink))
+        g.fill(Path(CGRect(x: nowX, y: PlanStripLayout.batteryY, width: px, height: layout.priceBottom - PlanStripLayout.batteryY)), with: .color(grey ? Theme.ink3 : Theme.ink))
 
         // The hours, never cut at either edge.
         for tick in strip.hours {
@@ -172,6 +188,7 @@ struct PlanStripOverlay: View {
     }
 
     private func draw(_ i: Int, in g: inout GraphicsContext, size: CGSize) {
+        let layout = self.layout.fitting(size.height)
         let scale = max(g.environment.displayScale, 1)
         let px = 1 / scale
         let plot = layout.plot(width: size.width)
@@ -182,12 +199,12 @@ struct PlanStripOverlay: View {
         g.fill(Path(CGRect(x: column.maxX, y: plot.minY, width: max(0, plot.maxX - column.maxX), height: plot.height)), with: .color(Theme.ground.opacity(0.5)))
         g.fill(Path(column), with: .color(Theme.ink.opacity(0.16)))
         if let level = strip.levels[i] {
-            let h = PlanStripLayout.barHeight(level)
-            let bar = CGRect(x: column.minX, y: PlanStripLayout.priceBottom - h, width: column.width, height: h)
+            let h = layout.barHeight(level)
+            let bar = CGRect(x: column.minX, y: layout.priceBottom - h, width: column.width, height: h)
             g.fill(Path(roundedRect: bar, cornerRadius: min(1.25, bar.width / 2), style: .circular), with: .color(Theme.ink))
         }
         LockOn.rule(at: (column.midX * scale).rounded() / scale + px / 2, plot: plot, px: px, in: &g)
-        let frame = CGRect(x: column.minX - 3, y: 0.75, width: column.width + 6, height: PlanStripLayout.priceBottom + 1.5)
+        let frame = CGRect(x: column.minX - 3, y: 0.75, width: column.width + 6, height: layout.priceBottom + 1.5)
         g.stroke(LockOn.brackets(around: frame, arm: 4), with: .color(Theme.ink.opacity(0.8)), style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round))
     }
 }

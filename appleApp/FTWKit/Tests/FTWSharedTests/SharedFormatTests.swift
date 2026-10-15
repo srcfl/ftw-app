@@ -105,5 +105,12 @@ import Testing
         #expect(PriceStrip.text(144.4, "SEK") == "144")
         #expect(PriceStrip.text(14.44, "SEK") == "14.4")
         #expect(PriceStrip.text(nil, "SEK") == "—")
+        // Now's figure: whole öre, and the decimals of a currency counted
+        // in whole units.
+        #expect(PriceStrip.whole(14.44, "SEK") == "14")
+        #expect(PriceStrip.whole(87.6, "SEK") == "88")
+        #expect(PriceStrip.whole(144.4, "EUR") == "144")
+        #expect(PriceStrip.whole(352, "CZK") == "3.52")
+        #expect(PriceStrip.whole(nil, "SEK") == "—")
     }
 }

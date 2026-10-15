@@ -5,13 +5,15 @@ import SwiftUI
 /// flowing through the home right now, and what comes next. The title is
 /// the home's name, the status line under it says whether this is now and
 /// who controls the home, and the mode sits beside it. Every node of the
-/// flow opens its own view; the plan opens the plan.
+/// flow opens its own view; the plan opens the plan, and its price the
+/// price.
 ///
-/// One fixed page, laid out from the height of the screen: the flow gets a
-/// share of the room above the plan and sits a little above its middle;
-/// the plan holds the foot. Each part keeps its size whatever arrives, so
-/// nothing moves when the box answers. At the accessibility sizes each node
-/// gets a row of its own instead, so its figure can grow with the text.
+/// One fixed page, laid out from the height of the screen (`NowLayout`):
+/// the plan holds the foot, the flow gets a share of the room above it and
+/// sits in its middle, and the plan's price row takes a share of what the
+/// flow leaves. Each part keeps its size whatever arrives, so nothing
+/// moves when the box answers. At the accessibility sizes each node gets a
+/// row of its own instead, so its figure can grow with the text.
 ///
 /// Lane 0 drives it. Nothing here asks the box on a timer: the readings
 /// arrive on the stream, the price when the day or the published window
@@ -66,25 +68,46 @@ struct NowView: View {
     }
 }
 
-/// The fixed page. The plan holds the foot at its own height, which does
-/// not depend on what the plan says; the flow is placed in the room above.
+/// The fixed page. The plan holds the foot at a height that does not
+/// depend on what the plan says; the flow is placed in the room above.
 private struct NowPage: View {
     let app: AppModel
     let home: HomeModels
     let zoom: Namespace.ID
 
     var body: some View {
-        VStack(spacing: 24) {
-            GeometryReader { geo in
-                FlowSection(site: home.site, loadpoints: home.loadpoints, zoom: zoom, canCommand: home.site.canConfigure && home.site.heardFromBox, room: geo.size.height)
-            }
+        NowColumn {
+            FlowSection(site: home.site, loadpoints: home.loadpoints, zoom: zoom, canCommand: home.site.canConfigure && home.site.heardFromBox)
             PlanSlot(app: app, home: home, zoom: zoom)
         }
         .padding(.horizontal, 16)
-        .padding(.top, 8)
         .padding(.bottom, 16)
         .frame(maxWidth: 640)
     }
+}
+
+/// Places Now's two parts by `NowLayout`: the plan at the foot, at its
+/// least height plus what its price row grows by, and the flow centred in
+/// the room above. The plan's least height is the same whatever it says,
+/// so the places come from the screen and the home's shape alone.
+private struct NowColumn: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        proposal.replacingUnspecifiedDimensions()
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard subviews.count == 2 else { return }
+        let flow = subviews[0], plan = subviews[1]
+        let least = plan.sizeThatFits(ProposedViewSize(width: bounds.width, height: 0)).height
+        let layout = NowLayout(room: bounds.height - least, least: flow[FlowLeast.self])
+        plan.place(at: CGPoint(x: bounds.minX, y: bounds.maxY), anchor: .bottomLeading, proposal: ProposedViewSize(width: bounds.width, height: least + layout.grow))
+        flow.place(at: CGPoint(x: bounds.minX, y: bounds.minY + layout.above), anchor: .topLeading, proposal: ProposedViewSize(width: bounds.width, height: layout.flow))
+    }
+}
+
+/// The height the home's shape needs, from the flow to the page's layout.
+private struct FlowLeast: LayoutValueKey {
+    static let defaultValue = NowLayout.minFlow
 }
 
 /// The accessibility sizes: a row per node, then the plan. Only here may Now
@@ -193,15 +216,14 @@ private struct NothingYet: View {
 
 // MARK: The flow
 
-/// The flow in its row: its height from the room and the home's shape
-/// (`NowLayout`), which the node set fixes from the cache on frame one.
+/// The flow in the height the page gives it, from the room and the home's
+/// shape (`NowLayout`), which the node set fixes from the cache on frame
+/// one.
 private struct FlowSection: View {
     let site: SiteModel
     let loadpoints: LoadpointsModel
     let zoom: Namespace.ID
     let canCommand: Bool
-    /// The height between the bar and the plan.
-    var room: CGFloat = 0
 
     /// What the drawing shows: the stream's readings, the cached home's
     /// nodes before the first one, or the bare shape of a home on a phone
@@ -216,14 +238,12 @@ private struct FlowSection: View {
 
     var body: some View {
         let readings = Self.readings(site: site, loadpoints: loadpoints)
-        let layout = NowLayout(room: room, least: FlowPlan.least(readings.map(\.node)))
         FlowDiagram(readings: readings, zoom: zoom, car: carActions)
-            // A drawing with fixed places: past this size its words would
-            // collide, and every figure in it is also said in the node's
-            // view. Capped here, so the drawing's scaled sizes see the cap.
-            .dynamicTypeSize(...DynamicTypeSize.xLarge)
-            .frame(height: layout.flow)
-            .offset(y: layout.above)
+            // A drawing with fixed places: its figures grow with the text
+            // to the largest standard size, its names stop at the default
+            // one. Capped here, so the drawing's scaled sizes see the cap.
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+            .layoutValue(key: FlowLeast.self, value: FlowPlan.least(readings.map(\.node)))
             .sensoryFeedback(trigger: carPoint.flatMap { loadpoints.outcome(hold: $0)?.tone }) { _, tone in ModeSheet.feedback(tone) }
     }
 
@@ -317,20 +337,17 @@ private struct PlanSection: View {
         let shown = models.planShare.shown(nowMs: minute)
         let hasCar = !loadpoints.points.isEmpty
         let strip = PlanStrip.build(shown.entry, moment: shown.moment, hasCar: hasCar)
-        NavigationLink(value: HomeRoute.plan) {
-            PlanStripView(
-                strip: strip,
-                sentence: shown.moment.nextText,
-                placeholder: shown.moment.placeholder,
-                priceNow: current.map { PriceStrip.text($0.totalMinor, window?.currency) },
-                priceUnit: "\(PriceUnits.unit(window?.currency).label.uppercased()) \(PlanGlance.nowWord)",
-                fade: StripFade.make(models.planShare.before, strip: strip, nowMs: minute, hasCar: hasCar)
-            )
-            .equatable()
-        }
-        .buttonStyle(.plain)
-        .matchedTransitionSource(id: HomeRoute.plan, in: zoom)
-        .accessibilityIdentifier("now.plan")
+        PlanStripView(
+            strip: strip,
+            sentence: shown.moment.nextText,
+            shorter: shown.moment.nextShorter,
+            placeholder: shown.moment.placeholder,
+            priceNow: current.map { PriceStrip.whole($0.totalMinor, window?.currency) },
+            unit: PriceUnits.unit(window?.currency).label.uppercased(),
+            fade: StripFade.make(models.planShare.before, strip: strip, nowMs: minute, hasCar: hasCar),
+            zoom: zoom
+        )
+        .equatable()
         // Capped where it is placed, so the strip's scaled sizes read the
         // cap too.
         .fitCap(.xLarge)

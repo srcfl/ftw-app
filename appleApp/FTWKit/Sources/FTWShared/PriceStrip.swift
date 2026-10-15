@@ -74,6 +74,14 @@ public enum PriceStrip {
         return best
     }
 
+    /// Now's figure: whole öre, cents or øre, and the unit's decimals for
+    /// a currency counted in whole units per kWh.
+    public static func whole(_ minor: Double?, _ currency: String?) -> String {
+        guard let minor, minor.isFinite else { return "—" }
+        let unit = PriceUnits.unit(currency)
+        return PowerFormat.fixed(PriceUnits.display(minor, currency), unit.scale < 1 ? unit.decimals : 0)
+    }
+
     /// The card's figure: no decimals from a hundred up, else the unit's.
     public static func text(_ minor: Double?, _ currency: String?) -> String {
         guard let minor, minor.isFinite else { return "—" }

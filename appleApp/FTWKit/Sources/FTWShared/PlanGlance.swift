@@ -254,6 +254,11 @@ public enum PlanGlance {
         /// what follows. "Battery gives power until 21:15, then stores
         /// 22:00."
         public let nextText: String
+        /// `nextText` cut short, each form one clause less, for a screen
+        /// with no room for the whole: the first sentence alone, then
+        /// without where it leaves the battery, then without its reason.
+        /// Empty when the sentence has nothing to drop.
+        public let nextShorter: [String]
         /// The plan under the dial in up to three sentences: the battery's
         /// next two moves and the car's charge, each with its reason. The
         /// verbs are marked so they can take their colour.
@@ -288,7 +293,7 @@ public enum PlanGlance {
         let calendar = given ?? .household(read?.value.timeZone)
         guard let read else {
             return Moment(atMs: t, state: .nothing, readAtMs: nil, events: [], backdrop: [], currency: "", summary: PlanWord.openToSee.text,
-                          next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, nextText: PlanWord.openToSee.text, story: [], levels: [], timeZone: calendar.timeZone)
+                          next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, nextText: PlanWord.openToSee.text, nextShorter: [], story: [], levels: [], timeZone: calendar.timeZone)
         }
         let old = t - read.record.readAtMs >= staleAfterMs
         let state: State = read.value.boxStale || read.srcState == .stale ? .boxStale : (old ? .old : .plan)
@@ -313,7 +318,7 @@ public enum PlanGlance {
         let m = moment(entry, state: .waiting, readAtMs: nil, atMs: nowMs, calendar: calendar ?? .household(entry.timeZone))
         guard let note else { return m }
         return Moment(atMs: m.atMs, state: m.state, readAtMs: nil, events: m.events, backdrop: m.backdrop, currency: m.currency, summary: note,
-                      next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, nextText: note, story: [], levels: m.levels, timeZone: m.timeZone)
+                      next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, nextText: note, nextShorter: [], story: [], levels: m.levels, timeZone: m.timeZone)
     }
 
     private static func moment(_ entry: PlanEntry, state: State, readAtMs: Double?, atMs t: Double, calendar: Calendar, inApp: Bool = false) -> Moment {
@@ -331,6 +336,7 @@ public enum PlanGlance {
 
         let summary: String
         let nextText: String
+        var nextShorter = [String]()
         switch state {
         case .nothing:
             summary = PlanWord.openToSee.text
@@ -348,6 +354,7 @@ public enum PlanGlance {
             } else {
                 summary = line(list, from: t, clock: clock, ongoingIsNow: state == .plan)
                 nextText = sentence(list, entry: entry, from: t, clock: clock, ongoingIsNow: state == .plan)
+                nextShorter = shorter(list, entry: entry, from: t, clock: clock, ongoingIsNow: state == .plan, than: nextText)
             }
         }
 
@@ -372,6 +379,7 @@ public enum PlanGlance {
             },
             ageText: age,
             nextText: nextText,
+            nextShorter: nextShorter,
             story: state == .plan || state == .old ? story(list, entry: entry, from: t, clock: clock, ongoingIsNow: state == .plan) : [],
             levels: (entry.battery ?? []).filter { $0.startMs + $0.durationMs > t && $0.startMs < t + horizonMs }
                 .compactMap { s in s.levelPct.map { LevelPoint(ms: s.startMs + s.durationMs, pct: $0) } },
@@ -450,6 +458,21 @@ public enum PlanGlance {
         return text
     }
 
+    /// The first sentence of `sentence` alone, then without where it leaves
+    /// the battery, then without its reason: each shorter than the last,
+    /// none the same as the whole.
+    static func shorter(_ events: [Event], entry: PlanEntry, from t: Double, clock: Clock, ongoingIsNow: Bool, than whole: String) -> [String] {
+        guard let first = events.first(where: { $0.kind != .cheap }) else { return [] }
+        let forms = [
+            clause(first, entry: entry, from: t, clock: clock, ongoingIsNow: ongoingIsNow, level: isNews(first, entry: entry, from: t)),
+            clause(first, entry: entry, from: t, clock: clock, ongoingIsNow: ongoingIsNow, level: false),
+            clause(first, entry: entry, from: t, clock: clock, ongoingIsNow: ongoingIsNow, level: false, reason: false),
+        ].map(\.plain)
+        var out = [String]()
+        for f in forms where f.count < (out.last ?? whole).count { out.append(f) }
+        return out
+    }
+
     /// The plan under the dial: the battery's next two moves and the car's
     /// next charge, in the order they happen, a sentence each, each with
     /// its reason.
@@ -478,8 +501,9 @@ public enum PlanGlance {
     }
 
     /// One event as a sentence with its verb marked and its reason, and
-    /// for a battery run where it leaves the battery.
-    static func clause(_ e: Event, entry: PlanEntry, from t: Double, clock: Clock, ongoingIsNow: Bool, level: Bool = true) -> Phrase {
+    /// for a battery run where it leaves the battery. `level` and `reason`
+    /// false leave those out.
+    static func clause(_ e: Event, entry: PlanEntry, from t: Double, clock: Clock, ongoingIsNow: Bool, level: Bool = true, reason: Bool = true) -> Phrase {
         let start = ahead(e.startMs, asEnd: false, from: t, clock: clock)
         let end = ahead(e.endMs, asEnd: true, from: t, clock: clock)
         // "17:15–23:30", or "tomorrow 02:00–05:00": the day once.
@@ -491,7 +515,7 @@ public enum PlanGlance {
         case .discharge: lead = under ? PlanWord.givesUntil.format(end) : PlanWord.givesAt.format(span)
         case .car, .cheap: lead = under ? PlanWord.carUntil.format(end) : PlanWord.carAt.format(span)
         }
-        var text = why(e, lead, entry: entry)
+        var text = reason ? why(e, lead, entry: entry) : lead
         if level, let pct = e.endLevelPct, e.kind == .charge || e.kind == .discharge {
             text = (e.kind == .charge ? PlanWord.levelUp : PlanWord.levelDown).format(text, percent(pct))
         }

@@ -128,6 +128,32 @@ import Testing
         }
     }
 
+    /// A figure on a rounding edge holds still: the one shown changes only
+    /// when the reading moves more than 60 % of a step away from it.
+    @Test func aFigureHoldsStillOnARoundingEdge() {
+        // 1.45 kW read as 1,449, 1,451 and 1,446 W: 1.4 or 1.5, but not both.
+        var shown: Double?
+        var seen = Set<Double>()
+        for w in [1_449.0, 1_451, 1_446, 1_452, 1_448, 1_455, 1_445] {
+            shown = Flow.quantised(w, holding: shown)
+            seen.insert(shown!)
+        }
+        #expect(seen == [1_400])
+        // Past 60 % of a step it moves, to where the reading rounds.
+        #expect(Flow.quantised(1_461, holding: 1_400) == 1_500)
+        #expect(Flow.quantised(1_460, holding: 1_400) == 1_400)
+        #expect(Flow.quantised(1_339, holding: 1_400) == 1_300)
+        // Nothing shown yet, or nothing finite: as without a hold.
+        #expect(Flow.quantised(1_449, holding: nil) == 1_400)
+        #expect(Flow.quantised(1_449, holding: .nan) == 1_400)
+        // Across a step size the larger step counts.
+        #expect(Flow.quantised(1_040, holding: 990) == 990)
+        #expect(Flow.quantised(1_060, holding: 990) == 1_100)
+        // Idle stays idle under a few watts of noise.
+        #expect(Flow.quantised(5, holding: 0) == 0)
+        #expect(Flow.quantised(7, holding: 0) == 10)
+    }
+
     @Test func widthAndSpeedFollowThePower() {
         #expect(Flow.beamWidth(kw: 0) == 1.25)
         #expect(abs(Flow.beamWidth(kw: 1) - 2.35) < 1e-9)

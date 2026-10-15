@@ -39,6 +39,17 @@ enum HomeRoute: Hashable {
     /// What the home saved, from the home's node and the title's menu.
     case savings
 
+    /// The name in the bar, the same as the screen's own title.
+    var title: String {
+        switch self {
+        case .car: return L("Car")
+        case .node(let node): return node.title
+        case .plan: return PlanGlance.title
+        case .price: return L("Electricity price")
+        case .savings: return L("Savings")
+        }
+    }
+
     /// Where a home opens. Debug builds take `-FTWTab car` or
     /// `-FTWNode battery` and the like, so every screen of the demo can be
     /// photographed.
@@ -75,17 +86,16 @@ struct HomeView: View {
                 // it: no button of its own on Now.
                 .navigationTitle(app.homeName)
                 .navigationBarTitleDisplayMode(.inline)
-                .statusLine(app: app, home: home)
-                .toolbar {
-                    // The title's menu is drawn here rather than with
-                    // `toolbarTitleMenu`, whose target also covers the
-                    // status line under it: the name opens the menu, the
-                    // line opens the control sheet.
-                    ToolbarItem(placement: .title) {
-                        TitleMenu(app: app, sheet: $sheet) { route in
-                            if path.last != route { path.append(route) }
-                        }
+                // The title's menu is drawn here rather than with
+                // `toolbarTitleMenu`, whose target also covers the status
+                // line under it: the name opens the menu, the line opens
+                // the control sheet.
+                .homeBar(app: app, home: home) {
+                    TitleMenu(app: app, sheet: $sheet) { route in
+                        if path.last != route { path.append(route) }
                     }
+                }
+                .toolbar {
                     ToolbarItem(placement: .topBarTrailing) {
                         ModeMenu(mode: home.nodes.mode) { sheet = .mode }
                     }
@@ -108,7 +118,7 @@ struct HomeView: View {
                             SavingsView(home: home)
                         }
                     }
-                    .statusLine(app: app, home: home)
+                    .homeBar(app: app, home: home, title: route.title)
                     .navigationTransition(.zoom(sourceID: route, in: zoom))
                 }
         }
@@ -168,8 +178,6 @@ struct TitleMenu: View {
         .accessibilityLabel(app.homeName)
         .accessibilityHint(L("Homes, settings and about."))
         .accessibilityIdentifier("now.title")
-        // Chrome in the bar: whole words before large letters.
-        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 }
 

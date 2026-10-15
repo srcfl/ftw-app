@@ -111,6 +111,9 @@ public final class ModeModel {
     /// When the prefs were last read, so an applied style or sale stands
     /// until the box has been asked again.
     @ObservationIgnored private var prefsReadAtMs: Double?
+    /// The box was asked for its planning style and gave none: a box that
+    /// has no styles, or one that did not answer.
+    public private(set) var prefsMissing = false
 
     /// Runs after the box applied a change, so the plan can be read again.
     @ObservationIgnored public var applied: (@MainActor () -> Void)?
@@ -148,7 +151,14 @@ public final class ModeModel {
     }
 
     func loadPrefs() async throws {
-        let wire = try await site.callBox(.get, "/api/planner/prefs")
+        let wire: JSON?
+        do {
+            wire = try await site.callBox(.get, "/api/planner/prefs")
+        } catch {
+            if prefsStamp == nil { prefsMissing = true }
+            throw error
+        }
+        prefsMissing = false
         let next = Stamped(Self.prefs(wire), asOfMs: site.scheduler.nowMs, origin: .relay)
         if let taken = Stamped.taking(next, over: prefsStamp) { prefsStamp = taken }
         prefsReadAtMs = site.scheduler.nowMs
@@ -238,6 +248,25 @@ public final class ModeModel {
 
     public func info(_ key: String?) -> ModeInfo? {
         key.flatMap { k in site.session.modes.first { $0.key == k } }
+    }
+
+    /// The name on the mode button beside Now's title: the planning style
+    /// while the plan runs, else the manual mode's name. Nil until it is
+    /// known, from the cache or the box, so the button holds its shape
+    /// rather than saying "Mode", then "Plan", then "Balanced". "Plan" only
+    /// for a box that gives no planning style.
+    public var buttonName: String? {
+        guard let key = shown else { return nil }
+        guard ModeWords.isPlan(key) else { return ModeWords.name(info(key)) }
+        if let style = shownStyle { return NodeWords.text(style.name) }
+        return prefsMissing ? ModeWords.name(info(key)) : nil
+    }
+
+    /// Whether the mode button opens the sheet, drawn with its chevron:
+    /// a phone the box lets change the mode, and, before the box has said
+    /// so, a phone that has kept nothing that says otherwise.
+    public var opens: Bool {
+        mayControl || (!site.heardFromBox && site.session.caps.isEmpty)
     }
 
     /// The label on Now: "Plan · Balanced", or a manual mode's name.

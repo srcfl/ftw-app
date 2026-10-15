@@ -143,9 +143,22 @@ public enum Flow {
     /// rolls when it means something and not every second.
     public static func quantised(_ watts: Double) -> Double {
         guard watts.isFinite else { return 0 }
+        return (watts / step(watts)).rounded() * step(watts)
+    }
+
+    /// The figure's step at a reading: 10 W, 100 W or 1 kW.
+    static func step(_ watts: Double) -> Double {
         let a = abs(watts)
-        let step: Double = a < 995 ? 10 : (a < 9_950 ? 100 : 1_000)
-        return (watts / step).rounded() * step
+        return a < 995 ? 10 : (a < 9_950 ? 100 : 1_000)
+    }
+
+    /// A figure on Now that holds still on a rounding edge: the one shown
+    /// stays until the reading moves more than 60 % of a step away from
+    /// it, so 1.45 kW read as 1.5, 1.4 and 1.5 again shows 1.5 throughout.
+    public static func quantised(_ watts: Double, holding shown: Double?) -> Double {
+        let next = quantised(watts)
+        guard let shown, shown.isFinite, watts.isFinite else { return next }
+        return abs(watts - shown) > 0.6 * max(step(shown), step(watts)) ? next : shown
     }
 
     /// A beam's core width in points: 1.25 at rest, 1.1 more per kW, never
