@@ -21,6 +21,16 @@ import FTWShared
         #expect(p.nearest == 1)
     }
 
+    /// At the largest standard text size the decimal goes, never the
+    /// figure: no "…".
+    @Test func theLargestTextDropsTheDecimal() throws {
+        let p = try #require(GridPhases.read(fields: [F.gridL1DA: 162, F.gridFuseDA: 200], live: true))
+        AppWords.$language.withValue(.en) {
+            #expect(p.reading(p.phases[0]) == "16.2\u{00A0}A")
+            #expect(p.reading(p.phases[0], decimals: 0) == "16\u{00A0}A")
+        }
+    }
+
     /// A meter that gives no phases shows nothing: not three idle meters,
     /// and not the fuse on its own.
     @Test func noPhasesNoRow() {
@@ -35,7 +45,7 @@ import FTWShared
         #expect(p.phases.count == 3)
         #expect(p.phases.allSatisfy { $0.amps == nil && $0.ofFuse == nil })
         #expect(p.nearest == nil)
-        #expect(p.phases.map(p.reading) == ["—", "—", "—"])
+        #expect(p.phases.map { p.reading($0) } == ["—", "—", "—"])
     }
 
     /// A one-phase site sends L1 alone, and the row draws one meter.

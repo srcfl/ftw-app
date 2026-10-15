@@ -11,10 +11,11 @@ enum TraceCost {
 
 /// One node of the flow, on one fixed screen: the reading now as the hero,
 /// its last five minutes streaming as the chart, and the same chart for
-/// today, the last two days and the hours ahead behind one picker in the
-/// thumb's reach. A line under the chart says what the period adds up to,
-/// the battery's mode sits under it, and a footer says how the reading
-/// reaches the phone and how often the device reads.
+/// today, the last two days and the hours ahead behind one picker. The chart
+/// takes the room; the picker, the line that says what the period adds up
+/// to and the node's extra row sit over the footer, in the thumb's reach.
+/// The footer says how the reading reaches the phone, from which device and
+/// how often it reads. The status line under the title is the only one.
 ///
 /// The tap sends no request: the trace has been recording since the home
 /// opened, so it opens drawn. History and the plan are asked for when the
@@ -77,9 +78,12 @@ struct NodeView: View {
             // The accessibility sizes scroll; every other size is one fixed
             // page, chosen by the size and never by a fit.
             if typeSize.isAccessibilitySize {
-                ScrollView { page(fill: false) }
+                ScrollView { page(chartMax: nil) }
             } else {
-                page(fill: true)
+                // The chart grows to half the screen's height, never more.
+                GeometryReader { geo in
+                    page(chartMax: (geo.size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom) / 2)
+                }
             }
         }
         .background(Theme.ground)
@@ -119,81 +123,88 @@ struct NodeView: View {
             ChartFullScreen(site: site, node: node, home: home, timebase: $timebase, series: $series, timebases: timebases)
                 .navigationTransition(.zoom(sourceID: "chart", in: chartZoom))
         }
+        #if DEBUG
+        // `-FTWEnlarge YES` opens the chart on the whole screen, for
+        // screenshots.
+        .task {
+            guard UserDefaults.standard.bool(forKey: "FTWEnlarge") else { return }
+            try? await Task.sleep(for: .seconds(1))
+            enlarged = true
+        }
+        #endif
     }
 
     private var timebases: [Timebase] { Timebase.allCases.filter { $0 != .ahead || hasAhead } }
 
-    private func page(fill: Bool) -> some View {
+    /// `chartMax` is half the screen's height on the fixed page, nil where
+    /// the page scrolls. On the fixed page the chart takes the height the
+    /// rest leaves, from 200 pt up to `chartMax`; what is left after that
+    /// sits between the chart and the picker, never at the foot.
+    private func page(chartMax: CGFloat?) -> some View {
+        let fill = chartMax != nil
+        let chips = timebase == .today || timebase == .twoDays
         return VStack(alignment: .leading, spacing: 0) {
             NodeHero(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, text: text)
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .padding(.horizontal, 20)
-            HStack(spacing: 8) {
-                NodeStatusRow(site: site, node: node)
-                    .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-                Spacer(minLength: 4)
-                Button { enlarged = true } label: {
-                    Image(systemName: "arrow.up.left.and.arrow.down.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Theme.ink3)
-                        .frame(minWidth: 32, minHeight: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(L("Enlarge the chart"))
-                .accessibilityIdentifier("node.chart.enlarge")
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
+                .fixedSize(horizontal: false, vertical: true)
             // The series a history shows; the row keeps its room on every
             // timebase, so nothing moves on a switch.
             SeriesChips(own: node, available: Self.chartable(node), chosen: $series)
                 .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                 .padding(.horizontal, 14)
-                .opacity(timebase == .today || timebase == .twoDays ? 1 : 0)
-                .allowsHitTesting(timebase == .today || timebase == .twoDays)
-                .accessibilityHidden(!(timebase == .today || timebase == .twoDays))
-            // Compact: the view never scrolls for it. A tap opens it on the
-            // whole screen, growing out of this one.
+                .padding(.top, 16)
+                .opacity(chips ? 1 : 0)
+                .allowsHitTesting(chips)
+                .accessibilityHidden(!chips)
+                .fixedSize(horizontal: false, vertical: true)
+            // A tap opens it on the whole screen, growing out of this one.
             NodeChart(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, series: series, text: text)
-                .frame(minHeight: fill ? 150 : 200, idealHeight: 200, maxHeight: 230)
+                .frame(minHeight: 200, idealHeight: 200, maxHeight: chartMax ?? 200)
                 .padding(.horizontal, 4)
                 .contentShape(Rectangle())
                 .simultaneousGesture(TapGesture().onEnded { enlarged = true })
+                .overlay(alignment: .topTrailing) {
+                    EnlargeButton(scrub: scrub) { enlarged = true }
+                        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
+                }
                 .matchedTransitionSource(id: "chart", in: chartZoom)
-            Picker(L("Period"), selection: $timebase.animation(.easeInOut(duration: 0.2))) {
-                ForEach(timebases, id: \.self) { Text($0.label).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .accessibilityIdentifier("node.period")
-            .padding(.horizontal, 20)
-            .padding(.top, 12)
-            RangeLine(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, text: text)
+                .layoutPriority(1)
+            if fill { Spacer(minLength: 0) }
+            VStack(alignment: .leading, spacing: 0) {
+                Picker(L("Period"), selection: $timebase.animation(.easeInOut(duration: 0.2))) {
+                    ForEach(timebases, id: \.self) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("node.period")
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
-            if node == .battery {
-                ModeRow(mode: models.mode, choose: { choosingMode = true })
+                RangeLine(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, text: text)
                     .padding(.horizontal, 20)
-                    .padding(.top, 4)
-            } else if node == .car {
-                CarRow(loadpoints: home.loadpoints, zoom: zoom)
+                    .padding(.top, 12)
+                if node == .battery {
+                    ModeRow(mode: models.mode, choose: { choosingMode = true })
+                        .padding(.horizontal, 20)
+                        .padding(.top, 4)
+                } else if node == .car {
+                    CarRow(loadpoints: home.loadpoints, zoom: zoom)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 4)
+                } else if node == .home {
+                    SavingsRow(home: home, zoom: zoom)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 4)
+                } else if node == .grid, let phases = site.gridPhases {
+                    GridPhasesRow(phases: phases)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 8)
+                }
+                NodeFooter(site: site, node: node, live: models.live, titleSaysAge: !site.isLive)
                     .padding(.horizontal, 20)
-                    .padding(.top, 4)
-            } else if node == .home {
-                SavingsRow(home: home, zoom: zoom)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 4)
-            } else if node == .grid, let phases = site.gridPhases {
-                GridPhasesRow(phases: phases)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 8)
+                    .padding(.top, 16)
+                    .padding(.bottom, 8)
             }
-            if fill { Spacer(minLength: 8) }
-            NodeFooter(site: site, node: node, live: models.live)
-                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-                .padding(.horizontal, 20)
-                .padding(.top, fill ? 0 : 16)
-                .padding(.bottom, 8)
+            .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: 640, maxHeight: fill ? .infinity : nil, alignment: .topLeading)
         .frame(maxWidth: .infinity)
@@ -283,9 +294,12 @@ final class NodeTraceModel {
 // MARK: - The hero
 
 /// "1,8 kW" at 60 pt, the way it flows under it in its colour, and the
-/// node's second fact on the right. Under a finger on the live trace it
-/// gives the reading there and its time, and comes back with the spring.
-/// The car view opens on it too.
+/// node's second fact on the right. The figure steps as Now's does
+/// (`Flow.quantised`), so it rolls only when its digits change. Under a
+/// finger on the live trace it gives the exact reading there and its time,
+/// and comes back with the spring. The word keeps one size and one line in
+/// every state, so nothing under the hero moves. The car view opens on it
+/// too.
 struct NodeHero: View {
     let site: SiteModel
     let node: EnergyNode
@@ -316,7 +330,7 @@ struct NodeHero: View {
         case .today, .twoDays: text.hero(scrub).map { ($0.watts, $0.signed, $0.word) }
         case .ahead: nil
         }
-        let watts = under.map(\.watts) ?? reading?.watts
+        let watts = under.map(\.watts) ?? reading?.watts.map(Flow.quantised)
         let word = under?.word ?? reading?.word ?? L("Your box sends no reading for this.")
         let tone = under.map { Readouts.tone(node, $0.signed) } ?? reading?.tone ?? .muted
 
@@ -329,7 +343,6 @@ struct NodeHero: View {
                     .foregroundStyle(live || under != nil ? Theme.color(tone) : Theme.ink3)
                     .monospacedDigit()
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
             }
             .layoutPriority(1)
             Spacer(minLength: 8)
@@ -368,8 +381,7 @@ struct NodeHero: View {
         if let span = scrub.span, span.upperBound < readings.count {
             let slice = readings[span]
             let mean = slice.map(\.v).reduce(0, +) / Double(slice.count)
-            let from = slice.first!.t, to = slice.last!.t
-            return (abs(mean), mean, Readouts.seconds(from) + "–" + Readouts.seconds(to) + " · " + NodeWords.format("average %@", AppWords.power(abs(mean))))
+            return (abs(mean), mean, NodeLive.spanWords(fromMs: slice.first!.t, toMs: slice.last!.t, meanW: mean, zone: .current))
         }
         return nil
     }
@@ -422,11 +434,23 @@ struct SecondFact: View {
                         .foregroundStyle(Theme.ink2)
                 }
             case .solar:
+                // This hour against its forecast while the sun is up, and
+                // what the rest of today should bring under it; while the
+                // sun is down, when it comes back.
+                let plan = home.nodes.plan
                 let made = reading?.watts ?? 0
-                let forecast = home.nodes.plan.forecastAhead(nowMs: site.nowMs).first { $0.startMs <= site.nowMs && site.nowMs < $0.startMs + $0.durationMs }?.pvW
-                if let text = NodeLive.solarShare(madeW: made, forecastW: forecast) {
-                    Text(text)
+                let forecast = plan.forecastAhead(nowMs: site.nowMs).first { $0.startMs <= site.nowMs && site.nowMs < $0.startMs + $0.durationMs }?.pvW
+                let share = NodeLive.solarShare(madeW: made, forecastW: forecast)
+                let outlook = NodeLive.solarOutlook(plan.forecast, nowMs: site.minuteMs, zone: .current)
+                if let first = share ?? outlook {
+                    Text(first)
                         .font(.headline)
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.ink2)
+                }
+                if share != nil, let outlook {
+                    Text(outlook)
+                        .font(.footnote)
                         .monospacedDigit()
                         .foregroundStyle(Theme.ink2)
                 }
@@ -474,28 +498,31 @@ private struct ShareBar: View {
 
 // MARK: - The chart
 
-/// Over the chart: whether this node's reading is live, and from which
-/// device. `● LIVE · SUNGROW`, or `○ AS OF 14:05`: a clock time, never a
-/// count of seconds.
-struct NodeStatusRow: View {
-    let site: SiteModel
-    let node: EnergyNode
-    @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 10.5
+/// The way to the chart on the whole screen, in the plot's top right
+/// corner, in the band the scrub tag uses and clear of the axis labels in
+/// the gutter beside it. It steps aside while a finger is on the chart, so
+/// the tag can read.
+private struct EnlargeButton: View {
+    let scrub: ScrubModel
+    let action: () -> Void
+    /// The charts' axis size; the widest gutter, Ahead's, is 3.8 of it.
+    @ScaledMetric(relativeTo: .caption2) private var axis: CGFloat = 10
 
     var body: some View {
-        let f = site.freshness(node)
-        let text = NodeLive.status(node, f, nowMs: site.minuteMs, zone: .current)
-        // Only the dot is lit; the words are ink.
-        let dot = String(text.prefix(1)), rest = String(text.dropFirst())
-        Text("\(Text(verbatim: dot).foregroundStyle(f.live ? Theme.live : Theme.ink3))\(Text(verbatim: rest).foregroundStyle(f.live ? Theme.ink2 : Theme.ink3))")
-            .font(.system(size: size, weight: .medium, design: .monospaced))
-            .tracking(0.5)
-            .lineLimit(1)
-            .minimumScaleFactor(0.75)
-            .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-            .accessibilityIdentifier("node.status")
-            .contentTransition(.opacity)
-            .animation(.default, value: text)
+        Button(action: action) {
+            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Theme.ink3)
+                .frame(width: 44, height: 20, alignment: .trailing)
+                .contentShape(Rectangle().inset(by: -8))
+        }
+        .buttonStyle(.plain)
+        .padding(.trailing, 4 + axis * 3.8)
+        .opacity(scrub.isDown ? 0 : 1)
+        .allowsHitTesting(!scrub.isDown)
+        .animation(.easeOut(duration: 0.15), value: scrub.isDown)
+        .accessibilityLabel(L("Enlarge the chart"))
+        .accessibilityIdentifier("node.chart.enlarge")
     }
 }
 
@@ -537,7 +564,8 @@ private struct NodeChart: View {
 }
 
 /// The chart on the whole screen, grown out of the small one: the same
-/// timebases, series and finger, with room to read.
+/// timebases, series and finger, with room to read. It closes as every
+/// sheet does, with the system's close button.
 private struct ChartFullScreen: View {
     let site: SiteModel
     let node: EnergyNode
@@ -566,9 +594,8 @@ private struct ChartFullScreen: View {
             .navigationTitle(node.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { dismiss() } label: { Image(systemName: "xmark") }
-                        .accessibilityLabel(L("Close"))
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(role: .close) { dismiss() }
                         .accessibilityIdentifier("node.chart.close")
                 }
             }
@@ -584,13 +611,10 @@ private struct ChartFullScreen: View {
             NodeHero(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, text: text)
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .padding(.horizontal, 20)
-            NodeStatusRow(site: site, node: node)
-                .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
             SeriesChips(own: node, available: NodeView.chartable(node), chosen: $series)
                 .dynamicTypeSize(...DynamicTypeSize.xxLarge)
                 .padding(.horizontal, 14)
+                .padding(.top, 16)
                 .opacity(timebase == .today || timebase == .twoDays ? 1 : 0)
                 .allowsHitTesting(timebase == .today || timebase == .twoDays)
             NodeChart(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, series: series, text: text)
@@ -606,7 +630,13 @@ private struct ChartFullScreen: View {
             .padding(.top, 12)
             RangeLine(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, text: text)
                 .padding(.horizontal, 20)
-                .padding(.vertical, 12)
+                .padding(.top, 12)
+            // No status line over the whole screen: the footer gives this
+            // node's age whenever it is not live.
+            NodeFooter(site: site, node: node, live: home.nodes.live, titleSaysAge: false)
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 8)
         }
     }
 }
@@ -770,13 +800,16 @@ private struct RangeLine: View {
     }
 }
 
-/// `VIA RELAY · READS EVERY 1 S`: how the reading reaches the phone, and
-/// how often the device itself reads, from its readings. A switch of path
-/// changes the first word and nothing else.
+/// `VIA RELAY · SUNGROW · READS EVERY 1 S`: how the reading reaches the
+/// phone, the device behind it, and how often the device itself reads,
+/// from its readings. When this node is not live and the title does not
+/// already give an age, it starts `○ AS OF 14:05`. One line, so the
+/// controls over it never move.
 private struct NodeFooter: View {
     let site: SiteModel
     let node: EnergyNode
     let live: LiveTrace
+    let titleSaysAge: Bool
     @ScaledMetric(relativeTo: .caption2) private var size: CGFloat = 10
 
     var body: some View {
@@ -784,18 +817,27 @@ private struct NodeFooter: View {
         // A value that never changed in the window says nothing of how often
         // the device reads, so the footer does not guess.
         let period = LiveSeries.period(of: points.map { LiveSample(t: $0.t, v: $0.v) })
-        Text(NodeLive.footer(site.carrier, periodMs: period))
-            .font(.system(size: size, design: .monospaced))
-            .tracking(0.5)
-            .foregroundStyle(Theme.ink3)
-            .lineLimit(2)
-            .minimumScaleFactor(0.75)
-            .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-            .accessibilityIdentifier("node.footer")
+        let text = NodeLive.footer(node, site.freshness(node), carrier: site.carrier, periodMs: period, titleSaysAge: titleSaysAge, nowMs: site.minuteMs, zone: .current)
+        // A long line shrinks to fit, but its row keeps the full size's
+        // height, so nothing over it moves when the cadence joins it.
+        ZStack(alignment: .leading) {
+            Text(verbatim: " ")
+            Text(text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .contentTransition(.opacity)
+                .animation(.default, value: text)
+                .accessibilityIdentifier("node.footer")
+        }
+        .font(.system(size: size, design: .monospaced))
+        .tracking(0.5)
+        .foregroundStyle(Theme.ink3)
+        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
     }
 }
 
-/// The battery's one extra row: `Mode · Balanced ›`.
+/// The battery's one extra row: `Mode · Balanced`, with the chevrons of a
+/// row that opens a sheet.
 private struct ModeRow: View {
     let mode: ModeModel
     let choose: () -> Void
@@ -809,7 +851,8 @@ private struct ModeRow: View {
                     Text(mode.outcome?.text ?? mode.label ?? "—")
                         .foregroundStyle(Theme.ink)
                         .contentTransition(.opacity)
-                    Image(systemName: "chevron.right")
+                    // It opens a sheet, not a page.
+                    Image(systemName: "chevron.up.chevron.down")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(Theme.ink3)
                     Spacer(minLength: 0)

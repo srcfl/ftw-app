@@ -262,7 +262,8 @@ struct HistoryChartArea: View {
             let means = buckets[r].compactMap(\.mean)
             guard !means.isEmpty else { return PeriodText.Hero(watts: nil, signed: 0, word: span(r) + " · " + NodeWords.text("no data")) }
             let mean = means.reduce(0, +) / Double(means.count)
-            return PeriodText.Hero(watts: abs(mean), signed: mean, word: span(r) + " · " + NodeWords.format("average %@", AppWords.power(abs(mean))))
+            // Short words, so the hero keeps one size on one line.
+            return PeriodText.Hero(watts: abs(mean), signed: mean, word: span(r) + " · " + NodeWords.format("avg %@", AppWords.power(abs(mean))))
         })
     }
 }

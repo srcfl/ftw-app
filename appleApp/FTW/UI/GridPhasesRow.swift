@@ -2,9 +2,10 @@ import FTWKit
 import SwiftUI
 
 /// The grid's one extra row: L1, L2 and L3 as 10-cell meters against the
-/// main fuse, each with its current in mono, and the phase nearest the fuse
-/// in an inverse tag. Absent when the box sends no phases. While they are
-/// not live the row keeps its room and shows no number.
+/// main fuse, each with its current, and the phase nearest the fuse a
+/// weight heavier. The inverse tag stays the finger's. Absent when the box
+/// sends no phases. While they are not live the row keeps its room and
+/// shows no number.
 struct GridPhasesRow: View {
     let phases: GridPhases
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -19,8 +20,11 @@ struct GridPhasesRow: View {
                 .tracking(0.5)
                 .foregroundStyle(Theme.ink3)
             layout {
+                // Three on one line at the largest standard size: the
+                // decimal goes, never the figure.
+                let decimals = typeSize >= .xxxLarge && !typeSize.isAccessibilitySize ? 0 : 1
                 ForEach(Array(phases.phases.enumerated()), id: \.offset) { i, phase in
-                    PhaseMeter(phase: phase, reading: phases.reading(phase), nearest: i == phases.nearest, live: phases.live)
+                    PhaseMeter(phase: phase, reading: phases.reading(phase, decimals: decimals), nearest: i == phases.nearest, live: phases.live)
                 }
             }
         }
@@ -35,30 +39,28 @@ struct GridPhasesRow: View {
 }
 
 /// One phase: `L2 6,0 A` over its meter, a cell for each tenth of the fuse.
+/// The name is mono, the current a figure.
 private struct PhaseMeter: View {
     let phase: GridPhases.Phase
     let reading: String
     let nearest: Bool
     let live: Bool
+    @ScaledMetric(relativeTo: .footnote) private var figure: CGFloat = 13
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 4) {
-                // Every name keeps the tag's inset, so the mark can move
-                // from phase to phase without moving a figure.
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(verbatim: phase.name)
-                    .padding(.horizontal, 3)
-                    .foregroundStyle(nearest ? Theme.ground : Theme.ink2)
-                    .background(nearest ? Theme.ink : .clear, in: RoundedRectangle(cornerRadius: 2))
+                    .font(Theme.mono(.footnote, weight: nearest ? .bold : .regular))
+                    .foregroundStyle(nearest ? Theme.ink : Theme.ink2)
                 Text(reading)
+                    .font(Theme.figure(figure, weight: nearest ? .semibold : .regular))
                     .foregroundStyle(live ? Theme.ink : Theme.ink3)
                     .contentTransition(.numericText(value: phase.amps ?? 0))
             }
-            .font(Theme.mono(.footnote))
             .lineLimit(1)
             CellMeter(pct: (phase.ofFuse ?? 0) * 100, tint: Theme.grid, live: live)
                 .frame(maxWidth: 96, minHeight: 4, maxHeight: 4)
-                .padding(.leading, 3)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }

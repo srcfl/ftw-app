@@ -403,6 +403,57 @@ final class NowFitsTests: XCTestCase {
         XCTAssertTrue(app.windows.firstMatch.frame.contains(app.buttons["node.mode.change"].frame))
     }
 
+    /// Every node's view is one page at the standard size and the largest:
+    /// the chart takes the room, the picker and the footer sit at the foot
+    /// in the thumb's reach, one status line speaks for the screen, and a
+    /// switch of period moves nothing.
+    @MainActor
+    func testEveryNodeViewKeepsItsControlsAtTheFoot() throws {
+        for text in [Self.standard, Self.largest] {
+            for node in ["solar", "battery", "home", "grid", "car"] {
+                let app = launchDemo(text: text, more: ["-FTWNode", node, "-FTWPeriod", "today"])
+                let picker = app.segmentedControls["node.period"]
+                XCTAssertTrue(picker.waitForExistence(timeout: 15), "\(node) never opened at \(text)")
+                let footer = app.staticTexts["node.footer"]
+                XCTAssertTrue(footer.waitForExistence(timeout: 5))
+                Thread.sleep(forTimeInterval: 1.5)
+                let window = app.windows.firstMatch.frame
+                XCTAssertEqual(app.scrollViews.count, 0, "\(node) scrolls at \(text)")
+                XCTAssertTrue(window.contains(footer.frame), "\(node)'s footer is off screen at \(text)")
+                XCTAssertFalse(app.staticTexts["node.status"].exists, "\(node) has a second status line")
+                // The foot: the picker and what sits under it take the lower
+                // part of the screen, and nothing but the footer is under them.
+                XCTAssertGreaterThan(picker.frame.minY, window.height * 0.55, "\(node)'s picker floats at \(text)")
+                XCTAssertLessThan(window.maxY - footer.frame.maxY, 60, "\(node) leaves ground under its footer at \(text)")
+                let top = picker.frame.minY
+                for period in ["Live", "48 h", "Today"] {
+                    picker.buttons[period].tap()
+                    XCTAssertEqual(picker.frame.minY, top, accuracy: 0.5, "\(node)'s picker moved on \(period) at \(text)")
+                }
+                if node == "battery" { shoot(app, "battery-\(text)") }
+                app.terminate()
+            }
+        }
+    }
+
+    /// The chart opens on the whole screen from the button in its corner,
+    /// and closes as a sheet does.
+    @MainActor
+    func testTheNodeChartEnlargesAndCloses() throws {
+        let app = launchDemo(more: ["-FTWNode", "battery", "-FTWPeriod", "today"])
+        let enlarge = app.buttons["node.chart.enlarge"]
+        XCTAssertTrue(enlarge.waitForExistence(timeout: 15))
+        XCTAssertTrue(enlarge.isHittable)
+        enlarge.tap()
+        let close = app.buttons["node.chart.close"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["node.footer"].exists)
+        shoot(app, "chart-enlarged")
+        close.tap()
+        XCTAssertTrue(close.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(enlarge.isHittable)
+    }
+
     /// The mode sheet opens tall enough for its choices, keeps the box's
     /// mode ticked while a new one waits in its own row, moves nothing under
     /// the finger, and closes once the box applied the mode.
