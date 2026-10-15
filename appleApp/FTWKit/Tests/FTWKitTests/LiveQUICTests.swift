@@ -53,7 +53,9 @@ struct LiveQUICTests {
         let paired = try await until { site.session.phase == .streaming }
         let transport = site.cloudTransport ?? "?"
         #expect(site.carrier == .tunnel)
-        if mode != "websocket" { #expect(transport == Contract.transportQUIC) }
+        // The race may hand one session to the WebSocket on a lossy link;
+        // QUIC alone must be QUIC.
+        if mode == "quic" { #expect(transport == Contract.transportQUIC) }
 
         var acks: [Double] = []
         for _ in 0..<30 {

@@ -109,12 +109,15 @@ public final class QUICCloudSocket: WebSocketConnection {
             let control = try await connection.openStream()
             try await control.send(Data(QUICFraming.message(target)))
             await opened()
-            try await withThrowingTaskGroup(of: Void.self) { group in
+            // The control stream and the writer carry the session; the bulk
+            // streams and the datagrams only add to it, so their end, as
+            // against a service that offers none, ends nothing.
+            try await withThrowingTaskGroup(of: Bool.self) { group in
                 group.addTask {
                     for await msg in outbox {
                         try await control.send(Data(QUICFraming.message(msg)))
                     }
-                    throw CancellationError()
+                    return true
                 }
                 group.addTask {
                     while true {
@@ -123,22 +126,24 @@ public final class QUICCloudSocket: WebSocketConnection {
                     }
                 }
                 group.addTask {
-                    try await connection.inboundStreams { stream in
+                    try? await connection.inboundStreams { stream in
                         while true {
                             let msg = try await QUICFraming.read(stream, max: maxMessage)
                             await received(msg)
                         }
                     }
+                    return false
                 }
                 group.addTask {
-                    let datagrams = try await connection.datagrams
-                    while true {
-                        let d = try await datagrams.receive()
+                    guard let datagrams = try? await connection.datagrams else { return false }
+                    while let d = try? await datagrams.receive() {
                         await received(Bytes(d.content))
                     }
+                    return false
                 }
-                // The first to end ends the connection.
-                _ = try await group.next()
+                while let carries = try await group.next() {
+                    if carries { break }
+                }
                 group.cancelAll()
             }
         } catch {}

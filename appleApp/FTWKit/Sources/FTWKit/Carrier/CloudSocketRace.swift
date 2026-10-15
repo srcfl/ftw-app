@@ -52,6 +52,10 @@ public final class CloudTransportMemory {
 public enum CloudSockets {
     /// QUIC's lead over the WebSocket.
     public static let raceDelayMs: Double = 250
+    /// How long a QUIC dial that lost may go on, only to learn whether UDP
+    /// gets through here: one lost packet should not keep QUIC second for a
+    /// day.
+    public static let learnMs: Double = 3_000
 
     /// A socket factory that races QUIC against the WebSocket.
     public static func racing(quic: @escaping WebSocketFactory, webSocket: @escaping WebSocketFactory,
@@ -72,12 +76,16 @@ final class RacingCloudSocket: WebSocketConnection {
     private var failed: Set<String> = []
     private var winner: String?
     private var lead: Cancellable?
+    private var learning: Cancellable?
     private var closed = false
 
     var transportName: String { winner ?? order[0] }
 
+    private let scheduler: Scheduler
+
     init(url: URL, events: WebSocketEvents, quic: @escaping WebSocketFactory, webSocket: @escaping WebSocketFactory,
          scheduler: Scheduler, memory: CloudTransportMemory) {
+        self.scheduler = scheduler
         self.url = url
         self.events = events
         self.makers = [Contract.transportQUIC: quic, Contract.transportWebSocket: webSocket]
@@ -97,6 +105,7 @@ final class RacingCloudSocket: WebSocketConnection {
         guard !closed else { return }
         closed = true
         lead?.cancel()
+        learning?.cancel()
         for s in sockets.values { s.close() }
         sockets = [:]
     }
@@ -110,7 +119,10 @@ final class RacingCloudSocket: WebSocketConnection {
     private func start(_ transport: String) {
         guard let make = makers[transport] else { return }
         let socket = make(url, WebSocketEvents(
-            onOpen: { [weak self] in self?.opened(transport) },
+            onOpen: { [weak self] in
+                guard let self else { return }
+                if self.winner == nil { self.opened(transport) } else if transport != self.winner { self.learned(transport) }
+            },
             onText: { [weak self] text in
                 guard let self, self.winner == transport else { return }
                 self.events.onText(text)
@@ -129,10 +141,29 @@ final class RacingCloudSocket: WebSocketConnection {
         winner = transport
         lead?.cancel()
         lead = nil
-        for (t, s) in sockets where t != transport { s.close() }
-        sockets = sockets.filter { $0.key == transport }
         memory.remember(transport)
+        // A QUIC dial still under way when the WebSocket opened goes on for
+        // a while, only to learn whether UDP gets through here.
+        if transport == Contract.transportWebSocket, let quic = sockets[Contract.transportQUIC] {
+            learning = scheduler.after(CloudSockets.learnMs) { [weak self] in
+                quic.close()
+                self?.sockets[Contract.transportQUIC] = nil
+            }
+        }
+        for (t, s) in sockets where t != transport && t != Contract.transportQUIC { s.close() }
+        if transport == Contract.transportQUIC, let ws = sockets[Contract.transportWebSocket] { ws.close() }
+        sockets = sockets.filter { $0.key == transport || (transport == Contract.transportWebSocket && $0.key == Contract.transportQUIC) }
         events.onOpen()
+    }
+
+    /// The losing QUIC dial opened after all: UDP gets through here, so QUIC
+    /// goes first next time. This session stays where it is.
+    private func learned(_ transport: String) {
+        guard transport == Contract.transportQUIC, sockets[transport] != nil else { return }
+        memory.remember(transport)
+        learning?.cancel()
+        sockets[transport]?.close()
+        sockets[transport] = nil
     }
 
     private func ended(_ transport: String, _ code: Int, _ reason: String) {
@@ -142,7 +173,11 @@ final class RacingCloudSocket: WebSocketConnection {
             events.onClose(code, reason)
             return
         }
-        guard winner == nil else { return }
+        guard winner == nil else {
+            // The learning dial failed: the WebSocket stays first here.
+            sockets[transport] = nil
+            return
+        }
         failed.insert(transport)
         sockets[transport] = nil
         if failed.count == order.count {

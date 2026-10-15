@@ -138,6 +138,10 @@ struct CloudSocketRaceTests {
         #expect(rig.made.map(\.kind) == [Contract.transportQUIC, Contract.transportWebSocket])
         rig.socket(Contract.transportWebSocket)!.events.onOpen()
         #expect(conn.transportName == Contract.transportWebSocket)
+        // The QUIC dial goes on a while, only to learn about UDP here, and
+        // is closed after.
+        #expect(!rig.socket(Contract.transportQUIC)!.closed)
+        rig.scheduler.advance(CloudSockets.learnMs)
         #expect(rig.socket(Contract.transportQUIC)!.closed, "the loser is closed")
         // A late QUIC open or message changes nothing.
         rig.socket(Contract.transportQUIC)!.events.onOpen()
@@ -153,6 +157,23 @@ struct CloudSocketRaceTests {
         rig.scheduler.advance(250)
         #expect(rig.made.last?.kind == Contract.transportQUIC)
         again.close()
+    }
+
+    /// One unlucky QUIC handshake loses to the WebSocket, then opens: the
+    /// session stays on the WebSocket, and QUIC goes first next time.
+    @Test func aLateQUICTeachesThatUDPGetsThrough() {
+        let rig = RaceRig()
+        let conn = rig.dial()
+        rig.scheduler.advance(250)
+        rig.socket(Contract.transportWebSocket)!.events.onOpen()
+        rig.scheduler.advance(400)
+        rig.socket(Contract.transportQUIC)!.events.onOpen()
+        #expect(conn.transportName == Contract.transportWebSocket)
+        #expect(rig.socket(Contract.transportQUIC)!.closed)
+        let next = rig.dial()
+        #expect(rig.made.last?.kind == Contract.transportQUIC, "QUIC goes first again")
+        next.close()
+        conn.close()
     }
 
     @Test func aRefusedQUICStartsTheWebSocketAtOnce() {
