@@ -178,6 +178,66 @@ final class NowFitsTests: XCTestCase {
         }
     }
 
+    /// The bar holds still from the first frame: the title and the status
+    /// line keep one leading edge whatever the line or the mode button
+    /// says, and the button never says "Mode" or "Plan" on its way to the
+    /// style's name.
+    @MainActor
+    func testTheBarHoldsStillFromTheFirstFrame() throws {
+        let app = XCUIApplication()
+        app.launchArguments = [
+            "-FTWDemo", "YES",
+            "-AppleLanguages", "(en)", "-AppleLocale", "en_US",
+            "-UIPreferredContentSizeCategoryName", Self.standard,
+        ]
+        app.launch()
+        let title = app.buttons["now.title"]
+        let line = app.buttons["status.line"]
+        let mode = app.buttons["now.mode"]
+        XCTAssertTrue(title.waitForExistence(timeout: 15))
+        let x = title.frame.minX
+        let lineX = line.frame.minX
+        var names = Set<String>()
+        var lines = Set<String>()
+        let end = Date().addingTimeInterval(4)
+        while Date() < end {
+            XCTAssertEqual(title.frame.minX, x, accuracy: 0.5, "the title moved")
+            XCTAssertEqual(line.frame.minX, lineX, accuracy: 0.5, "the status line moved")
+            names.insert(mode.value as? String ?? "")
+            lines.insert(line.value as? String ?? "")
+        }
+        XCTAssertEqual(lineX, x, accuracy: 0.5, "the title and the line have two edges")
+        XCTAssertTrue(names.isSubset(of: ["", "Balanced"]), "the mode button said \(names)")
+        XCTAssertTrue(lines.contains("DEMO · SIMULATED HOME"), "\(lines)")
+    }
+
+    /// The price on the strip opens the price; anywhere else on the strip
+    /// opens the plan.
+    @MainActor
+    func testThePriceOpensThePriceAndTheStripThePlan() throws {
+        let app = launchDemo()
+        let price = app.buttons["now.price"]
+        XCTAssertTrue(price.waitForExistence(timeout: 10))
+        XCTAssertTrue(price.isHittable)
+        price.tap()
+        let priceBar = app.navigationBars["Electricity price"]
+        XCTAssertTrue(priceBar.waitForExistence(timeout: 5), "the price did not open the price")
+        shoot(app, "price-from-now")
+        priceBar.buttons.element(boundBy: 0).tap()
+        let plan = app.buttons["now.plan"]
+        XCTAssertTrue(plan.waitForExistence(timeout: 5))
+        Thread.sleep(forTimeInterval: 1)
+        // The header's left, by the kicker, and the bars under the price.
+        for spot in [CGVector(dx: 0.1, dy: 0.05), CGVector(dx: 0.9, dy: 0.45)] {
+            plan.coordinate(withNormalizedOffset: spot).tap()
+            let planBar = app.navigationBars["Plan ahead"]
+            XCTAssertTrue(planBar.waitForExistence(timeout: 5), "\(spot) did not open the plan")
+            planBar.buttons.element(boundBy: 0).tap()
+            XCTAssertTrue(plan.waitForExistence(timeout: 5))
+            Thread.sleep(forTimeInterval: 1)
+        }
+    }
+
     /// The status line says live, opens the box's own answer to "Are we in
     /// control?" with a section per device, and closes again.
     @MainActor
@@ -222,6 +282,7 @@ final class NowFitsTests: XCTestCase {
         Thread.sleep(forTimeInterval: 3)
         XCTAssertEqual(button.value as? String, "Balanced")
         let frame = button.frame
+        let titleX = app.buttons["now.title"].frame.minX
         button.tap()
         let own = app.buttons["mode.choice.self_consumption"]
         XCTAssertTrue(own.waitForExistence(timeout: 5))
@@ -235,6 +296,7 @@ final class NowFitsTests: XCTestCase {
         shoot(app, "mode-confirmed")
         XCTAssertEqual(button.value as? String, "Own use")
         XCTAssertEqual(button.frame.maxX, frame.maxX, accuracy: 0.5, "the mode button moved its trailing edge")
+        XCTAssertEqual(app.buttons["now.title"].frame.minX, titleX, accuracy: 0.5, "the title moved with the receipt")
         let back = NSPredicate(format: "value == 'DEMO · SIMULATED HOME'")
         expectation(for: back, evaluatedWith: line)
         waitForExpectations(timeout: 10)

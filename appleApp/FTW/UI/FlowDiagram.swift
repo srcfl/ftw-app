@@ -307,7 +307,9 @@ private struct Brackets: Shape {
 struct NodeLabel: View, Equatable {
     let reading: NodeReading
     let spot: FlowPlan.Spot
-    @ScaledMetric(relativeTo: .caption2) private var name: CGFloat = 11
+    /// The name stops at the default size; the figure grows on.
+    @ScaledMetric(relativeTo: .caption2) private var scaledName: CGFloat = 11
+    private var name: CGFloat { min(scaledName, 11) }
     @ScaledMetric(relativeTo: .title2) private var figure: CGFloat = 24
     @ScaledMetric(relativeTo: .subheadline) private var unit: CGFloat = 14
     @ScaledMetric(relativeTo: .footnote) private var word: CGFloat = 13
@@ -370,12 +372,14 @@ struct HubLabel: View, Equatable {
     @ScaledMetric(relativeTo: .largeTitle) private var figure: CGFloat = 34
     @ScaledMetric(relativeTo: .caption) private var word: CGFloat = 12
     @Environment(\.lockedOn) private var lockedOn
+    /// The figure on screen, held on a rounding edge.
+    @State private var held: Double?
 
     nonisolated static func == (a: Self, b: Self) -> Bool { a.reading == b.reading && a.diameter == b.diameter }
 
     var body: some View {
         let live = reading.freshness.live
-        let shown = reading.watts.map(Flow.quantised)
+        let shown = reading.watts.map { Flow.quantised($0, holding: held) }
         let parts = shown.map(PowerFormat.parts)
         VStack(spacing: 0) {
             Text(parts.map { AppWords.decimal($0.text) } ?? "—")
@@ -386,6 +390,7 @@ struct HubLabel: View, Equatable {
                 .animation(Theme.spring, value: shown)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
+                .onChange(of: shown, initial: true) { _, now in held = now }
             Text(NodeWords.format("%@ · home", parts?.unit ?? "W"))
                 .font(.system(size: word))
                 .foregroundStyle(Theme.ink2)
@@ -405,21 +410,25 @@ struct HubLabel: View, Equatable {
 }
 
 /// "630 W", "7,2 kW": figure and unit, quantised (`Flow.quantised`), so
-/// the figure rolls when its digits change and not every second.
+/// the figure rolls when its digits change and not every second, and held
+/// on a rounding edge, so 1.45 kW does not wobble between 1.4 and 1.5.
 struct NodeValue: View {
     let watts: Double?
     let size: CGFloat
     var unit: CGFloat?
+    /// The figure on screen.
+    @State private var held: Double?
 
     var body: some View {
         if let watts {
-            let shown = Flow.quantised(watts)
+            let shown = Flow.quantised(watts, holding: held)
             let parts = PowerFormat.parts(shown)
             Text("\(Text(AppWords.decimal(parts.text)).font(Theme.figure(size)))\(Text(" \(parts.unit)").font(unit.map { .system(size: $0, weight: .medium) } ?? .caption).foregroundStyle(Theme.ink2))")
                 .contentTransition(.numericText(value: shown))
                 .animation(Theme.spring, value: shown)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+                .onChange(of: shown, initial: true) { _, now in held = now }
         } else {
             Text("—").font(Theme.figure(size))
         }

@@ -8,7 +8,9 @@ import FTWShared
 /// It never counts seconds. Live is a lit dot; anything else is a hollow
 /// ring and the clock time of the oldest reading on screen, which holds
 /// still. A mode change takes the second half of the line until the box has
-/// answered, then the line returns.
+/// answered, in the receipt log's words, then the line returns. Each part
+/// is its own words, so a screen can keep the parts that stay and fade in
+/// only the new one.
 public struct StatusLine: Equatable, Sendable {
     public enum Dot: Equatable, Sendable { case lit, hollow }
     public enum Tone: Equatable, Sendable { case ink, live, alarm }
@@ -16,6 +18,9 @@ public struct StatusLine: Equatable, Sendable {
     public struct Part: Equatable, Sendable {
         public let text: String
         public let tone: Tone
+        /// What stands between this part and the one before it: a dot, or
+        /// a space between the steps of a receipt.
+        public var joiner = " · "
     }
 
     /// Where a tap on the line leads.
@@ -30,10 +35,9 @@ public struct StatusLine: Equatable, Sendable {
     public let parts: [Part]
     public let opens: Opens
 
-    /// The line as one string, for VoiceOver and as its identity: a change
-    /// of words replaces the line, never two lines on top of each other.
+    /// The line as one string, for VoiceOver and a test.
     public var text: String {
-        parts.map(\.text).joined(separator: " · ") + (opens == .help ? " ›" : "")
+        parts.enumerated().map { i, p in (i == 0 ? "" : p.joiner) + p.text }.joined() + (opens == .help ? " ›" : "")
     }
 
     // MARK: The facts it is made from
@@ -53,6 +57,8 @@ public struct StatusLine: Equatable, Sendable {
         case starting(Int?)
         case ended
         case demo
+        /// The demo's simulated stream has gone quiet.
+        case demoQuiet
     }
 
     /// Who runs the home, as the stream says it.
@@ -106,6 +112,9 @@ public struct StatusLine: Equatable, Sendable {
         case .demo:
             dot = .lit
             parts.append(ink(NodeWords.text("DEMO")))
+        case .demoQuiet:
+            parts += [ink(NodeWords.text("DEMO")), asOf].compactMap { $0 }
+            says = false
         case .settled:
             // Connected with nothing read yet is still connecting.
             if let asOf { parts.append(asOf) } else {
@@ -138,7 +147,7 @@ public struct StatusLine: Equatable, Sendable {
             says = false
         }
         if let receipt = f.receipt, f.reach != .ended {
-            parts.append(Self.receipt(receipt))
+            parts += Self.receipt(receipt)
         } else if f.reach == .demo {
             parts.append(ink(NodeWords.text("SIMULATED HOME")))
         } else if says {
@@ -157,14 +166,18 @@ public struct StatusLine: Equatable, Sendable {
         }
     }
 
-    static func receipt(_ r: Receipt) -> Part {
+    /// The receipt in the receipt log's own words, a part per step, so a
+    /// step that stays keeps its place: `SENT ▸`, then `SENT ▸ ACCEPTED ▸`,
+    /// then `SENT ▸ CONFIRMED`.
+    static func receipt(_ r: Receipt) -> [Part] {
+        let sent = ink(ReceiptLog.word(.sent) + " ▸")
         switch r {
-        case .waiting: return ink(NodeWords.text("SENDING…"))
-        case .sent: return ink(NodeWords.text("SENT ▸"))
-        case .accepted: return ink(NodeWords.text("SENT ▸ ACCEPTED ▸"))
-        case .confirmed: return Part(text: NodeWords.text("SENT ▸ CONFIRMED"), tone: .live)
-        case .unconfirmed: return alarm(NodeWords.text("▲ NOT CONFIRMED"))
-        case .refused: return alarm(NodeWords.text("▲ REFUSED"))
+        case .waiting: return [ink(NodeWords.text("SENDING…"))]
+        case .sent: return [sent]
+        case .accepted: return [sent, Part(text: ReceiptLog.word(.accepted) + " ▸", tone: .ink, joiner: " ")]
+        case .confirmed: return [sent, Part(text: ReceiptLog.word(.confirmed), tone: .live, joiner: " ")]
+        case .unconfirmed: return [alarm(NodeWords.text("▲ NOT CONFIRMED"))]
+        case .refused: return [alarm("▲ " + ReceiptLog.refusedWord)]
         }
     }
 
@@ -182,7 +195,10 @@ extension StatusLine {
         let s = site.session
         let reach: Reach
         if demo {
-            reach = s.phase == .streaming ? .demo : .connecting
+            // Lit while the simulated stream runs, hollow once it has gone
+            // quiet.
+            let quiet = !site.isLive && [.lagging, .stale, .down].contains(site.srcState)
+            reach = s.phase == .streaming ? (quiet ? .demoQuiet : .demo) : .connecting
         } else if s.phase == .terminated {
             reach = .ended
         } else if s.phase == .booting {

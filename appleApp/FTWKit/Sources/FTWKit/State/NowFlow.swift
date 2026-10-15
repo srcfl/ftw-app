@@ -134,27 +134,42 @@ extension NowFlow {
     }
 }
 
-/// Where the flow goes on Now, from the height there is. The flow takes 40 %
-/// of the room between the bar and the plan, never less than 224 pt and
-/// never more than 300 pt, and sits a little above the middle of that room.
-/// A function of the screen and the home's shape alone, so nothing on the
+/// Where the flow goes on Now, from the height there is: 45 % of the room
+/// between the bar and the plan, never less than 232 pt and never more
+/// than 340 pt, centred in that room so the ground above and below it
+/// match. The price row of the plan's strip takes 15 % of the ground the
+/// flow leaves, from 20 pt up to 56 pt, so its bars read as a chart. A
+/// function of the screen and the home's shape alone, so nothing on the
 /// page moves when data arrives.
 public struct NowLayout: Equatable, Sendable {
-    public static let minFlow: CGFloat = 224
-    public static let maxFlow: CGFloat = 300
-    public static let share: CGFloat = 0.4
+    public static let minFlow: CGFloat = 232
+    public static let maxFlow: CGFloat = 340
+    public static let share: CGFloat = 0.45
+    /// The least ground between the flow and the plan.
+    public static let gap: CGFloat = 16
+    public static let minPrice: CGFloat = 20
+    public static let maxPrice: CGFloat = 56
+    public static let priceShare: CGFloat = 0.15
 
     public let flow: CGFloat
     /// From the top of the room to the top of the flow.
     public let above: CGFloat
+    /// The height of the strip's price row.
+    public let price: CGFloat
+    /// What the price row adds to the strip at its least.
+    public var grow: CGFloat { price - Self.minPrice }
 
-    /// - room: the height between the bar and the plan.
+    /// - room: the height between the bar and the plan's strip at its
+    ///   least, with a 20 pt price row.
     /// - least: the height the home's shape needs (`FlowPlan.least`): a
     ///   node on the middle axis needs more than the four corners do.
     public init(room: CGFloat, least: CGFloat = NowLayout.minFlow) {
         let free = max(0, room)
-        flow = min(free, max(least, min(Self.maxFlow, free * Self.share)))
-        above = max(0, (free - flow) * 0.42)
+        flow = min(max(0, free - Self.gap), max(least, min(Self.maxFlow, max(Self.minFlow, free * Self.share))))
+        let wanted = min(Self.maxPrice, max(Self.minPrice, (free - flow) * Self.priceShare))
+        price = Self.minPrice + max(0, min(wanted - Self.minPrice, free - flow - Self.gap))
+        let ground = free - flow - (price - Self.minPrice)
+        above = max(0, min(ground / 2, ground - Self.gap))
     }
 }
 

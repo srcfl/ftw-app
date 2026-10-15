@@ -9,9 +9,11 @@ import SwiftUI
 /// holding the longest one's width, which would leave the status line too
 /// little room on a small phone.
 ///
-/// The choice shows at once; the status line follows the box's receipt,
-/// and the outcome alone plays a haptic. Drawn from the cache, it stays
-/// inert until the box has spoken in this session. A phone that may not
+/// It opens on the name the cache holds, at its final width, and stays
+/// inert until the box has spoken in this session. With nothing kept it
+/// holds the shape of a name until one is known, never "Mode" or "Plan"
+/// on the way. The choice shows at once; the status line follows the box's
+/// receipt, and the outcome alone plays a haptic. A phone that may not
 /// change the mode sees the name and no button.
 struct ModeMenu: View {
     let mode: ModeModel
@@ -21,7 +23,7 @@ struct ModeMenu: View {
 
     var body: some View {
         Group {
-            if mode.mayControl {
+            if mode.opens {
                 Button(action: open) {
                     label(chevron: true)
                 }
@@ -31,7 +33,7 @@ struct ModeMenu: View {
             }
         }
         .accessibilityLabel(L("Mode"))
-        .accessibilityValue(name ?? "")
+        .accessibilityValue(mode.buttonName ?? "")
         .accessibilityHint(mode.mayControl ? L("Change mode") : "")
         .accessibilityIdentifier("now.mode")
         // A command answers once, when the box says what it did, also when
@@ -40,20 +42,23 @@ struct ModeMenu: View {
         .sensoryFeedback(trigger: mode.outcome?.tone) { _, tone in ModeSheet.feedback(tone) }
     }
 
-    /// The name on the button: the planning style while the plan runs, else
-    /// the manual mode's name.
-    private var name: String? {
-        guard let key = mode.shown else { return nil }
-        if ModeWords.isPlan(key), let style = mode.shownStyle { return L(style.name) }
-        return ModeWords.name(mode.info(key))
-    }
-
     private func label(chevron: Bool) -> some View {
-        HStack(spacing: 4) {
-            Text(name ?? L("Mode"))
-                .foregroundStyle(name == nil ? Theme.ink3 : Theme.ink)
-                .contentTransition(.opacity)
+        let name = mode.buttonName
+        return HStack(spacing: 4) {
+            // Before a name is known, the default style's word holds the
+            // place, unseen, under a bar of its width: a redacted word
+            // lays out narrower than the word itself.
+            Text(name ?? L(ModeModel.styles[2].name))
+                .foregroundStyle(Theme.ink)
+                .opacity(name == nil ? 0 : 1)
                 .lineLimit(1)
+                .fixedSize()
+                .overlay {
+                    Capsule()
+                        .fill(Theme.ink3.opacity(0.35))
+                        .frame(height: 9)
+                        .opacity(name == nil ? 1 : 0)
+                }
             if chevron {
                 Image(systemName: "chevron.down")
                     .font(.caption.weight(.semibold))

@@ -56,13 +56,21 @@ import Testing
         #expect(PlanStrip.level(70, lo: 70, hi: 70) == 3)
     }
 
+    /// Under a finger the line and the header say the quarter's price in
+    /// whole öre, the same figure in both places.
     @Test func aFingerReadsTheQuarterAndBumpsOnItsLandmarks() {
         let s = strip(at: at(12, 20, 5))
         #expect(s.readouts[0] == "20:00 · 160 öre · gives power")
-        #expect(s.readouts[5] == "21:15 · 70.0 öre · waits")
-        #expect(s.readouts[8] == "22:00 · 70.0 öre · stores")
-        #expect(s.readouts[24] == "02:00 · 30.0 öre · waits · car charges")
-        #expect(s.readouts[34] == "04:30 · 70.0 öre · waits · car at 80\u{00A0}%")
+        #expect(s.readouts[5] == "21:15 · 70 öre · waits")
+        #expect(s.readouts[8] == "22:00 · 70 öre · stores")
+        #expect(s.readouts[24] == "02:00 · 30 öre · waits · car charges")
+        #expect(s.readouts[34] == "04:30 · 70 öre · waits · car at 80\u{00A0}%")
+        #expect(s.quarters.count == 48)
+        #expect(s.quarters[0] == .init(time: "20:00", price: "160"))
+        #expect(s.quarters[24] == .init(time: "02:00", price: "30"))
+        for (q, line) in zip(s.quarters, s.readouts) {
+            #expect(line.hasPrefix("\(q.time) · \(q.price ?? "") öre"))
+        }
         // Now and both ends, the cheapest two hours' edges, the car's goal.
         #expect(s.landmarks == [0, 47, 24, 31, 34])
     }
@@ -113,6 +121,34 @@ import Testing
         #expect(next(at(13, 2)) == "Car charges until 04:45, to 80\u{00A0}%. Then the battery gives power 06:00, when power costs up to 160 öre.")
         // The last thing in the plan stands alone.
         #expect(next(at(13, 7)) == "Battery gives power until 08:00, when power costs up to 160 öre.")
+    }
+
+    /// Too long for its two lines, the sentence drops its later clauses,
+    /// one at a time, never ending in "…": the next thing alone, then
+    /// without where it leaves the battery, then without its reason.
+    @Test func theSentenceHasShorterFormsThatDropLaterClauses() {
+        let entry = glance.night()
+        let m = PlanGlance.live(entry, nowMs: at(12, 20, 5), calendar: calendar)
+        #expect(m.nextShorter == [
+            "Battery gives power until 21:15, when power costs up to 160 öre.",
+            "Battery gives power until 21:15.",
+        ])
+        // A level that is news is the second thing to go.
+        let last = PlanGlance.live(withLevels(), nowMs: at(13, 6, 5), calendar: calendar)
+        #expect(last.nextText == "Battery gives power until 08:00, when power costs up to 160 öre, and leaves 52\u{00A0}%.")
+        #expect(last.nextShorter == [
+            "Battery gives power until 08:00, when power costs up to 160 öre.",
+            "Battery gives power until 08:00.",
+        ])
+        // Each form is shorter than the one before.
+        for t in stride(from: at(12, 20), to: at(13, 8), by: 15 * 60_000) {
+            let n = PlanGlance.live(entry, nowMs: t, calendar: calendar)
+            let forms = [n.nextText] + n.nextShorter
+            #expect(zip(forms, forms.dropFirst()).allSatisfy { $0.count > $1.count }, "\(forms)")
+            #expect(forms.allSatisfy { !$0.hasSuffix("…") })
+        }
+        // A sentence about no plan has nothing to drop.
+        #expect(PlanGlance.waiting(entry, nowMs: at(12, 20), calendar: calendar).nextShorter.isEmpty)
     }
 
     @Test func anOldPlanNeverSaysUntil() {
@@ -205,7 +241,7 @@ import Testing
         let entry = withLevels()
         let s = PlanStrip.build(entry, moment: PlanGlance.live(entry, nowMs: at(12, 20, 5), calendar: calendar), hasCar: true)
         #expect(s.readouts[0] == "20:00 · 160 öre · gives power · 76\u{00A0}%")
-        #expect(s.readouts[13] == "23:15 · 70.0 öre · stores · 100\u{00A0}%")
+        #expect(s.readouts[13] == "23:15 · 70 öre · stores · 100\u{00A0}%")
     }
 
     /// Under the dial each battery move says where it leaves the battery;

@@ -137,6 +137,7 @@ public enum NodeWords {
 
         // The plan view
         "Opens the plan.": "Öppnar planen.",
+        "Opens the price ahead.": "Öppnar elpriset framåt.",
         "Dial": "Tavla",
         "battery level": "batteriets nivå",
         "%@ with the forecast": "%@ med prognosen",
@@ -322,11 +323,7 @@ public enum NodeWords {
         "▲ 1 DEVICE QUIET": "▲ 1 ENHET TYST",
         "▲ %@ DEVICES QUIET": "▲ %@ ENHETER TYSTA",
         "SENDING…": "SKICKAR…",
-        "SENT ▸": "SKICKAT ▸",
-        "SENT ▸ ACCEPTED ▸": "SKICKAT ▸ MOTTAGET ▸",
-        "SENT ▸ CONFIRMED": "SKICKAT ▸ BEKRÄFTAT",
         "▲ NOT CONFIRMED": "▲ EJ BEKRÄFTAT",
-        "▲ REFUSED": "▲ NEKAT",
         "Status": "Status",
         "Shows whether FTW is in control, and how it knows.": "Visar om FTW styr, och hur det vet det.",
 

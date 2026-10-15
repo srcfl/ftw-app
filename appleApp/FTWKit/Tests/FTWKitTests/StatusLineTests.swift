@@ -82,12 +82,47 @@ import FTWShared
         }
     }
 
+    /// The parts that stay through a receipt are the same parts, so a
+    /// screen keeps them in place and fades in only the new step. The
+    /// receipt's words are the receipt log's, the car's too.
+    @Test func aReceiptKeepsItsPartsAndTheReceiptLogsWords() {
+        AppWords.$language.withValue(.en) {
+            let steps: [StatusLine.Receipt] = [.sent, .accepted, .confirmed]
+            let lines = steps.map { line(.demo, receipt: $0) }
+            #expect(lines.map(\.text) == ["DEMO · SENT ▸", "DEMO · SENT ▸ ACCEPTED ▸", "DEMO · SENT ▸ CONFIRMED"])
+            // DEMO and SENT ▸ hold from step to step, word and colour.
+            for l in lines { #expect(Array(l.parts.prefix(2)) == Array(lines[0].parts.prefix(2))) }
+            #expect(lines.allSatisfy { $0.dot == .lit })
+            let sent = lines[0].parts[1]
+            #expect(sent.text == "\(ReceiptLog.word(.sent)) ▸")
+            #expect(lines[1].parts[2].text == "\(ReceiptLog.word(.accepted)) ▸")
+            #expect(lines[2].parts[2] == .init(text: ReceiptLog.word(.confirmed), tone: .live, joiner: " "))
+            #expect(line(.live, receipt: .refused).parts.last?.text == "▲ \(ReceiptLog.refusedWord)")
+            // The line without the receipt keeps DEMO too.
+            #expect(line(.demo).parts.first == lines[0].parts.first)
+        }
+    }
+
+    /// The demo's stream gone quiet: a hollow ring and the clock time, as
+    /// a real home says it, never a lit dot.
+    @Test func aQuietDemoSaysAsOfWithAHollowRing() {
+        AppWords.$language.withValue(.en) {
+            let quiet = line(.demoQuiet, asOf: Self.t + 5 * 60_000)
+            #expect(quiet.dot == .hollow)
+            #expect(quiet.text == "DEMO · AS OF 10:05")
+            #expect(line(.demoQuiet, receipt: .sent, asOf: Self.t).text == "DEMO · AS OF 10:00 · SENT ▸")
+        }
+    }
+
     @Test func inSwedish() {
         AppWords.$language.withValue(.sv) {
             #expect(line(.live).text == "LIVE · FTW STYR")
             #expect(line(.settled, asOf: Self.t).text == "PER 10:00 · FTW STYR")
             #expect(line(.live, .paused).text == "LIVE · ▲ PAUSAD · MÄTAREN TYST")
-            #expect(line(.live, receipt: .confirmed).text == "LIVE · SKICKAT ▸ BEKRÄFTAT")
+            // The receipt in the receipt log's words, which follow the
+            // phone's language: SKICKAT ▸ BEKRÄFTAT on a Swedish phone.
+            #expect(line(.live, receipt: .confirmed).text == "LIVE · \(ReceiptLog.word(.sent)) ▸ \(ReceiptLog.word(.confirmed))")
+            #expect(line(.demoQuiet, asOf: Self.t).text == "DEMO · PER 10:00")
             #expect(line(.cantReach).text == "NÅR INTE BOXEN ›")
             #expect(line(.demo).text == "DEMO · SIMULERAT HEM")
         }
@@ -97,7 +132,7 @@ import FTWShared
     /// writes an age in seconds or minutes, and a clock time moves only by
     /// the minute.
     @Test func theLineNeverCountsSeconds() {
-        let reaches: [StatusLine.Reach] = [.live, .settled, .connecting, .cantReach, .offline, .busy, .starting(12), .starting(nil), .ended, .demo]
+        let reaches: [StatusLine.Reach] = [.live, .settled, .connecting, .cantReach, .offline, .busy, .starting(12), .starting(nil), .ended, .demo, .demoQuiet]
         let controls: [StatusLine.Control] = [.ftw, .you, .paused, .quiet(1), .quiet(3), .unknown]
         let receipts: [StatusLine.Receipt?] = [nil, .waiting, .sent, .accepted, .confirmed, .unconfirmed, .refused]
         for language in [AppWords.Language.en, .sv] {
@@ -174,6 +209,30 @@ import FTWShared
         #expect(now().text == "DEMO · SIMULATED HOME")
     }
 
+    /// The demo's stream goes quiet: the dot goes out and the line says
+    /// when, as a real home's does; it lights again when the stream is back.
+    @Test func aQuietDemoGoesHollow() async throws {
+        let rig = DemoRig()
+        rig.app.startDemo()
+        let home = try #require(rig.app.home)
+        let box = try #require(rig.box)
+        await rig.run(3_000)
+        func now() -> StatusLine {
+            AppWords.$language.withValue(.en) {
+                StatusLine.make(StatusLine.facts(site: home.site, mode: home.nodes.mode, demo: true, online: true, noCarrier: false, receipt: nil))
+            }
+        }
+        #expect(now().text == "DEMO · SIMULATED HOME")
+        #expect(now().dot == .lit)
+        box.mute = true
+        await rig.run(5_000)
+        #expect(now().dot == .hollow)
+        #expect(["DEMO · AS OF 11:59", "DEMO · AS OF 12:00"].contains(now().text))
+        box.mute = false
+        await rig.run(3_000)
+        #expect(now().text == "DEMO · SIMULATED HOME")
+    }
+
     /// The stream goes quiet: the dot goes out, and the line says the clock
     /// time of the last reading and holds it while the clock runs.
     @Test func aQuietStreamSaysAsOfAndHoldsStill() async throws {
@@ -235,25 +294,54 @@ import FTWShared
 /// Now's fixed page: the flow's size and place come from the screen and the
 /// home's shape alone.
 @Suite struct NowLayoutTests {
-    @Test func theFlowTakesItsShareOfTheRoomWithinItsBounds() {
-        // An SE: the floor.
-        let se = NowLayout(room: 400)
-        #expect(se.flow == 224)
-        #expect(abs(se.above - (400 - 224) * 0.42) < 0.001)
-        // A Pro Max: 40 % of the room, smaller than the 45 % it had.
-        let pm = NowLayout(room: 640)
-        #expect(abs(pm.flow - 256) < 0.001)
-        // Never more than 300 pt, and never more than the room.
-        #expect(NowLayout(room: 2_000).flow == 300)
-        #expect(NowLayout(room: 180).flow == 180)
-        #expect(NowLayout(room: 180).above == 0)
+    /// 45 % of the room, from 232 pt to 340 pt, centred: the ground above
+    /// the flow and the ground below it match.
+    @Test func theFlowTakesItsShareOfTheRoomCentred() {
+        // An SE: the floor, centred.
+        let se = NowLayout(room: 444)
+        #expect(se.flow == 232)
+        // A Pro Max: 45 % of the room.
+        let pm = NowLayout(room: 731)
+        #expect(abs(pm.flow - 731 * 0.45) < 0.001)
+        // Never more than 340 pt.
+        #expect(NowLayout(room: 2_000).flow == 340)
+        for l in [se, pm, NowLayout(room: 2_000), NowLayout(room: 300)] {
+            let room = l.flow + l.grow + 2 * l.above
+            let below = room - l.above - l.flow - l.grow
+            #expect(abs(l.above - below) < 0.001, "\(l)")
+        }
+    }
+
+    /// What the flow leaves, the price row takes 15 % of, from 20 pt to
+    /// 56 pt, and never the gap the flow keeps from the plan.
+    @Test func thePriceRowGrowsWithTheGround() {
+        let se = NowLayout(room: 444)
+        #expect(abs(se.price - (444 - 232) * 0.15) < 0.001)
+        #expect(NowLayout(room: 731).price == 56)
+        #expect(NowLayout(room: 2_000).price == 56)
+        #expect(NowLayout(room: 300).price == 20)
+        #expect(NowLayout(room: 240).price == 20)
+        #expect(NowLayout(room: 240).grow == 0)
+    }
+
+    /// A small room: the flow gives way before the gap does, and nothing is
+    /// ever below zero.
+    @Test func aSmallRoomKeepsTheGap() {
+        #expect(NowLayout(room: 200).flow == 200 - NowLayout.gap)
+        #expect(NowLayout(room: 200).above == 0)
+        #expect(NowLayout(room: 240).above == 0)
         #expect(NowLayout(room: -5).flow == 0)
-        // Above the middle: less room over the flow than under it.
-        #expect(pm.above < 640 - pm.flow - pm.above)
-        // A node on the axis asks for more, past the cap, within the room.
+        #expect(NowLayout(room: -5).above == 0)
+        #expect(NowLayout(room: -5).price == 20)
+    }
+
+    /// A node on the axis asks for more, past the cap, within the room.
+    @Test func aNodeOnTheAxisAsksForMore() {
         let y = FlowPlan.least([.solar, .battery, .home, .grid])
-        #expect(NowLayout(room: 400, least: y).flow == y)
-        #expect(NowLayout(room: 2_000, least: y).flow == max(y, 300))
-        #expect(NowLayout(room: 250, least: y).flow == 250)
+        #expect(y > NowLayout.minFlow)
+        #expect(NowLayout(room: 500, least: y).flow == y)
+        #expect(NowLayout(room: 2_000, least: y).flow == max(y, 340))
+        #expect(NowLayout(room: 250, least: y).flow == 250 - NowLayout.gap)
+        #expect(FlowPlan.least([.solar, .battery, .home, .grid, .car]) == NowLayout.minFlow)
     }
 }

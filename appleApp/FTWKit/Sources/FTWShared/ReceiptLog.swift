@@ -86,6 +86,9 @@ public struct ReceiptLog: Equatable, Hashable, Codable, Sendable {
         }
     }
 
+    /// "REFUSED", the word that takes the last slot.
+    public static var refusedWord: String { ReceiptWord.refused.text }
+
     /// The arrow between slots.
     public static let arrow = " ▸ "
 

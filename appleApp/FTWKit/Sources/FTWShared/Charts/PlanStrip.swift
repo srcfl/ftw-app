@@ -55,6 +55,14 @@ public struct PlanStrip: Equatable, Sendable {
     /// What a finger reads per quarter: "02:15 · 31 öre · stores · 58 % ·
     /// car charges".
     public let readouts: [String]
+    /// The quarter's start and price for the strip's header under a
+    /// finger: "02:15" and "31", in whole öre as the readout.
+    public let quarters: [Quarter]
+    /// The `quarters` names: nil price before the market has priced it.
+    public struct Quarter: Equatable, Sendable {
+        public let time: String
+        public let price: String?
+    }
     /// "NEXT 12 H", "PLANNED 14:05" from the cache, "OLD PLAN · 14:05".
     public let kicker: String
     /// The plan is old, the box could not plan, or it has not answered:
@@ -138,7 +146,7 @@ public struct PlanStrip: Equatable, Sendable {
         let readouts = (0..<count).map { i -> String in
             var parts = [clock.label(grid.startMs(i))]
             if let m = minor[i] {
-                let figure = Words.decimal(PriceStrip.text(abs(m), currency)) + " " + unit
+                let figure = Words.decimal(PriceStrip.whole(abs(m), currency)) + " " + unit
                 parts.append(m < 0 ? figure + " " + PlanWord.belowZero.text : figure)
             } else {
                 parts.append(PlanWord.noPrice.text)
@@ -182,6 +190,9 @@ public struct PlanStrip: Equatable, Sendable {
             hours: hours,
             landmarks: landmarks,
             readouts: readouts,
+            quarters: (0..<count).map { i in
+                Quarter(time: clock.label(grid.startMs(i)), price: minor[i].map { Words.decimal(PriceStrip.whole($0, currency)) })
+            },
             kicker: kicker,
             grey: moment.isGrey,
             hasCar: hasCar || !charges.isEmpty
