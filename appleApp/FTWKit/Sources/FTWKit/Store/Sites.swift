@@ -12,18 +12,23 @@ public struct StoredSite: Codable, Equatable, Sendable, Identifiable {
     /// Single use, spent in the first handshake. Kept until then.
     public var pairingCode: Data?
     public var lanHint: String?
+    /// The home id at FTW Cloud, where the box session is reached without
+    /// the relay. From a v3 QR, or from the box at its first hello. Nil for
+    /// a box that has not linked.
+    public var cloudHome: String?
     public var addedAtMs: Double
     public var lastSeenAtMs: Double
 
     public var id: String { siteId }
 
-    public init(siteId: String, label: String, boxStaticKey: Data, rendezvousSecret: Data?, pairingCode: Data?, lanHint: String?, addedAtMs: Double, lastSeenAtMs: Double) {
+    public init(siteId: String, label: String, boxStaticKey: Data, rendezvousSecret: Data?, pairingCode: Data?, lanHint: String?, cloudHome: String? = nil, addedAtMs: Double, lastSeenAtMs: Double) {
         self.siteId = siteId
         self.label = label
         self.boxStaticKey = boxStaticKey
         self.rendezvousSecret = rendezvousSecret
         self.pairingCode = pairingCode
         self.lanHint = lanHint
+        self.cloudHome = cloudHome
         self.addedAtMs = addedAtMs
         self.lastSeenAtMs = lastSeenAtMs
     }

@@ -101,4 +101,9 @@ public struct CloudIdentity: Codable, Equatable, Sendable {
     func sameHome(_ other: CloudIdentity?) -> Bool {
         other?.pk == pk
     }
+
+    /// Whether the owner has the readable copy on. The tables are cut with
+    /// the grant's key, so they are empty while it is off
+    /// (docs/protocol-cloud.md, Session information).
+    var copyOn: Bool { !sources.isEmpty || !loadpoints.isEmpty }
 }

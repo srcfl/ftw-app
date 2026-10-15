@@ -3,6 +3,12 @@ import Foundation
 /// The pairing payload.
 ///
 ///     https://app.ftw.energy/p#v2.<box_noise_pub>.<pairing_code>.<lan_hint>.<rendezvous_secret>
+///     https://app.ftw.energy/p#v3.<box_noise_pub>.<pairing_code>.<lan_hint>.<rendezvous_secret>.<home>
+///
+/// v3 is v2 with the home id at FTW Cloud, base64url of its 26 characters,
+/// so a new phone can reach the box through FTW Cloud before any session
+/// with it (srcfl/ftw `docs/protocol-cloud.md`, "Pairing through the
+/// service"). Both are read.
 ///
 /// Everything after `#` is a fragment and never sent in a request, so the
 /// trust anchor reaches the phone optically and reaches no server on the way.
@@ -15,8 +21,12 @@ public struct Enrollment: Equatable, Sendable {
     public var lanHint: String
     /// The long-lived secret the rotating relay handle is derived from.
     public var rendezvousSecret: Bytes
+    /// The home id at FTW Cloud. Nil from a v2 code.
+    public var home: String?
 
-    public static let version = "v2"
+    /// The newest version this app reads; it reads `v2` too.
+    public static let version = "v3"
+    public static let versions: Set<String> = ["v2", "v3"]
     public static let host = Origin.appHost
     public static let path = "/p"
     public static let boxKeyBytes = 32
@@ -24,11 +34,12 @@ public struct Enrollment: Equatable, Sendable {
     public static let rendezvousSecretBytes = 32
     public static let maxLanHintChars = 64
 
-    public init(boxStaticPublic: Bytes, pairingCode: Bytes, lanHint: String, rendezvousSecret: Bytes) {
+    public init(boxStaticPublic: Bytes, pairingCode: Bytes, lanHint: String, rendezvousSecret: Bytes, home: String? = nil) {
         self.boxStaticPublic = boxStaticPublic
         self.pairingCode = pairingCode
         self.lanHint = lanHint
         self.rendezvousSecret = rendezvousSecret
+        self.home = home
     }
 }
 
@@ -92,15 +103,16 @@ extension Enrollment {
         // Version before shape, and which side is behind decides the
         // sentence. Telling someone to update the wrong thing is worse than
         // saying nothing.
-        if v != version {
+        if !versions.contains(v) {
             if v.count > 1, v.hasPrefix("v"), let n = Int(v.dropFirst()), v.dropFirst().allSatisfy(\.isNumber) {
                 let ours = Int(version.dropFirst())!
                 throw EnrollmentError(code: "E_QR_VERSION", message: "payload version \(v)", help: n < ours ? EnrollmentError.boxTooOld : EnrollmentError.appTooOld)
             }
             throw EnrollmentError(code: "E_QR_NOT_FTW", message: "fragment does not start with a version", help: EnrollmentError.wrongCode)
         }
-        guard parts.count == 5 else {
-            throw EnrollmentError(code: "E_QR_SHAPE", message: "\(parts.count) segments, expected 5", help: EnrollmentError.scanAgain)
+        let expected = v == "v2" ? 5 : 6
+        guard parts.count == expected else {
+            throw EnrollmentError(code: "E_QR_SHAPE", message: "\(parts.count) segments, expected \(expected)", help: EnrollmentError.scanAgain)
         }
 
         let box = try segment(parts[1])
@@ -125,19 +137,30 @@ extension Enrollment {
         guard secret.count == rendezvousSecretBytes else {
             throw EnrollmentError(code: "E_QR_SECRET", message: "rendezvous secret is \(secret.count) bytes", help: EnrollmentError.scanAgain)
         }
-        return Enrollment(boxStaticPublic: box, pairingCode: code, lanHint: hint, rendezvousSecret: secret)
+        var home: String?
+        if parts.count == 6 {
+            // Where the phone dials FTW Cloud, so only a home id the
+            // service could have cut is taken.
+            guard let named = String(bytes: try segment(parts[5]), encoding: .utf8), CloudWire.validHome(named) else {
+                throw EnrollmentError(code: "E_QR_HOME", message: "home is not a home id", help: EnrollmentError.scanAgain)
+            }
+            home = named
+        }
+        return Enrollment(boxStaticPublic: box, pairingCode: code, lanHint: hint, rendezvousSecret: secret, home: home)
     }
 
-    /// The inverse, for tests and the loopback box.
+    /// The inverse, for tests and the loopback box: v3 when it names a
+    /// home, else v2.
     public func url() -> String {
-        let fragment = [
-            Enrollment.version,
+        var segments = [
+            home == nil ? "v2" : "v3",
             Base64url.encode(boxStaticPublic),
             Base64url.encode(pairingCode),
             Base64url.encode(Array(lanHint.utf8)),
             Base64url.encode(rendezvousSecret),
-        ].joined(separator: ".")
-        return "https://\(Enrollment.host)\(Enrollment.path)#\(fragment)"
+        ]
+        if let home { segments.append(Base64url.encode(Array(home.utf8))) }
+        return "https://\(Enrollment.host)\(Enrollment.path)#\(segments.joined(separator: "."))"
     }
 
     private static func segment(_ s: String) throws -> Bytes {

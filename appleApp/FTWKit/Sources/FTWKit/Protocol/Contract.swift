@@ -47,7 +47,7 @@ public enum Contract {
         "cmd.lease", "cmd.precondition", "cmd.readback",
         "der.battery", "der.ev", "der.v2x",
         "plan.dispatch", "net.webrtc", "price.spot", "api.passthrough",
-        "cloud.link", "cmd.exchange",
+        "cloud.link", "cloud.tun", "cmd.exchange",
     ]
 
     public static let capHistory5m = "history.5m"
@@ -58,6 +58,9 @@ public enum Contract {
     /// The box can run the FTW Cloud uplink. Absent, the app offers no FTW
     /// Cloud and reads through the relay alone.
     public static let capCloudLink = "cloud.link"
+    /// The box takes its app session through FTW Cloud's tunnel. Absent,
+    /// the phone reaches it through the relay, home id or not.
+    public static let capCloudTun = "cloud.tun"
     /// The box can take a watch. Absent, the phone offers no Add watch.
     public static let capCmdExchange = "cmd.exchange"
 
@@ -146,5 +149,5 @@ public enum Contract {
     }
 
     public static let sourceStates = ["live", "lagging", "stale", "down", "never"]
-    public static let carrierStates = ["webrtc", "relay", "cloud", "cache", "none"]
+    public static let carrierStates = ["webrtc", "relay", "tunnel", "cloud", "cache", "none"]
 }

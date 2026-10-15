@@ -44,6 +44,7 @@ public final class Pairing {
             rendezvousSecret: Data(enrollment.rendezvousSecret),
             pairingCode: Data(enrollment.pairingCode),
             lanHint: enrollment.lanHint.isEmpty ? nil : enrollment.lanHint,
+            cloudHome: enrollment.home ?? sites.get(siteId)?.cloudHome,
             addedAtMs: at,
             lastSeenAtMs: at
         )

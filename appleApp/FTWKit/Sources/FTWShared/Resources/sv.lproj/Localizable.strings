@@ -14,12 +14,17 @@
 "FTW Cloud connected · a device stopped responding" = "FTW Cloud anslutet · en enhet svarar inte";
 "FTW Cloud connected · readings" = "FTW Cloud anslutet · mätvärden";
 "FTW Cloud · age unverified" = "FTW Cloud · åldern obekräftad";
+"Live, encrypted via FTW Cloud" = "Live, krypterat via FTW Cloud";
+"Encrypted via FTW Cloud · no reading yet" = "Krypterat via FTW Cloud · inget mätvärde än";
+"Encrypted via FTW Cloud · a device stopped responding" = "Krypterat via FTW Cloud · en enhet svarar inte";
+"Encrypted via FTW Cloud · readings" = "Krypterat via FTW Cloud · mätvärden";
 "Access ended" = "Åtkomsten är avslutad";
 "FTW is busy" = "FTW är upptaget";
 "Your box is starting" = "Din box startar";
 "Reconnecting to your box" = "Ansluter till din box igen";
 "Waiting for live readings" = "Väntar på mätvärden";
 "Securing encrypted relay" = "Krypterar anslutningen";
+"Securing link via FTW Cloud" = "Krypterar anslutningen via FTW Cloud";
 "Securing home link" = "Krypterar hemlänken";
 "Connecting to your box" = "Ansluter till din box";
 "Can't reach your box" = "Når inte din box";

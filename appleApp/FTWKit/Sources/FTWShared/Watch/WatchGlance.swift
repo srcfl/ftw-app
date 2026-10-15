@@ -23,7 +23,7 @@ public enum WatchGlance {
     /// context or the cache, which never glows.
     public static func lit(_ record: CacheRecord<WatchNow>?, arrivedAtMs: Double?, nowMs: Double) -> Bool {
         guard let record, let arrivedAtMs else { return false }
-        guard [.relay, .webrtc, .cloud].contains(record.carrier), record.srcState == .live else { return false }
+        guard record.carrier.connected, record.srcState == .live else { return false }
         return nowMs - arrivedAtMs >= -1_000 && nowMs - arrivedAtMs <= liveForMs
     }
 
