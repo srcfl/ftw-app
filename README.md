@@ -36,7 +36,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
      │                                   session, relay
      └──────────────────┬──────────────────────┘
                         ▼
-          wss://relay.ftw.energy   (encrypted)
+   iPhone: wss://cloud.ftw.energy/v1/app, the box session inside as tun
+   Android, and the iPhone's fallback for one release: wss://relay.ftw.energy
+   Both carry the same Noise session, end to end to the box
                         │
                         ▼
                      FTW box

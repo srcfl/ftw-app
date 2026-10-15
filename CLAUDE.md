@@ -321,8 +321,8 @@ strip, with gold for the battery giving power.
 ## Non-negotiable invariants
 
 - **Never fake live.** Every reading carries its age.
-- **Freshness is two fields.** `carrier` (relay, cache, none) and `srcState`
-  (live, lagging, stale, down, never) stay orthogonal.
+- **Freshness is two fields.** `carrier` (tunnel, relay, cloud, cache,
+  none) and `srcState` (live, lagging, stale, down, never) stay orthogonal.
 - **The app expresses intent; the box decides.**
 - **Positive watts flow into the site, negative out.** The UI never shows a
   raw minus sign.
@@ -345,7 +345,7 @@ strip, with gold for the battery giving power.
 On iPhone, one Swift package in `appleApp/FTWKit` holds three modules:
 
 - `FTWKit` owns everything that is not a pixel: enrollment parse,
-  rendezvous handles, Noise IK, frames, the relay and Noise carriers, the
+  rendezvous handles, Noise IK, frames, the tunnel, relay and Noise carriers, the
   session, vault wrap/unwrap and the state each screen reads. The app alone
   links it. It writes the App Group cache.
 - `FTWShared` holds plain `Sendable` values for the app's extensions: the
