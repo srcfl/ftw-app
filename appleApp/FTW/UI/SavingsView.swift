@@ -187,9 +187,17 @@ private struct SavingsReadout: View {
         }
         .font(.subheadline)
         .foregroundStyle(Theme.ink2)
-        .lineLimit(typeSize.isAccessibilitySize ? 6 : 2, reservesSpace: true)
+        .lineLimit(reserved, reservesSpace: true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .transaction { $0.animation = nil }
+    }
+
+    /// Two lines at the standard size. Each line wraps at the larger
+    /// sizes, so more are held open there, and nothing is cut.
+    private var reserved: Int {
+        if typeSize.isAccessibilitySize { return 6 }
+        if typeSize >= .xxLarge { return 4 }
+        return typeSize >= .xLarge ? 3 : 2
     }
 }
 
