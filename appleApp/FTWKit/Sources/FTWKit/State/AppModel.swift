@@ -86,6 +86,7 @@ public final class AppModel {
     @ObservationIgnored let build: String
     @ObservationIgnored let ua: String
     @ObservationIgnored let relayURL: URL
+    @ObservationIgnored let cloudEndpoint: CloudEndpoint?
     @ObservationIgnored let makeSocket: WebSocketFactory
     @ObservationIgnored private var connectGeneration = 0
     /// `suspend` closed the session; the next look builds a new one.
@@ -101,6 +102,7 @@ public final class AppModel {
         build: String,
         ua: String,
         relayURL: URL = Origin.relayURL,
+        cloudEndpoint: CloudEndpoint? = CloudEndpoint.current,
         makeSocket: @escaping WebSocketFactory = URLSessionWebSocket.factory(),
         demo: DemoCarrier? = nil
     ) {
@@ -114,6 +116,7 @@ public final class AppModel {
         self.build = build
         self.ua = ua
         self.relayURL = relayURL
+        self.cloudEndpoint = cloudEndpoint
         self.makeSocket = makeSocket
         vault = Vault(store: store)
         sites = SiteList(store: store)
@@ -189,7 +192,7 @@ public final class AppModel {
             let code = stored.pairingCode?.byteArray
             // FTW Cloud first: the box session rides it when the box takes
             // the tunnel.
-            site.connectCloud(deviceKey: device, makeSocket: makeSocket, home: stored.cloudHome, pairingCode: code)
+            site.connectCloud(deviceKey: device, makeSocket: makeSocket, endpoint: cloudEndpoint, home: stored.cloudHome, pairingCode: code)
             var relay: (@MainActor () -> Carrier)?
             if let secret {
                 relay = { [relayURL, scheduler, makeSocket] in

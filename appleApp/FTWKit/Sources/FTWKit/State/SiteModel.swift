@@ -1137,8 +1137,9 @@ extension SiteModel {
     private func cloudHello(_ identity: CloudIdentity?) {
         guard let identity else {
             // Off, or never on. What the cloud delivered goes with it, and
-            // so do its pushes.
-            closeCloud()
+            // so do its pushes. A session that carries the box session
+            // stays: it is how this hello arrived.
+            if cloud?.tunnel == nil { closeCloud() }
             if let home = cloudIdentity?.home ?? sharedCloudHome?.home { cloudKeys?.remove(home: home) }
             sharedCloudHome = nil
             uninstallPushSink()

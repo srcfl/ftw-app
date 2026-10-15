@@ -86,6 +86,18 @@ struct CloudAppVectors: Decodable {
     let handshakeHash: String
     let snapshot: [String]
     let transport: [Step]
+    let pairing: Pairing
+
+    /// A new phone's proof: the code it scanned, the hash the roster lists
+    /// and `now.pair` carries, message 1 with and without the box session's
+    /// message 1 riding along, and the device id the service names it by.
+    struct Pairing: Decodable {
+        let code: String
+        let hash: String
+        let msg1Now: String
+        let msg1NowTun: String
+        let deviceId: String
+    }
 
     static func load() throws -> CloudAppVectors {
         guard let url = Bundle.module.url(forResource: "cloud-app-vectors", withExtension: "json", subdirectory: "Resources") else {
@@ -106,7 +118,7 @@ func cloudSign(_ key: P256.Signing.PrivateKey, home: String, t: String, b: Bytes
         let v = try CloudVectors.load()
         let boxPK = Bytes(hex: v.boxKey.pk)
         let servicePK = Bytes(hex: v.serviceKey.pk)
-        #expect(v.messages.count == 13)
+        #expect(v.messages.count == 22)
 
         for m in v.messages {
             let frame = Bytes(hex: m.frame)
@@ -259,10 +271,19 @@ func cloudSign(_ key: P256.Signing.PrivateKey, home: String, t: String, b: Bytes
 
         let transport = NoiseTransport(try handshake.split())
         #expect(transport.handshakeHash.hex == v.handshakeHash)
-        #expect(v.transport.count == 4)
+        #expect(v.transport.count == 7)
         for step in v.transport {
             let frame = Bytes(hex: step.frame)
-            if step.from == "service" {
+            if step.from == "service", step.name.hasPrefix("tun") {
+                // The box session riding along: unsigned, opaque here.
+                #expect(try transport.decrypt(Bytes(hex: step.message)) == frame, "\(step.name)")
+                let env = try CloudWire.Envelope.decode(CloudWire.decodeFrame(frame))
+                #expect(env.t == CloudWire.msgTun && env.sig.isEmpty, "\(step.name)")
+                let tun = try CloudWire.Tun(body: env.b)
+                #expect(tun.sid == 7, "\(step.name)")
+                #expect(tun.d == (step.name == "tun end" ? [] : Bytes(repeating: 0x99, count: 112)), "\(step.name)")
+                #expect(tun.ended == (step.name == "tun end"), "\(step.name)")
+            } else if step.from == "service" {
                 #expect(try transport.decrypt(Bytes(hex: step.message)) == frame, "\(step.name)")
                 let env = try CloudWire.Envelope.decode(CloudWire.decodeFrame(frame))
                 #expect(env == (try signed.envelope(step.name)), "\(step.name)")
@@ -274,7 +295,39 @@ func cloudSign(_ key: P256.Signing.PrivateKey, home: String, t: String, b: Bytes
         // The phone's own frames are what encodeUnsigned writes.
         let away = try CloudWire.encodeFrame(CloudWire.encodeUnsigned(t: CloudWire.msgWatch, body: .map(["hz": .int(CloudWire.hzAway)])))
         let suspend = try CloudWire.encodeFrame(CloudWire.encodeUnsigned(t: CloudWire.msgSuspend, body: .map(["deviceId": .text("Zf09xQ2a")])))
-        #expect(v.transport.filter { $0.from == "phone" }.map(\.frame) == [away.hex, suspend.hex])
+        let tun = try CloudWire.encodeFrame(CloudWire.encodeUnsigned(t: CloudWire.msgTun, body: CloudWire.Tun(sid: 7, d: Bytes(repeating: 0x9a, count: 48)).body))
+        #expect(v.transport.filter { $0.from == "phone" }.map(\.frame) == [away.hex, suspend.hex, tun.hex])
+    }
+
+    /// A new phone proves the code it scanned without showing it, and its
+    /// box session's message 1 rides message 1: Go's bytes, exactly.
+    @Test func aNewPhonesMessage1MatchesGo() throws {
+        let v = try CloudAppVectors.load()
+        let code = Bytes(hex: v.pairing.code)
+        let hash = CloudWire.pairingHash(home: v.home, code: code)
+        #expect(hash.hex == v.pairing.hash)
+        #expect(CloudWire.now(hz: CloudWire.hzLooking, pair: hash).hex == v.pairing.msg1Now)
+        let tun = CloudWire.Tun(sid: 1, d: Bytes(repeating: 0x9b, count: 112))
+        #expect(CloudWire.now(hz: CloudWire.hzLooking, pair: hash, tun: tun).hex == v.pairing.msg1NowTun)
+        #expect(CloudWire.now(hz: CloudWire.hzLooking).hex == v.msg1Payload)
+        #expect(CloudWire.deviceID(key: Bytes(hex: v.phonePublic)) == v.pairing.deviceId)
+    }
+
+    /// The uplink's tun carries a device id the phone never sends; a phone
+    /// reading one ignores it, as Go ignores unknown keys.
+    @Test func tunBodiesReadAsGoWritesThem() throws {
+        let signed = try CloudVectors.load()
+        for name in ["tun down", "tun up", "tun end"] {
+            let tun = try CloudWire.Tun(body: signed.envelope(name).b)
+            #expect(tun.ended == (name == "tun end"), "\(name)")
+            #expect(tun.sid != 0, "\(name)")
+        }
+        #expect(throws: CloudWire.WireError.self) { try CloudWire.Tun(body: encodeCBOR(.map([("sid", .text("7")), ("d", .bytes([1]))]))) }
+        #expect(throws: CloudWire.WireError.self) { try CloudWire.Tun(body: encodeCBOR(.map([("sid", .unsigned(1 << 32)), ("d", .bytes([1]))]))) }
+        #expect(CloudWire.validHome(signed.home))
+        for bad in ["", String(signed.home.dropLast()), signed.home.uppercased(), signed.home.dropLast() + "1", signed.home + "a"] {
+            #expect(!CloudWire.validHome(String(bad)), "\(bad)")
+        }
     }
 
     @Test func framesRefuseWhatThisProtocolNeverSends() throws {
