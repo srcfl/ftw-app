@@ -5,26 +5,9 @@ import SwiftUI
 /// page shows first, so a link someone else sent stops here; then who is
 /// asking, the host before the name it gives itself, what it may read,
 /// control as its own switch, off, and for how long.
-struct OfferSheet: View {
-    let app: AppModel
-    let flow: OfferFlow
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            OfferFlowView(app: app, flow: flow)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button(role: .close) { dismiss() }
-                            .accessibilityIdentifier("offer.close")
-                    }
-                }
-        }
-    }
-}
-
-/// The steps of one offer, in a sheet for a link or pushed from Access
-/// for a typed code.
+/// The steps of one offer, pushed over the home for a link or from Access
+/// for a typed code. A page, never a sheet: FTW Cloud's first screen or
+/// Settings may be up when a link arrives, and a page waits under them.
 struct OfferFlowView: View {
     let app: AppModel
     @State var flow: OfferFlow

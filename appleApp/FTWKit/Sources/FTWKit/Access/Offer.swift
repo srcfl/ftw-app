@@ -233,7 +233,7 @@ public struct OfferKeys: Equatable, Sendable {
 /// `https://app.ftw.energy/a#<request>.<offer>`. `/a/<request>` with or
 /// without the offer in the fragment is read too; without one, the offer
 /// is fetched by the request.
-public struct OfferLink: Equatable, Sendable, Identifiable {
+public struct OfferLink: Hashable, Sendable, Identifiable {
     public var request: String
     /// Base64url of the signed offer, when the link carries it.
     public var offer: String?

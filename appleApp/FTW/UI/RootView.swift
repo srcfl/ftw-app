@@ -20,7 +20,6 @@ struct RootView: View {
         .tint(Theme.accent)
         .onAppear { LaunchClock.mark("first frame") }
         .cloudConsent(app)
-        .accessLinks(app)
         #if DEBUG
         .overlay(alignment: .topLeading) { if FrameGapProbe.enabled { FrameGapProbe() } }
         #endif
@@ -39,6 +38,8 @@ enum HomeRoute: Hashable {
     case price
     /// What the home saved, from the home's node and the title's menu.
     case savings
+    /// An assistant's consent link: its offer, from the code to Face ID.
+    case offer(OfferLink)
 
     /// The name in the bar, the same as the screen's own title.
     var title: String {
@@ -48,6 +49,7 @@ enum HomeRoute: Hashable {
         case .plan: return PlanGlance.title
         case .price: return L("Electricity price")
         case .savings: return L("Savings")
+        case .offer: return AccessWords.text("Add an assistant")
         }
     }
 
@@ -117,6 +119,8 @@ struct HomeView: View {
                             PriceView(home: home)
                         case .savings:
                             SavingsView(home: home)
+                        case .offer(let link):
+                            OfferFlowView(app: app, flow: OfferFlow(link: link, lookup: app.offerLookup, keys: app.offerKeys))
                         }
                     }
                     .homeBar(app: app, home: home, title: route.title)
@@ -129,6 +133,14 @@ struct HomeView: View {
             case .mode: ModeSheet(mode: home.nodes.mode, plan: home.nodes.planShare)
             case .about(let start): AboutView(app: app, start: start)
             }
+        }
+        // A consent page's link opens its offer as a page over the home,
+        // in front of anything open, once this phone can grant from here.
+        .onChange(of: app.accessLink, initial: true) { _, link in
+            guard let link, home.access != nil else { return }
+            app.accessLink = nil
+            sheet = nil
+            path.append(.offer(link))
         }
         // Now and the car read the chargers from one model, so a screen
         // appearing asks the box once.

@@ -33,19 +33,32 @@ final class AccessE2E: XCTestCase {
         ]
         app.launch()
 
-        // Pair with the box. The simulator has no passkey, so the phone
-        // keeps its key on the device, as a phone without one does.
+        // Pair with the box. Where the simulator offers a passkey, add it;
+        // the rig's script matches the Face ID that follows. Without one the
+        // phone keeps its key on the device, as a phone without one does.
         let pairButton = app.buttons["pair.primary"]
         XCTAssertTrue(pairButton.waitForExistence(timeout: 20))
         pairButton.tap()
-        // FTW Cloud's one screen at first start.
-        let carryOn = app.buttons["Continue"]
-        if carryOn.waitForExistence(timeout: 20) { carryOn.tap() }
-
-        // The consent link's sheet opens over the home once the box has
-        // answered: the code from the page, then the offer.
+        if app.staticTexts["Securing this phone"].waitForExistence(timeout: 5) {
+            let add = XCUIApplication(bundleIdentifier: "com.apple.springboard").buttons["Add Passkey"]
+            if add.waitForExistence(timeout: 5) {
+                add.tap()
+            } else {
+                // The system's sheet, outside the app: its button's place.
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.875)).tap()
+            }
+        }
+        // FTW Cloud's one screen at first start, over the consent link's
+        // page, which waits under it.
+        let carryOn = app.buttons.matching(NSPredicate(format: "label == 'Continue' AND identifier != 'offer.continue'")).firstMatch
         let field = app.textFields["offer.code"]
-        XCTAssertTrue(field.waitForExistence(timeout: 60))
+        for _ in 0..<60 where !field.isHittable {
+            if carryOn.exists, carryOn.isHittable { carryOn.tap() }
+            Thread.sleep(forTimeInterval: 1)
+        }
+        // The code from the page, then the offer.
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
         shoot(app, "e2e-code")
         field.typeText(code)
         app.buttons["offer.continue"].tap()

@@ -166,9 +166,6 @@ public final class CloudConsent {
         return false
     }
 
-    /// Where the answer is kept, for a screen that must wait for it.
-    public static let answeredKey = Keys.answered
-
     enum Keys {
         static let answered = "FTWCloudConsent"
         static let stats = "FTWCloudStats"
