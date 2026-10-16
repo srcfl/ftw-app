@@ -7,6 +7,9 @@ import Observation
 @MainActor
 public final class HomeModels {
     public let site: SiteModel
+    /// Assistants and support, for an owner whose box takes them. Nil when
+    /// this phone cannot sign for the home.
+    public internal(set) var access: AccessModel?
     public let prices: PriceModel
     public let status: StatusWatch
     public let charging: ChargingWatch
@@ -72,6 +75,16 @@ public final class AppModel {
     /// The demo keeps its sealed cache like a paired home, so a cold start
     /// can be recorded and timed. Only a Debug build sets it.
     public var demoKeepsCache = false
+    /// A link from an assistant's consent page, shown before anything is
+    /// granted.
+    public var accessLink: OfferLink?
+    /// This phone's approval keys, behind Face ID. The app supplies them.
+    @ObservationIgnored public var approvalKeys: ApprovalKeyring?
+    /// Where Get help opens a ticket. There is no help desk behind the app
+    /// yet.
+    @ObservationIgnored public var supportDesk: SupportDesk = NoSupportDesk()
+    /// The simulated home's keys, offer key and desk, from FTWDemo.
+    @ObservationIgnored public var demoAccess: (keys: ApprovalKeyring, offers: OfferKeys, desk: SupportDesk)?
 
     @ObservationIgnored public let vault: Vault
     @ObservationIgnored public let sites: SiteList
@@ -145,7 +158,11 @@ public final class AppModel {
         site.learnedHome = { [weak self] home in
             self?.sites.update(siteId) { $0.cloudHome = home }
         }
-        home = HomeModels(site: site, cache: shared.map { CacheReader(sources: [$0]) })
+        let models = HomeModels(site: site, cache: shared.map { CacheReader(sources: [$0]) })
+        if let stored = sites.get(siteId), let device = vault.deviceIDOnBox {
+            models.access = AccessModel(site: site, signedFor: SignedFor(boxKey: stored.boxStaticKey.byteArray, deviceID: device), keyring: approvalKeys)
+        }
+        home = models
         sites.setCurrent(siteId)
         site.start()
         recovering = false
@@ -288,6 +305,11 @@ public final class AppModel {
     /// can send a link, so it is shown with the box it names first. A link
     /// to the box this phone already has is a leftover and is dropped.
     public func offer(_ link: String) {
+        // An assistant's consent page, not a box: its own sheet.
+        if let access = OfferLink(link) {
+            accessLink = access
+            return
+        }
         guard let enrollment = try? Enrollment.parse(scanned: link) else {
             offeredLink = link
             return
@@ -302,6 +324,21 @@ public final class AppModel {
         offeredLink = nil
         recovering = false
         open(siteId)
+    }
+
+    // MARK: Access
+
+    /// The offer keys a flow checks against: the pinned ones, or the
+    /// simulated home's own in the demo, where an offer reaches only the
+    /// simulated box.
+    public var offerKeys: OfferKeys { isDemo ? (demoAccess?.offers ?? OfferKeys(pins: [])) : .current }
+
+    public var desk: SupportDesk { isDemo ? (demoAccess?.desk ?? supportDesk) : supportDesk }
+
+    /// The open home's id at FTW Cloud, which an offer that names a home
+    /// must match.
+    public var cloudHome: String? {
+        site?.session.cloud?.home ?? site?.siteId.flatMap { sites.get($0)?.cloudHome }
     }
 
     // MARK: The demo
@@ -319,7 +356,9 @@ public final class AppModel {
         let site = SiteModel(siteId: shares || keeps ? "demo" : nil, build: build, ua: ua, scheduler: scheduler, files: keeps ? files : nil, shared: shares ? shared : nil, isDemo: true, demoShares: shares)
         if shares { site.sharedWritten = sharedWritten }
         site.ceilingW = 11_000
-        home = HomeModels(site: site, cache: shares ? shared.map { CacheReader(sources: [$0]) } : nil)
+        let models = HomeModels(site: site, cache: shares ? shared.map { CacheReader(sources: [$0]) } : nil)
+        if let demoAccess { models.access = AccessModel(site: site, signedFor: AccessModel.demoFor, keyring: demoAccess.keys) }
+        home = models
         isDemo = true
         recovering = false
         offeredLink = nil

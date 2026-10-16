@@ -72,6 +72,8 @@ public final class SimulatedBox {
     /// `price.get`, and each API request as "METHOD /path".
     public private(set) var asks: [String] = []
     public private(set) var stepUpsSeen = 0
+    /// Its assistants, support grants, requests and audit log.
+    public private(set) lazy var access = SimulatedAccess { [scheduler] in scheduler.nowMs }
 
     public nonisolated static let modes: [ModeInfo] = [
         ModeInfo(key: "planner_passive_arbitrage", label: "Passive arbitrage", tooltip: "Charge from the cheapest available source (PV when sunny, grid during cheap hours). Never exports from battery.", tier: "primary"),
@@ -87,7 +89,7 @@ public final class SimulatedBox {
     /// offers. Registry names only; `ContractTests` checks.
     public nonisolated static let caps = [
         "status.core", "status.drivers", "history.5m", "history.1h", "history.etag", "cmd.lease",
-        "cmd.readback", "der.battery", "der.ev", "plan.dispatch", "price.spot", "api.passthrough",
+        "cmd.readback", "der.battery", "der.ev", "plan.dispatch", "price.spot", "api.passthrough", "access.agents",
     ]
 
     /// Capabilities this box offers beyond `caps`, for a test that needs a
@@ -164,6 +166,9 @@ public final class SimulatedBox {
             sendBulk(Envelope(t: "plan", id: env.id, b: sessionPlan().wire))
         case "api.req": onAPI(env.id, body)
         case "cmd": onCommand(body)
+        case AccessWire.msgList, AccessWire.msgAudit, AccessWire.msgKeySet, AccessWire.msgAdd, AccessWire.msgWiden,
+             AccessWire.msgRevoke, AccessWire.msgConfirm:
+            access.receive(env) { [weak self] in self?.sendBulk($0) }
         default: break
         }
     }
@@ -829,6 +834,7 @@ extension SimulatedBox {
     /// take a moment to answer, as real ones do.
     public static func loopback(_ scheduler: Scheduler) -> Carrier {
         let box = SimulatedBox(scheduler: scheduler)
+        box.access.seed()
         box.resultDelayMs = 900
         box.house.chargerRampMs = 4_000
         #if DEBUG

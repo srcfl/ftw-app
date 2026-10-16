@@ -832,6 +832,11 @@ public final class SiteModel {
         try await core.api(req)
     }
 
+    /// One of the box's agent messages, answered with `agent.ok`.
+    public func ask(_ t: String, _ body: CBOR) async throws -> CBOR {
+        try await core.ask(t, body)
+    }
+
     // MARK: What widgets read
 
     /// A rewrite of the same car is skipped for this long. The charger is
