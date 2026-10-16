@@ -130,6 +130,14 @@ struct OfferReview: View {
                 }
             }
 
+            if !offer.verified {
+                Section {
+                    Toggle(AccessWords.format("I started this myself and trust %@.", offer.clientHost), isOn: $flow.trustsUnknown)
+                        .tint(Theme.alarm)
+                        .accessibilityIdentifier("offer.trust")
+                }
+            }
+
             Section(AccessWords.text("It may")) {
                 ForEach(AccessWords.ordered(grant.scopes.filter { !AccessWire.controlScopes.contains($0) }), id: \.self) { scope in
                     Label(AccessWords.scope(scope), systemImage: "eye")
@@ -154,13 +162,6 @@ struct OfferReview: View {
                 }
             }
 
-            if !offer.verified {
-                Section {
-                    Toggle(AccessWords.format("I started this myself and trust %@.", offer.clientHost), isOn: $flow.trustsUnknown)
-                        .tint(Theme.alarm)
-                        .accessibilityIdentifier("offer.trust")
-                }
-            }
 
             Section {
                 Picker(AccessWords.text("For"), selection: $flow.lengthMs) {

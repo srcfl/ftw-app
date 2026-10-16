@@ -71,10 +71,9 @@ final class AccessE2E: XCTestCase {
         // The local consent page is no client FTW Cloud knows: the owner
         // says they started it.
         let trust = app.switches["offer.trust"]
-        if trust.waitForExistence(timeout: 3) {
-            for _ in 0..<4 where !trust.isHittable { app.collectionViews.firstMatch.swipeUp(velocity: .slow) }
-            trust.switches.firstMatch.exists ? trust.switches.firstMatch.tap() : trust.tap()
-        }
+        XCTAssertTrue(trust.waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["offer.approve"].isEnabled)
+        trust.switches.firstMatch.exists ? trust.switches.firstMatch.tap() : trust.tap()
         app.buttons["offer.approve"].tap()
         // Face ID: the rig's script matches it.
         XCTAssertTrue(app.buttons["offer.done"].waitForExistence(timeout: 60))
