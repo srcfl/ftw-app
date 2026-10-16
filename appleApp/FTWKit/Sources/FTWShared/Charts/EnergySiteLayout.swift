@@ -40,7 +40,7 @@ public struct EnergySiteLayout: Sendable {
 
     /// The same connection reverses when the site buys instead of selling.
     public func stream(_ part: Part, finger: CGPoint? = nil, origin: CGPoint? = nil,
-                       grip: Double = 0, time: Double = 0) -> [CGPoint] {
+                       grip: Double = 0, time: Double = 0, anchor: CGPoint? = nil) -> [CGPoint] {
         let end = part == .grid ? point(0.48, 1.12) : center(part)
         let c1: CGPoint, c2: CGPoint
         switch part {
@@ -51,7 +51,7 @@ public struct EnergySiteLayout: Sendable {
         case .grid: c1 = point(0.40, 0.63); c2 = point(0.36, 0.78)
         }
         let drift = time > 0 ? sin(time * 0.65 + Double(part.rawValue)) * 9 : 0
-        let points = EnergyStreamline(from: junction,
+        let points = EnergyStreamline(from: anchor ?? junction,
                                      control1: CGPoint(x: c1.x + drift, y: c1.y),
                                      control2: CGPoint(x: c2.x - drift, y: c2.y), to: end,
                                      finger: finger, origin: origin, strength: grip, radius: 39,

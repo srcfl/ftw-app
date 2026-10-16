@@ -3,17 +3,6 @@ import SwiftUI
 
 /// Soft directional ink shared by the site and its detail views.
 enum DistributionFluidInk {
-    nonisolated static func well(at center: CGPoint, power: Double, time: Double, color: Color, draining: Bool, context: GraphicsContext) {
-        guard time > 0 else { return }
-        let cycle = (time * (0.22 + sqrt(power) * 0.06)).truncatingRemainder(dividingBy: 1)
-        let progress = draining ? 1 - cycle : cycle
-        let radius = 18 + progress * 37
-        let ellipse = CGRect(x: center.x - radius, y: center.y - radius * 0.35, width: radius * 2, height: radius * 0.7)
-        var ink = context
-        ink.addFilter(.blur(radius: 8))
-        ink.stroke(Path(ellipseIn: ellipse), with: .color(color.opacity((1 - progress) * 0.3)), lineWidth: 12)
-    }
-
     nonisolated static func contact(finger: CGPoint, strength: Double, context: GraphicsContext) {
         let amount = max(0, min(1, strength))
         guard amount > 0.001 else { return }

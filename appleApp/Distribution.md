@@ -8,7 +8,9 @@ send commands, request camera access or register notifications.
 ## Run
 
 Open `FTW.xcodeproj`, choose **FTW Distribution** and an iPhone simulator,
-then Run. Or, from this folder:
+then Run. The material uses Metal; if Xcode has no Metal compiler, install
+Apple’s component with `xcodebuild -downloadComponent MetalToolchain`.
+Or, from this folder:
 
 ```sh
 scripts/distribution-demo.sh
@@ -25,15 +27,32 @@ for review. `-FTWDistributionScenario offline` selects a sample state.
 
 ## Try
 
-- Drag a field to pull its boundary and push its neighbour. Release it to
-  let it spring back. The grip stretches the material near
-  the finger, and its soft edge and light ribbon follow. Streams move around
-  the actual contact patch and carry nearby material with the finger. Their
-  ends stay attached. A tap opens the detail view.
+- Drag anywhere in the material. Nearby colors stretch together and the
+  light bends around the actual contact patch. Release to let it spring back.
+  Tap a reading to open its detail view.
+- Grab robot B and carry it through the site. All five light paths follow;
+  the grid boundary remains fixed. Release to give it momentum and let it
+  return. A new grip starts at its current position, even during the return.
+  A tap gives it a small upward nudge.
 - Open the slider button in the navigation bar to change the sample home,
   play a finite sequence, or start at pairing.
 - Use Nu, Plan, Historik and Hemmet to review all 21 screens. The settings
   and sharing views are local examples; the displayed code cannot pair.
+- Drag sideways across a detail header. Its fold stretches with the robot
+  and returns with a spring, without changing a reading or goal. Vertical
+  swipes still scroll the page.
+- Drag directly across the plan, prices and power history. There is no
+  separate scrub slider. The colored fold, readout and selected-time marker
+  follow the finger. The plan has broad rounded volumes joined at zero;
+  it does not invent narrow peaks between time slots.
+  The plan and history hold still between touches. History's two fields show
+  the source and use of energy; dragging changes the seam, not the totals.
+- Follow robot B between tabs and detail views. One persistent robot travels
+  between reserved places outside the navigation transitions. Its eyes keep
+  moving through the journey; Reduce Motion changes its place at once.
+- Open Hemmet, its settings, pairing, widgets and the goal sheet. They share
+  the same soft seams, light and pressed controls. Forms keep native pickers,
+  sliders and confirmation sheets. Widget previews remain still.
 - Change the car's goal or level, pause it and return to its plan. The
   example confirms a command after showing sent and received. Old data and
   view-only access block these commands.
@@ -43,18 +62,24 @@ for review. `-FTWDistributionScenario offline` selects a sample state.
 - Try Sol och köpt el, Köper från nätet and Kväll. The same grid connection
   reverses when buying or selling. The home battery stays in place when
   charging, discharging or idle, distinct from the car. The sun only supplies.
-- The home battery shows its 68% stored level as a curved liquid surface.
-  Its signed kW figure says whether it stores or supplies power. The other
-  kW figures show present flow, not stored energy.
+- L1, L2 and L3 belong to the grid connection. Their balanced example values
+  derive from its signed net exchange at 230 V per phase. Home shows the
+  load, excluding the separately shown car and battery charging.
+- The home battery keeps its 68% stored level beside its signed kW figure.
+  The words say whether it stores or supplies power. The other kW figures
+  show present flow, not stored energy.
 
-Each part keeps a resting volume and grows with power. These soft volumes
-suggest relative power; they are not an exact area chart. The long bands of
-light follow flow direction, with a relative rate. A grip deforms the edges
-and bends these bands around the actual finger. It changes no reading or
-control. Reduce Motion holds the scene still and removes the release spring;
-words and a still grid arrow retain direction. Hidden screens, old data and
-an inactive app stop their timelines. Large text gets a full-size list of
-all five parts below a visual overview.
+One GPU field blends every color across the screen. There is no enclosing
+oval and no closed contour around an individual part. A shared height field
+adds soft valleys, directional light and volume at the color boundaries. Power changes how far each
+color reaches; it is a visual cue rather than an exact area chart. Solar
+production spreads warmth and light through the whole field. The single grid
+opening grows with the signed exchange and its light reverses with direction.
+A grip changes no reading or control. Reduce Motion holds the scene still
+and removes the release spring; words and a still grid arrow retain direction.
+Hidden screens, old data and an inactive app stop their timelines. Low Power
+Mode uses 20 frames per second. Large text gets a full-size list of all five
+parts below a visual overview.
 
 Power balances at the site boundary. Solar generation, grid imports and
 battery discharge supply the demand. Home, car, battery charging and grid
@@ -78,8 +103,10 @@ cd FTWKit && swift test
 under touches at several positions. `EnergyStreamlineTests` checks clearance
 around the finger, material carried with the grip and fixed endpoints.
 `EnergySiteLayoutTests` checks the single reversible grid boundary, the fixed
-battery position, solar direction, power-driven growth and elastic geometry.
-`DistributionTour` exercises navigation,
+battery position, solar direction and fixed endpoints when the robot moves.
+`EnergySiteSpringTests` checks release velocity, settling and an interrupted
+return. `EnergySiteMixTests` checks the relative color areas against the
+readings, including large values and idle equipment. `DistributionTour` exercises navigation,
 goals, command guards, drag-versus-tap and large text in the simulator.
 Simulator recordings show the proposed feel; device performance and real
 hardware control are outside this design study.

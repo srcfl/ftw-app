@@ -46,6 +46,27 @@ final class DistributionTour: XCTestCase {
         }
     }
 
+    @MainActor func testThePlanScrubsDirectlyAndPhasesBelongToTheGrid() {
+        let app = launch("plan")
+        let graph = app.descendants(matching: .any).matching(identifier: "distribution.plan.graph").firstMatch
+        XCTAssertTrue(graph.waitForExistence(timeout: 8))
+        XCTAssertEqual(app.sliders.count, 0, "The graph must take the finger directly")
+        let start = graph.coordinate(withNormalizedOffset: CGVector(dx: 0.14, dy: 0.5))
+        let end = graph.coordinate(withNormalizedOffset: CGVector(dx: 0.88, dy: 0.45))
+        start.press(forDuration: 0.1, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.4)
+        XCTAssertTrue(app.staticTexts["02.00 · Ladda under billigare timmar"].waitForExistence(timeout: 5))
+        shoot(app, "plan-direct-scrub")
+        app.terminate()
+        let load = launch("home")
+        XCTAssertTrue(load.staticTexts["Hemmets last"].waitForExistence(timeout: 5))
+        XCTAssertFalse(load.staticTexts["Nätanslutningens faser"].exists)
+        load.terminate()
+        let grid = launch("grid")
+        XCTAssertTrue(grid.staticTexts["Nätanslutningens faser"].waitForExistence(timeout: 5))
+        for phase in ["L1", "L2", "L3"] { XCTAssertTrue(grid.staticTexts[phase].exists) }
+        shoot(grid, "phases-at-grid")
+    }
+
     @MainActor func testOldDataBlocksCommandsAndLargeTextStillOpensTheCar() {
         let app = launch("car", scenario: "offline")
         let goal = app.buttons["distribution.goal"]
@@ -82,6 +103,23 @@ final class DistributionTour: XCTestCase {
         shoot(app, "after-source-grip")
         car.tap()
         XCTAssertTrue(app.buttons["distribution.goal"].waitForExistence(timeout: 5))
+    }
+
+    @MainActor func testTheRobotCanBeDraggedAndTappedWithoutOpeningADetail() {
+        let app = launch()
+        let robot = app.buttons["distribution.robot"]
+        XCTAssertTrue(robot.waitForExistence(timeout: 8))
+        let start = robot.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        start.press(forDuration: 0.12, thenDragTo: start.withOffset(CGVector(dx: 95, dy: 110)), withVelocity: .slow, thenHoldForDuration: 0.4)
+        XCTAssertTrue(robot.exists)
+        XCTAssertFalse(app.buttons["distribution.goal"].exists)
+        shoot(app, "robot-return")
+        robot.tap()
+        XCTAssertTrue(app.buttons["distribution.field.battery"].exists)
+        XCTAssertTrue(app.buttons["distribution.field.grid"].exists)
+        shoot(app, "robot-nudge")
+        app.buttons["distribution.field.battery"].tap()
+        XCTAssertTrue(app.staticTexts["HEMBATTERIET"].waitForExistence(timeout: 5))
     }
 
     @MainActor func testOneSiteContainsOneGridAndOneHomeBatteryInEveryState() {

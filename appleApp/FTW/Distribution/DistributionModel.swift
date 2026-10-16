@@ -104,7 +104,17 @@ final class DistributionModel {
     var invited = false
     var paired = true
     var startScreen: DistributionScreen?
+    var visibleScreen = DistributionScreen.now
     var gaze = 0.0
+    // One daytime solar arch and two broad load periods in the sample day.
+    // Both the graph and its readout use these same cached values.
+    let historySolar = (0..<24).map { hour in
+        max(0, 4.6 * sin(Double(max(6, min(18, hour)) - 6) / 12 * .pi))
+    }
+    let historyLoad = (0..<24).map { hour in
+        let h = Double(hour)
+        return 1.2 + 0.8 * exp(-pow((h - 7) / 3.2, 2)) + 1.4 * exp(-pow((h - 19) / 4.0, 2))
+    }
     let prices = [24, 18, 18, 20, 25, 33, 45, 82, 94, 78, 62, 48, 42, 44, 39, 45, 68, 98, 112, 104, 78, 60, 44, 31]
     let modes = ["Passiv arbitrage", "Aktiv arbitrage", "Stoppa batterierna", "Egenanvändning, manuell", "Effektgräns", "Ladda"]
     let modeHelp = ["Ladda från billigaste källa. Sälj inte från batteriet.", "Ladda billigt. Batteriet kan också sälja el.", "Håll batterierna vid 0 W. Säkringsskyddet gäller ändå.", "Följ hemmets behov utan prisplan.", "Begränsa köpt effekt till hemmets gräns.", "Ladda batterierna oavsett elpris."]

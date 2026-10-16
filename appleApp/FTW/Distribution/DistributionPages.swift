@@ -5,20 +5,39 @@ import Charts
 struct DistributionHeading: View {
     let title: String
     var subtitle = ""
+    var color = DistributionStyle.cyan
+    var ink = DistributionStyle.cyanInk
+    var companion = DistributionStyle.ground
+    var phase = 0.0
+    var route = DistributionScreen.plan
     @Environment(DistributionModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var typeSize
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(title).font(.largeTitle.weight(.medium))
-                if !subtitle.isEmpty { Text(subtitle).font(.subheadline).foregroundStyle(DistributionStyle.muted) }
-            }.frame(maxWidth: .infinity, alignment: .leading)
-            DistributionRobot(happy: model.happy, frozen: model.frozen).frame(width: 88)
-        }.padding(24)
+        VStack(alignment: .leading, spacing: 0) {
+            DistributionHeader(color: color, companion: companion, phase: phase,
+                               strength: typeSize.isAccessibilitySize ? 0.25 : 1, bottomSpace: 12) { pull in
+                HStack(alignment: .center, spacing: 16) {
+                    Text(title).font(.largeTitle.weight(.medium))
+                        .foregroundStyle(typeSize.isAccessibilitySize ? DistributionStyle.ink : ink)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    DistributionRobotMark(screen: route, happy: model.happy || pull != .zero, gaze: pull.width / 100,
+                                          rotation: pull.width / 12, frozen: model.frozen)
+                        .frame(width: 88).offset(x: pull.width * 0.48, y: pull.height * 0.48)
+                }
+            }
+            if !subtitle.isEmpty {
+                Text(subtitle).font(.subheadline).foregroundStyle(DistributionStyle.muted)
+                    .padding(.horizontal, 26).padding(.bottom, 24)
+            }
+        }
     }
 }
 
 struct DistributionPlan: View {
     @Environment(DistributionModel.self) private var model
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var scrubbing = false
+    @State private var contactY = 0.5
     private var stopped: Bool { model.mode == "Stoppa batterierna" }
     private var manual: Bool { !model.mode.contains("arbitrage") }
     private var times: [String] { model.lastSource == .night ? ["00.00", "02.00", "06.00", "10.00"] : ["14.00", "18.00", "22.00", "02.00"] }
@@ -36,28 +55,61 @@ struct DistributionPlan: View {
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 0) {
-            DistributionHeading(title: stopped ? "Batterierna står stilla." : manual ? model.mode + "." : "Energin följer din plan.", subtitle: "Prognos · boxen anpassar sig när läget ändras.")
-                .background(LinearGradient(colors: [DistributionStyle.gold.opacity(0.45), DistributionStyle.cyan.opacity(0.35), DistributionStyle.ground], startPoint: .topLeading, endPoint: .bottomTrailing))
+            DistributionHeading(title: stopped ? "Batterierna står stilla." : manual ? model.mode + "." : "Energin följer din plan.", subtitle: "Prognos · boxen anpassar sig när läget ändras.", color: DistributionStyle.cyan, ink: DistributionStyle.cyanInk,
+                                companion: DistributionStyle.gold, phase: model.moment)
             VStack(alignment: .leading, spacing: 20) {
                 Button { model.sheet = .mode } label: { HStack { Text(model.mode); Spacer(); Image(systemName: "slider.horizontal.3") } }
                     .disabled(!model.canControl || model.sending).accessibilityIdentifier("distribution.mode")
                 Chart(Array(powers.enumerated()), id: \.offset) { point in
-                    AreaMark(x: .value("Tid", point.offset), y: .value("Batterikraft", point.element))
-                        .interpolationMethod(.monotone).foregroundStyle(DistributionStyle.cyan.opacity(0.65).gradient)
-                    RuleMark(y: .value("Vilar", 0)).foregroundStyle(DistributionStyle.line)
+                    RectangleMark(xStart: .value("Från", Double(point.offset) - 0.43),
+                                  xEnd: .value("Till", Double(point.offset) + 0.43),
+                                  yStart: .value("Vilar", min(0, point.element)),
+                                  yEnd: .value("Planerad kW", max(0, point.element)))
+                        .foregroundStyle(.clear)
                 }
-                .chartYScale(domain: -3...4)
+                .chartPlotStyle { plot in
+                    plot.background(DistributionPlanMaterial(powers: powers, selection: model.moment,
+                                                             contactY: contactY, grip: scrubbing ? 1 : 0))
+                }
+                .chartOverlay { proxy in
+                    GeometryReader { geometry in
+                        if let frame = proxy.plotFrame, let x = proxy.position(forX: model.moment) {
+                            let plot = geometry[frame]
+                            Capsule().fill(DistributionStyle.ink.opacity(scrubbing ? 0.26 : 0.12))
+                                .frame(width: scrubbing ? 4 : 2, height: plot.height - 12)
+                                .position(x: plot.minX + x, y: plot.midY)
+                        }
+                    }.allowsHitTesting(false)
+                }
+                .chartYScale(domain: -3...4).chartXScale(domain: -0.5...3.5)
                 .chartXAxis { AxisMarks(values: [0, 1, 2, 3]) { axis in AxisValueLabel { if let i = axis.as(Int.self) { Text(times[i]) } } } }
                 .chartYAxis { AxisMarks(values: [-2, 0, 3]) { axis in AxisValueLabel { if let n = axis.as(Int.self) { Text(n == 0 ? "0" : "\(abs(n)) kW \(n > 0 ? "in" : "ut")") } } } }
+                .chartXSelection(value: Binding(get: { Optional(model.moment) }, set: { value in
+                    if let value { model.moment = min(3, max(0, value)); model.gaze = model.moment / 3 - 0.5 }
+                }))
+                .chartGesture { chart in
+                    DragGesture(minimumDistance: 0).onChanged { value in
+                        scrubbing = true; contactY = min(1, max(0, value.location.y / max(1, chart.plotSize.height)))
+                        chart.selectXValue(at: value.location.x)
+                    }.onEnded { _ in withAnimation(reduceMotion ? nil : DistributionStyle.motion) { scrubbing = false } }
+                }
                 .frame(height: 195)
                 .accessibilityLabel("Planerad batterikraft")
+                .accessibilityIdentifier("distribution.plan.graph")
+                .accessibilityValue("\(times[min(3, max(0, Int(model.moment.rounded())))]), \(headlines[min(3, max(0, Int(model.moment.rounded())))])")
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: model.moment = min(3, model.moment.rounded() + 1)
+                    case .decrement: model.moment = max(0, model.moment.rounded() - 1)
+                    @unknown default: break
+                    }
+                }
                 let i = min(3, max(0, Int(model.moment.rounded())))
                 VStack(alignment: .leading, spacing: 6) {
                     Text("\(times[i]) · \(headlines[i])").font(.title3.weight(.medium)).contentTransition(.numericText())
                     Text(powers[i] == 0 ? "Batteriet vilar · 0 kW" : "\(DistributionStyle.number(abs(powers[i]))) kW \(powers[i] > 0 ? "till batteriet" : "från batteriet")").font(.subheadline).foregroundStyle(DistributionStyle.muted)
                 }.frame(minHeight: 70, alignment: .topLeading)
-                Slider(value: $model.moment, in: 0...3, step: 1).tint(DistributionStyle.purpleDeep).accessibilityLabel("Tid i planen")
-                    .onChange(of: model.moment) { _, value in withAnimation(DistributionStyle.motion) { model.gaze = value / 3 - 0.5 } }
+                Text("Dra över grafen för att se planen.").font(.caption).foregroundStyle(DistributionStyle.muted)
                 NavigationLink("Elpriset bakom planen", value: DistributionScreen.prices)
                 Divider()
                 LabeledContent("\(times[1])", value: headlines[1])
@@ -65,17 +117,19 @@ struct DistributionPlan: View {
                     LabeledContent("Bilen till \(model.clock)", value: model.goal > 0 ? "\(model.goal) %" : "Inget mål")
                 }.disabled(!model.canControl || model.sending)
                 Text("Planen är ett exempel, inte ett löfte om framtida mätvärden.").font(.caption).foregroundStyle(DistributionStyle.muted)
-            }.padding(24)
+            }.modifier(DistributionSection(color: DistributionStyle.cyan, phase: model.moment))
         }
+        .sensoryFeedback(.selection, trigger: Int(model.moment.rounded()))
     }
 }
 
 struct DistributionPrices: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(DistributionModel.self) private var model
     var body: some View {
         @Bindable var model = model
         VStack(spacing: 0) {
-            DistributionHero(title: "Spotpris · SE3", value: model.tomorrow ? "—" : "\(model.prices[model.priceHour])", unit: "öre/kWh", detail: model.tomorrow ? "Priserna har inte publicerats än." : String(format: "%02d.00–%02d.00", model.priceHour, model.priceHour + 1), color: DistributionStyle.gold.opacity(0.55), ink: DistributionStyle.ink)
+            DistributionHero(title: "Spotpris · SE3", value: model.tomorrow ? "—" : "\(model.prices[model.priceHour])", unit: "öre/kWh", detail: model.tomorrow ? "Priserna har inte publicerats än." : String(format: "%02d.00–%02d.00", model.priceHour, model.priceHour + 1), color: DistributionStyle.gold, ink: DistributionStyle.goldInk, route: .prices, phase: Double(model.priceHour) / 8)
             VStack(alignment: .leading, spacing: 20) {
                 Picker("Prisdag", selection: $model.tomorrow) { Text("I dag").tag(false); Text("I morgon").tag(true) }.pickerStyle(.segmented)
                 if model.tomorrow {
@@ -83,29 +137,36 @@ struct DistributionPrices: View {
                 } else {
                     Chart(Array(model.prices.enumerated()), id: \.offset) { item in
                         BarMark(x: .value("Timme", item.offset), y: .value("Pris", item.element))
-                            .cornerRadius(5).foregroundStyle(item.offset == model.priceHour ? DistributionStyle.ink : DistributionStyle.gold)
+                            .cornerRadius(14).foregroundStyle((item.offset == model.priceHour ? DistributionStyle.ink : DistributionStyle.gold).gradient)
                     }.frame(height: 180).chartXScale(domain: -0.5...23.5).chartYAxisLabel("öre/kWh")
-                        .chartXSelection(value: Binding(get: { Optional(model.priceHour) }, set: { if let value = $0 { model.priceHour = max(0, min(23, value)) } }))
-                    Slider(value: Binding(get: { Double(model.priceHour) }, set: { model.priceHour = Int($0) }), in: 0...23, step: 1)
-                        .accessibilityLabel("Välj pristimme")
+                        .chartXSelection(value: Binding(get: { Optional(model.priceHour) }, set: { if let value = $0 {
+                            withAnimation(reduceMotion ? nil : .interactiveSpring(response: 0.35, dampingFraction: 0.86)) { model.priceHour = max(0, min(23, value)) }
+                        } }))
+                        .chartGesture { chart in DragGesture(minimumDistance: 0).onChanged { chart.selectXValue(at: $0.location.x) } }
+                        .accessibilityIdentifier("distribution.price.graph")
+                    Text("Dra över priserna för att välja timme.").font(.caption).foregroundStyle(DistributionStyle.muted)
                     LabeledContent("Billigaste två timmar", value: "01–03")
                     LabeledContent("Snitt under de timmarna", value: "18 öre/kWh")
                 }
                 Text("Exempelpriser. Spotpris utan moms, elnätsavgift och påslag.").font(.caption).foregroundStyle(DistributionStyle.muted)
-            }.padding(24)
+            }.modifier(DistributionSection(color: DistributionStyle.gold, phase: Double(model.priceHour) / 8))
         }
+        .sensoryFeedback(.selection, trigger: model.priceHour)
     }
 }
 
 struct DistributionHistory: View {
     @Environment(DistributionModel.self) private var model
+    @State private var energyGrip = 0.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let names = ["Från solen", "Använt hemma", "Köpt", "Sålt"]
     private var amounts: [Double] { [18.6, 15.2, 2.4, 5.8].map { $0 * [1.0, 6.7, 29.4, 340][model.historyRange] } }
     private var seriesColors: [Color] { [DistributionStyle.gold, DistributionStyle.home, DistributionStyle.cyan, DistributionStyle.green] }
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 0) {
-            DistributionHeading(title: "Över tid.")
+            DistributionHeading(title: "Över tid.", color: DistributionStyle.gold, ink: DistributionStyle.goldInk, companion: DistributionStyle.cyan,
+                                phase: model.historyPower ? model.historyHour / 6 : energyGrip, route: .history)
             VStack(alignment: .leading, spacing: 20) {
                 Picker("Historik", selection: $model.historyPower) { Text("Energi · kWh").tag(false); Text("Effekt · kW").tag(true) }.pickerStyle(.segmented)
                     .onChange(of: model.historyPower) { _, power in if !power && model.historyRange == 3 { model.historyRange = 2 } }
@@ -119,7 +180,7 @@ struct DistributionHistory: View {
     }
     private var energy: some View {
         VStack(alignment: .leading, spacing: 20) {
-            HStack(spacing: 4) {
+            HStack(spacing: 3) {
                 energyHalf(top: 0, bottom: 2, share: amounts[0] / (amounts[0] + amounts[2]), heading: "Varifrån")
                 energyHalf(top: 1, bottom: 3, share: amounts[1] / (amounts[1] + amounts[3]), heading: "Vart")
             }
@@ -138,7 +199,7 @@ struct DistributionHistory: View {
                         .cornerRadius(4).foregroundStyle(seriesColors[model.energySeries])
                 }.frame(height: 150).chartYAxisLabel("kWh").chartXAxisLabel("Dag i perioden")
             }
-            Text("Yta = andel av energin på respektive sida.").font(.caption).foregroundStyle(DistributionStyle.muted)
+            Text("Fälten visar fördelningen på respektive sida. Sparad energi · inga liveflöden.").font(.caption).foregroundStyle(DistributionStyle.muted)
         }
     }
     private func energyHalf(top: Int, bottom: Int, share: Double, heading: String) -> some View {
@@ -146,12 +207,18 @@ struct DistributionHistory: View {
             Text(heading).font(.caption).foregroundStyle(DistributionStyle.muted).padding(.leading, 10)
             GeometryReader { p in
                 ZStack {
-                    seriesColors[bottom]
-                    EnergyHalfField(share: share).fill(seriesColors[top])
+                    DistributionHistoryMaterial(share: share, phase: energyGrip, top: seriesColors[top], bottom: seriesColors[bottom])
                     energyLabel(top).position(x: p.size.width / 2, y: p.size.height * share / 2)
                     energyLabel(bottom, compact: 1 - share < 0.18).position(x: p.size.width / 2, y: p.size.height * (share + (1 - share) / 2))
                 }
-            }.frame(height: 330)
+            }.frame(height: 360)
+                .clipShape(.rect(topLeadingRadius: top == 0 ? 28 : 4, bottomLeadingRadius: top == 0 ? 28 : 4,
+                                 bottomTrailingRadius: top == 0 ? 4 : 28, topTrailingRadius: top == 0 ? 4 : 28))
+                .simultaneousGesture(DragGesture(minimumDistance: 8).onChanged { value in
+                    if !reduceMotion, abs(value.translation.width) > abs(value.translation.height) {
+                        energyGrip = value.translation.width / 100
+                    }
+                }.onEnded { _ in withAnimation(reduceMotion ? nil : DistributionStyle.motion) { energyGrip = 0 } })
         }
     }
     private func energyLabel(_ index: Int, compact: Bool = false) -> some View {
@@ -162,29 +229,36 @@ struct DistributionHistory: View {
                 Text("\(Text(DistributionStyle.number(amounts[index])).font(.system(size: compact ? 18 : 26, weight: .medium)))\(Text(" kWh").font(.system(size: 12)))")
                     .monospacedDigit().underline(model.energySeries == index)
             }.foregroundStyle(inks[index]).frame(maxWidth: .infinity, minHeight: 40)
-        }.buttonStyle(.plain).accessibilityLabel("\(names[index]), \(DistributionStyle.number(amounts[index])) kilowattimmar")
+        }.buttonStyle(DistributionPressStyle()).accessibilityLabel("\(names[index]), \(DistributionStyle.number(amounts[index])) kilowattimmar")
     }
     private var powerChart: some View {
         VStack(alignment: .leading, spacing: 18) {
             Text(model.historyRange == 0 ? "Senaste 24 timmarna · exempel på timvärden" : "Glesa exempel på effekt under vald period").font(.caption).foregroundStyle(DistributionStyle.muted)
             Chart {
                 ForEach(0..<24) { i in
-                    let solar = max(0, 4.6 * sin(Double(i - 15) / 10 * .pi))
-                    let load = 1.2 + 1.5 * (1 + sin(Double(i) * 0.5)) / 2
+                    let solar = model.historySolar[i]
+                    let load = model.historyLoad[i]
+                    AreaMark(x: .value("Tid", i), y: .value("kW", solar), series: .value("Serie", "Solen"), stacking: .unstacked)
+                        .interpolationMethod(.monotone).foregroundStyle(DistributionStyle.gold.opacity(0.2).gradient)
+                    AreaMark(x: .value("Tid", i), y: .value("kW", load), series: .value("Serie", "Användning"), stacking: .unstacked)
+                        .interpolationMethod(.monotone).foregroundStyle(DistributionStyle.home.opacity(0.18).gradient)
                     LineMark(x: .value("Tid", i), y: .value("kW", solar), series: .value("Serie", "Solen"))
-                        .interpolationMethod(.monotone).foregroundStyle(DistributionStyle.gold).lineStyle(StrokeStyle(lineWidth: 3))
+                        .interpolationMethod(.monotone).foregroundStyle(DistributionStyle.gold).lineStyle(StrokeStyle(lineWidth: 8, lineCap: .round, lineJoin: .round))
                     LineMark(x: .value("Tid", i), y: .value("kW", load), series: .value("Serie", "Användning"))
-                        .interpolationMethod(.monotone).foregroundStyle(DistributionStyle.homeInk).lineStyle(StrokeStyle(lineWidth: 3))
+                        .interpolationMethod(.monotone).foregroundStyle(DistributionStyle.homeInk).lineStyle(StrokeStyle(lineWidth: 8, lineCap: .round, lineJoin: .round))
                     LineMark(x: .value("Tid", i), y: .value("kW", load - solar), series: .value("Serie", "Elnätet"))
-                        .interpolationMethod(.monotone).foregroundStyle(DistributionStyle.greenInk).lineStyle(StrokeStyle(lineWidth: 2))
+                        .interpolationMethod(.monotone).foregroundStyle(DistributionStyle.greenInk).lineStyle(StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
                 }
                 RuleMark(x: .value("Vald tid", model.historyHour)).foregroundStyle(DistributionStyle.muted)
-            }.frame(height: 240).chartYAxisLabel("kW").chartXAxisLabel("Stickprov över perioden")
+            }.frame(height: 240).chartXScale(domain: 0...23).chartYAxisLabel("kW").chartXAxisLabel("Stickprov över perioden")
                 .chartYAxis { AxisMarks(values: [-2, 0, 2, 4]) { axis in AxisValueLabel { if let n = axis.as(Int.self) { Text("\(abs(n))") } } } }
                 .chartXSelection(value: Binding(get: { Optional(model.historyHour) }, set: { if let value = $0 { model.historyHour = max(0, min(23, value.rounded())) } }))
-            Slider(value: Binding(get: { model.historyHour }, set: { model.historyHour = $0 }), in: 0...23, step: 1).accessibilityLabel("Tid i historiken")
-            let solar = max(0, 4.6 * sin((model.historyHour - 15) / 10 * .pi))
-            let load = 1.2 + 1.5 * (1 + sin(model.historyHour * 0.5)) / 2
+                .chartGesture { chart in DragGesture(minimumDistance: 0).onChanged { chart.selectXValue(at: $0.location.x) } }
+                .accessibilityIdentifier("distribution.history.graph")
+            Text("Dra direkt över kurvorna för att läsa en tid.").font(.caption).foregroundStyle(DistributionStyle.muted)
+            let hour = max(0, min(23, Int(model.historyHour.rounded())))
+            let solar = model.historySolar[hour]
+            let load = model.historyLoad[hour]
             let grid = load - solar
             VStack(alignment: .leading, spacing: 6) {
                 LabeledContent("Solen", value: "\(DistributionStyle.number(solar)) kW")
@@ -193,21 +267,6 @@ struct DistributionHistory: View {
             }.monospacedDigit()
             Text("Solen · Användning · Elnätet").font(.caption)
             Text("Stickprov \(Int(model.historyHour) + 1) av 24. Användningen inkluderar bilen. Över noll är köpt el, under noll är såld.").font(.caption).foregroundStyle(DistributionStyle.muted)
-        }
-    }
-}
-
-private struct EnergyHalfField: Shape {
-    let share: Double
-    func path(in r: CGRect) -> Path {
-        let y = r.height * share, amplitude = min(y, r.height - y) * 0.45
-        return Path { p in
-            p.move(to: .zero); p.addLine(to: CGPoint(x: r.width, y: 0))
-            for i in stride(from: 40, through: 0, by: -1) {
-                let u = Double(i) / 40
-                p.addLine(to: CGPoint(x: r.width * u, y: y + amplitude * sin(u * 2 * .pi)))
-            }
-            p.closeSubpath()
         }
     }
 }
@@ -224,8 +283,7 @@ struct DistributionHome: View {
     ]
     var body: some View {
         VStack(spacing: 0) {
-            DistributionHeading(title: "Ditt hem.", subtitle: "FTW Box planerar och styr lokalt. Telefonen visar vad som händer.")
-                .background(DistributionStyle.green.opacity(0.3).gradient)
+            DistributionHeading(title: "Ditt hem.", subtitle: "FTW Box planerar och styr lokalt. Telefonen visar vad som händer.", color: DistributionStyle.green, ink: DistributionStyle.greenInk, route: .box)
             VStack(spacing: 0) {
                 ForEach(rows, id: \.0) { row in
                     NavigationLink(value: row.0) {
@@ -234,17 +292,18 @@ struct DistributionHome: View {
                             VStack(alignment: .leading, spacing: 5) { Text(row.2); Text(row.3).font(.caption).foregroundStyle(DistributionStyle.muted) }
                             Spacer(); Image(systemName: "chevron.right").font(.caption)
                         }.padding(.vertical, 16)
-                    }.buttonStyle(.plain)
-                    Divider()
+                    }.buttonStyle(DistributionPressStyle())
+                    Rectangle().fill(DistributionStyle.line.opacity(0.35)).frame(height: 0.5)
                 }
                 NavigationLink("Anslut en annan box", value: DistributionScreen.pair).padding(.vertical, 20)
                 Button("Ta bort från telefonen", role: .destructive) { model.sheet = .forget }.padding(.vertical, 10)
-            }.padding(.horizontal, 24)
+            }.modifier(DistributionSection(color: DistributionStyle.green))
         }
     }
 }
 
 struct DistributionSettings: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     let screen: DistributionScreen
     @Environment(DistributionModel.self) private var model
     @State private var confirmingMember: UUID?
@@ -256,7 +315,7 @@ struct DistributionSettings: View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 0) {
             if screen == .pair { welcome } else {
-                DistributionHeading(title: heading)
+                DistributionHeading(title: heading, color: screen.materialColor, ink: screen.materialInk, route: screen)
                 VStack(alignment: .leading, spacing: 24) {
                     switch screen {
                     case .connection:
@@ -323,9 +382,10 @@ struct DistributionSettings: View {
                         if model.paired { Text("Du kan också öppna exempelhemmet från Nu.").font(.caption).foregroundStyle(DistributionStyle.muted) }
                     default: EmptyView()
                     }
-                }.padding(.horizontal, 24)
+                }.modifier(DistributionSection(color: screen.materialColor))
             }
         }
+        .animation(reduceMotion ? nil : DistributionStyle.motion, value: model.notifications)
         .confirmationDialog("Ta bort åtkomsten?", isPresented: Binding(get: { confirmingMember != nil }, set: { if !$0 { confirmingMember = nil } })) {
             Button("Ta bort", role: .destructive) { if let id = confirmingMember { Task { await model.submit(.revoke(id)) }; confirmingMember = nil } }
         } message: { Text("Telefonen kommer inte längre kunna läsa hemmet.") }
@@ -349,13 +409,14 @@ struct DistributionSettings: View {
     }
     private var welcome: some View {
         VStack(spacing: 24) {
-            DistributionRobot(happy: model.happy).frame(width: 170).padding(.top, 35)
+            DistributionRobotMark(screen: .pair, happy: model.happy).frame(width: 170).padding(.top, 35)
             Text("Se vart energin tar vägen.").font(.largeTitle.weight(.medium)).multilineTextAlignment(.center)
             Text("Sol, hem, bil och batteri. Se hur de hänger ihop och välj vad du vill ska hända.").multilineTextAlignment(.center).foregroundStyle(DistributionStyle.muted)
             NavigationLink("Anslut min box", value: DistributionScreen.scan).buttonStyle(DistributionActionStyle())
             Button("Prova exempelhemmet") { model.paired = true; model.tab = .now; model.startScreen = nil }.buttonStyle(DistributionActionStyle(prominent: false))
             Text("Din box fortsätter lokalt när telefonen är borta.").font(.caption).foregroundStyle(DistributionStyle.muted)
         }.padding(24)
+            .background(DistributionMaterial(color: DistributionStyle.gold, companion: DistributionStyle.cyan, strength: 0.25))
     }
     private var widgets: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -366,15 +427,15 @@ struct DistributionSettings: View {
             VStack(alignment: .leading, spacing: 15) {
                 Text("Exempelhem").font(.caption)
                 Text("Solen driver hemmet.").font(.title2.weight(.medium))
-                Capsule().fill(DistributionStyle.purple).frame(width: 180, height: 35)
+                DistributionLevel(value: Double(model.level) / 100, color: DistributionStyle.purple)
                 Text("Sparat 13.42 · öppna appen för senaste läget").font(.caption)
-            }.padding(20).frame(maxWidth: .infinity, alignment: .leading).background(DistributionStyle.gold.opacity(0.6), in: RoundedRectangle(cornerRadius: 25))
+            }.padding(20).frame(maxWidth: .infinity, alignment: .leading).background(DistributionMaterial(color: DistributionStyle.gold, companion: DistributionStyle.cyan, strength: 0.35)).clipShape(.rect(cornerRadius: 28))
             Text("Förhandsvisning. Lägg till riktiga widgetar från hemskärmen. De visar sparade värden med tid.").font(.caption).foregroundStyle(DistributionStyle.muted)
         }
     }
     private func widget(_ label: String, _ number: String, _ foot: String) -> some View {
         VStack(alignment: .leading, spacing: 10) { Text(label).font(.caption); Text(number).font(.title2).minimumScaleFactor(0.6); Text(foot).font(.caption2).foregroundStyle(DistributionStyle.muted) }
-            .padding(18).frame(maxWidth: .infinity, minHeight: 140, alignment: .leading).background(DistributionStyle.raised, in: RoundedRectangle(cornerRadius: 25))
+            .padding(18).frame(maxWidth: .infinity, minHeight: 140, alignment: .leading).background(DistributionMaterial(color: label == "Solen" ? DistributionStyle.gold : DistributionStyle.purple, strength: 0.35)).clipShape(.rect(cornerRadius: 28))
     }
 }
 
@@ -392,10 +453,12 @@ struct DistributionEditor: View {
         @Bindable var model = model
         NavigationStack {
             Form {
+                Group {
                 switch sheet {
                 case .goal:
                     Section("Ladda till") {
-                        LabeledContent("Mål", value: "\(Int(goal)) %").font(.title2)
+                        LabeledContent("Mål", value: "\(Int(goal)) %").font(.title2).contentTransition(.numericText())
+                        DistributionLevel(value: goal / 100, color: DistributionStyle.purple)
                         Slider(value: $goal, in: 10...100, step: 5).accessibilityLabel("Laddmål")
                     }
                     Section("Klar senast") {
@@ -440,8 +503,12 @@ struct DistributionEditor: View {
                     Text("Telefonen skulle glömma hemmet och sin nyckel. Boxen fortsätter lokalt. I mockupen återgår du till första start.")
                     Button("Ta bort i mockupen", role: .destructive) { model.paired = false; model.stop(); dismiss() }
                 }
+                }
+                .listRowBackground(DistributionStyle.raised.opacity(0.7))
+                .listRowSeparator(.hidden)
             }
-            .scrollContentBackground(.hidden).background(DistributionStyle.ground)
+            .scrollContentBackground(.hidden)
+            .background(DistributionMaterial(color: sheet == .goal || sheet == .level ? DistributionStyle.purple : DistributionStyle.cyan, strength: 0.3).ignoresSafeArea())
             .navigationTitle(title).navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Stäng") { dismiss() }.disabled(model.sending) }

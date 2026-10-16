@@ -50,6 +50,12 @@ struct DistributionPrototype: View {
                 }
             }
         }
+        .overlayPreferenceValue(DistributionRobotAnchors.self) { anchors in
+            GeometryReader { geometry in
+                let placement = anchors[model.visibleScreen]
+                DistributionCompanion(target: placement.map { geometry[$0.bounds] }, placement: placement)
+            }.allowsHitTesting(false)
+        }
         .environment(model)
         .tint(DistributionStyle.ink)
         .background(DistributionStyle.ground)
@@ -138,7 +144,7 @@ struct DistributionPage: View {
         .background(DistributionStyle.ground)
         .foregroundStyle(DistributionStyle.ink)
         .accessibilityIdentifier("distribution.screen.\(screen.rawValue)")
-        .onAppear { if screen != .now { model.stop() } }
+        .onAppear { model.visibleScreen = screen; if screen != .now { model.stop() } }
     }
 
     @ViewBuilder private var content: some View {
@@ -159,11 +165,12 @@ struct DistributionRobot: View {
     var happy = false
     var frozen = false
     var gaze = 0.0
+    var receivesTouch = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: reduceMotion || frozen || scenePhase != .active)) { context in
+        TimelineView(.animation(minimumInterval: ProcessInfo.processInfo.isLowPowerModeEnabled ? 1.0 / 20 : 1.0 / 60, paused: reduceMotion || frozen || scenePhase != .active)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             let moving = !reduceMotion && !frozen && scenePhase == .active
             let cycle = t.truncatingRemainder(dividingBy: 4.4)
@@ -194,7 +201,7 @@ struct DistributionRobot: View {
         .aspectRatio(1, contentMode: .fit)
         .shadow(color: DistributionStyle.ink.opacity(0.16), radius: 9, y: 9)
         .accessibilityHidden(true)
-        .allowsHitTesting(false)
+        .allowsHitTesting(receivesTouch)
     }
 }
 
@@ -202,86 +209,48 @@ struct DistributionHero: View {
     let title, value, unit, detail: String
     let color, ink: Color
     var flowPower = 0.0
+    var route = DistributionScreen.car
+    var phase = 0.0
     @Environment(DistributionModel.self) private var model
     @ScaledMetric(relativeTo: .largeTitle) private var figure = 66.0
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text(title.uppercased()).font(.caption).tracking(2)
-            HStack(alignment: .center, spacing: 12) {
-                Text("\(Text(value).font(.system(size: figure, weight: .regular)))\(Text(" \(unit)").font(.title))")
-                    .monospacedDigit().minimumScaleFactor(0.55).lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                DistributionRobot(happy: model.happy, frozen: model.frozen, gaze: model.gaze).frame(width: 108)
+        VStack(alignment: .leading, spacing: 0) {
+            DistributionHeader(color: color, power: flowPower, phase: phase, bottomSpace: 12) { pull in
+                VStack(alignment: .leading, spacing: 18) {
+                    Text(title.uppercased()).font(.caption).tracking(2)
+                    HStack(alignment: .center, spacing: 12) {
+                        Text("\(Text(value).font(.system(size: figure, weight: .regular)))\(Text(" \(unit)").font(.title))")
+                            .monospacedDigit().minimumScaleFactor(0.55).lineLimit(1)
+                            .contentTransition(.numericText())
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        DistributionRobotMark(screen: route, happy: model.happy || pull != .zero, gaze: pull.width / 100,
+                                              rotation: pull.width / 12, frozen: model.frozen)
+                            .frame(width: 108).offset(x: pull.width * 0.48, y: pull.height * 0.48)
+                    }
+                }.foregroundStyle(ink)
             }
             Text(detail).font(.subheadline).fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(26).padding(.bottom, 25)
-        .foregroundStyle(ink)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(DistributionHeroMaterial(color: color, power: flowPower, frozen: model.frozen))
-    }
-}
-
-private struct DistributionHeroMaterial: View {
-    let color: Color
-    let power: Double
-    let frozen: Bool
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var visible = false
-    @State private var heldPhase = Date.now.timeIntervalSinceReferenceDate * 0.6
-
-    var body: some View {
-        let moving = visible && power > 0.025 && !frozen && !reduceMotion && scenePhase == .active
-        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !moving)) { clock in
-            let t = clock.date.timeIntervalSinceReferenceDate
-            let shape = HeroField(phase: moving ? t * 0.6 : heldPhase)
-            ZStack {
-                shape.fill(color.gradient).blur(radius: 1.5)
-                if moving {
-                    Canvas { context, size in
-                        var path = Path()
-                        path.move(to: CGPoint(x: size.width * 0.55, y: -40))
-                        path.addCurve(to: CGPoint(x: size.width * 0.18, y: size.height + 30),
-                                      control1: CGPoint(x: size.width * 0.28, y: size.height * 0.25),
-                                      control2: CGPoint(x: size.width * 0.45, y: size.height * 0.7))
-                        DistributionFluidInk.paint(path, power: power, time: t, color: DistributionStyle.eye, context: context, scale: 1.6)
-                    }.mask(shape).allowsHitTesting(false)
-                }
-            }
-        }
-        .onAppear { visible = true }
-        .onDisappear { visible = false }
-        .onChange(of: moving) { _, value in if !value { heldPhase = Date.now.timeIntervalSinceReferenceDate * 0.6 } }
-        .accessibilityHidden(true)
-    }
-}
-
-private struct HeroField: Shape {
-    var phase = 0.0
-    func path(in r: CGRect) -> Path {
-        let w = r.width, h = r.height, wave = sin(phase) * 8
-        return Path { p in
-            p.move(to: CGPoint(x: 0, y: h * 0.12))
-            p.addCurve(to: CGPoint(x: w * 0.5, y: h * 0.015), control1: CGPoint(x: -w * 0.05, y: -h * 0.03), control2: CGPoint(x: w * 0.19, y: h * 0.015))
-            p.addCurve(to: CGPoint(x: w, y: h * 0.09), control1: CGPoint(x: w * 0.73, y: h * 0.045), control2: CGPoint(x: w, y: -h * 0.02))
-            p.addCurve(to: CGPoint(x: w * 1.02, y: h * 0.82), control1: CGPoint(x: w * 0.99, y: h * 0.29), control2: CGPoint(x: w * 1.04, y: h * 0.60))
-            p.addCurve(to: CGPoint(x: 0, y: h * 0.91), control1: CGPoint(x: w * 0.71, y: h + wave), control2: CGPoint(x: w * 0.33, y: h * 0.79 - wave))
-            p.addCurve(to: CGPoint(x: 0, y: h * 0.12), control1: CGPoint(x: -w * 0.05, y: h * 0.6), control2: CGPoint(x: w * 0.01, y: h * 0.39))
-            p.closeSubpath()
+                .foregroundStyle(DistributionStyle.ink).padding(.horizontal, 26).padding(.bottom, 24)
         }
     }
 }
 
 struct DistributionActionStyle: ButtonStyle {
     var prominent = true
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.font(.body.weight(.medium)).padding(.horizontal, 18).padding(.vertical, 14)
             .frame(maxWidth: .infinity, minHeight: 48)
             .foregroundStyle(prominent ? DistributionStyle.ground : DistributionStyle.ink)
-            .background(prominent ? DistributionStyle.ink : DistributionStyle.raised, in: Capsule())
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .background {
+                Capsule().fill((prominent ? DistributionStyle.ink : DistributionStyle.raised).gradient
+                    .shadow(.inner(color: DistributionStyle.eye.opacity(prominent ? 0.15 : 0.5), radius: 3, x: -1, y: -2))
+                    .shadow(.inner(color: DistributionStyle.ink.opacity(0.12), radius: 4, x: 1, y: 3)))
+                    .shadow(color: DistributionStyle.ink.opacity(configuration.isPressed ? 0.03 : 0.1), radius: configuration.isPressed ? 2 : 7, y: configuration.isPressed ? 1 : 5)
+            }
+            .scaleEffect(x: configuration.isPressed ? 0.97 : 1, y: configuration.isPressed ? 0.94 : 1)
+            .animation(reduceMotion ? nil : .spring(response: 0.42, dampingFraction: 0.63), value: configuration.isPressed)
     }
 }
 
@@ -299,11 +268,9 @@ struct DistributionCar: View {
                         }
                         Spacer(); Image(systemName: "chevron.right").font(.caption)
                     }
-                }.buttonStyle(.plain).disabled(!model.canControl || model.sending).accessibilityIdentifier("distribution.goal")
-                GeometryReader { p in
-                    Capsule().fill(DistributionStyle.raised)
-                    Capsule().fill(DistributionStyle.purple).frame(width: p.size.width * Double(model.level) / 100)
-                }.frame(height: 6).accessibilityLabel("Bilens nivå \(model.level) procent")
+                }.buttonStyle(DistributionPressStyle()).disabled(!model.canControl || model.sending).accessibilityIdentifier("distribution.goal")
+                DistributionLevel(value: Double(model.level) / 100, color: DistributionStyle.purple)
+                Text("Bilens nivå \(model.level) %").font(.caption).foregroundStyle(DistributionStyle.muted)
                 Button("Justera bilens nivå") { model.sheet = .level }.disabled(!model.canControl || model.sending)
                     .accessibilityIdentifier("distribution.level")
                 Divider()
@@ -316,7 +283,7 @@ struct DistributionCar: View {
                     .frame(minHeight: 20, alignment: .leading).accessibilityIdentifier("distribution.receipt")
                 Text(model.canControl ? "Ladda nu fortsätter tills du går tillbaka till planen eller kopplar ur." : model.scenario == .viewer ? "Du kan se bilen. Ägaren ändrar mål och laddning." : "Du kan styra när kontakten och färska mätvärden är tillbaka.")
                     .font(.caption).foregroundStyle(DistributionStyle.muted)
-            }.padding(24)
+            }.modifier(DistributionSection(color: DistributionStyle.purple))
         }
     }
     private func command(_ title: String, symbol: String, hold: String, prominent: Bool = true) -> some View {
@@ -330,6 +297,8 @@ struct DistributionCar: View {
 struct DistributionNode: View {
     let node: DistributionScreen
     @Environment(DistributionModel.self) private var model
+    @State private var solarHour = 11
+    private let solarSamples = [0.0, 0.1, 0.8, 2.4, 4.6, 4.2, 3.2, 1.6, 0.4, 0]
     private var info: (String, String, String, Color, Color) {
         switch node {
         case .solar: (DistributionStyle.number(model.flow.solar), "kW", model.flow.solar > 0 ? "Solen tillför energi till hemmet." : "Solen tillför ingen energi just nu.", DistributionStyle.gold, DistributionStyle.goldInk)
@@ -338,38 +307,68 @@ struct DistributionNode: View {
         default: (DistributionStyle.number(abs(model.flow.grid)), "kW", model.flow.grid > 0.025 ? "Köpt el fyller på när solen inte räcker." : model.flow.grid < -0.025 ? "Överskottet går till elnätet." : "Inget flöde till eller från nätet just nu.", DistributionStyle.green, DistributionStyle.greenInk)
         }
     }
+    private var phaseAmps: [Double] {
+        // Balanced 230 V sample derived from the same net exchange, not load.
+        Array(repeating: abs(model.flow.grid) * 1000 / (3 * 230), count: 3)
+    }
     var body: some View {
         VStack(spacing: 0) {
             DistributionHero(title: node == .grid ? (model.flow.grid > 0.025 ? "Från nätet" : model.flow.grid < -0.025 ? "Till nätet" : "Nätet i balans") : node.title, value: info.0, unit: info.1, detail: info.2, color: info.3, ink: info.4,
-                             flowPower: node == .solar ? model.flow.solar : node == .home ? model.flow.home : node == .battery ? abs(model.flow.battery) : abs(model.flow.grid))
+                             flowPower: node == .solar ? model.flow.solar : node == .home ? model.flow.home : node == .battery ? abs(model.flow.battery) : abs(model.flow.grid), route: node)
             VStack(alignment: .leading, spacing: 22) {
                 switch node {
                 case .solar:
                     LabeledContent("Producerat i dag", value: "18,6 kWh")
-                    Chart(Array([0.0, 0.1, 0.8, 2.4, 4.6, 4.2, 3.2, 1.6, 0.4, 0].enumerated()), id: \.offset) { point in
+                    Chart(Array(solarSamples.enumerated()), id: \.offset) { point in
                         AreaMark(x: .value("Tid", point.offset + 6), y: .value("kW", point.element))
                             .interpolationMethod(.monotone).foregroundStyle(DistributionStyle.gold.gradient)
-                    }.frame(height: 150).chartYScale(domain: 0...5).chartXAxisLabel("Tid").chartYAxisLabel("kW")
+                        LineMark(x: .value("Tid", point.offset + 6), y: .value("kW", point.element))
+                            .interpolationMethod(.monotone).foregroundStyle(DistributionStyle.gold)
+                            .lineStyle(StrokeStyle(lineWidth: 6, lineCap: .round, lineJoin: .round))
+                    }.frame(height: 150).chartYScale(domain: 0...5).chartXScale(domain: 6...15)
+                        .chartXAxisLabel("Tid").chartYAxisLabel("kW")
+                        .chartOverlay { chart in
+                            GeometryReader { geometry in
+                                if let frame = chart.plotFrame, let x = chart.position(forX: solarHour) {
+                                    let plot = geometry[frame]
+                                    Capsule().fill(DistributionStyle.ink.opacity(0.2)).frame(width: 2, height: plot.height)
+                                        .position(x: plot.minX + x, y: plot.midY)
+                                }
+                            }.allowsHitTesting(false)
+                        }
+                        .chartXSelection(value: Binding(get: { Optional(solarHour) }, set: { if let hour = $0 { solarHour = max(6, min(15, hour)) } }))
+                        .chartGesture { chart in DragGesture(minimumDistance: 0).onChanged { chart.selectXValue(at: $0.location.x) } }
+                    Text("\(solarHour).00 · \(DistributionStyle.number(solarSamples[solarHour - 6])) kW · dra i grafen")
+                        .font(.caption).foregroundStyle(DistributionStyle.muted)
                 case .home:
-                    Text("Säkringen har utrymme").font(.title3.weight(.medium))
-                    Text("Ström per fas · huvudsäkring 16 A").font(.caption).foregroundStyle(DistributionStyle.muted)
-                    ForEach(Array([8.4, 6.2, 7.1].enumerated()), id: \.offset) { item in
-                        HStack { Text("L\(item.offset + 1)").font(.caption); ProgressView(value: item.element, total: 16).tint(DistributionStyle.home); Text("\(DistributionStyle.number(item.element)) A").font(.caption).monospacedDigit() }
-                    }
+                    Text("Hemmets last").font(.title3.weight(.medium))
+                    Text("Det hemmet använder, utöver bilen och batteriets laddning.")
+                        .font(.subheadline).foregroundStyle(DistributionStyle.muted)
                     LabeledContent("Använt hemma i dag", value: "15,2 kWh")
                 case .battery:
+                    DistributionLevel(value: 0.68, color: DistributionStyle.cyan)
                     LabeledContent("Lagrad energi", value: "9,5 kWh")
                     LabeledContent("Exempelhemmets kapacitet", value: "14 kWh")
                     Text("Boxen planerar batteriet med elpriset, solen och hemmets behov.").font(.subheadline).foregroundStyle(DistributionStyle.muted)
                     NavigationLink("Se batteriets plan", value: DistributionScreen.plan)
                 default:
+                    Text("Nätanslutningens faser").font(.title3.weight(.medium))
+                    Text("L1 · L2 · L3 · huvudsäkring 16 A").font(.caption).foregroundStyle(DistributionStyle.muted)
+                    ForEach(Array(phaseAmps.enumerated()), id: \.offset) { item in
+                        HStack {
+                            Text("L\(item.offset + 1)").font(.caption).frame(width: 24)
+                            ProgressView(value: item.element, total: 16).tint(DistributionStyle.greenInk)
+                            Text("\(DistributionStyle.number(item.element)) A").font(.caption).monospacedDigit()
+                        }
+                    }
+                    Text(model.flow.grid > 0.025 ? "Ström in till fastigheten." : model.flow.grid < -0.025 ? "Ström ut från fastigheten." : "Inget utbyte i exemplet.").font(.caption).foregroundStyle(DistributionStyle.muted)
                     LabeledContent("Sålt i dag", value: "5,8 kWh")
                     LabeledContent("Köpt i dag", value: "2,4 kWh")
                     Text("Effekt i kW visar flödet just nu. Energi i kWh visar mängden över tid.").font(.subheadline).foregroundStyle(DistributionStyle.muted)
                     NavigationLink("Se elpriset", value: DistributionScreen.prices)
                 }
                 NavigationLink("Se dagens energi", value: DistributionScreen.history)
-            }.padding(24)
+            }.modifier(DistributionSection(color: info.3))
         }
     }
 }

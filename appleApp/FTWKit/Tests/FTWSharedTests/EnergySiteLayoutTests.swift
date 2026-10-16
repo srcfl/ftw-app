@@ -47,4 +47,20 @@ struct EnergySiteLayoutTests {
         #expect(fast.signedPower(.car) == 4)
         #expect(fast.flow.incoming == fast.flow.outgoing)
     }
+
+    @Test func movingTheRobotCarriesEveryStreamButKeepsTheGridBoundaryFixed() {
+        let site = EnergySiteLayout(size: size, flow: .init(solar: 6, grid: -1, battery: 1, car: 3, home: 1))
+        let anchor = CGPoint(x: 290, y: 320)
+        for part in EnergySiteLayout.Part.allCases {
+            let normal = site.stream(part), moved = site.stream(part, anchor: anchor)
+            if site.signedPower(part) < 0 {
+                #expect(moved.first == normal.first)
+                #expect(moved.last == anchor)
+            } else {
+                #expect(moved.first == anchor)
+                #expect(moved.last == normal.last)
+            }
+        }
+        #expect(site.flow.incoming == site.flow.outgoing)
+    }
 }
