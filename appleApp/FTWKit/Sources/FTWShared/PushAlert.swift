@@ -26,6 +26,13 @@ public enum PushKind {
     public static let boxUnreachable = "box.unreachable"
     public static let cloudGranted = "cloud.granted"
     public static let cloudRevoked = "cloud.revoked"
+    /// Access from outside the house, for every owner (docs/agents.md in
+    /// srcfl/ftw). They come as the box's `notice`, never as an event.
+    public static let agentAdded = "agent.added"
+    public static let agentRequest = "agent.request"
+    public static let agentExpiring = "agent.expiring"
+    public static let approvalKeySet = "approval.key.set"
+    public static let ownerAdded = "owner.added"
     /// The box asks which car is on a charger. The buttons, one per car,
     /// come with the car app (docs/cars.md in srcfl/ftw).
     public static let carWhich = "car.which"
@@ -33,8 +40,13 @@ public enum PushKind {
     /// In the catalogue's order.
     public static let all = [
         chargingConnected, chargingSessionComplete, chargingGoalAtRisk, chargingInterrupted, updateInstalled,
-        driverOffline, fuseOverLimit, boxUnreachable, cloudGranted, cloudRevoked, carWhich,
+        driverOffline, fuseOverLimit, boxUnreachable, cloudGranted, cloudRevoked,
+        agentAdded, agentRequest, agentExpiring, approvalKeySet, ownerAdded, carWhich,
     ]
+
+    /// The kinds only owners may read. A box sends them as a `notice`; an
+    /// `event` that names one reaches viewers too, so it reads as generic.
+    public static let notices: Set<String> = [agentAdded, agentRequest, agentExpiring, approvalKeySet, ownerAdded]
 }
 
 /// What a push says once checked. Only `read` makes one, so a kind that has
@@ -134,7 +146,8 @@ public struct PushAlert: Sendable, Equatable {
         }
         if let ts = ev.ts { at = min(at, ts) }
         let age = nowMs.subtractingReportingOverflow(at)
-        guard PushKind.all.contains(ev.kind), ev.kind != PushKind.boxUnreachable, !age.overflow, age.partialValue <= maxAgeMs else {
+        guard PushKind.all.contains(ev.kind), ev.kind != PushKind.boxUnreachable, !PushKind.notices.contains(ev.kind),
+              !age.overflow, age.partialValue <= maxAgeMs else {
             return generic
         }
         return PushAlert(.event, home: home, kind: ev.kind, args: ev.args, src: ev.src, lp: ev.lp, boot: ev.boot.map { Data($0) }, seq: ev.seq, atMs: at)

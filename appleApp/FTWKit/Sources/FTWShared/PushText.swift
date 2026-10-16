@@ -76,6 +76,11 @@ public enum PushText {
         PushKind.boxUnreachable: Sentence(title: "Your box is out of reach", body: "It stopped answering. Power cut, or the internet at home is down."),
         PushKind.cloudGranted: Sentence(title: "FTW Cloud is on", body: "Your box now shares a copy of its readings with FTW Cloud. You can turn it off in the app or on the box."),
         PushKind.cloudRevoked: Sentence(title: "FTW Cloud is off", body: "Your box stopped sharing with FTW Cloud and asked it to delete its copy."),
+        PushKind.agentAdded: Sentence(title: "New access to your box", body: "You gave an assistant or Sourceful access. See who has access in the app."),
+        PushKind.agentRequest: Sentence(title: "Waiting for your answer", body: "An assistant asks to change a setting. Open FTW to confirm or decline."),
+        PushKind.agentExpiring: Sentence(title: "Access ends tomorrow", body: "An assistant's or Sourceful's access to your box runs out in a day. Renew it in the app if it should go on."),
+        PushKind.approvalKeySet: Sentence(title: "A phone can now approve access", body: "A phone set up the key it uses to approve access to your box. If that was not you, remove the phone in the app."),
+        PushKind.ownerAdded: Sentence(title: "A new owner", body: "A phone was paired as an owner of your box. If that was not you, remove it in the app."),
         PushKind.carWhich: Sentence(title: "Which car is plugged in?", body: "Tap the car so the box plans for its level and goal."),
     ]
 
@@ -90,6 +95,11 @@ public enum PushText {
         PushKind.boxUnreachable: Sentence(title: "Din box går inte att nå", body: "Den har slutat svara. Strömavbrott, eller så är internet hemma nere."),
         PushKind.cloudGranted: Sentence(title: "FTW Cloud är på", body: "Din box delar nu en kopia av sina mätvärden med FTW Cloud. Du kan stänga av det i appen eller på boxen."),
         PushKind.cloudRevoked: Sentence(title: "FTW Cloud är av", body: "Din box har slutat dela med FTW Cloud och bett den radera sin kopia."),
+        PushKind.agentAdded: Sentence(title: "Ny åtkomst till din box", body: "En assistent eller Sourceful har fått åtkomst. Se vem som har åtkomst i appen."),
+        PushKind.agentRequest: Sentence(title: "Väntar på ditt svar", body: "En assistent vill ändra en inställning. Öppna FTW för att godkänna eller avböja."),
+        PushKind.agentExpiring: Sentence(title: "Åtkomsten upphör i morgon", body: "En assistents eller Sourcefuls åtkomst till din box går ut om ett dygn. Förnya den i appen om den ska fortsätta."),
+        PushKind.approvalKeySet: Sentence(title: "En telefon kan nu godkänna åtkomst", body: "En telefon har satt upp nyckeln den använder för att godkänna åtkomst till din box. Var det inte du, ta bort telefonen i appen."),
+        PushKind.ownerAdded: Sentence(title: "En ny ägare", body: "En telefon har parats som ägare av din box. Var det inte du, ta bort den i appen."),
         PushKind.carWhich: Sentence(title: "Vilken bil är inkopplad?", body: "Tryck på bilen så planerar boxen efter dess nivå och mål."),
     ]
 

@@ -189,6 +189,14 @@ import Testing
         #expect(a.src == nil)
     }
 
+    /// Access news is for owners only. A box sends it as a `notice`; as an
+    /// `event` it also reaches viewers, so it reads as generic.
+    @Test func accessNewsAsAnEventIsGeneric() {
+        for kind in PushKind.notices {
+            #expect(Self.read(Self.envelope(Self.body(kind: kind))).verdict == .generic, "\(kind)")
+        }
+    }
+
     /// Unknown keys are a newer box, not a fault.
     @Test func unknownKeysAreIgnored() {
         #expect(Self.read(Self.envelope(Self.body([("later", .m([("x", .u(1))]))]))).verdict == .event)
