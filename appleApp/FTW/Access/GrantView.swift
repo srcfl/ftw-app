@@ -40,9 +40,18 @@ struct GrantView: View {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(AccessWords.name(row)).font(.title2.weight(.bold))
-                    Text(row.isSupport ? AccessWords.format("Ticket %@", row.principal.ticket) : AccessWords.host(row))
-                        .foregroundStyle(Theme.ink2)
-                        .textSelection(.enabled)
+                    let place = row.isSupport ? AccessWords.format("Ticket %@", row.principal.ticket) : access.host(row)
+                    if !place.isEmpty {
+                        Text(place)
+                            .foregroundStyle(Theme.ink2)
+                            .textSelection(.enabled)
+                    }
+                    if let verified = access.verified(row), !row.isSupport {
+                        Label(AccessWords.text(verified ? "Verified by FTW Cloud" : "Not verified"),
+                              systemImage: verified ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(verified ? Theme.ink : Theme.alarm)
+                    }
                     if let problem = access.problem(row) {
                         Text(problem).font(.callout).foregroundStyle(Theme.ink2)
                     }

@@ -82,6 +82,13 @@ import FTWDemo
         #expect(added.expiresAtMs <= Int64(w.scheduler.nowMs) + 30 * 86_400_000)
         #expect(w.access.assistants.contains { $0.id == added.id })
         #expect(w.box.access.audit.prefix(2).map(\.what) == ["agent.add", "approval.key.set"])
+        // The row names its client by id; the phone keeps where it lives.
+        #expect(w.access.host(added) == "claude.ai")
+        #expect(w.access.verified(added) == true)
+        var registered = added
+        registered.principal.clientId = "ftwc_zXEOM7hsgr"
+        registered.id = "someoneE"
+        #expect(w.access.host(registered).isEmpty)
 
         // The next grant needs no new key: one more Face ID, nothing else.
         let second = try w.offer()

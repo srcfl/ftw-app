@@ -198,3 +198,17 @@ public struct TicketNote: Codable, Equatable, Sendable {
         self.atMs = atMs
     }
 }
+
+/// Where a client lives, as the offer the owner approved on this phone
+/// said, by its row's id.
+public struct ClientNote: Codable, Equatable, Sendable {
+    public var id: String
+    public var host: String
+    public var verified: Bool
+
+    public init(id: String, host: String, verified: Bool) {
+        self.id = id
+        self.host = host
+        self.verified = verified
+    }
+}

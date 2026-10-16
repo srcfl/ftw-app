@@ -97,9 +97,12 @@ struct GrantLine: View {
                 Spacer(minLength: 8)
                 if access.working == row.id { ProgressView().controlSize(.small) }
             }
-            Text(row.isSupport ? AccessWords.format("Ticket %@", row.principal.ticket) : AccessWords.host(row))
-                .font(.subheadline)
-                .foregroundStyle(Theme.ink2)
+            let place = row.isSupport ? AccessWords.format("Ticket %@", row.principal.ticket) : access.host(row)
+            if !place.isEmpty {
+                Text(place)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.ink2)
+            }
             Text("\(AccessWords.summary(row.scopes)) · \(AccessWords.until(row.expiresAtMs, nowMs: now)) · \(AccessWords.lastUsed(row.lastSeenMs, nowMs: now))")
                 .font(.footnote)
                 .foregroundStyle(Theme.ink2)

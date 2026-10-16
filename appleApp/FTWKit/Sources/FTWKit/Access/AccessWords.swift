@@ -35,10 +35,11 @@ public enum AccessWords {
         return format("Assistant %@", row.id)
     }
 
-    /// Where the client lives: the host of its metadata document, or of the
-    /// page it sends you back to.
+    /// Where the client lives, when its id is an address: the host of its
+    /// metadata document. A registered client's id is no address, and
+    /// names nothing.
     public static func host(_ row: AgentRow) -> String {
-        guard let url = URL(string: row.principal.clientId), let host = url.host else { return row.principal.clientId }
+        guard let url = URL(string: row.principal.clientId), url.scheme == "https", let host = url.host else { return "" }
         return host
     }
 

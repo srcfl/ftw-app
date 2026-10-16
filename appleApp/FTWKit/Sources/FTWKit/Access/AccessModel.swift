@@ -105,6 +105,10 @@ public final class AccessModel {
     public private(set) var auditMore = false
     /// What the owner wrote for each support ticket, on this phone only.
     public private(set) var tickets: [TicketNote] = []
+    /// Where each client lives, as the offer this phone approved said. The
+    /// row carries only the client's id, which for a registered client is
+    /// no address.
+    public private(set) var clients: [ClientNote] = []
     /// The row or request a change is on its way for.
     public private(set) var working: String?
     /// What went wrong, in words that say what happens now.
@@ -131,8 +135,23 @@ public final class AccessModel {
         // answer replaces them within a round trip.
         if let rows = site.keptFile([AgentRow].self, "access") { list = AgentList(agents: rows) }
         tickets = site.keptFile([TicketNote].self, "tickets") ?? []
+        clients = site.keptFile([ClientNote].self, "clients") ?? []
         site.keepFile("access") { [weak self] in self?.list?.agents }
         site.keepFile("tickets") { [weak self] in self?.tickets }
+        site.keepFile("clients") { [weak self] in self?.clients }
+    }
+
+    /// Where a grant's client lives: the offer's host when this phone
+    /// approved it, else the host of a client id that is an address, else
+    /// nothing.
+    public func host(_ row: AgentRow) -> String {
+        clients.first { $0.id == row.id }?.host ?? AccessWords.host(row)
+    }
+
+    /// Whether FTW Cloud knew the client when this phone approved it. Nil
+    /// when another phone or the box's page did.
+    public func verified(_ row: AgentRow) -> Bool? {
+        clients.first { $0.id == row.id }?.verified
     }
 
     /// Keep what the owner wrote for a ticket beside its id.
@@ -210,7 +229,11 @@ public final class AccessModel {
                                expiresAtMs: self.expiry(grant.lengthMs), principal: principal, atMs: self.nowMs)
             add.sig = try signer.sign(try Approval.addBytes(self.signedFor, add))
             let ok = try await self.site.ask(AccessWire.msgAdd, add.cbor)
-            return ok["agent"].flatMap(AgentRow.init)
+            guard let row = ok["agent"].flatMap(AgentRow.init) else { return nil }
+            self.clients.removeAll { $0.id == row.id }
+            self.clients.append(ClientNote(id: row.id, host: offer.clientHost, verified: offer.verified))
+            self.site.persistNow()
+            return row
         }
     }
 
