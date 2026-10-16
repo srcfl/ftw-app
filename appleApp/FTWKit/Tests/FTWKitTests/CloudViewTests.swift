@@ -464,3 +464,55 @@ private func header(_ box: inout FakeCloudBox, at: Int64) throws -> CloudWire.He
         #expect(v.sentMs(ahead, arrivalMs: 3_000_100) == 3_000_000)
     }
 }
+
+/// The car class (srcfl/ftw docs/cars.md): the view holds it like the other
+/// classes, and a charger's level and goal read from its session's car, the
+/// car winning where the two disagree.
+@Suite struct CloudViewCarTests {
+    @Test func aChargerReadsItsCarAndTheCarWins() throws {
+        let vectors = try CloudVectors.load()
+        var v = CloudView(home: vectors.home, boxKey: Bytes(hex: vectors.boxKey.pk))
+        let arrival: Int64 = 1_791_820_900_000
+        for name in ["lp car asking", "car", "lp car tapped"] {
+            try v.accept(vectors.envelope(name), arrivalMs: arrival)
+        }
+        let cars = try #require(v.cars)
+        #expect(cars.cars.count == 2)
+        let tapped = try #require(v.lp?.loadpoints.first)
+        let tesla = try #require(cars.car(tapped.carId))
+        // The box filled the charger from the car: joined, nothing moves
+        // but the age, which each class counts to its own send.
+        var same = tapped
+        same.socAgeS = tesla.socAgeS
+        #expect(v.joined(tapped) == same)
+        #expect(tesla.socPermille == tapped.socPermille)
+        // Dated from the car class's own send, not from the lp that came
+        // later, nor from now.
+        let carSent = try #require(v.sentMs(cars.header, arrivalMs: arrival))
+        #expect(v.socReadAtMs(tapped) == carSent - 540_000)
+
+        // A newer car class says otherwise: the car wins.
+        var box = try FakeCloudBox(boot: 0xb0)
+        box.seq = 20
+        let at = arrival - 1_000
+        let car = CBOR.map([
+            ("id", .text(tesla.id)), ("socPermille", .int(300)), ("socSource", .text("manual")), ("socAgeS", .int(5)),
+            ("energySinceWh", .int(0)), ("socEstimate", .bool(false)), ("surplusOnly", .bool(true)),
+            ("goal", .map([("targetPermille", .int(600)), ("readyByMin", .int(390)), ("days", .int(0)), ("finishAtLimit", .bool(false))])),
+        ])
+        try v.accept(box.seal(CloudWire.msgCar, box.header(at) + [("cars", .array([car]))]), arrivalMs: arrival)
+        let joined = v.joined(tapped)
+        #expect(joined.socPermille == 300 && joined.socSource == "inferred" && joined.socAgeS == nil)
+        #expect(v.socReadAtMs(tapped) == at - 5_000)
+        #expect(joined.targetPermille == 600 && !joined.recurring && joined.surplusOnly)
+        #expect(joined.powerW == tapped.powerW && joined.carId == tapped.carId)
+
+        // A charger with no car, or a car the class does not hold, is as
+        // sent.
+        var visitor = tapped
+        visitor.carId = ""
+        #expect(v.joined(visitor) == visitor)
+        visitor.carId = "unknown-car"
+        #expect(v.joined(visitor) == visitor)
+    }
+}

@@ -4,15 +4,21 @@ import Synchronization
 /// Events this phone has shown, so a push that arrives twice is shown once.
 ///
 /// The box numbers what it sends: `seq` rises by one per message within a
-/// boot. Per home and boot the extension keeps the highest `seq` it showed;
-/// an event at or below it is a duplicate or older than one already shown.
-/// A new boot starts its own count. The file keeps the most recent few
-/// boots and is in the App Group, beside the cache.
+/// boot. Events and notices share the count, and a notice can arrive after
+/// a later event, so per home and boot the extension keeps the numbers it
+/// showed, the newest `recent` of them, and a floor below which everything
+/// counts as shown: the numbers that fell out, and for a file from before
+/// this list, the highest shown. A new boot starts its own count. The file
+/// keeps the most recent few boots and is in the App Group, beside the
+/// cache.
 public struct PushSeen: Sendable {
     public let file: URL
     /// Homes times boots worth remembering. Each box starts a new boot on
     /// every restart; the oldest goes first.
     public static let limit = 32
+    /// Numbers kept per boot. Far more than a box raises in a day under
+    /// FTW Cloud's caps; a notice lives a day.
+    public static let recent = 64
 
     public init(file: URL) {
         self.file = file
@@ -25,7 +31,11 @@ public struct PushSeen: Sendable {
     struct Entry: Codable, Equatable {
         var home: String
         var boot: Data
+        /// The floor: anything at or below it counts as shown.
         var seq: UInt64
+        /// The numbers shown above the floor, rising. Absent in a file from
+        /// before them, whose `seq` is the highest shown.
+        var shown: [UInt64]?
         /// The phone's clock when it was last moved, to drop the oldest.
         var atMs: Double
     }
@@ -41,11 +51,16 @@ public struct PushSeen: Sendable {
         return Self.lock.withLock { _ in
             var entries = load()
             if let i = entries.firstIndex(where: { $0.home == alert.home && $0.boot == boot }) {
-                guard alert.seq > entries[i].seq else { return false }
-                entries[i].seq = alert.seq
+                var shown = entries[i].shown ?? []
+                guard alert.seq > entries[i].seq, !shown.contains(alert.seq) else { return false }
+                shown.insert(alert.seq, at: shown.firstIndex { $0 > alert.seq } ?? shown.endIndex)
+                if shown.count > Self.recent {
+                    entries[i].seq = max(entries[i].seq, shown.removeFirst())
+                }
+                entries[i].shown = shown
                 entries[i].atMs = nowMs
             } else {
-                entries.append(Entry(home: alert.home, boot: boot, seq: alert.seq, atMs: nowMs))
+                entries.append(Entry(home: alert.home, boot: boot, seq: 0, shown: [alert.seq], atMs: nowMs))
             }
             entries.sort { $0.atMs > $1.atMs }
             try? save(Array(entries.prefix(Self.limit)))

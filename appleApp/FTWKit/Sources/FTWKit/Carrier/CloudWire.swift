@@ -54,10 +54,12 @@ public enum CloudWire {
     public static let msgEvent = "event"
     public static let msgTiles = "tiles"
     public static let msgHB = "hb"
+    /// Each car's level and goal, by opaque id (srcfl/ftw `docs/cars.md`).
+    public static let msgCar = "car"
 
-    /// Everything else the box sends (hello, roster, bye) is the service's
-    /// alone and never reaches a phone.
-    public static let phoneClasses: Set<String> = [msgLive, msgLP, msgPrices, msgPlan, msgHealth, msgEvent, msgTiles, msgHB]
+    /// Everything else the box sends (hello, roster, bye, notice) is the
+    /// service's alone and never reaches a phone as a class.
+    public static let phoneClasses: Set<String> = [msgLive, msgLP, msgCar, msgPrices, msgPlan, msgHealth, msgEvent, msgTiles, msgHB]
 
     // The app session's own types. All unsigned.
     /// Handshake message 1, `{hz}`.
@@ -249,6 +251,12 @@ public enum CloudWire {
     /// A loadpoint's opaque id, cut the same way with "lp\0".
     static func loadpointID(grantKey: Bytes, loadpoint: String) -> String {
         opaqueID(grantKey, "lp\0", loadpoint)
+    }
+
+    /// A car's opaque id, cut the same way with "car\0" from the id the
+    /// owner's app minted, so it differs per home.
+    static func carID(grantKey: Bytes, car: String) -> String {
+        opaqueID(grantKey, "car\0", car)
     }
 
     private static func opaqueID(_ key: Bytes, _ tag: String, _ name: String) -> String {
@@ -453,6 +461,57 @@ public enum CloudWire {
         public var nextStartMs: Int64?
         public var nextEndMs: Int64?
         public var nextWh: Int64?
+        /// Opaque id of the session's car, the join to `Cars`. Empty while
+        /// nothing is plugged in or the box does not know the car. With it,
+        /// the level and goal fields above are views of that car, and where
+        /// the two disagree the car class wins.
+        public var carId: String = ""
+        /// charger, car, only, tap, asking or none (`docs/cars.md`).
+        public var carIdentifiedBy: String = ""
+        public var carCorrected: Bool = false
+        public var carCorrectedFrom: String = ""
+        /// While asking: the cars a tap may pick, at most four.
+        public var choose: [String] = []
+    }
+
+    /// Each car's level and goal on this box. Nothing here names a car; the
+    /// names come from the box over Noise.
+    public struct Cars: Equatable, Sendable {
+        public var header: Header
+        public var cars: [Car]
+
+        /// The car with this opaque id, as a charger's `carId` names it.
+        public func car(_ id: String) -> Car? {
+            id.isEmpty ? nil : cars.first { $0.id == id }
+        }
+    }
+
+    public struct Car: Equatable, Sendable {
+        /// Opaque car id.
+        public var id: String
+        /// The car's level; the car's or a person's own number while
+        /// `socEstimate` is false. Nil when the box has none.
+        public var socPermille: Int64?
+        /// vehicle, manual or assumed; empty without a level.
+        public var socSource: String
+        /// Seconds since the car reported the level or someone set it, at
+        /// send.
+        public var socAgeS: Int64?
+        /// Energy into the car since then; negative after V2X.
+        public var energySinceWh: Int64
+        public var socEstimate: Bool
+        public var chargeLimitPermille: Int64?
+        public var goal: CarGoal?
+        public var surplusOnly: Bool
+    }
+
+    public struct CarGoal: Equatable, Sendable {
+        public var targetPermille: Int64
+        /// Minutes after midnight in the box's time zone.
+        public var readyByMin: Int64
+        /// ISO weekday mask, Monday in bit 0; 0 is once, 127 every day.
+        public var days: Int64
+        public var finishAtLimit: Bool
     }
 
     /// A manual charging hold.
@@ -581,7 +640,39 @@ extension CloudWire.Loadpoint {
             boost: try f.bool("boost"),
             nextStartMs: try f.optionalInt("nextStartMs"),
             nextEndMs: try f.optionalInt("nextEndMs"),
-            nextWh: try f.optionalInt("nextWh")
+            nextWh: try f.optionalInt("nextWh"),
+            carId: try f.text("carId"),
+            carIdentifiedBy: try f.text("carIdentifiedBy"),
+            carCorrected: try f.bool("carCorrected"),
+            carCorrectedFrom: try f.text("carCorrectedFrom"),
+            choose: try CloudWire.texts(f["choose"], "choose")
+        )
+    }
+}
+
+extension CloudWire.Cars {
+    public init(body: Bytes) throws {
+        let f = try CloudWire.Fields(body: body)
+        self.init(header: try CloudWire.Header(f),
+                  cars: try f.list("cars") { try CloudWire.Car(CloudWire.Fields($0, "cars")) })
+    }
+}
+
+extension CloudWire.Car {
+    init(_ f: CloudWire.Fields) throws {
+        self.init(
+            id: try f.text("id"),
+            socPermille: try f.optionalInt("socPermille"),
+            socSource: try f.text("socSource"),
+            socAgeS: try f.optionalInt("socAgeS"),
+            energySinceWh: try f.int("energySinceWh"),
+            socEstimate: try f.bool("socEstimate"),
+            chargeLimitPermille: try f.optionalInt("chargeLimitPermille"),
+            goal: try f.optional("goal").map { g in
+                CloudWire.CarGoal(targetPermille: try g.int("targetPermille"), readyByMin: try g.int("readyByMin"),
+                                  days: try g.int("days"), finishAtLimit: try g.bool("finishAtLimit"))
+            },
+            surplusOnly: try f.bool("surplusOnly")
         )
     }
 }

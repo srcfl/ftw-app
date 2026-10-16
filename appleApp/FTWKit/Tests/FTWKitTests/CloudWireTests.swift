@@ -118,7 +118,7 @@ func cloudSign(_ key: P256.Signing.PrivateKey, home: String, t: String, b: Bytes
         let v = try CloudVectors.load()
         let boxPK = Bytes(hex: v.boxKey.pk)
         let servicePK = Bytes(hex: v.serviceKey.pk)
-        #expect(v.messages.count == 22)
+        #expect(v.messages.count == 27)
 
         for m in v.messages {
             let frame = Bytes(hex: m.frame)
@@ -156,11 +156,13 @@ func cloudSign(_ key: P256.Signing.PrivateKey, home: String, t: String, b: Bytes
         #expect(Bytes(service.publicKey.x963Representation).hex == v.serviceKey.pk)
 
         let grantKey = Bytes(hex: v.grantKey)
-        #expect(v.ids.count == 4)
+        #expect(v.ids.count == 6)
         for id in v.ids {
-            let got = id.kind == "src"
-                ? CloudWire.sourceID(grantKey: grantKey, driver: id.name)
-                : CloudWire.loadpointID(grantKey: grantKey, loadpoint: id.name)
+            let got = switch id.kind {
+            case "src": CloudWire.sourceID(grantKey: grantKey, driver: id.name)
+            case "car": CloudWire.carID(grantKey: grantKey, car: id.name)
+            default: CloudWire.loadpointID(grantKey: grantKey, loadpoint: id.name)
+            }
             #expect(got == id.id, "\(id.kind) \(id.name)")
         }
         // A loadpoint and a source with one name do not share an id.
@@ -208,6 +210,26 @@ func cloudSign(_ key: P256.Signing.PrivateKey, home: String, t: String, b: Bytes
         #expect(car.nextStartMs == 1_791_850_000_000 && car.nextEndMs == 1_791_857_200_000 && car.nextWh == 7400)
         #expect(lp.feedback == [CloudWire.Feedback(kind: "ev", src: charger, status: "following", reason: "plan", severity: "ok",
                                                    evidence: "measured", fresh: true, actualW: 2100, ageMs: 900)])
+
+        // Cars (srcfl/ftw docs/cars.md): the class by opaque id, and a
+        // tapped charger that names its car.
+        let tesla = CloudWire.carID(grantKey: grantKey, car: "5f0c1e2d3a4b5c6d7e8f90a1b2c3d4e5")
+        let volvo = CloudWire.carID(grantKey: grantKey, car: "0123456789abcdef0123456789abcdef")
+        let cars = try CloudWire.Cars(body: v.envelope("car").b)
+        #expect(cars.header.seq == 16)
+        #expect(cars.cars == [
+            CloudWire.Car(id: tesla, socPermille: 140, socSource: "vehicle", socAgeS: 540, energySinceWh: 0, socEstimate: false,
+                          chargeLimitPermille: 800, goal: CloudWire.CarGoal(targetPermille: 800, readyByMin: 420, days: 0x7f, finishAtLimit: false),
+                          surplusOnly: false),
+            CloudWire.Car(id: volvo, socPermille: 620, socSource: "vehicle", socAgeS: 30_600, energySinceWh: 0, socEstimate: true,
+                          chargeLimitPermille: nil, goal: nil, surplusOnly: true),
+        ])
+        let asking = try #require(try CloudWire.LP(body: v.envelope("lp car asking").b).loadpoints.first)
+        #expect(asking.carId.isEmpty && asking.carIdentifiedBy == "asking" && asking.choose == [tesla, volvo])
+        let tapped = try #require(try CloudWire.LP(body: v.envelope("lp car tapped").b).loadpoints.first)
+        #expect(tapped.carId == tesla && tapped.carIdentifiedBy == "tap" && !tapped.carCorrected && tapped.carCorrectedFrom.isEmpty)
+        #expect(cars.car(tapped.carId)?.socPermille == tapped.socPermille)
+        #expect(car.carId.isEmpty && car.choose.isEmpty)
 
         let prices = try CloudWire.Prices(body: v.envelope("prices").b)
         #expect(prices.zone == "SE3" && prices.currency == "SEK")

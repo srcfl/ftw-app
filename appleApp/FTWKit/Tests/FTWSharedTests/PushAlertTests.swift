@@ -64,7 +64,7 @@ import Testing
 
     @Test func everyPushVectorReadsAsTheGoReferenceReadsIt() throws {
         let file = try Self.load("push-vectors", as: PushFile.self)
-        #expect(file.cases.count == 18)
+        #expect(file.cases.count == 28)
         let keys = Dictionary(uniqueKeysWithValues: file.keys.map { ($0.home, Data(hex: $0.pk)) })
         for c in file.cases {
             let payload = Data(c.payload.utf8)
@@ -100,7 +100,7 @@ import Testing
         let file = try Self.load("cloud-vectors", as: CloudFile.self)
         let home = try #require(file.boxKey.home)
         let keys = ["box": Data(hex: file.boxKey.pk), "service": Data(hex: file.serviceKey.pk)]
-        #expect(file.messages.count == 22)
+        #expect(file.messages.count == 27)
         for m in file.messages {
             let env = try #require(PushAlert.Envelope(Array(Data(hex: m.envelope))), "\(m.name)")
             #expect(env.t == m.t, "\(m.name)")
