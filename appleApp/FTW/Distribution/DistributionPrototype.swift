@@ -207,9 +207,7 @@ struct DistributionNow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            DistributionInlets(flow: model.flow)
             DistributionTouchableField(namespace: namespace)
-                .frame(height: 410)
             VStack(spacing: 3) {
                 Text("Dra och putta · tryck för att öppna")
                 Text("Yta = andel · rörelse = energins riktning")
@@ -251,6 +249,7 @@ struct DistributionNow: View {
 
 struct DistributionTouchableField: View {
     let namespace: Namespace.ID
+    private let fieldHeight: CGFloat = 370
     @Environment(DistributionModel.self) private var model
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -262,23 +261,38 @@ struct DistributionTouchableField: View {
     @State private var grabs = 0
     @State private var releasedAt = Date.distantPast
     @State private var releaseStrength = 0.0
+    @State private var finger = CGPoint.zero
+    @State private var origin = CGPoint.zero
+    @State private var grip = 0.0
+    @State private var sourceHeight: CGFloat = 142
+    @State private var surfaceWidth: CGFloat = 390
 
     var body: some View {
-        GeometryReader { proxy in
+        VStack(spacing: 0) {
+            DistributionInlets(flow: model.flow, finger: finger, origin: origin, grip: grip, frozen: model.frozen)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { sourceHeight = $0 }
             TimelineView(.animation(minimumInterval: 1.0 / 60, paused: reduceMotion || model.frozen || !visible || scenePhase != .active)) { clock in
                 let phase = reduceMotion || model.frozen ? heldPhase : clock.date.timeIntervalSinceReferenceDate * 0.22
                 let elapsed = max(0, clock.date.timeIntervalSince(releasedAt))
                 let ripple = reduceMotion || model.frozen || elapsed > 3 ? 0 : sin(elapsed * 9) * exp(-elapsed * 2.4) * releaseStrength
                 DistributionField(powers: model.flow.destinations, flow: model.flow, namespace: namespace, happy: model.happy, frozen: model.frozen,
                                   phase: phase, time: reduceMotion || model.frozen ? 0 : clock.date.timeIntervalSinceReferenceDate,
-                                  drag: force, touch: touch, grabbing: grabbing, ripple: ripple)
+                                  drag: force, touch: touch, grabbing: grabbing, ripple: ripple,
+                                  finger: CGPoint(x: finger.x, y: finger.y - sourceHeight), grip: grip)
                     .animation(reduceMotion || model.frozen ? nil : DistributionStyle.motion, value: model.flow.destinations)
-            }
-            .contentShape(Rectangle())
-            .highPriorityGesture(DragGesture(minimumDistance: 3)
+            }.frame(height: fieldHeight)
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { surfaceWidth = $0 }
+        .contentShape(Rectangle())
+        .highPriorityGesture(DragGesture(minimumDistance: 3)
                 .onChanged { value in
-                    if !grabbing { grabbing = true; grabs += 1; releaseStrength = 0; model.stop() }
-                    touch = CGPoint(x: value.startLocation.x / max(1, proxy.size.width), y: value.startLocation.y / max(1, proxy.size.height))
+                    if !grabbing {
+                        grabbing = true; grip = 1; grabs += 1; releaseStrength = 0; model.stop()
+                        heldPhase = Date.now.timeIntervalSinceReferenceDate * 0.22
+                        origin = value.startLocation
+                    }
+                    finger = value.location
+                    touch = CGPoint(x: origin.x / max(1, surfaceWidth), y: (origin.y - sourceHeight) / fieldHeight)
                     force = CGSize(width: tanh(value.translation.width / 95), height: tanh(value.translation.height / 105))
                 }
                 .onEnded { value in
@@ -287,14 +301,15 @@ struct DistributionTouchableField: View {
                     let velocity = max(-5, min(5, -outward))
                     releasedAt = .now
                     releaseStrength = min(1, hypot(force.width, force.height))
-                    withAnimation(reduceMotion ? nil : .interpolatingSpring(stiffness: 40, damping: 6.5, initialVelocity: velocity)) { force = .zero; grabbing = false }
+                    withAnimation(reduceMotion ? nil : .interpolatingSpring(stiffness: 40, damping: 6.5, initialVelocity: velocity)) {
+                        force = .zero; grip = 0; grabbing = false
+                    }
                 }, including: model.frozen ? .none : .all)
             .sensoryFeedback(.impact(weight: .light), trigger: grabs)
             .accessibilityElement(children: .contain)
-        }
         .onAppear { visible = true }
-        .onDisappear { visible = false; force = .zero; grabbing = false }
-        .onChange(of: model.frozen) { _, frozen in if frozen { heldPhase = Date.now.timeIntervalSinceReferenceDate * 0.22; force = .zero; grabbing = false } }
+        .onDisappear { visible = false; force = .zero; grip = 0; grabbing = false }
+        .onChange(of: model.frozen) { _, frozen in if frozen { heldPhase = Date.now.timeIntervalSinceReferenceDate * 0.22; force = .zero; grip = 0; grabbing = false } }
     }
 }
 
@@ -303,6 +318,8 @@ nonisolated struct DistributionField: View, Animatable {
     private var phase: Double
     private var drag: CGSize
     private var touch: CGPoint
+    private var finger: CGPoint
+    private var grip: Double
     let flow: EnergyFlowBalance
     let time, ripple: Double
     let grabbing: Bool
@@ -311,20 +328,26 @@ nonisolated struct DistributionField: View, Animatable {
     var frozen: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    init(powers: [Double], flow: EnergyFlowBalance, namespace: Namespace.ID, happy: Bool, frozen: Bool, phase: Double = 0, time: Double = 0, drag: CGSize = .zero, touch: CGPoint = CGPoint(x: 0.5, y: 0.5), grabbing: Bool = false, ripple: Double = 0) {
+    init(powers: [Double], flow: EnergyFlowBalance, namespace: Namespace.ID, happy: Bool, frozen: Bool, phase: Double = 0, time: Double = 0, drag: CGSize = .zero, touch: CGPoint = CGPoint(x: 0.5, y: 0.5), grabbing: Bool = false, ripple: Double = 0, finger: CGPoint = .zero, grip: Double = 0) {
         a = powers[0]; b = powers[1]; c = powers[2]; d = powers[3]
         self.namespace = namespace; self.happy = happy; self.frozen = frozen
         self.phase = phase; self.drag = drag; self.touch = touch; self.grabbing = grabbing
         self.flow = flow; self.time = time; self.ripple = ripple
+        self.finger = finger; self.grip = grip
     }
     typealias Four = AnimatablePair<AnimatablePair<Double, Double>, AnimatablePair<Double, Double>>
-    var animatableData: AnimatablePair<Four, Four> {
-        get { .init(.init(.init(a, b), .init(c, d)), .init(.init(Double(drag.width), Double(drag.height)), .init(Double(touch.x), Double(touch.y)))) }
+    typealias Eight = AnimatablePair<Four, Four>
+    typealias Contact = AnimatablePair<AnimatablePair<Double, Double>, Double>
+    var animatableData: AnimatablePair<Eight, Contact> {
+        get { .init(.init(.init(.init(a, b), .init(c, d)), .init(.init(Double(drag.width), Double(drag.height)), .init(Double(touch.x), Double(touch.y)))), .init(.init(Double(finger.x), Double(finger.y)), grip)) }
         set {
-            a = newValue.first.first.first; b = newValue.first.first.second
-            c = newValue.first.second.first; d = newValue.first.second.second
-            drag = CGSize(width: newValue.second.first.first, height: newValue.second.first.second)
-            touch = CGPoint(x: newValue.second.second.first, y: newValue.second.second.second)
+            let field = newValue.first
+            a = field.first.first.first; b = field.first.first.second
+            c = field.first.second.first; d = field.first.second.second
+            drag = CGSize(width: field.second.first.first, height: field.second.first.second)
+            touch = CGPoint(x: field.second.second.first, y: field.second.second.second)
+            finger = CGPoint(x: newValue.second.first.first, y: newValue.second.first.second)
+            grip = newValue.second.second
         }
     }
     @MainActor var body: some View {
@@ -340,28 +363,29 @@ nonisolated struct DistributionField: View, Animatable {
                                 .fill(LinearGradient(colors: [DistributionStyle.colors[i], i == 0 ? DistributionStyle.purpleDeep : DistributionStyle.colors[i].opacity(0.88)], startPoint: .topLeading, endPoint: .bottomTrailing))
                         }
                     }.blur(radius: 1.8)
-                    DistributionFluidInk(layout: layout, flow: flow, time: time, drag: drag, touch: touch, grabbing: grabbing)
+                        .mask {
+                            LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .white, location: 0.035), .init(color: .white, location: 0.96), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
+                        }
+                    DistributionFluidInk(layout: layout, flow: flow, time: time, drag: drag, touch: touch, finger: finger, grip: grip)
                         .allowsHitTesting(false).accessibilityHidden(true)
-                }.mask {
-                    LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .white, location: 0.035), .init(color: .white, location: 0.96), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
                 }
                 ForEach(0..<4) { i in
                     if values[i] > 0.025 {
                         let center = layout.centers[i]
                         let tiny = layout.areas[i] < 12_000
-                        let halfHeight: CGFloat = tiny ? 26 : 45
+                        let halfHeight: CGFloat = tiny ? 26 : 55
                         NavigationLink(value: DistributionStyle.routes[i]) {
                             VStack(spacing: 3) {
                                 if !tiny {
                                     HStack(spacing: 5) {
                                         Image(systemName: DistributionStyle.symbols[i]).font(.system(size: 20))
-                                        Image(systemName: i == 0 ? "arrow.left" : i == 3 ? "arrow.down" : "arrow.right").font(.system(size: 11, weight: .medium))
+                                        Image(systemName: i == 0 ? "arrow.left" : i == 3 ? "arrow.up" : "arrow.right").font(.system(size: 11, weight: .medium))
                                     }
                                     Text(["Till bilen", "Till hemmet", "Till batteriet", "Till nätet"][i]).font(.system(size: 13))
                                 } else {
                                     HStack(spacing: 3) {
                                         Text(["Till bilen", "Till hemmet", "Till batteriet", "Till nätet"][i])
-                                        Image(systemName: i == 0 ? "arrow.left" : i == 3 ? "arrow.down" : "arrow.right")
+                                        Image(systemName: i == 0 ? "arrow.left" : i == 3 ? "arrow.up" : "arrow.right")
                                     }.font(.system(size: 10, weight: .medium))
                                 }
                                 HStack(alignment: .firstTextBaseline, spacing: 2) {
@@ -371,7 +395,7 @@ nonisolated struct DistributionField: View, Animatable {
                                 if !tiny { Text("\(layout.percentages[i]) %").font(.system(size: 11)) }
                             }
                             .foregroundStyle(DistributionStyle.inks[i])
-                            .frame(width: min(112, max(62, w * (i == 0 ? layout.shares[0] : 1 - layout.shares[0]) - 22)), height: tiny ? 48 : 90)
+                            .frame(width: min(112, max(62, w * (i == 0 ? layout.shares[0] : 1 - layout.shares[0]) - 22)), height: tiny ? 48 : 100)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)

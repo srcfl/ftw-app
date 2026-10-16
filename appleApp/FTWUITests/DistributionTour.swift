@@ -75,6 +75,11 @@ final class DistributionTour: XCTestCase {
         XCTAssertTrue(car.exists)
         XCTAssertFalse(app.buttons["distribution.goal"].exists, "Dragging opened a detail view")
         shoot(app, "after-push")
+        let inlet = app.buttons["distribution.inlet.solar"]
+        let source = inlet.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
+        source.press(forDuration: 0.15, thenDragTo: source.withOffset(CGVector(dx: 70, dy: 35)), withVelocity: .slow, thenHoldForDuration: 0.5)
+        XCTAssertTrue(car.exists, "Grabbing the solar stream opened its detail view")
+        shoot(app, "after-source-grip")
         car.tap()
         XCTAssertTrue(app.buttons["distribution.goal"].waitForExistence(timeout: 5))
     }
@@ -86,7 +91,8 @@ final class DistributionTour: XCTestCase {
             let grid = app.buttons["distribution.inlet.grid"]
             let battery = app.buttons["distribution.inlet.battery"]
             XCTAssertEqual(solar.exists, scenario == "sun" || scenario == "mixed")
-            XCTAssertEqual(grid.exists, scenario == "mixed" || scenario == "importing")
+            XCTAssertEqual(grid.exists, scenario != "night")
+            if scenario == "sun" { XCTAssertTrue(grid.label.contains("ut ur hemmet")) }
             XCTAssertEqual(battery.exists, scenario == "night")
             XCTAssertEqual(app.buttons["distribution.field.grid"].exists, scenario == "sun")
             shoot(app, "flow-\(scenario)")
