@@ -149,6 +149,28 @@ private func header(_ box: inout FakeCloudBox, at: Int64) throws -> CloudWire.He
         #expect(v.srcRev == 2)
     }
 
+    // 17. A late table still counts: a live without its table overtakes the
+    // one that carries it, as a datagram over QUIC.
+    @Test func aLateTableStillCounts() throws {
+        var box = try FakeCloudBox(boot: 1)
+        var v = box.view()
+        let t0: Int64 = 2_000_000
+        try v.accept(box.fullLive(t0, age: 1_000), arrivalMs: t0 + transit)
+        let withTable = try box.fullLive(t0 + 3_000, age: 1_000, srcRev: 2)
+        let h = box.header(t0 + 4_000)
+        let overtaking = try box.seal(CloudWire.msgLive, h + [
+            ("fields", .map(["2": .int(1200), "1": .int(0)])),
+            ("srcRev", .unsigned(2)),
+            ("ages", .map(["m": .int(1_000)])),
+        ])
+        try v.accept(overtaking, arrivalMs: t0 + 4_000 + transit)
+        #expect(source(v, t0 + 4_200) == .stale)
+        try v.accept(withTable, arrivalMs: t0 + 4_300)
+        #expect(source(v, t0 + 4_400) == .live)
+        #expect(v.live?.fields["2"] == 1200, "the late live moved the values back")
+        #expect(throws: CloudView.AcceptError.notNewer) { try v.accept(withTable, arrivalMs: t0 + 4_500) }
+    }
+
     // 5. No anchor, never live.
     @Test func noAnchorIsNeverLive() throws {
         var box = try FakeCloudBox(boot: 1)

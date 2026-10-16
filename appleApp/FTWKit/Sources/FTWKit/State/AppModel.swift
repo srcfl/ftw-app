@@ -88,6 +88,9 @@ public final class AppModel {
     @ObservationIgnored let relayURL: URL
     @ObservationIgnored let cloudEndpoint: CloudEndpoint?
     @ObservationIgnored let makeSocket: WebSocketFactory
+    /// FTW Cloud's socket: the app races QUIC against the WebSocket
+    /// (`CloudSockets.racing`). Tests leave it nil and get `makeSocket`.
+    @ObservationIgnored let makeCloudSocket: WebSocketFactory
     @ObservationIgnored private var connectGeneration = 0
     /// `suspend` closed the session; the next look builds a new one.
     @ObservationIgnored private var suspended = false
@@ -104,6 +107,7 @@ public final class AppModel {
         relayURL: URL = Origin.relayURL,
         cloudEndpoint: CloudEndpoint? = CloudEndpoint.current,
         makeSocket: @escaping WebSocketFactory = URLSessionWebSocket.factory(),
+        makeCloudSocket: WebSocketFactory? = nil,
         demo: DemoCarrier? = nil
     ) {
         self.store = store
@@ -118,6 +122,7 @@ public final class AppModel {
         self.relayURL = relayURL
         self.cloudEndpoint = cloudEndpoint
         self.makeSocket = makeSocket
+        self.makeCloudSocket = makeCloudSocket ?? makeSocket
         vault = Vault(store: store)
         sites = SiteList(store: store)
         pairing = Pairing(vault: vault, sites: sites, passkeys: passkeys, now: { [scheduler] in scheduler.nowMs })
@@ -192,7 +197,7 @@ public final class AppModel {
             let code = stored.pairingCode?.byteArray
             // FTW Cloud first: the box session rides it when the box takes
             // the tunnel.
-            site.connectCloud(deviceKey: device, makeSocket: makeSocket, endpoint: cloudEndpoint, home: stored.cloudHome, pairingCode: code)
+            site.connectCloud(deviceKey: device, makeSocket: makeCloudSocket, endpoint: cloudEndpoint, home: stored.cloudHome, pairingCode: code)
             var relay: (@MainActor () -> Carrier)?
             if let secret {
                 relay = { [relayURL, scheduler, makeSocket] in

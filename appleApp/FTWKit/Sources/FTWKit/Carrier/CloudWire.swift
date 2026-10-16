@@ -32,6 +32,9 @@ public enum CloudWire {
     public static let homeTag = Bytes("ftw.cloud.home.v1".utf8)
     /// Starts the app session's Noise prologue; the home id follows.
     public static let appPrologueTag = Bytes("ftw.cloud.v1:".utf8)
+    /// The app session's ALPN over QUIC (srcfl/ftw `docs/protocol-cloud.md`,
+    /// "QUIC").
+    public static let alpnApp = "ftw-cloud-app/1"
 
     /// ES256 as r ‖ s, each 32 bytes big-endian.
     public static let sigBytes = 64

@@ -64,6 +64,12 @@ extension Carrier {
 public protocol WebSocketConnection: AnyObject {
     func send(_ data: Bytes)
     func close()
+    /// How it travels, by the registry's `cloud_transports`.
+    var transportName: String { get }
+}
+
+extension WebSocketConnection {
+    public var transportName: String { Contract.transportWebSocket }
 }
 
 @MainActor
@@ -73,6 +79,9 @@ public struct WebSocketEvents {
     public var onBinary: @MainActor (Bytes) -> Void
     /// Close code and reason. A socket that failed to open closes with 1006.
     public var onClose: @MainActor (Int, String) -> Void
+    /// A message that came as a QUIC datagram, which the network may drop,
+    /// repeat or bring late. Without it a datagram goes to `onBinary`.
+    public var onDatagram: (@MainActor (Bytes) -> Void)? = nil
 }
 
 public typealias WebSocketFactory = @MainActor (_ url: URL, _ events: WebSocketEvents) -> WebSocketConnection

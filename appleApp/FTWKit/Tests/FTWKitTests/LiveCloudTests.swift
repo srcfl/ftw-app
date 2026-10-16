@@ -94,11 +94,17 @@ struct LiveCloudTests {
 
     func shell(_ command: String?) throws {
         guard let command else { return }
+        #if os(macOS)
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
         p.arguments = ["-c", command]
         try p.run()
         p.waitUntilExit()
+        #else
+        // The suite runs on a Mac; on a simulator there is no shell to stop
+        // and start the service with.
+        throw CocoaError(.featureUnsupported)
+        #endif
     }
 
     @Test func threeLayersAgainstTheRelayAndTheProofs() async throws {

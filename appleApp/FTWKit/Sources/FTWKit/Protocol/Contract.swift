@@ -201,4 +201,8 @@ public enum Contract {
 
     public static let sourceStates = ["live", "lagging", "stale", "down", "never"]
     public static let carrierStates = ["webrtc", "relay", "tunnel", "cloud", "cache", "none"]
+    /// How the session with FTW Cloud travels, under `tunnel` and `cloud`.
+    public static let cloudTransports = ["quic", "websocket"]
+    public static let transportQUIC = "quic"
+    public static let transportWebSocket = "websocket"
 }

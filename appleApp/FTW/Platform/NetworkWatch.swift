@@ -10,9 +10,13 @@ import Observation
 final class NetworkState {
     static let shared = NetworkState()
     private(set) var online = true
+    /// The network the phone is on: its interfaces and gateways. FTW Cloud
+    /// remembers per network whether QUIC or the WebSocket got through.
+    @ObservationIgnored private(set) var name = ""
 
-    fileprivate func set(_ online: Bool) {
+    fileprivate func set(_ online: Bool, name: String) {
         if self.online != online { self.online = online }
+        self.name = name
     }
 }
 
@@ -32,13 +36,14 @@ final class NetworkWatch {
         monitor.pathUpdateHandler = { @Sendable [weak self] path in
             guard let self else { return }
             let online = path.status == .satisfied
-            Task { @MainActor in self.update(online) }
+            let name = (path.availableInterfaces.map { "\($0.type)" } + path.gateways.map { "\($0)" }).joined(separator: ",")
+            Task { @MainActor in self.update(online, name: name) }
         }
         monitor.start(queue: DispatchQueue(label: "energy.ftw.network"))
     }
 
-    private func update(_ online: Bool) {
-        NetworkState.shared.set(online)
+    private func update(_ online: Bool, name: String) {
+        NetworkState.shared.set(online, name: name)
         if online, !wasOnline { onOnline() }
         wasOnline = online
     }

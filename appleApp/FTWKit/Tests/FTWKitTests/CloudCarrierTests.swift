@@ -166,6 +166,14 @@ final class FakeCloudSocket: WebSocketConnection {
         }
     }
 
+    /// As a QUIC datagram.
+    func deliverDatagram(_ bytes: Bytes) {
+        _ = service.scheduler.after(service.latencyMs) { [weak self] in
+            guard let self, !self.closed else { return }
+            if let onDatagram = self.events.onDatagram { onDatagram(bytes) } else { self.events.onBinary(bytes) }
+        }
+    }
+
     func push(_ env: CloudWire.Envelope) {
         guard let transport, let frame = try? CloudWire.encodeFrame(env.encode()), let msg = try? transport.encrypt(frame) else { return }
         deliver(msg)

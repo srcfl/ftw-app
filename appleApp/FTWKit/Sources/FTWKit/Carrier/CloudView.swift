@@ -166,7 +166,18 @@ public struct CloudView: Sendable {
         if newBoot, !currentBoot.isEmpty {
             guard let send, send > newest else { throw AcceptError.notNewer }
         }
-        guard h.seq > (newBoot ? 0 : seq[envelope.t, default: 0]) else { throw AcceptError.notNewer }
+        guard h.seq > (newBoot ? 0 : seq[envelope.t, default: 0]) else {
+            // Over QUIC a live without its table can overtake the one that
+            // carries it. The late one still brings a newer table, and
+            // nothing else (Freshness case 17).
+            if !newBoot, case .live(let l) = message, let table = l.sources, l.srcRev > srcRev {
+                sources = table
+                srcRev = l.srcRev
+                fieldSources = l.fieldSources ?? [:]
+                return
+            }
+            throw AcceptError.notNewer
+        }
 
         if newBoot { reset(to: h.boot) }
         if lead { noRuleN = true }

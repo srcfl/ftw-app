@@ -52,8 +52,16 @@ struct CloudSettingsView: View {
             .tint(Theme.live)
             .disabled(consent.working || box?.erasing == true)
             if on {
-                Label(CloudWords.text(site.cloudStatus?.isOpen == true || box?.connected == true ? "Connected" : "Not connected"), systemImage: "dot.radiowaves.left.and.right")
-                    .foregroundStyle(Theme.fgDim)
+                Label {
+                    // The transport's own name, not translated: QUIC, or the
+                    // WebSocket where UDP does not get through.
+                    let state = Text(CloudWords.text(site.cloudStatus?.isOpen == true || box?.connected == true ? "Connected" : "Not connected"))
+                    let transport = Text(site.cloudTransport.map { " · \(Self.transportName($0))" } ?? "").font(Theme.mono(.footnote))
+                    Text("\(state)\(transport)")
+                } icon: {
+                    Image(systemName: "dot.radiowaves.left.and.right")
+                }
+                .foregroundStyle(Theme.fgDim)
             }
             if box?.erasing == true {
                 Label(CloudWords.text("Erasing the copy"), systemImage: "hourglass")
@@ -78,6 +86,11 @@ struct CloudSettingsView: View {
                 Text(CloudWords.text("Hourly energy totals, without your name or address, help make FTW better. Off unless you turn it on."))
             }
         }
+    }
+
+    /// The registry's transport names, as people write them.
+    static func transportName(_ transport: String) -> String {
+        transport == Contract.transportQUIC ? "QUIC" : "WebSocket"
     }
 
     /// Off, then the receipt: the box has it once the service confirms the
