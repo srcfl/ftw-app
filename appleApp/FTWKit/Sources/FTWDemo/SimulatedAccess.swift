@@ -225,8 +225,10 @@ public final class SimulatedAccess {
     public static let lookup = OfferLookup(base: URL(string: "https://demo.invalid")!) { req in
         let code = URLComponents(url: req.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "code" }?.value
         guard code == "K7QF2MXD" else { return (Data(), 404) }
-        let offer = await MainActor.run { offer(nowMs: Date().timeIntervalSince1970 * 1000).base64url }
-        return (try JSONSerialization.data(withJSONObject: ["offer": offer, "status": "pending"]), 200)
+        let signed: String = await MainActor.run { () -> String in
+            SimulatedAccess.offer(nowMs: Date().timeIntervalSince1970 * 1000).base64url
+        }
+        return (try JSONSerialization.data(withJSONObject: ["offer": signed, "status": "pending"]), 200)
     }
 
     // MARK: Encoding, as the box encodes

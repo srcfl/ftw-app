@@ -22,9 +22,8 @@ final class AccessTour: XCTestCase {
         ]
         app.launch()
 
-        let access = app.buttons["settings.access"]
         XCTAssertTrue(app.buttons["mode.close"].waitForExistence(timeout: 15))
-        for _ in 0..<6 where !access.isHittable { app.swipeUp() }
+        let access = reveal(app, app.buttons["settings.access"])
         XCTAssertTrue(access.waitForExistence(timeout: 5))
         Thread.sleep(forTimeInterval: 1)
         shoot(app, "settings")
@@ -105,8 +104,11 @@ final class AccessTour: XCTestCase {
     /// A row a lazy list has not made yet: scroll until it is there.
     @discardableResult
     private func reveal(_ app: XCUIApplication, _ element: XCUIElement, down: Bool = false) -> XCUIElement {
-        for _ in 0..<8 where !(element.exists && element.isHittable) {
-            if down { app.swipeDown() } else { app.swipeUp() }
+        let screen = app.windows.firstMatch.frame
+        let list = app.collectionViews.firstMatch
+        for _ in 0..<8 where !(element.exists && element.isHittable && screen.contains(element.frame)) {
+            let surface = list.exists ? list : app
+            if down { surface.swipeDown(velocity: .slow) } else { surface.swipeUp(velocity: .slow) }
         }
         return element
     }

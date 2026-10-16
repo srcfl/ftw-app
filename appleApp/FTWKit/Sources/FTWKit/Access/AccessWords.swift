@@ -404,7 +404,7 @@ public enum AccessWords {
         "It may charge the car for up to %@ at a time, at most %@.": "Den får ladda bilen i högst %@ åt gången, med högst %@.",
         "Lasting changes, such as the mode or a goal, wait for your %@.": "Varaktiga ändringar, som läget eller ett mål, väntar på ditt %@.",
         "Off: it reads and changes nothing.": "Av: den läser och ändrar ingenting.",
-        "For": "I",
+        "For": "Hur länge",
         "1 day": "1 dag",
         "%@ days": "%@ dagar",
         "Until %@": "Till %@",

@@ -78,7 +78,10 @@ final class AccessE2E: XCTestCase {
         app.buttons["now.title"].tap()
         app.buttons["menu.settings"].tap()
         let access = app.buttons["settings.access"]
-        for _ in 0..<6 where !access.isHittable { app.swipeUp() }
+        let screen = app.windows.firstMatch.frame
+        for _ in 0..<8 where !(access.exists && access.isHittable && screen.contains(access.frame)) {
+            app.collectionViews.firstMatch.swipeUp(velocity: .slow)
+        }
         access.tap()
         let row = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'access.grant.'")).firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 15))
