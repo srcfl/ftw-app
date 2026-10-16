@@ -64,9 +64,49 @@ import Testing
         o.role = Contract.roleSupport
         o.ticket = "FTW-1"
         o.clientId = "https://evil.example/clients/sourceful-support"
-        #expect(throws: OfferError.supportFromStranger) { try sign(o, key).open(keys: keys, nowMs: 1_000) }
+        #expect(throws: OfferError.notFromSourceful) { try sign(o, key).open(keys: keys, nowMs: 1_000) }
         o.clientId = AccessWire.supportClientID
         #expect(try sign(o, key).open(keys: keys, nowMs: 1_000).ticket == "FTW-1")
+    }
+
+    /// A host in look-alike letters is no host; punycode stays as it is.
+    @Test func aLookAlikeHostIsRefused() throws {
+        let key = SoftwareSigner()
+        let keys = OfferKeys(pins: ["\(OfferKeys.kid(key.publicKey)):\(Base64url.encode(key.publicKey))"])
+        var o = offer()
+        o.clientHost = "claude.\u{0430}i"
+        #expect(throws: OfferError.strangeHost) { try sign(o, key).open(keys: keys, nowMs: 1_000) }
+        o.clientHost = "claude.ai\u{202E}"
+        #expect(throws: OfferError.strangeHost) { try sign(o, key).open(keys: keys, nowMs: 1_000) }
+        o.clientHost = ""
+        #expect(throws: OfferError.strangeHost) { try sign(o, key).open(keys: keys, nowMs: 1_000) }
+        o.clientHost = "xn--clude-0ve.ai"
+        #expect(try sign(o, key).open(keys: keys, nowMs: 1_000).clientHost == "xn--clude-0ve.ai")
+        o.clientHost = "127.0.0.1:18943"
+        #expect(throws: Never.self) { try sign(o, key).open(keys: keys, nowMs: 1_000) }
+    }
+
+    /// No release client is pinned, so no release offer opens.
+    @Test func aReleaseOfferIsRefused() throws {
+        let key = SoftwareSigner()
+        let keys = OfferKeys(pins: ["\(OfferKeys.kid(key.publicKey)):\(Base64url.encode(key.publicKey))"])
+        var o = offer()
+        o.role = Contract.roleRelease
+        o.scopes = ["ftw.health.read"]
+        #expect(throws: OfferError.notFromSourceful) { try sign(o, key).open(keys: keys, nowMs: 1_000) }
+    }
+
+    /// An offer FTW Cloud no longer holds open is answered already.
+    @Test func anAnsweredOfferIsRefused() async throws {
+        let key = SoftwareSigner()
+        let keys = OfferKeys(pins: ["\(OfferKeys.kid(key.publicKey)):\(Base64url.encode(key.publicKey))"])
+        let wire = try sign(offer(), key).base64url
+        let flow = OfferFlow(link: nil, lookup: lookup { _ in
+            (try JSONSerialization.data(withJSONObject: ["offer": wire, "status": "approved"]), 200)
+        }, keys: keys, wallMs: { 1_000 })
+        flow.typed = "K7QF2MXD"
+        await flow.submit(home: nil)
+        #expect(flow.step == .refused(.used))
     }
 
     /// Strict, as the box reads it.
@@ -84,8 +124,10 @@ import Testing
     @Test func theLinksFTWCloudMakesAreRead() {
         let a = OfferLink("https://app.ftw.energy/a#rid_1.b2ZmZXI")
         #expect(a == OfferLink(request: "rid_1", offer: "b2ZmZXI"))
-        #expect(OfferLink("https://app.ftw.energy/a/rid_1#b2ZmZXI") == OfferLink(request: "rid_1", offer: "b2ZmZXI"))
-        #expect(OfferLink("https://app.ftw.energy/a/rid_1") == OfferLink(request: "rid_1", offer: nil))
+        // Only the fragment carries a request: a path would reach a log.
+        #expect(OfferLink("https://app.ftw.energy/a/rid_1#b2ZmZXI") == nil)
+        #expect(OfferLink("https://app.ftw.energy/a/rid_1") == nil)
+        #expect(OfferLink("https://app.ftw.energy/a?x=1#rid_1.b2ZmZXI") == nil)
         #expect(OfferLink("https://app.ftw.energy/p#AAAA") == nil)
         #expect(OfferLink("https://evil.example/a#rid.offer") == nil)
         #expect(OfferLink("http://app.ftw.energy/a#rid.offer") == nil)
@@ -155,6 +197,50 @@ import Testing
         await gone.submit(home: nil)
         #expect(gone.step == .code)
         #expect(gone.codeHelp == AccessWords.offer(.notFound))
+    }
+
+    /// Approving checks the signed offer again, against the home open then
+    /// and the clock then: a home picked after the review, or an offer
+    /// that ran out while the owner read, is refused.
+    @Test func approvingChecksAgain() async throws {
+        let key = SoftwareSigner()
+        let keys = OfferKeys(pins: ["\(OfferKeys.kid(key.publicKey)):\(Base64url.encode(key.publicKey))"])
+        var o = offer()
+        o.home = "homeA"
+        var now = 1_000.0
+        let flow = OfferFlow(link: OfferLink(request: "r1", offer: try sign(o, key).base64url), lookup: lookup { _ in (Data(), 500) }, keys: keys, wallMs: { now })
+        await flow.start(home: "homeA")
+        flow.typed = "K7QF2MXD"
+        await flow.submit(home: "homeA")
+        guard case .review = flow.step else { Issue.record("no review: \(flow.step)"); return }
+        let site = SiteModel(siteId: "homeB", build: "t", ua: "t", scheduler: ManualScheduler(), files: nil)
+        let access = AccessModel(site: site, signedFor: SignedFor(boxKey: [], deviceID: "x"), keyring: nil)
+        await flow.approve(access, home: "homeB")
+        #expect(flow.step == .refused(.unknownHome))
+
+        let late = OfferFlow(link: OfferLink(request: "r1", offer: try sign(o, key).base64url), lookup: lookup { _ in (Data(), 500) }, keys: keys, wallMs: { now })
+        await late.start(home: "homeA")
+        late.typed = "K7QF2MXD"
+        await late.submit(home: "homeA")
+        now += 10 * 60_000
+        await late.approve(access, home: "homeA")
+        #expect(late.step == .refused(.expired))
+    }
+
+    /// An unknown client waits for the owner to say they started it.
+    @Test func anUnknownClientWaitsForTheOwnersWord() async throws {
+        let key = SoftwareSigner()
+        let keys = OfferKeys(pins: ["\(OfferKeys.kid(key.publicKey)):\(Base64url.encode(key.publicKey))"])
+        var o = offer()
+        o.verified = false
+        let flow = OfferFlow(link: OfferLink(request: "r1", offer: try sign(o, key).base64url), lookup: lookup { _ in (Data(), 500) }, keys: keys, wallMs: { 1_000 })
+        await flow.start(home: nil)
+        flow.typed = "K7QF2MXD"
+        await flow.submit(home: nil)
+        let site = SiteModel(siteId: "h", build: "t", ua: "t", scheduler: ManualScheduler(), files: nil)
+        await flow.approve(AccessModel(site: site, signedFor: SignedFor(boxKey: [], deviceID: "x"), keyring: nil), home: nil)
+        guard case .review = flow.step else { Issue.record("moved without the owner's word: \(flow.step)"); return }
+        #expect(!flow.trustsUnknown)
     }
 
     /// FTW Cloud leaves the home empty. One that names a home must name

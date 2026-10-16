@@ -60,7 +60,16 @@ public final class SimulatedAccess {
 
     // MARK: Messages
 
-    func receive(_ env: Envelope, reply: @escaping (Envelope) -> Void) {
+    /// For a test: act on the next message but lose its answer, as a
+    /// dropped connection would.
+    public var loseNextAnswer = false
+
+    func receive(_ env: Envelope, reply given: @escaping (Envelope) -> Void) {
+        var reply = given
+        if loseNextAnswer {
+            loseNextAnswer = false
+            reply = { _ in }
+        }
         let body = env.b ?? .emptyMap
         let ok = { (b: CBOR) in reply(Envelope(t: AccessWire.msgOK, id: env.id, b: b)) }
         let refuse = { (code: String, args: [(String, CBOR)]) in
@@ -265,9 +274,14 @@ public final class SimulatedAccess {
 @MainActor
 public final class SimulatedKeyring: ApprovalKeyring, ApprovalUnlock {
     private var kept: [String: SoftwareSigner] = [:]
+    private var waiting: [String: SoftwareSigner] = [:]
     private var home = ""
     /// How many times the demo would have asked for Face ID.
     public private(set) var unlocks = 0
+    /// How many approvals ended, as each must.
+    public private(set) var ends = 0
+    /// For a test: keeping a key fails, as a full Keychain would.
+    public var keepFails = false
 
     public init() {}
 
@@ -277,12 +291,27 @@ public final class SimulatedKeyring: ApprovalKeyring, ApprovalUnlock {
         return self
     }
 
-    public func forget(home: String) { kept[home] = nil }
-    public func existing() throws -> ApprovalSigner? { kept[home] }
-    public func make() throws -> ApprovalSigner { SoftwareSigner() }
-    public func keep(_ signer: ApprovalSigner) {
-        if let s = signer as? SoftwareSigner { kept[home] = s }
+    public func forget(home: String) {
+        kept[home] = nil
+        waiting[home] = nil
     }
+    public func existing() throws -> ApprovalSigner? { kept[home] }
+    public func pending() throws -> ApprovalSigner? { waiting[home] }
+    public func make() throws -> ApprovalSigner { SoftwareSigner() }
+    public func keep(_ signer: ApprovalSigner) throws {
+        guard !keepFails, let s = signer as? SoftwareSigner else { throw ApprovalKeyNotKept() }
+        kept[home] = s
+    }
+    public func keepPending(_ signer: ApprovalSigner) throws {
+        guard !keepFails, let s = signer as? SoftwareSigner else { throw ApprovalKeyNotKept() }
+        waiting[home] = s
+    }
+    public func promote() throws {
+        guard let s = waiting.removeValue(forKey: home) else { return }
+        kept[home] = s
+    }
+    public func dropPending() { waiting[home] = nil }
+    public func end() { ends += 1 }
 }
 
 /// The demo's help desk: a ticket number and a support offer signed by the
@@ -295,7 +324,7 @@ public final class SimulatedDesk: SupportDesk {
 
     public var isOpen: Bool { true }
 
-    public func open(problem: String, control: Bool) async throws -> SignedOffer {
+    public func open(problem: String) async throws -> SignedOffer {
         defer { next += 1 }
         return SimulatedAccess.offer(support: true, ticket: "FTW-\(next)", nowMs: Date().timeIntervalSince1970 * 1000)
     }

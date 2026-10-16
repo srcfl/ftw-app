@@ -257,6 +257,141 @@ import FTWDemo
         #expect(keyring.unlocks == 1)
     }
 
+    /// A cached list knows no keys: the box's own list decides, and with
+    /// no answer nothing is signed.
+    @Test func aCachedListNeverRegistersAKey() async throws {
+        let w = await world()
+        let offer = try w.offer()
+        _ = await w.during { await w.access.approve(offer, grant: Grant.from(offer, control: false, lengthMs: 86_400_000)) }
+        let key = try #require(w.box.access.keys[AccessModel.demoFor.deviceID])
+        let sets = w.box.access.audit.filter { $0.what == "approval.key.set" }.count
+
+        // The next visit opens on the kept rows, which carry no keys.
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let files = SealedFiles(directory: dir, store: MemoryStore())
+        files.writeJSON("access-home1", w.access.list?.agents ?? [])
+        let site = SiteModel(siteId: "home1", build: "t", ua: "t", scheduler: w.scheduler, files: files)
+        let again = AccessModel(site: site, signedFor: AccessModel.demoFor, keyring: w.keyring, wallMs: { [s = w.scheduler] in s.nowMs })
+        #expect(!(again.list?.agents.isEmpty ?? true))
+        #expect(!again.keysKnown && !again.boxHasKey)
+        site.start()
+        site.connect(LoopbackCarrier(box: w.box, scheduler: w.scheduler, latencyMs: 20))
+        await w.run(500)
+        let second = try w.offer()
+        let row = await w.during { await again.approve(second, grant: Grant.from(second, control: false, lengthMs: 86_400_000)) }
+        #expect(row != nil, "\(again.help ?? "")")
+        #expect(w.box.access.audit.filter { $0.what == "approval.key.set" }.count == sets)
+        #expect(w.box.access.keys[AccessModel.demoFor.deviceID] == key)
+
+        // No answer to agent.list: no Face ID and nothing sent.
+        let mute = AccessModel(site: site, signedFor: AccessModel.demoFor, keyring: w.keyring, wallMs: { [s = w.scheduler] in s.nowMs })
+        w.box.mute = true
+        let unlocks = w.keyring.unlocks
+        let third = try w.offer()
+        let waiting = Task { await mute.approve(third, grant: Grant.from(third, control: false, lengthMs: 86_400_000)) }
+        // Past the box's answer deadline.
+        await w.run(Session.planTimeoutMs + 1_000)
+        let none = await waiting.value
+        #expect(none == nil)
+        #expect(w.keyring.unlocks == unlocks)
+        w.box.mute = false
+    }
+
+    /// A first key is kept before the box hears of it; one that cannot be
+    /// kept is never sent.
+    @Test func aKeyThatCannotBeKeptIsNeverSent() async throws {
+        let w = await world()
+        w.keyring.keepFails = true
+        let offer = try w.offer()
+        let row = await w.during { await w.access.approve(offer, grant: Grant.from(offer, control: false, lengthMs: 86_400_000)) }
+        #expect(row == nil)
+        #expect(w.box.access.keys.isEmpty)
+        #expect(w.access.help == AccessWords.help(ApprovalKeyNotKept()))
+    }
+
+    /// A replacement the box took though its answer was lost stays with the
+    /// phone, and the next approval finds the key the box holds.
+    @Test func aReplacementIsNeverStranded() async throws {
+        let w = await world()
+        let offer = try w.offer()
+        _ = await w.during { await w.access.approve(offer, grant: Grant.from(offer, control: false, lengthMs: 86_400_000)) }
+        let old = try #require(w.box.access.keys[AccessModel.demoFor.deviceID])
+        w.box.access.loseNextAnswer = true
+        let task = Task { await w.access.replaceKey() }
+        await w.run(10_000)
+        #expect(await task.value == false)
+        let taken = try #require(w.box.access.keys[AccessModel.demoFor.deviceID])
+        #expect(taken != old)
+        #expect(try w.keyring.pending()?.publicKey == taken)
+
+        let next = try w.offer()
+        let row = await w.during { await w.access.approve(next, grant: Grant.from(next, control: false, lengthMs: 86_400_000)) }
+        #expect(row != nil, "\(w.access.help ?? "")")
+        #expect(try w.keyring.existing()?.publicKey == taken)
+        #expect(try w.keyring.pending() == nil)
+        // Every Face ID given was ended.
+        #expect(w.keyring.ends == w.keyring.unlocks)
+    }
+
+    /// A widen that does not renew keeps the end exactly.
+    @Test func aChangeWithoutRenewingKeepsTheEnd() async throws {
+        let w = await world()
+        await w.during { await w.access.refresh() }
+        let claude = try #require(w.access.assistants.first)
+        let same = Grant(scopes: ["ftw.live.read"], ops: [], caps: Caps(perMin: 6), lengthMs: 0, expiresAtMs: claude.expiresAtMs)
+        #expect(await w.during { await w.access.widen(claude, to: same) })
+        #expect(w.access.row(claude.id)?.expiresAtMs == claude.expiresAtMs)
+    }
+
+    /// Only what the app can show may be approved; the rest is declined.
+    @Test func aStrangeRequestCanOnlyBeDeclined() async throws {
+        func request(_ op: String, _ args: CBOR) -> AgentRequest {
+            AgentRequest(reqId: "r", agent: "a", op: op, args: args, why: "", atMs: 0, expiresAtMs: 0, state: "pending")
+        }
+        #expect(AccessWords.approvable(request("site.mode.set", .map([("mode", .text("self_consumption"))]))))
+        #expect(!AccessWords.approvable(request("site.mode.set", .map([("mode", .text("x")), ("admin", .bool(true))]))))
+        #expect(!AccessWords.approvable(request("site.mode.set", .map([("mode", .int(3))]))))
+        #expect(!AccessWords.approvable(request("car.add", .emptyMap)))
+        #expect(!AccessWords.approvable(request("planner.prefs.set", .map([("battery_export", .text("sometimes"))]))))
+        #expect(!AccessWords.approvable(request("car.goal.set", .map([("ready_by_min", .double(.infinity))]))))
+        #expect(!AccessWords.approvable(request("car.goal.set", .map([("ready_by_min", .double(1e300))]))))
+        // Never a crash on a number too large to mean anything.
+        let huge = request("car.goal.set", .map([("ready_by_min", .double(1e300)), ("days", .double(-.infinity)), ("target", .double(.nan))]))
+        #expect(AccessWords.arguments(huge).count == 3)
+
+        let w = await world()
+        await w.during { await w.access.refresh() }
+        let strange = request("site.mode.set", .map([("mode", .text("idle")), ("extra", .text("x"))]))
+        #expect(await w.during { await w.access.answer(strange, approve: true) } == false)
+        #expect(w.keyring.unlocks == 0)
+    }
+
+    /// An assistant may not call itself Sourceful or FTW; every name is its
+    /// own word, quoted, with no hidden characters.
+    @Test func noAssistantPassesForSourceful() {
+        AppWords.$language.withValue(.en) {
+            var row = AgentRow(id: "q7Xn2vKd", key: [], role: Contract.roleAgent, scopes: [], ops: [], caps: Caps(), expiresAtMs: 0,
+                               principal: Principal(client: "Sourceful support", clientId: "https://evil.example/c"))
+            #expect(AccessWords.name(row) == "Assistant q7Xn2vKd")
+            row.principal.client = "FTW Helper"
+            #expect(AccessWords.name(row) == "Assistant q7Xn2vKd")
+            row.principal.client = "Ｓourceful"
+            #expect(AccessWords.name(row) == "Assistant q7Xn2vKd")
+            row.principal.client = "Claude\u{202E}evil"
+            #expect(AccessWords.name(row) == "“Claude evil”")
+            row.role = Contract.roleSupport
+            #expect(AccessWords.name(row) == "Sourceful support")
+            var o = GrantOffer()
+            o.role = Contract.roleAgent
+            o.client = "Sourceful"
+            o.clientHost = "evil.example"
+            #expect(AccessWords.clientName(o) == "Assistant at evil.example")
+            #expect(AccessWords.nameHidden(o.client))
+            #expect(AccessModel.cut(String(repeating: "å", count: 200)).utf8.count == 256)
+            #expect(AccessModel.cut(String(repeating: "å", count: 200)).count == 128)
+        }
+    }
+
     /// Every word an owner reads has its Swedish.
     @Test func everyWordHasItsSwedish() {
         for scope in Contract.agentRoleScopes[Contract.roleAgent]! {
@@ -270,7 +405,7 @@ import FTWDemo
         }
         for (_, en) in AccessWords.auditWords { #expect(AccessWords.sv[en] != nil, "\(en)") }
         for (_, en) in AccessWords.enumWords { #expect(AccessWords.sv[en] != nil, "\(en)") }
-        let errors: [OfferError] = [.noPinnedKey, .unsigned, .expired, .malformed, .supportFromStranger, .unknownHome, .wrongCode, .notFound, .unreachable]
+        let errors: [OfferError] = [.noPinnedKey, .unsigned, .expired, .malformed, .notFromSourceful, .strangeHost, .used, .unknownHome, .wrongCode, .notFound, .unreachable]
         AppWords.$language.withValue(.sv) {
             for e in errors { #expect(AccessWords.offer(e) != AppWords.$language.withValue(.en) { AccessWords.offer(e) }, "\(e)") }
         }

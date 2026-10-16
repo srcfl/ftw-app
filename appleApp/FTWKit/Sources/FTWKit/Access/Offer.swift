@@ -111,8 +111,13 @@ public enum OfferError: Error, Equatable, Sendable {
     case unsigned
     case expired
     case malformed
-    /// A support offer from a client that is not Sourceful's.
-    case supportFromStranger
+    /// A support or release offer from a client that is not Sourceful's.
+    case notFromSourceful
+    /// The client's host is written in letters that could imitate another
+    /// address.
+    case strangeHost
+    /// The owner already answered this offer, here or elsewhere.
+    case used
     /// For a home this phone does not have.
     case unknownHome
     /// The code typed is not the offer's.
@@ -160,7 +165,9 @@ public struct SignedOffer: Equatable, Sendable {
     }
 
     /// The offer, if a pinned key signed it and it is still good. A support
-    /// offer counts only from Sourceful's own client.
+    /// offer counts only from Sourceful's own client, and a release offer
+    /// from none yet: no release client is pinned. A client host must be
+    /// plain ASCII, so no look-alike letter can pass for a known address.
     public func open(keys: OfferKeys, nowMs: Int64) throws -> GrantOffer {
         guard !keys.isEmpty else { throw OfferError.noPinnedKey }
         guard let pub = keys.pub(kid), Approval.verify(pub: pub, message: Self.signedBytes(o), sig: sig) else {
@@ -173,8 +180,18 @@ public struct SignedOffer: Equatable, Sendable {
             throw OfferError.malformed
         }
         guard nowMs < offer.expMs, offer.expMs <= nowMs + GrantOffer.ttlMs else { throw OfferError.expired }
-        if offer.isSupport, offer.clientId != AccessWire.supportClientID { throw OfferError.supportFromStranger }
+        if offer.isSupport, offer.clientId != AccessWire.supportClientID { throw OfferError.notFromSourceful }
+        if offer.role == AccessWire.roleRelease { throw OfferError.notFromSourceful }
+        guard Self.plainHost(offer.clientHost) else { throw OfferError.strangeHost }
         return offer
+    }
+
+    /// ASCII letters, digits, hyphens and dots, and a port: a host no
+    /// look-alike letter can hide in. Punycode stays as it is, `xn--`.
+    static func plainHost(_ host: String) -> Bool {
+        !host.isEmpty && host.utf8.count <= 253 && host.utf8.allSatisfy { c in
+            (0x41...0x5a).contains(c) || (0x61...0x7a).contains(c) || (0x30...0x39).contains(c) || c == 0x2d || c == 0x2e || c == 0x3a
+        }
     }
 }
 
@@ -229,18 +246,18 @@ public struct OfferKeys: Equatable, Sendable {
     }
 }
 
-/// A link from the consent page, as FTW Cloud makes it:
-/// `https://app.ftw.energy/a#<request>.<offer>`. `/a/<request>` with or
-/// without the offer in the fragment is read too; without one, the offer
-/// is fetched by the request.
+/// A link from the consent page, as FTW Cloud makes it and nothing else:
+/// `https://app.ftw.energy/a#<request>.<offer>`. Both ride in the fragment,
+/// which no server sees; a request id in a path would reach a server's log,
+/// and alone it is worth asking FTW Cloud about.
 public struct OfferLink: Hashable, Sendable, Identifiable {
     public var request: String
-    /// Base64url of the signed offer, when the link carries it.
-    public var offer: String?
+    /// Base64url of the signed offer.
+    public var offer: String
 
     public var id: String { request }
 
-    public init(request: String, offer: String?) {
+    public init(request: String, offer: String) {
         self.request = request
         self.offer = offer
     }
@@ -250,19 +267,10 @@ public struct OfferLink: Hashable, Sendable, Identifiable {
 
     public init?(_ text: String) {
         guard let url = URLComponents(string: text), url.scheme == "https", url.host == Self.host else { return nil }
-        let fragment = url.percentEncodedFragment ?? ""
-        if url.path == Self.path || url.path == Self.path + "/" {
-            let parts = fragment.split(separator: ".", maxSplits: 1).map(String.init)
-            guard parts.count == 2, Self.isToken(parts[0]), Self.isToken(parts[1]) else { return nil }
-            self.init(request: parts[0], offer: parts[1])
-        } else if url.path.hasPrefix(Self.path + "/") {
-            let rid = String(url.path.dropFirst(Self.path.count + 1))
-            guard Self.isToken(rid) else { return nil }
-            self.init(request: rid, offer: fragment.isEmpty ? nil : fragment)
-            if let offer, !Self.isToken(offer) { return nil }
-        } else {
-            return nil
-        }
+        guard url.path == Self.path, url.percentEncodedQuery == nil else { return nil }
+        let parts = (url.percentEncodedFragment ?? "").split(separator: ".", maxSplits: 1).map(String.init)
+        guard parts.count == 2, Self.isToken(parts[0]), Self.isToken(parts[1]) else { return nil }
+        self.init(request: parts[0], offer: parts[1])
     }
 
     /// Base64url's alphabet, which has no dot.
@@ -299,10 +307,10 @@ public enum OfferCode {
     }
 }
 
-/// Where the signed offer comes from when the link does not carry it: FTW
-/// Cloud's code lookup (`GET /oauth/requests?code=`, once per code) and its
-/// request (`GET /oauth/requests/<request>`). A debug build may point at a
-/// local `ftwcloudd` with `-FTWOfferURL https://127.0.0.1:18443`.
+/// Where a typed code finds its signed offer: FTW Cloud's code lookup
+/// (`GET /oauth/requests?code=`, once per code). An offer that is no longer
+/// waiting for the owner is none. A debug build may point at a local
+/// `ftwcloudd` with `-FTWOfferURL https://127.0.0.1:18443`.
 public struct OfferLookup: Sendable {
     public typealias Fetch = @Sendable (URLRequest) async throws -> (Data, Int)
 
@@ -335,10 +343,6 @@ public struct OfferLookup: Sendable {
         return try await get(c.url!)
     }
 
-    public func byRequest(_ request: String) async throws -> SignedOffer {
-        try await get(base.appendingPathComponent("oauth/requests").appendingPathComponent(request))
-    }
-
     private func get(_ url: URL) async throws -> SignedOffer {
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -354,6 +358,8 @@ public struct OfferLookup: Sendable {
         guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let offer = json["offer"] as? String else {
             throw OfferError.malformed
         }
+        // Approved, denied or expired at FTW Cloud: answered already.
+        if let status = json["status"] as? String, status != "pending" { throw OfferError.used }
         return try SignedOffer(base64url: offer)
     }
 }

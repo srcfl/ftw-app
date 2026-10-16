@@ -19,13 +19,26 @@ public protocol ApprovalKeyring: AnyObject {
 
 @MainActor
 public protocol ApprovalUnlock: AnyObject {
-    /// This home's key, or nil when the phone has none. Throws when the key
-    /// is there but can no longer sign: a new Face ID enrolment voids it.
+    /// This home's key, or nil when the phone has none. Throws
+    /// `ApprovalKeyLost` when the key is there but can no longer sign: a
+    /// new Face ID enrolment voids it.
     func existing() throws -> ApprovalSigner?
-    /// A new key, not yet this home's.
+    /// A replacement made but not yet known to have reached the box, kept
+    /// beside the current key so neither is stranded.
+    func pending() throws -> ApprovalSigner?
+    /// A new key, not yet kept anywhere.
     func make() throws -> ApprovalSigner
-    /// Make `signer` this home's key, once the box has it.
-    func keep(_ signer: ApprovalSigner)
+    /// Keep `signer` as this home's key. Done before the box hears of it,
+    /// so a key the box took is never one the phone lost.
+    func keep(_ signer: ApprovalSigner) throws
+    /// Keep a replacement beside the current key.
+    func keepPending(_ signer: ApprovalSigner) throws
+    /// The replacement reached the box: it becomes this home's key.
+    func promote() throws
+    /// The box refused the replacement: it goes.
+    func dropPending()
+    /// The approval is over; the Face ID it was given covers nothing more.
+    func end()
 }
 
 /// The person backed out of Face ID. Nothing was sent.
@@ -38,6 +51,21 @@ public struct ApprovalKeyLost: Error, Equatable {
     public init() {}
 }
 
+/// Face ID is locked after too many tries; the passcode opens it again.
+public struct ApprovalLocked: Error, Equatable {
+    public init() {}
+}
+
+/// The phone could not sign, for a reason that is not a lost key.
+public struct ApprovalSigningFailed: Error, Equatable {
+    public init() {}
+}
+
+/// The phone could not keep a key, so it sent nothing that would need it.
+public struct ApprovalKeyNotKept: Error, Equatable {
+    public init() {}
+}
+
 /// What the owner grants: a subset of what an offer asks, or a row's new
 /// rights.
 public struct Grant: Equatable, Sendable {
@@ -46,11 +74,15 @@ public struct Grant: Equatable, Sendable {
     public var caps: Caps
     public var lengthMs: Int64
 
-    public init(scopes: [String], ops: [String], caps: Caps, lengthMs: Int64) {
+    /// An end the grant keeps as it is, instead of a new length.
+    public var expiresAtMs: Int64?
+
+    public init(scopes: [String], ops: [String], caps: Caps, lengthMs: Int64, expiresAtMs: Int64? = nil) {
         self.scopes = Approval.sorted(scopes)
         self.ops = Approval.sorted(ops)
         self.caps = caps
         self.lengthMs = lengthMs
+        self.expiresAtMs = expiresAtMs
     }
 
     /// The lengths an owner may pick, longest last, within the role's.
@@ -109,6 +141,10 @@ public final class AccessModel {
     /// row carries only the client's id, which for a registered client is
     /// no address.
     public private(set) var clients: [ClientNote] = []
+    /// The box's answer to `agent.list` has arrived this visit, so `keys`
+    /// is the box's word and not a cache's: only then may this phone
+    /// decide it has no key there.
+    public private(set) var keysKnown = false
     /// The row or request a change is on its way for.
     public private(set) var working: String?
     /// What went wrong, in words that say what happens now.
@@ -146,6 +182,17 @@ public final class AccessModel {
     /// nothing.
     public func host(_ row: AgentRow) -> String {
         clients.first { $0.id == row.id }?.host ?? AccessWords.host(row)
+    }
+
+    /// What the client asked for when this phone approved it.
+    public func asked(_ row: AgentRow) -> ClientNote? {
+        clients.first { $0.id == row.id }
+    }
+
+    /// A grant's name and where its client lives, for the system's Face ID
+    /// sheet: the name is the client's own word, the host is not.
+    public func who(_ row: AgentRow) -> (name: String, host: String) {
+        (AccessWords.name(row), host(row))
     }
 
     /// Whether FTW Cloud knew the client when this phone approved it. Nil
@@ -191,6 +238,7 @@ public final class AccessModel {
         guard available else { return }
         do {
             list = AgentList(try await site.ask(AccessWire.msgList, .emptyMap))
+            keysKnown = true
             help = nil
         } catch {
             help = words(error)
@@ -222,8 +270,12 @@ public final class AccessModel {
             help = AccessWords.text("Choose at least one thing it may do.")
             return nil
         }
-        let principal = Principal(client: String(offer.client.prefix(256)), clientId: String(offer.clientId.prefix(256)), ticket: offer.ticket)
-        let reason = AccessWords.format("Let %@ reach your home", AccessWords.clientName(offer))
+        if list?.agents.contains(where: { $0.key == offer.key }) == true {
+            help = AccessWords.offer(.used)
+            return nil
+        }
+        let principal = Principal(client: Self.cut(offer.client), clientId: Self.cut(offer.clientId), ticket: Self.cut(offer.ticket))
+        let reason = AccessWords.format("Let %@ from %@ reach your home", AccessWords.clientName(offer), offer.clientHost)
         return await signed(reason, target: "offer") { signer in
             var add = AgentAdd(key: offer.key, role: offer.role, scopes: grant.scopes, ops: grant.ops, caps: grant.caps,
                                expiresAtMs: self.expiry(grant.lengthMs), principal: principal, atMs: self.nowMs)
@@ -231,7 +283,8 @@ public final class AccessModel {
             let ok = try await self.site.ask(AccessWire.msgAdd, add.cbor)
             guard let row = ok["agent"].flatMap(AgentRow.init) else { return nil }
             self.clients.removeAll { $0.id == row.id }
-            self.clients.append(ClientNote(id: row.id, host: offer.clientHost, verified: offer.verified))
+            self.clients.append(ClientNote(id: row.id, host: offer.clientHost, verified: offer.verified,
+                                           askedOps: offer.ops, askedCaps: offer.caps))
             self.site.persistNow()
             return row
         }
@@ -244,10 +297,10 @@ public final class AccessModel {
             help = AccessWords.text("Choose at least one thing it may do.")
             return false
         }
-        let reason = AccessWords.format("Change what %@ may do", AccessWords.name(row))
+        let reason = reasonFor("Change what %@ may do", "Change what %@ from %@ may do", row)
         let changed: AgentRow? = await signed(reason, target: row.id) { signer in
             var m = AgentWiden(id: row.id, epoch: row.epoch, scopes: grant.scopes, ops: grant.ops, caps: grant.caps,
-                               expiresAtMs: self.expiry(grant.lengthMs), atMs: self.nowMs)
+                               expiresAtMs: grant.expiresAtMs ?? self.expiry(grant.lengthMs), atMs: self.nowMs)
             m.sig = try signer.sign(try Approval.widenBytes(self.signedFor, m, key: row.key))
             let ok = try await self.site.ask(AccessWire.msgWiden, m.cbor)
             return ok["agent"].flatMap(AgentRow.init) ?? row
@@ -300,7 +353,12 @@ public final class AccessModel {
                 return false
             }
         }
-        let reason = AccessWords.format("Let %@ make this change", agentName(request.agent))
+        guard AccessWords.approvable(request) else {
+            help = AccessWords.text("This request has something this app can't show you, so it can only be declined.")
+            return false
+        }
+        let reason = row(request.agent).map { reasonFor("Let %@ make this change", "Let %@ from %@ make this change", $0) }
+            ?? AccessWords.format("Let %@ make this change", agentName(request.agent))
         let done: Bool? = await signed(reason, target: request.reqId) { signer in
             let atMs = self.nowMs
             let sig = try signer.sign(Approval.confirmBytes(self.signedFor, reqId: request.reqId, atMs: atMs, request: request))
@@ -315,25 +373,41 @@ public final class AccessModel {
     // MARK: The approval key
 
     /// A new approval key for this home, with the old key's signature so the
-    /// box takes it. One Face ID.
+    /// box takes it. One Face ID. The new key is kept beside the old one
+    /// before the box hears of it, so whichever the box ends up holding,
+    /// the phone still has.
     @discardableResult
     public func replaceKey() async -> Bool {
         guard let keyring, let home = keyHome else { return false }
         working = "key"
         defer { working = nil }
         do {
+            if !keysKnown { await refresh() }
+            guard keysKnown else { throw SessionError.noCarrier }
             let unlock = try await keyring.unlock(home: home, reason: AccessWords.text("Replace the approval key on this phone"))
+            defer { unlock.end() }
             guard let old = try unlock.existing() else { throw ApprovalKeyLost() }
             let fresh = try unlock.make()
-            try await retryingSkew {
-                let atMs = self.nowMs
-                let msg = Approval.keySetBytes(self.signedFor, atMs: atMs, pub: fresh.publicKey)
-                _ = try await self.site.ask(AccessWire.msgKeySet, .map([
-                    ("pub", .bytes(fresh.publicKey)), ("atMs", .int(atMs)), ("sig", .bytes(try fresh.sign(msg))),
-                    ("prevSig", .bytes(try old.sign(msg))),
-                ]).deterministic)
+            do {
+                try unlock.keepPending(fresh)
+            } catch {
+                throw ApprovalKeyNotKept()
             }
-            unlock.keep(fresh)
+            do {
+                try await retryingSkew {
+                    let atMs = self.nowMs
+                    let msg = Approval.keySetBytes(self.signedFor, atMs: atMs, pub: fresh.publicKey)
+                    _ = try await self.site.ask(AccessWire.msgKeySet, .map([
+                        ("pub", .bytes(fresh.publicKey)), ("atMs", .int(atMs)), ("sig", .bytes(try fresh.sign(msg))),
+                        ("prevSig", .bytes(try old.sign(msg))),
+                    ]).deterministic)
+                }
+            } catch let r as BoxRefusal {
+                // The box said no: it still holds the old key.
+                unlock.dropPending()
+                throw r
+            }
+            try? unlock.promote()
             help = nil
             await refresh()
             return true
@@ -347,7 +421,8 @@ public final class AccessModel {
 
     /// One Face ID, the key registered at the box if it has none for this
     /// phone, then `work` with the key; again once with the box's time if
-    /// the box says this phone's clock is off.
+    /// the box says this phone's clock is off. The box's own list of keys
+    /// decides whether this phone registers one: never a cached list.
     private func signed<T>(_ reason: String, target: String, _ work: @escaping @MainActor (ApprovalSigner) async throws -> T?) async -> T? {
         guard let keyring, let home = keyHome else {
             help = AccessWords.text("This phone can't approve on its own. Use your box's page.")
@@ -359,11 +434,25 @@ public final class AccessModel {
         }
         working = target
         defer { working = nil }
+        if !keysKnown { await refresh() }
+        guard keysKnown else {
+            help = help ?? AccessWords.help(SessionError.noCarrier)
+            return nil
+        }
         do {
-            if list == nil { await refresh() }
             let unlock = try await keyring.unlock(home: home, reason: reason)
-            let signer = try await registered(unlock)
-            let out = try await retryingSkew { try await work(signer) }
+            defer { unlock.end() }
+            let keys = try await registered(unlock)
+            let out: T?
+            do {
+                out = try await retryingSkew { try await work(keys.signer) }
+                if keys.isPending { try? unlock.promote() }
+            } catch let r as BoxRefusal where r.detail.code == "E_BAD_SIGNATURE" && r.detail.args["field"] == nil && keys.spare != nil {
+                // A replacement the box took though its answer never came
+                // back: the spare is the key the box holds.
+                out = try await retryingSkew { try await work(keys.spare!) }
+                try? unlock.promote()
+            }
             help = nil
             await refresh()
             return out
@@ -376,13 +465,28 @@ public final class AccessModel {
 
     /// This home's key, registered at the box if the box has none for this
     /// phone: the one natural moment, under the Face ID the owner just gave.
-    private func registered(_ unlock: ApprovalUnlock) async throws -> ApprovalSigner {
+    /// A first key is kept before the box hears of it. With a replacement
+    /// waiting, the current key signs first and the replacement is the
+    /// spare.
+    private func registered(_ unlock: ApprovalUnlock) async throws -> (signer: ApprovalSigner, spare: ApprovalSigner?, isPending: Bool) {
         let have = try unlock.existing()
+        let waiting = try? unlock.pending()
         if boxHasKey {
-            guard let have else { throw ApprovalKeyLost() }
-            return have
+            if let have { return (have, waiting, false) }
+            if let waiting { return (waiting, nil, true) }
+            throw ApprovalKeyLost()
         }
-        let signer = try have ?? unlock.make()
+        let signer: ApprovalSigner
+        if let have {
+            signer = have
+        } else {
+            signer = try unlock.make()
+            do {
+                try unlock.keep(signer)
+            } catch {
+                throw ApprovalKeyNotKept()
+            }
+        }
         try await retryingSkew {
             let atMs = self.nowMs
             let msg = Approval.keySetBytes(self.signedFor, atMs: atMs, pub: signer.publicKey)
@@ -390,12 +494,11 @@ public final class AccessModel {
                 ("pub", .bytes(signer.publicKey)), ("atMs", .int(atMs)), ("sig", .bytes(try signer.sign(msg))),
             ]).deterministic)
         }
-        unlock.keep(signer)
         if var l = list {
             l.keys.append(ApprovalKeyInfo(deviceId: signedFor.deviceID, setAtMs: nowMs))
             list = l
         }
-        return signer
+        return (signer, nil, false)
     }
 
     /// Once more with the box's clock, when the box says this phone's is
@@ -420,7 +523,27 @@ public final class AccessModel {
 
     /// An agent row's name, or its id when the box no longer has it.
     public func agentName(_ id: String) -> String {
-        row(id).map(AccessWords.name) ?? AccessWords.format("Assistant %@", id)
+        row(id).map(AccessWords.name) ?? AccessWords.format("Assistant %@", AccessWords.clean(id))
+    }
+
+    /// The Face ID sheet's line: the name, and the host beside it when the
+    /// phone knows one.
+    func reasonFor(_ bare: String, _ withHost: String, _ row: AgentRow) -> String {
+        let (name, host) = who(row)
+        return host.isEmpty || row.isSupport ? AccessWords.format(bare, name) : AccessWords.format(withHost, name, host)
+    }
+
+    /// A principal field cut to 256 bytes of UTF-8, at a character's edge.
+    static func cut(_ text: String, max: Int = 256) -> String {
+        var out = ""
+        var used = 0
+        for ch in text {
+            let n = String(ch).utf8.count
+            if used + n > max { break }
+            out.append(ch)
+            used += n
+        }
+        return out
     }
 
     func words(_ error: Error) -> String? {

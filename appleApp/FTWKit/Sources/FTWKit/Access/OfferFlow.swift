@@ -10,6 +10,8 @@ import Observation
 /// once. Either way the offer is checked against the pinned offer keys
 /// before anything is shown, and refused when it is unsigned, expired, for
 /// a home this phone does not have, or support from anyone but Sourceful.
+/// Approving checks it again, against the home open at that moment and the
+/// clock then, from the signed bytes rather than what was shown.
 @Observable
 @MainActor
 public final class OfferFlow {
@@ -30,6 +32,9 @@ public final class OfferFlow {
     public var typed = ""
     /// Control is a separate switch, off until ticked.
     public var control = false
+    /// FTW Cloud does not know this client: the owner says they started
+    /// this and trust its address before Face ID.
+    public var trustsUnknown = false
     public var lengthMs: Int64 = 30 * 86_400_000
     /// Why the code did not go through, under the field.
     public private(set) var codeHelp: String?
@@ -41,6 +46,10 @@ public final class OfferFlow {
     /// Opened before the code: a link's offer is checked at once, so a bad
     /// one is refused without asking for anything.
     @ObservationIgnored private var opened: GrantOffer?
+    /// The offer as signed, checked again when the owner approves.
+    @ObservationIgnored private var signed: SignedOffer?
+    /// Told of the row once the box granted it.
+    @ObservationIgnored public var onDone: (@MainActor (AgentRow) -> Void)?
 
     public init(link: OfferLink?, lookup: OfferLookup, keys: OfferKeys, wallMs: @escaping @MainActor () -> Double = { Date().timeIntervalSince1970 * 1000 }) {
         self.link = link
@@ -59,21 +68,14 @@ public final class OfferFlow {
         }
     }
 
-    /// For a link: fetch its offer if it does not carry one, and check it
-    /// before asking for the code.
+    /// For a link: check its offer before asking for the code.
     public func start(home: String?) async {
-        guard let link else { return }
+        guard let link, opened == nil, step == .code else { return }
         guard !keys.isEmpty else { return refuse(.noPinnedKey) }
-        step = .checking
         do {
-            let signed: SignedOffer
-            if let carried = link.offer {
-                signed = try SignedOffer(base64url: carried)
-            } else {
-                signed = try await lookup.byRequest(link.request)
-            }
-            opened = try check(signed, home: home)
-            step = .code
+            let carried = try SignedOffer(base64url: link.offer)
+            opened = try check(carried, home: home)
+            signed = carried
         } catch let e as OfferError {
             refuse(e)
         } catch {
@@ -99,8 +101,10 @@ public final class OfferFlow {
         guard !keys.isEmpty else { return refuse(.noPinnedKey) }
         step = .checking
         do {
-            let offer = try check(try await lookup.byCode(code), home: home)
+            let fetched = try await lookup.byCode(code)
+            let offer = try check(fetched, home: home)
             guard OfferCode.matches(code, offer) else { return refuse(.wrongCode) }
+            signed = fetched
             review(offer)
         } catch let e as OfferError where e == .notFound {
             step = .code
@@ -113,9 +117,11 @@ public final class OfferFlow {
     }
 
     /// An offer that came another way, such as Get help: checked like any.
-    public func present(_ signed: SignedOffer, home: String?) {
+    public func present(_ given: SignedOffer, home: String?) {
         do {
-            review(try check(signed, home: home))
+            let offer = try check(given, home: home)
+            signed = given
+            review(offer)
         } catch let e as OfferError {
             refuse(e)
         } catch {
@@ -123,12 +129,25 @@ public final class OfferFlow {
         }
     }
 
-    /// Grant what the owner chose, behind Face ID, at this home.
-    public func approve(_ access: AccessModel) async {
-        guard case .review(let offer) = step else { return }
+    /// Grant what the owner chose, behind Face ID, at the home open now.
+    /// The signed offer is checked again first: the home may have changed
+    /// and the clock moved since it was shown.
+    public func approve(_ access: AccessModel, home: String?) async {
+        guard case .review(let shown) = step, let signed else { return }
+        guard shown.verified || trustsUnknown else { return }
+        let offer: GrantOffer
+        do {
+            offer = try check(signed, home: home)
+        } catch let e as OfferError {
+            return refuse(e)
+        } catch {
+            return refuse(.malformed)
+        }
+        guard offer == shown else { return refuse(.malformed) }
         step = .approving(offer)
         if let row = await access.approve(offer, grant: grant(offer)) {
             step = .done(row)
+            onDone?(row)
         } else {
             step = .review(offer)
         }
@@ -157,6 +176,7 @@ public final class OfferFlow {
         lengthMs = picks.last ?? lengthMs
         if offer.isSupport, let week = picks.last(where: { $0 <= 7 * 86_400_000 }) { lengthMs = week }
         control = false
+        trustsUnknown = false
         step = .review(offer)
     }
 
@@ -174,7 +194,9 @@ public final class OfferFlow {
 public protocol SupportDesk: AnyObject {
     /// Whether a ticket can be opened from the app.
     var isOpen: Bool { get }
-    func open(problem: String, control: Bool) async throws -> SignedOffer
+    /// Opens a ticket for what the owner wrote, which goes to the desk,
+    /// and returns Sourceful's signed offer for it.
+    func open(problem: String) async throws -> SignedOffer
 }
 
 /// No help desk behind the app yet. Get help says so.
@@ -182,11 +204,11 @@ public protocol SupportDesk: AnyObject {
 public final class NoSupportDesk: SupportDesk {
     public init() {}
     public var isOpen: Bool { false }
-    public func open(problem: String, control: Bool) async throws -> SignedOffer { throw OfferError.unreachable }
+    public func open(problem: String) async throws -> SignedOffer { throw OfferError.unreachable }
 }
 
-/// What the owner wrote for each ticket, kept on this phone only: the box
-/// keeps the ticket id, never the words.
+/// What the owner wrote for each ticket. The help desk has the words; this
+/// phone keeps a copy beside the ticket id, and the box never sees them.
 public struct TicketNote: Codable, Equatable, Sendable {
     public var ticket: String
     public var problem: String
@@ -199,16 +221,30 @@ public struct TicketNote: Codable, Equatable, Sendable {
     }
 }
 
-/// Where a client lives, as the offer the owner approved on this phone
-/// said, by its row's id.
+/// Where a client lives and what it asked for, as the offer the owner
+/// approved on this phone said, by its row's id: so control can be turned
+/// on later with what the client asked, never more.
 public struct ClientNote: Codable, Equatable, Sendable {
     public var id: String
     public var host: String
     public var verified: Bool
+    public var askedOps: [String]
+    public var askedCaps: Caps
 
-    public init(id: String, host: String, verified: Bool) {
+    public init(id: String, host: String, verified: Bool, askedOps: [String] = [], askedCaps: Caps = Caps()) {
         self.id = id
         self.host = host
         self.verified = verified
+        self.askedOps = askedOps
+        self.askedCaps = askedCaps
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        host = try c.decode(String.self, forKey: .host)
+        verified = try c.decode(Bool.self, forKey: .verified)
+        askedOps = try c.decodeIfPresent([String].self, forKey: .askedOps) ?? []
+        askedCaps = try c.decodeIfPresent(Caps.self, forKey: .askedCaps) ?? Caps()
     }
 }

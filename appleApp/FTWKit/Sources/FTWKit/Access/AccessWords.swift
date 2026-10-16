@@ -24,15 +24,50 @@ public enum AccessWords {
     // MARK: Who
 
     /// The name a client gives itself, quoted: its own word, never checked.
+    /// Only a support grant, which the box takes from Sourceful's client
+    /// alone, is called Sourceful support. A name that claims Sourceful or
+    /// FTW is no name.
     public static func clientName(_ offer: GrantOffer) -> String {
         if offer.isSupport { return text("Sourceful support") }
-        return offer.client.isEmpty ? offer.clientHost : offer.client
+        return ownName(offer.client) ?? format("Assistant at %@", offer.clientHost)
     }
 
     public static func name(_ row: AgentRow) -> String {
         if row.isSupport { return text("Sourceful support") }
-        if !row.principal.client.isEmpty { return row.principal.client }
-        return format("Assistant %@", row.id)
+        return ownName(row.principal.client) ?? format("Assistant %@", row.id)
+    }
+
+    /// The client's name, cleaned and quoted, or nil when it has none it
+    /// may use: empty, or one that names Sourceful or FTW.
+    public static func ownName(_ raw: String) -> String? {
+        let name = clean(raw).trimmingCharacters(in: .whitespaces)
+        let folded = name.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+        guard !name.isEmpty, !folded.contains("sourceful"), !folded.contains("ftw") else { return nil }
+        return "“\(name.prefix(64))”"
+    }
+
+    /// Whether a client's own name was set aside because it named Sourceful
+    /// or FTW.
+    public static func nameHidden(_ raw: String) -> Bool {
+        !clean(raw).trimmingCharacters(in: .whitespaces).isEmpty && ownName(raw) == nil
+    }
+
+    /// Text from outside, with control and format characters taken out:
+    /// no bidi overrides, no zero-width joiners, no line breaks.
+    public static func clean(_ raw: String) -> String {
+        String(String.UnicodeScalarView(raw.unicodeScalars.map { s -> Unicode.Scalar in
+            switch s.properties.generalCategory {
+            case .control, .format, .lineSeparator, .paragraphSeparator: return " "
+            default: return s
+            }
+        }))
+    }
+
+    /// A whole number from outside, or nil when it is none or too large to
+    /// mean anything here.
+    static func whole(_ d: Double) -> Int? {
+        guard d.isFinite, d.rounded() == d, abs(d) < 1e12 else { return nil }
+        return Int(d)
     }
 
     /// Where the client lives, when its id is an address: the host of its
@@ -103,6 +138,36 @@ public enum AccessWords {
         "car.soc.set": "Set the car's level",
     ]
 
+    /// Whether the app can show every part of a request as the registry
+    /// names it: a known op open to agents, every key one the registry
+    /// lists for it, each value of its kind. Anything else may only be
+    /// declined.
+    public static func approvable(_ request: AgentRequest) -> Bool {
+        guard Contract.agentOps[request.op] != nil, let defs = Contract.agentArgs[request.op],
+              let given = request.args.entries ?? (request.args.isNull ? [] : nil) else { return false }
+        for e in given {
+            guard let key = e.key.string, let def = defs.first(where: { $0.name == key }), fits(e.value, def) else { return false }
+        }
+        return true
+    }
+
+    static func fits(_ v: CBOR, _ def: Contract.AgentArg) -> Bool {
+        switch def.kind {
+        case "mode", "loadpoint", "car":
+            return v.string.map { !$0.isEmpty && $0.utf8.count <= 64 } ?? false
+        case "enum":
+            return v.string.map(def.values.contains) ?? false
+        case "bool":
+            return v.bool != nil
+        default:
+            guard let d = v.double, d.isFinite else { return false }
+            if let min = def.min, d < min { return false }
+            if let max = def.max, d > max { return false }
+            if def.name == "ready_by_min" || def.name == "days" { return whole(d) != nil }
+            return abs(d) < 1e12
+        }
+    }
+
     /// A request's arguments, each by its registry label, in the registry's
     /// order, then anything the registry does not name.
     public static func arguments(_ request: AgentRequest, modes: [ModeInfo] = []) -> [(label: String, value: String)] {
@@ -114,12 +179,14 @@ public enum AccessWords {
             out.append((text(def.label), value(v, def, modes: modes)))
         }
         for e in given where !defs.contains(where: { $0.name == e.key.string }) {
-            out.append((e.key.string ?? "?", raw(e.value)))
+            out.append((clean(e.key.string ?? "?"), raw(e.value)))
         }
         return out
     }
 
     static func value(_ v: CBOR, _ def: Contract.AgentArg, modes: [ModeInfo]) -> String {
+        // A number from outside that is no number here is shown as sent.
+        if let d = v.double, !d.isFinite || abs(d) >= 1e12 { return raw(v) }
         switch def.kind {
         case "mode":
             guard let key = v.string else { return raw(v) }
@@ -146,9 +213,9 @@ public enum AccessWords {
         default:
             guard let d = v.double else { return raw(v) }
             switch def.name {
-            case "ready_by_min": return AppWords.clock(minute: Int(d))
-            case "days": return EVText.days(Int(d))
-            default: return AppWords.decimal(d.rounded() == d ? String(Int(d)) : String(d))
+            case "ready_by_min": return whole(d).map { AppWords.clock(minute: $0) } ?? raw(v)
+            case "days": return whole(d).map(EVText.days) ?? raw(v)
+            default: return AppWords.decimal(whole(d).map(String.init) ?? String(d))
             }
         }
     }
@@ -164,9 +231,9 @@ public enum AccessWords {
 
     static func raw(_ v: CBOR) -> String {
         switch v {
-        case .text(let s): return s
+        case .text(let s): return String(clean(s).prefix(80))
         case .bool(let b): return b ? "true" : "false"
-        case .unsigned, .negative, .double: return v.double.map { $0.rounded() == $0 ? String(Int64($0)) : String($0) } ?? "?"
+        case .unsigned, .negative, .double: return v.double.map { whole($0).map(String.init) ?? String($0) } ?? "?"
         case .bytes(let b): return Base64url.encode(b)
         default: return "…"
         }
@@ -174,7 +241,7 @@ public enum AccessWords {
 
     /// "30 min", "1 h", "1 h 30 min".
     public static func minutes(_ seconds: Double) -> String {
-        let m = Int((seconds / 60).rounded())
+        guard let m = whole((seconds / 60).rounded()) else { return "?" }
         if m < 60 { return "\(max(1, m))\u{00A0}min" }
         let h = m / 60, rest = m % 60
         return rest == 0 ? "\(h)\u{00A0}h" : "\(h)\u{00A0}h \(rest)\u{00A0}min"
@@ -232,7 +299,7 @@ public enum AccessWords {
     public static func actor(_ row: AuditRow, me: String, agents: [AgentRow]) -> String {
         let (kind, id) = split(row.actor)
         switch kind {
-        case "agent": return agents.first { $0.id == id }.map(name) ?? format("Assistant %@", id)
+        case "agent": return agents.first { $0.id == id }.map(name) ?? format("Assistant %@", clean(id))
         case "app": return id == me ? text("This phone") : format("Phone %@", id)
         case "lan": return id.isEmpty ? text("The box's page") : format("The box's page, %@", id)
         case "box": return text("The box")
@@ -244,7 +311,8 @@ public enum AccessWords {
     /// them. The box cannot check it, and the line says so.
     public static func by(_ row: AuditRow) -> String? {
         guard !row.by.isEmpty else { return nil }
-        let (kind, id) = split(row.by)
+        let (kind, raw) = split(row.by)
+        let id = clean(raw)
         let who = kind == "bot" ? format("%@ (a Sourceful tool)", id) : id
         return format("%@, named by FTW Cloud", who)
     }
@@ -304,6 +372,12 @@ public enum AccessWords {
         switch error {
         case is ApprovalCancelled:
             return nil
+        case is ApprovalLocked:
+            return format("%@ is locked after too many tries. Unlock the phone with its passcode, then try again.", biometry)
+        case is ApprovalSigningFailed:
+            return text("Signing on this phone didn't work. Nothing was sent.")
+        case is ApprovalKeyNotKept:
+            return text("This phone couldn't keep its approval key. Nothing was sent.")
         case is ApprovalKeyLost:
             return format("The approval key on this phone stopped working when %@ changed. Replace it on your box's page with the house password.", biometry)
         case let e as OfferError:
@@ -325,7 +399,9 @@ public enum AccessWords {
         case .unsigned: return text("This offer isn't signed by FTW Cloud. Nothing was granted.")
         case .expired: return text("This offer has run out. Start again on the page that showed it.")
         case .malformed: return text("This isn't an offer this app can read. Nothing was granted.")
-        case .supportFromStranger: return text("This offer claims to be Sourceful support but comes from someone else. Nothing was granted.")
+        case .notFromSourceful: return text("This offer claims to come from Sourceful but comes from someone else. Nothing was granted.")
+        case .strangeHost: return text("This offer names its client in letters that could imitate another address. Nothing was granted.")
+        case .used: return text("This offer has been answered already. Start again on the page that showed it.")
         case .unknownHome: return text("This offer is for a home this phone doesn't have.")
         case .wrongCode: return text("That isn't the code on the page. Check it and type it again.")
         case .notFound: return text("FTW Cloud has no offer under that code. It may have been used or run out.")
@@ -367,6 +443,20 @@ public enum AccessWords {
         // Who
         "Sourceful support": "Sourceful support",
         "Assistant %@": "Assistent %@",
+        "Assistant at %@": "Assistent på %@",
+        "The name it gives mentions Sourceful or FTW, so it is not shown.": "Namnet den ger nämner Sourceful eller FTW och visas därför inte.",
+        "I started this myself and trust %@.": "Jag började själv och litar på %@.",
+        "With control it may": "Med styrning får den",
+        "Add it again from its page to let it control.": "Lägg till den igen från dess sida för att låta den styra.",
+        "This request has something this app can't show you, so it can only be declined.":
+            "Begäran innehåller något som appen inte kan visa, så den kan bara avböjas.",
+        "%@ is locked after too many tries. Unlock the phone with its passcode, then try again.":
+            "%@ är låst efter för många försök. Lås upp telefonen med koden och försök igen.",
+        "Signing on this phone didn't work. Nothing was sent.": "Signeringen på telefonen gick inte. Inget skickades.",
+        "This phone couldn't keep its approval key. Nothing was sent.": "Telefonen kunde inte spara sin godkännandenyckel. Inget skickades.",
+        "Let %@ from %@ reach your home": "Låt %@ från %@ nå ditt hem",
+        "Change what %@ from %@ may do": "Ändra vad %@ från %@ får göra",
+        "Let %@ from %@ make this change": "Låt %@ från %@ göra ändringen",
         "Access": "Åtkomst",
         "Assistants and support": "Assistenter och support",
         "Assistants": "Assistenter",
@@ -420,8 +510,8 @@ public enum AccessWords {
         "Ticket %@": "Ärende %@",
         // Offer
         "Type the code on the page": "Skriv koden från sidan",
-        "The page that asked for access shows a code. Typing it here proves the request is the one in front of you.":
-            "Sidan som bad om åtkomst visar en kod. När du skriver den här vet du att det är den begäran du har framför dig.",
+        "The page that asked for access shows a code. Type it here only if you started this yourself, on a page you trust.":
+            "Sidan som bad om åtkomst visar en kod. Skriv den här bara om du själv började, på en sida du litar på.",
         "Continue": "Fortsätt",
         "Cancel": "Avbryt",
         "Approve with %@": "Godkänn med %@",
@@ -540,8 +630,12 @@ public enum AccessWords {
         "This offer isn't signed by FTW Cloud. Nothing was granted.": "Erbjudandet är inte signerat av FTW Cloud. Inget har getts.",
         "This offer has run out. Start again on the page that showed it.": "Erbjudandet har gått ut. Börja om på sidan som visade det.",
         "This isn't an offer this app can read. Nothing was granted.": "Det här är inget erbjudande appen kan läsa. Inget har getts.",
-        "This offer claims to be Sourceful support but comes from someone else. Nothing was granted.":
-            "Erbjudandet säger sig vara Sourceful support men kommer från någon annan. Inget har getts.",
+        "This offer claims to come from Sourceful but comes from someone else. Nothing was granted.":
+            "Erbjudandet säger sig komma från Sourceful men kommer från någon annan. Inget har getts.",
+        "This offer names its client in letters that could imitate another address. Nothing was granted.":
+            "Erbjudandet skriver klientens adress med tecken som kan härma en annan adress. Inget har getts.",
+        "This offer has been answered already. Start again on the page that showed it.":
+            "Erbjudandet är redan besvarat. Börja om på sidan som visade det.",
         "This offer is for a home this phone doesn't have.": "Erbjudandet gäller ett hem som telefonen inte har.",
         "That isn't the code on the page. Check it and type it again.": "Det är inte koden på sidan. Kontrollera och skriv den igen.",
         "FTW Cloud has no offer under that code. It may have been used or run out.": "FTW Cloud har inget erbjudande med den koden. Den kan vara använd eller ha gått ut.",
