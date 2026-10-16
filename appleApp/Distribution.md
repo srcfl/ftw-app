@@ -26,7 +26,7 @@ for review. `-FTWDistributionScenario offline` selects a sample state.
 ## Try
 
 - Drag a field to pull its boundary and push its neighbour. Release it to
-  let it spring back with a brief wake. The grip stretches the material near
+  let it spring back. The grip stretches the material near
   the finger, and its soft edge and light ribbon follow. Streams move around
   the actual contact patch and carry nearby material with the finger. Their
   ends stay attached. A tap opens the detail view.
@@ -37,25 +37,29 @@ for review. `-FTWDistributionScenario offline` selects a sample state.
 - Change the car's goal or level, pause it and return to its plan. The
   example confirms a command after showing sent and received. Old data and
   view-only access block these commands.
-- Try Sol och köpt el and Köper från nätet. The source ports fill the fields
-  from above. Ribbons leave through the car, home, charging battery and
-  export outlets; the grid supplies power only when buying. The battery
-  moves to a source port when discharging. The node views use the same material.
-- The solar and grid connections are fluid channels. Drag these too. The
-  grid stays visible when selling, with its flow running back up and out.
-  Broadening fronts show incoming energy; narrowing channels and inward
-  surface waves show draining. The figures describe the same flow.
+- The whole Now screen is one site. Sunlight grows into it as a warm field.
+  Home, car and home battery share its material; the single grid throat
+  crosses the site's boundary. Tap any of the five parts to open its view.
+- Try Sol och köpt el, Köper från nätet and Kväll. The same grid connection
+  reverses when buying or selling. The home battery stays in place when
+  charging, discharging or idle, distinct from the car. The sun only supplies.
+- The home battery shows its 68% stored level as a curved liquid surface.
+  Its signed kW figure says whether it stores or supplies power. The other
+  kW figures show present flow, not stored energy.
 
-Each field's area follows its power share during transitions, idle motion
-and dragging. A drag redistributes the curve while keeping its integral;
-it does not change the power or express a control command. Reduce Motion
-stops the idle motion and removes the release animation. Hidden screens
-and an inactive app stop their timelines.
+Each part keeps a resting volume and grows with power. These soft volumes
+suggest relative power; they are not an exact area chart. The long bands of
+light follow flow direction, with a relative rate. A grip deforms the edges
+and bends these bands around the actual finger. It changes no reading or
+control. Reduce Motion holds the scene still and removes the release spring;
+words and a still grid arrow retain direction. Hidden screens, old data and
+an inactive app stop their timelines. Large text gets a full-size list of
+all five parts below a visual overview.
 
-Power balances at the ports. Solar generation and battery discharge supply
-the demand; the grid covers a shortfall or takes the surplus. Ribbons show
-direction and a relative flow rate, not packets or stored energy. Their
-feathered light adds surface shading without changing the underlying areas.
+Power balances at the site boundary. Solar generation, grid imports and
+battery discharge supply the demand. Home, car, battery charging and grid
+exports use that power. The only grid field remains visible even with no
+exchange, and the battery remains visible even when idle.
 
 The study combines the mobile and web mockup's scope. It does not expand the
 shipping iPhone release scope. The existing Phosphor palette remains in
@@ -73,6 +77,8 @@ cd FTWKit && swift test
 `EnergyPartitionTests` checks area conservation through transitions and
 under touches at several positions. `EnergyStreamlineTests` checks clearance
 around the finger, material carried with the grip and fixed endpoints.
+`EnergySiteLayoutTests` checks the single reversible grid boundary, the fixed
+battery position, solar direction, power-driven growth and elastic geometry.
 `DistributionTour` exercises navigation,
 goals, command guards, drag-versus-tap and large text in the simulator.
 Simulator recordings show the proposed feel; device performance and real

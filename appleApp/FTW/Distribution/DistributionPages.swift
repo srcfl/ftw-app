@@ -430,7 +430,7 @@ struct DistributionEditor: View {
                             }
                             dismiss()
                         }.disabled(reduceMotion)
-                        Text("Fälten visar andel av effekten. Rörelsen pausar när appen lämnar skärmen och när minskad rörelse är på.").font(.caption)
+                        Text("Ytorna växer med effekten. Ljuset visar flödets riktning. Rörelsen pausar när appen lämnar skärmen och när minskad rörelse är på.").font(.caption)
                     }
                     Section {
                         Button("Från första start") { model.stop(); model.paired = false; dismiss() }

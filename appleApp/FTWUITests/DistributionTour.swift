@@ -75,7 +75,7 @@ final class DistributionTour: XCTestCase {
         XCTAssertTrue(car.exists)
         XCTAssertFalse(app.buttons["distribution.goal"].exists, "Dragging opened a detail view")
         shoot(app, "after-push")
-        let inlet = app.buttons["distribution.inlet.solar"]
+        let inlet = app.buttons["distribution.field.solar"]
         let source = inlet.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75))
         source.press(forDuration: 0.15, thenDragTo: source.withOffset(CGVector(dx: 70, dy: 35)), withVelocity: .slow, thenHoldForDuration: 0.5)
         XCTAssertTrue(car.exists, "Grabbing the solar stream opened its detail view")
@@ -84,22 +84,34 @@ final class DistributionTour: XCTestCase {
         XCTAssertTrue(app.buttons["distribution.goal"].waitForExistence(timeout: 5))
     }
 
-    @MainActor func testSourcePortsFollowBuyingSellingAndBatteryDischarge() {
-        for scenario in ["sun", "mixed", "importing", "night"] {
+    @MainActor func testOneSiteContainsOneGridAndOneHomeBatteryInEveryState() {
+        for scenario in ["sun", "mixed", "importing", "night", "surplus", "battery"] {
             let app = launch(scenario: scenario)
-            let solar = app.buttons["distribution.inlet.solar"]
-            let grid = app.buttons["distribution.inlet.grid"]
-            let battery = app.buttons["distribution.inlet.battery"]
-            XCTAssertEqual(solar.exists, scenario == "sun" || scenario == "mixed")
-            XCTAssertEqual(grid.exists, scenario != "night")
-            if scenario == "sun" { XCTAssertTrue(grid.label.contains("ut ur hemmet")) }
-            XCTAssertEqual(battery.exists, scenario == "night")
-            XCTAssertEqual(app.buttons["distribution.field.grid"].exists, scenario == "sun")
-            shoot(app, "flow-\(scenario)")
+            for part in ["solar", "home", "car", "battery", "grid"] {
+                XCTAssertEqual(app.buttons.matching(identifier: "distribution.field.\(part)").count, 1)
+            }
+            let grid = app.buttons["distribution.field.grid"]
+            let battery = app.buttons["distribution.field.battery"]
+            let solar = app.buttons["distribution.field.solar"]
+            XCTAssertFalse(solar.label.contains("Till solen"))
+            if scenario == "sun" || scenario == "surplus" {
+                XCTAssertTrue(grid.label.contains("ut ur fastigheten"))
+            }
+            if scenario == "mixed" || scenario == "importing" {
+                XCTAssertTrue(grid.label.contains("in i fastigheten"))
+            }
+            if scenario == "night" {
+                XCTAssertTrue(grid.label.contains("I balans"))
+                XCTAssertTrue(battery.label.contains("ger energi"))
+            }
+            if scenario == "sun" || scenario == "battery" {
+                XCTAssertTrue(battery.label.contains("lagrar"))
+            }
+            if scenario == "surplus" { XCTAssertTrue(battery.label.contains("Vilar")) }
+            shoot(app, "site-\(scenario)")
             if scenario == "importing" {
                 grid.tap()
                 XCTAssertTrue(app.staticTexts["FRÅN NÄTET"].waitForExistence(timeout: 5))
-                shoot(app, "grid-supplying")
             }
             app.terminate()
         }

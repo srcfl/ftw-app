@@ -9,11 +9,11 @@ enum DistributionScreen: String, Hashable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .now: "Hemma"
+        case .now: "Fastigheten"
         case .car: "Bilen"
         case .solar: "Solen"
         case .home: "Hemmet just nu"
-        case .battery: "Batteriet"
+        case .battery: "Hembatteriet"
         case .grid: "Elnätet"
         case .plan: "Plan"
         case .prices: "Elpriset"
@@ -52,7 +52,7 @@ enum DistributionScenario: String, CaseIterable, Identifiable {
     }
     var powers: [Double]? {
         switch self {
-        case .sun: [2.5, 1.3, 0, 0.4]
+        case .sun: [1.6, 1.2, 1.0, 0.4]
         case .surplus: [1.2, 1, 0, 3.8]
         case .battery: [2, 1.2, 2.4, 0.4]
         case .night: [0.5, 0.8, 0, 0]
@@ -72,7 +72,7 @@ final class DistributionModel {
     var tab: DistributionScreen = .now
     var scenario = DistributionScenario.sun
     var lastSource = DistributionScenario.sun
-    var powers: [Double] = [2.5, 1.3, 0, 0.4]
+    var powers: [Double] = [1.6, 1.2, 1.0, 0.4]
     var sheet: DistributionSheet?
     var goal = 80
     var level = 62

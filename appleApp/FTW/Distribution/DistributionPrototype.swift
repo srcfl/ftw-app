@@ -22,11 +22,6 @@ enum DistributionStyle {
     static let goldInk = Color("distribution.goldInk")
     static let eye = Color("distribution.eye")
     static let motion = Animation.spring(response: 1.2, dampingFraction: 0.94)
-    static let colors = [purple, home, cyan, green]
-    static let inks = [purpleInk, homeInk, cyanInk, greenInk]
-    static let routes: [DistributionScreen] = [.car, .home, .battery, .grid]
-    static let names = ["Bilen", "Hemmet", "Batteriet", "Till nätet"]
-    static let symbols = ["car.side", "house", "battery.75percent", "powerplug"]
     static func number(_ value: Double) -> String { String(format: "%.1f", value).replacingOccurrences(of: ".", with: ",") }
 }
 
@@ -131,10 +126,14 @@ struct DistributionPage: View {
     @Environment(DistributionModel.self) private var model
 
     var body: some View {
-        ScrollView {
-            content
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 28)
+        Group {
+            if screen == .now {
+                DistributionNow(namespace: namespace)
+            } else {
+                ScrollView {
+                    content.frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 28)
+                }
+            }
         }
         .background(DistributionStyle.ground)
         .foregroundStyle(DistributionStyle.ink)
@@ -196,231 +195,6 @@ struct DistributionRobot: View {
         .shadow(color: DistributionStyle.ink.opacity(0.16), radius: 9, y: 9)
         .accessibilityHidden(true)
         .allowsHitTesting(false)
-    }
-}
-
-struct DistributionNow: View {
-    let namespace: Namespace.ID
-    @Environment(DistributionModel.self) private var model
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    var body: some View {
-        VStack(spacing: 0) {
-            DistributionTouchableField(namespace: namespace)
-            VStack(spacing: 3) {
-                Text("Dra och putta · tryck för att öppna")
-                Text("Yta = andel · rörelse = energins riktning")
-            }.font(.caption2).foregroundStyle(DistributionStyle.muted).padding(.vertical, 10)
-                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-            if typeSize.isAccessibilitySize {
-                VStack {
-                    ForEach(0..<4) { i in
-                        if model.flow.destinations[i] > 0.025 {
-                            NavigationLink(value: DistributionStyle.routes[i]) {
-                                LabeledContent(DistributionStyle.names[i], value: "\(DistributionStyle.number(model.flow.destinations[i])) kW")
-                            }.padding(.vertical, 10)
-                                .accessibilityIdentifier("distribution.accessible.\(DistributionStyle.routes[i].rawValue)")
-                        }
-                    }
-                }.padding(.horizontal, 24)
-            }
-            HStack(alignment: .top, spacing: 24) {
-                NavigationLink(value: DistributionScreen.car) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("Bilen · \(model.level) % nu").font(.caption).foregroundStyle(DistributionStyle.muted)
-                        Text(model.goal > 0 ? "\(model.goal) % till \(model.clock)" : "Inget laddmål").font(.headline)
-                    }
-                }
-                Spacer(minLength: 0)
-                NavigationLink(value: DistributionScreen.prices) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("Elpris just nu").font(.caption).foregroundStyle(DistributionStyle.muted)
-                        Text("44 öre/kWh ↗").font(.headline)
-                    }
-                }
-            }.buttonStyle(.plain).padding(.horizontal, 24).padding(.vertical, 12)
-            NavigationLink(value: DistributionScreen.battery) {
-                HStack { Text("Batteriet · 68 %"); Spacer(); Image(systemName: "chevron.right").font(.caption) }
-            }.buttonStyle(.plain).padding(.horizontal, 24).padding(.vertical, 14)
-        }
-    }
-}
-
-struct DistributionTouchableField: View {
-    let namespace: Namespace.ID
-    private let fieldHeight: CGFloat = 370
-    @Environment(DistributionModel.self) private var model
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var force = CGSize.zero
-    @State private var touch = CGPoint(x: 0.5, y: 0.5)
-    @State private var grabbing = false
-    @State private var visible = false
-    @State private var heldPhase = Date.now.timeIntervalSinceReferenceDate * 0.22
-    @State private var grabs = 0
-    @State private var releasedAt = Date.distantPast
-    @State private var releaseStrength = 0.0
-    @State private var finger = CGPoint.zero
-    @State private var origin = CGPoint.zero
-    @State private var grip = 0.0
-    @State private var sourceHeight: CGFloat = 142
-    @State private var surfaceWidth: CGFloat = 390
-
-    var body: some View {
-        VStack(spacing: 0) {
-            DistributionInlets(flow: model.flow, finger: finger, origin: origin, grip: grip, frozen: model.frozen)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { sourceHeight = $0 }
-            TimelineView(.animation(minimumInterval: 1.0 / 60, paused: reduceMotion || model.frozen || !visible || scenePhase != .active)) { clock in
-                let phase = reduceMotion || model.frozen ? heldPhase : clock.date.timeIntervalSinceReferenceDate * 0.22
-                let elapsed = max(0, clock.date.timeIntervalSince(releasedAt))
-                let ripple = reduceMotion || model.frozen || elapsed > 3 ? 0 : sin(elapsed * 9) * exp(-elapsed * 2.4) * releaseStrength
-                DistributionField(powers: model.flow.destinations, flow: model.flow, namespace: namespace, happy: model.happy, frozen: model.frozen,
-                                  phase: phase, time: reduceMotion || model.frozen ? 0 : clock.date.timeIntervalSinceReferenceDate,
-                                  drag: force, touch: touch, grabbing: grabbing, ripple: ripple,
-                                  finger: CGPoint(x: finger.x, y: finger.y - sourceHeight), grip: grip)
-                    .animation(reduceMotion || model.frozen ? nil : DistributionStyle.motion, value: model.flow.destinations)
-            }.frame(height: fieldHeight)
-        }
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { surfaceWidth = $0 }
-        .contentShape(Rectangle())
-        .highPriorityGesture(DragGesture(minimumDistance: 3)
-                .onChanged { value in
-                    if !grabbing {
-                        grabbing = true; grip = 1; grabs += 1; releaseStrength = 0; model.stop()
-                        heldPhase = Date.now.timeIntervalSinceReferenceDate * 0.22
-                        origin = value.startLocation
-                    }
-                    finger = value.location
-                    touch = CGPoint(x: origin.x / max(1, surfaceWidth), y: (origin.y - sourceHeight) / fieldHeight)
-                    force = CGSize(width: tanh(value.translation.width / 95), height: tanh(value.translation.height / 105))
-                }
-                .onEnded { value in
-                    let distance = max(35, hypot(value.translation.width, value.translation.height))
-                    let outward = (value.velocity.width * force.width + value.velocity.height * force.height) / distance
-                    let velocity = max(-5, min(5, -outward))
-                    releasedAt = .now
-                    releaseStrength = min(1, hypot(force.width, force.height))
-                    withAnimation(reduceMotion ? nil : .interpolatingSpring(stiffness: 40, damping: 6.5, initialVelocity: velocity)) {
-                        force = .zero; grip = 0; grabbing = false
-                    }
-                }, including: model.frozen ? .none : .all)
-            .sensoryFeedback(.impact(weight: .light), trigger: grabs)
-            .accessibilityElement(children: .contain)
-        .onAppear { visible = true }
-        .onDisappear { visible = false; force = .zero; grip = 0; grabbing = false }
-        .onChange(of: model.frozen) { _, frozen in if frozen { heldPhase = Date.now.timeIntervalSinceReferenceDate * 0.22; force = .zero; grip = 0; grabbing = false } }
-    }
-}
-
-nonisolated struct DistributionField: View, Animatable {
-    private var a, b, c, d: Double
-    private var phase: Double
-    private var drag: CGSize
-    private var touch: CGPoint
-    private var finger: CGPoint
-    private var grip: Double
-    let flow: EnergyFlowBalance
-    let time, ripple: Double
-    let grabbing: Bool
-    let namespace: Namespace.ID
-    var happy: Bool
-    var frozen: Bool
-    @Environment(\.dynamicTypeSize) private var typeSize
-
-    init(powers: [Double], flow: EnergyFlowBalance, namespace: Namespace.ID, happy: Bool, frozen: Bool, phase: Double = 0, time: Double = 0, drag: CGSize = .zero, touch: CGPoint = CGPoint(x: 0.5, y: 0.5), grabbing: Bool = false, ripple: Double = 0, finger: CGPoint = .zero, grip: Double = 0) {
-        a = powers[0]; b = powers[1]; c = powers[2]; d = powers[3]
-        self.namespace = namespace; self.happy = happy; self.frozen = frozen
-        self.phase = phase; self.drag = drag; self.touch = touch; self.grabbing = grabbing
-        self.flow = flow; self.time = time; self.ripple = ripple
-        self.finger = finger; self.grip = grip
-    }
-    typealias Four = AnimatablePair<AnimatablePair<Double, Double>, AnimatablePair<Double, Double>>
-    typealias Eight = AnimatablePair<Four, Four>
-    typealias Contact = AnimatablePair<AnimatablePair<Double, Double>, Double>
-    var animatableData: AnimatablePair<Eight, Contact> {
-        get { .init(.init(.init(.init(a, b), .init(c, d)), .init(.init(Double(drag.width), Double(drag.height)), .init(Double(touch.x), Double(touch.y)))), .init(.init(Double(finger.x), Double(finger.y)), grip)) }
-        set {
-            let field = newValue.first
-            a = field.first.first.first; b = field.first.first.second
-            c = field.first.second.first; d = field.first.second.second
-            drag = CGSize(width: field.second.first.first, height: field.second.first.second)
-            touch = CGPoint(x: field.second.second.first, y: field.second.second.second)
-            finger = CGPoint(x: newValue.second.first.first, y: newValue.second.first.second)
-            grip = newValue.second.second
-        }
-    }
-    @MainActor var body: some View {
-        GeometryReader { proxy in
-            let values = [a, b, c, d].map { max(0, $0) }
-            let layout = EnergyPartition(powers: values, size: proxy.size, phase: phase, drag: drag, touch: touch, ripple: ripple)
-            let w = proxy.size.width, h = proxy.size.height
-            ZStack {
-                ZStack {
-                    ZStack {
-                        ForEach([3, 2, 1, 0], id: \.self) { i in
-                            fieldPath(layout.polygons[i])
-                                .fill(LinearGradient(colors: [DistributionStyle.colors[i], i == 0 ? DistributionStyle.purpleDeep : DistributionStyle.colors[i].opacity(0.88)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                        }
-                    }.blur(radius: 1.8)
-                        .mask {
-                            LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .white, location: 0.035), .init(color: .white, location: 0.96), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
-                        }
-                    DistributionFluidInk(layout: layout, flow: flow, time: time, drag: drag, touch: touch, finger: finger, grip: grip)
-                        .allowsHitTesting(false).accessibilityHidden(true)
-                }
-                ForEach(0..<4) { i in
-                    if values[i] > 0.025 {
-                        let center = layout.centers[i]
-                        let tiny = layout.areas[i] < 12_000
-                        let halfHeight: CGFloat = tiny ? 26 : 55
-                        NavigationLink(value: DistributionStyle.routes[i]) {
-                            VStack(spacing: 3) {
-                                if !tiny {
-                                    HStack(spacing: 5) {
-                                        Image(systemName: DistributionStyle.symbols[i]).font(.system(size: 20))
-                                        Image(systemName: i == 0 ? "arrow.left" : i == 3 ? "arrow.up" : "arrow.right").font(.system(size: 11, weight: .medium))
-                                    }
-                                    Text(["Till bilen", "Till hemmet", "Till batteriet", "Till nätet"][i]).font(.system(size: 13))
-                                } else {
-                                    HStack(spacing: 3) {
-                                        Text(["Till bilen", "Till hemmet", "Till batteriet", "Till nätet"][i])
-                                        Image(systemName: i == 0 ? "arrow.left" : i == 3 ? "arrow.up" : "arrow.right")
-                                    }.font(.system(size: 10, weight: .medium))
-                                }
-                                HStack(alignment: .firstTextBaseline, spacing: 2) {
-                                    Text(DistributionStyle.number(values[i])).font(.system(size: tiny ? 20 : 27, weight: .medium))
-                                    Text("kW").font(.system(size: 12))
-                                }.monospacedDigit()
-                                if !tiny { Text("\(layout.percentages[i]) %").font(.system(size: 11)) }
-                            }
-                            .foregroundStyle(DistributionStyle.inks[i])
-                            .frame(width: min(112, max(62, w * (i == 0 ? layout.shares[0] : 1 - layout.shares[0]) - 22)), height: tiny ? 48 : 100)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .matchedTransitionSource(id: DistributionStyle.routes[i], in: namespace)
-                        .position(x: max(40, min(w - 40, center.x)), y: max(halfHeight, min(h - halfHeight, center.y)))
-                        .accessibilityLabel("\(DistributionStyle.names[i]), \(DistributionStyle.number(values[i])) kilowatt")
-                        .accessibilityIdentifier("distribution.field.\(DistributionStyle.routes[i].rawValue)")
-                        .accessibilityHidden(typeSize.isAccessibilitySize)
-                    }
-                }
-                DistributionRobot(happy: happy, frozen: frozen, gaze: Double(drag.width) * 2)
-                    .frame(width: 102)
-                    .rotationEffect(.degrees(Double(drag.width) * 8))
-                    .position(x: max(62, min(w - 62, layout.junction.x - 16)), y: max(64, min(h - 62, layout.junction.y - 35)))
-            }
-            .clipped()
-        }
-    }
-    private func fieldPath(_ points: [CGPoint]) -> Path {
-        Path {
-            p in guard let first = points.first else { return }
-            p.move(to: first)
-            for point in points.dropFirst() { p.addLine(to: point) }
-            p.closeSubpath()
-        }
     }
 }
 
@@ -487,10 +261,14 @@ private struct DistributionHeroMaterial: View {
 private struct HeroField: Shape {
     var phase = 0.0
     func path(in r: CGRect) -> Path {
-        Path { p in
-            let wave = sin(phase) * 8
-            p.move(to: .zero); p.addLine(to: CGPoint(x: r.maxX, y: 0)); p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - 20))
-            p.addCurve(to: CGPoint(x: 0, y: r.maxY), control1: CGPoint(x: r.width * 0.75, y: r.maxY - 55 + wave), control2: CGPoint(x: r.width * 0.3, y: r.maxY - 30 - wave))
+        let w = r.width, h = r.height, wave = sin(phase) * 8
+        return Path { p in
+            p.move(to: CGPoint(x: 0, y: h * 0.12))
+            p.addCurve(to: CGPoint(x: w * 0.5, y: h * 0.015), control1: CGPoint(x: -w * 0.05, y: -h * 0.03), control2: CGPoint(x: w * 0.19, y: h * 0.015))
+            p.addCurve(to: CGPoint(x: w, y: h * 0.09), control1: CGPoint(x: w * 0.73, y: h * 0.045), control2: CGPoint(x: w, y: -h * 0.02))
+            p.addCurve(to: CGPoint(x: w * 1.02, y: h * 0.82), control1: CGPoint(x: w * 0.99, y: h * 0.29), control2: CGPoint(x: w * 1.04, y: h * 0.60))
+            p.addCurve(to: CGPoint(x: 0, y: h * 0.91), control1: CGPoint(x: w * 0.71, y: h + wave), control2: CGPoint(x: w * 0.33, y: h * 0.79 - wave))
+            p.addCurve(to: CGPoint(x: 0, y: h * 0.12), control1: CGPoint(x: -w * 0.05, y: h * 0.6), control2: CGPoint(x: w * 0.01, y: h * 0.39))
             p.closeSubpath()
         }
     }
@@ -562,7 +340,7 @@ struct DistributionNode: View {
     }
     var body: some View {
         VStack(spacing: 0) {
-            DistributionHero(title: node == .grid ? (model.flow.grid > 0.025 ? "Från nätet" : "Till nätet") : node.title, value: info.0, unit: info.1, detail: info.2, color: info.3, ink: info.4,
+            DistributionHero(title: node == .grid ? (model.flow.grid > 0.025 ? "Från nätet" : model.flow.grid < -0.025 ? "Till nätet" : "Nätet i balans") : node.title, value: info.0, unit: info.1, detail: info.2, color: info.3, ink: info.4,
                              flowPower: node == .solar ? model.flow.solar : node == .home ? model.flow.home : node == .battery ? abs(model.flow.battery) : abs(model.flow.grid))
             VStack(alignment: .leading, spacing: 22) {
                 switch node {
