@@ -97,7 +97,7 @@ struct GrantLine: View {
                 Spacer(minLength: 8)
                 if access.working == row.id { ProgressView().controlSize(.small) }
             }
-            let place = row.isSupport ? AccessWords.format("Ticket %@", row.principal.ticket) : access.host(row)
+            let place = access.place(row)
             if !place.isEmpty {
                 Text(place)
                     .font(.subheadline)
@@ -145,7 +145,10 @@ struct KeyFooter: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(AccessWords.format(access.boxHasKey ? "Approvals on this phone use %@." : "This phone makes its approval key the first time you approve, under the same %@.", AccessWords.biometry))
+            // Only the box's own list says whether it holds this phone's key.
+            if access.keysKnown {
+                Text(AccessWords.format(access.boxHasKey ? "Approvals on this phone use %@." : "This phone makes its approval key the first time you approve, under the same %@.", AccessWords.biometry))
+            }
             if let help = access.help {
                 Text(help).foregroundStyle(Theme.alarm)
             }

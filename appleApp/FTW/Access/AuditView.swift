@@ -47,7 +47,7 @@ struct AuditLine: View {
             }
             Text(AccessWords.what(row))
             if let by = AccessWords.by(row) {
-                Label(by, systemImage: "person.badge.shield.checkmark")
+                Label(by, systemImage: "person")
                     .font(.footnote)
                     .foregroundStyle(Theme.ink2)
             }

@@ -59,7 +59,7 @@ struct OfferFlowView: View {
             Section {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(AccessWords.text("Type the code on the page")).font(.title2.weight(.bold))
-                    Text(AccessWords.text("The page that asked for access shows a code. Typing it here proves the request is the one in front of you."))
+                    Text(AccessWords.text("The page that asked for access shows a code. Type it here only if you started this yourself, on a page you trust."))
                         .foregroundStyle(Theme.ink2)
                 }
                 .padding(.vertical, 4)
@@ -101,7 +101,7 @@ struct OfferReview: View {
         List {
             Section {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(offer.clientHost.isEmpty ? offer.clientId : offer.clientHost)
+                    Text(offer.clientHost)
                         .font(.title2.weight(.bold))
                         .foregroundStyle(Theme.ink)
                         .textSelection(.enabled)
@@ -110,8 +110,15 @@ struct OfferReview: View {
                           systemImage: offer.verified ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(offer.verified ? Theme.ink : Theme.alarm)
-                    Text(AccessWords.format("Calls itself %@", "“\(AccessWords.clientName(offer))”"))
-                        .foregroundStyle(Theme.ink2)
+                    if offer.isSupport {
+                        Text(AccessWords.text("Sourceful support")).foregroundStyle(Theme.ink2)
+                    } else if AccessWords.nameHidden(offer.client) {
+                        Text(AccessWords.text("The name it gives mentions Sourceful or FTW, so it is not shown."))
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.alarm)
+                    } else if let name = AccessWords.ownName(offer.client) {
+                        Text(AccessWords.format("Calls itself %@", name)).foregroundStyle(Theme.ink2)
+                    }
                     if offer.isSupport, !offer.ticket.isEmpty {
                         Text(AccessWords.format("Ticket %@", offer.ticket)).font(.subheadline).foregroundStyle(Theme.ink2)
                     }
@@ -138,6 +145,21 @@ struct OfferReview: View {
                     let asked = Grant.from(offer, control: true, lengthMs: flow.lengthMs)
                     Text(flow.control ? AccessWords.control(asked.caps, scopes: asked.scopes) : AccessWords.text("Off: it reads and changes nothing."))
                 }
+                if flow.control {
+                    Section(AccessWords.text("With control it may")) {
+                        ForEach(Grant.from(offer, control: true, lengthMs: flow.lengthMs).ops, id: \.self) { op in
+                            Label(AccessWords.op(op), systemImage: Contract.agentOps[op] == AccessWire.scopeHold ? "bolt" : "hand.raised")
+                        }
+                    }
+                }
+            }
+
+            if !offer.verified {
+                Section {
+                    Toggle(AccessWords.format("I started this myself and trust %@.", offer.clientHost), isOn: $flow.trustsUnknown)
+                        .tint(Theme.alarm)
+                        .accessibilityIdentifier("offer.trust")
+                }
             }
 
             Section {
@@ -145,20 +167,21 @@ struct OfferReview: View {
                     ForEach(flow.lengths, id: \.self) { Text(AccessWords.length($0)).tag($0) }
                 }
                 .accessibilityIdentifier("offer.length")
-                HomePick(app: app)
+                HomePick(app: app, flow: flow, offer: offer)
             } footer: {
                 if let help = access.help { Text(help).foregroundStyle(Theme.alarm) }
             }
         }
         .safeAreaInset(edge: .bottom) {
-            Button { Task { await flow.approve(access) } } label: {
+            Button { Task { await flow.approve(access, home: app.cloudHome) } } label: {
                 HStack(spacing: 8) {
                     if case .approving = flow.step { ProgressView().tint(Theme.onAccent) } else { Image(systemName: Biometry.symbol) }
                     Text(AccessWords.format("Approve with %@", AccessWords.biometry))
                 }
             }
             .buttonStyle(FTWButtonStyle(kind: .primary))
-            .disabled(!access.available || flow.offer == nil || { if case .approving = flow.step { return true }; return false }())
+            .disabled(!access.available || flow.offer == nil || !(offer.verified || flow.trustsUnknown)
+                || { if case .approving = flow.step { return true }; return false }())
             .padding(16)
             .background(Theme.surface)
             .accessibilityIdentifier("offer.approve")
@@ -166,14 +189,22 @@ struct OfferReview: View {
     }
 }
 
-/// The home the grant is for. With several, the owner picks one, which
-/// opens it.
+/// The home the grant is for. With several, the owner picks one: that
+/// home opens and the link starts again there, from the code, so nothing
+/// checked at one home is taken to another. An offer that names its home,
+/// or one found by a code, which FTW Cloud gives once, stays where it is.
 struct HomePick: View {
     let app: AppModel
+    let flow: OfferFlow
+    let offer: GrantOffer
 
     var body: some View {
-        if app.homes.count > 1, let current = app.site?.siteId {
-            Picker(AccessWords.text("Home"), selection: Binding(get: { current }, set: { app.open($0) })) {
+        if app.homes.count > 1, offer.home.isEmpty, let link = flow.link, let current = app.site?.siteId {
+            Picker(AccessWords.text("Home"), selection: Binding(get: { current }, set: { home in
+                guard home != current else { return }
+                app.open(home)
+                app.accessLink = link
+            })) {
                 ForEach(app.homes) { Text(HomeName.title($0.label)).tag($0.siteId) }
             }
         } else {

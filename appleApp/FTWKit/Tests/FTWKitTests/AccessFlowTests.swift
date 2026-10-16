@@ -89,6 +89,7 @@ import FTWDemo
         registered.principal.clientId = "ftwc_zXEOM7hsgr"
         registered.id = "someoneE"
         #expect(w.access.host(registered).isEmpty)
+        #expect(w.access.place(registered) == AccessWords.format("Assistant %@", "someoneE"))
 
         // The next grant needs no new key: one more Face ID, nothing else.
         let second = try w.offer()

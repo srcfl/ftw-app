@@ -617,13 +617,13 @@ public enum AccessWords {
         "Describe the problem": "Beskriv problemet",
         "What happened, and when?": "Vad hände, och när?",
         "Let Sourceful look": "Låt Sourceful titta",
-        "Sourceful may": "Sourceful får",
-        "Also let Sourceful control": "Låt Sourceful också styra",
+        "Your words go to Sourceful's help desk with the ticket. Your box never sees them.":
+            "Orden går till Sourcefuls helpdesk med ärendet. Boxen ser dem aldrig.",
+        "Next you see what Sourceful asks to do, and approve it with %@.":
+            "Sedan ser du vad Sourceful ber om att få göra, och godkänner med %@.",
         "Every call names the person at Sourceful who made it. You can remove the access at any time, and it ends when the ticket closes.":
             "Varje anrop säger vem hos Sourceful som gjorde det. Du kan ta bort åtkomsten när du vill, och den slutar när ärendet stängs.",
         "Sourceful can't open a ticket from the app yet.": "Sourceful kan inte öppna ett ärende från appen än.",
-        "Sourceful can now look at your home for ticket %@.": "Sourceful kan nu titta på ditt hem för ärende %@.",
-        "Let Sourceful look at your home": "Låt Sourceful titta på ditt hem",
         // Refusals
         "Set up %@ on this phone to approve from it, or approve on your box's page.": "Ställ in %@ på telefonen för att godkänna från den, eller godkänn på boxens sida.",
         "This version of the app can't check offers from FTW Cloud yet.": "Den här versionen av appen kan inte kontrollera erbjudanden från FTW Cloud än.",

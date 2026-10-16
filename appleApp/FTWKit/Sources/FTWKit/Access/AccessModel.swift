@@ -184,6 +184,17 @@ public final class AccessModel {
         clients.first { $0.id == row.id }?.host ?? AccessWords.host(row)
     }
 
+    /// What goes beside a grant's name: the ticket for support, else where
+    /// the client lives, else its id, so a name of its own choosing never
+    /// stands alone.
+    public func place(_ row: AgentRow) -> String {
+        if row.isSupport { return AccessWords.format("Ticket %@", AccessWords.clean(row.principal.ticket)) }
+        let host = host(row)
+        if !host.isEmpty { return host }
+        let idName = AccessWords.format("Assistant %@", row.id)
+        return AccessWords.name(row) == idName ? "" : idName
+    }
+
     /// What the client asked for when this phone approved it.
     public func asked(_ row: AgentRow) -> ClientNote? {
         clients.first { $0.id == row.id }

@@ -26,9 +26,10 @@ struct RequestView: View {
                 }
             }
 
-            if !request.why.isEmpty {
+            let why = AccessWords.clean(request.why).trimmingCharacters(in: .whitespaces)
+            if !why.isEmpty {
                 Section {
-                    Text("“\(request.why)”").italic()
+                    Text("“\(why)”").italic()
                 } header: {
                     Text(AccessWords.text("In its own words"))
                 } footer: {
@@ -39,7 +40,12 @@ struct RequestView: View {
             Section {
             } footer: {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(AccessWords.text("Approving runs it on your box now, as if you had made the change yourself."))
+                    if AccessWords.approvable(request) {
+                        Text(AccessWords.text("Approving runs it on your box now, as if you had made the change yourself."))
+                    } else {
+                        Text(AccessWords.text("This request has something this app can't show you, so it can only be declined."))
+                            .foregroundStyle(Theme.alarm)
+                    }
                     Text(AccessWords.format("Waits %@", AppWords.day(Double(request.expiresAtMs), nowMs: now, zone: .current)))
                     if let help = access.help { Text(help).foregroundStyle(Theme.alarm) }
                 }
@@ -51,14 +57,16 @@ struct RequestView: View {
         .navigationBarTitleDisplayMode(.inline)
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 8) {
-                Button { answer(true) } label: {
-                    HStack(spacing: 8) {
-                        if access.working == request.reqId { ProgressView().tint(Theme.onAccent) } else { Image(systemName: Biometry.symbol) }
-                        Text(AccessWords.format("Approve with %@", AccessWords.biometry))
+                if AccessWords.approvable(request) {
+                    Button { answer(true) } label: {
+                        HStack(spacing: 8) {
+                            if access.working == request.reqId { ProgressView().tint(Theme.onAccent) } else { Image(systemName: Biometry.symbol) }
+                            Text(AccessWords.format("Approve with %@", AccessWords.biometry))
+                        }
                     }
+                    .buttonStyle(FTWButtonStyle(kind: .primary))
+                    .accessibilityIdentifier("request.approve")
                 }
-                .buttonStyle(FTWButtonStyle(kind: .primary))
-                .accessibilityIdentifier("request.approve")
                 Button(AccessWords.text("Decline")) { answer(false) }
                     .buttonStyle(FTWButtonStyle(kind: .quiet))
                     .accessibilityIdentifier("request.decline")

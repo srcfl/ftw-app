@@ -40,7 +40,7 @@ struct GrantView: View {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(AccessWords.name(row)).font(.title2.weight(.bold))
-                    let place = row.isSupport ? AccessWords.format("Ticket %@", row.principal.ticket) : access.host(row)
+                    let place = access.place(row)
                     if !place.isEmpty {
                         Text(place)
                             .foregroundStyle(Theme.ink2)
@@ -74,11 +74,25 @@ struct GrantView: View {
             }
 
             if row.role != Contract.roleRelease {
+                let canTurnOn = row.hasControl || !(access.asked(row)?.askedOps.isEmpty ?? true)
                 Section {
-                    Toggle(AccessWords.text("Control"), isOn: $control).tint(Theme.live)
+                    Toggle(AccessWords.text("Control"), isOn: $control)
+                        .tint(Theme.live)
+                        .disabled(!canTurnOn)
                 } footer: {
                     let g = grant(row)
-                    Text(control ? AccessWords.control(g.caps, scopes: g.scopes) : AccessWords.text("Off: it reads and changes nothing."))
+                    if !canTurnOn {
+                        Text(AccessWords.text("Add it again from its page to let it control."))
+                    } else {
+                        Text(control ? AccessWords.control(g.caps, scopes: g.scopes) : AccessWords.text("Off: it reads and changes nothing."))
+                    }
+                }
+                if control {
+                    Section(AccessWords.text("With control it may")) {
+                        ForEach(grant(row).ops, id: \.self) { op in
+                            Label(AccessWords.op(op), systemImage: Contract.agentOps[op] == AccessWire.scopeHold ? "bolt" : "hand.raised")
+                        }
+                    }
                 }
             }
 
@@ -127,26 +141,30 @@ struct GrantView: View {
         .animation(Theme.spring, value: changed(row))
     }
 
-    /// The whole new grant. Control turned on asks for the ops the box
-    /// opens to agents, within FTW Cloud's proposed caps; a narrower one
-    /// keeps the row's own.
+    /// The whole new grant. Control kept keeps the row's own ops and caps;
+    /// control turned on again asks for what the client asked for when this
+    /// phone approved it, never more; control off drops both.
     private func grant(_ row: AgentRow) -> Grant {
         var all = scopes
         var ops = row.ops
         var caps = row.caps
-        if control {
-            all.formUnion(AccessWire.controlScopes)
-            if !row.hasControl {
-                ops = Contract.agentOps.keys.filter { AccessWire.controlScopes.contains(Contract.agentOps[$0]!) }
-                caps = Caps(holdS: AccessWire.holdSRange.upperBound, maxW: 11_000, perMin: AccessWire.perMinDefault)
+        if control, row.hasControl {
+            all.formUnion(Set(row.scopes).intersection(AccessWire.controlScopes))
+        } else if control, let asked = access.asked(row) {
+            ops = asked.askedOps.filter { Contract.agentOps[$0] != nil }
+            let needed = Set(ops.compactMap { Contract.agentOps[$0] })
+            all.formUnion(needed)
+            caps = Caps(perMin: min(asked.askedCaps.perMin, 60))
+            if needed.contains(AccessWire.scopeHold) {
+                caps.holdS = min(asked.askedCaps.holdS, AccessWire.holdSRange.upperBound)
+                caps.maxW = min(asked.askedCaps.maxW, AccessWire.maxWRange.upperBound)
             }
         } else {
             ops = []
             caps = Caps(perMin: row.caps.perMin)
         }
-        // Unrenewed, the end stays where it is.
-        let remaining = row.expiresAtMs - Int64(Date().timeIntervalSince1970 * 1000) + Approval.skewMs
-        return Grant(scopes: Array(all), ops: ops, caps: caps, lengthMs: lengthMs == 0 ? remaining : lengthMs)
+        // Unrenewed, the end is sent exactly as the box has it.
+        return Grant(scopes: Array(all), ops: ops, caps: caps, lengthMs: lengthMs, expiresAtMs: lengthMs == 0 ? row.expiresAtMs : nil)
     }
 
     private func changed(_ row: AgentRow) -> Bool {

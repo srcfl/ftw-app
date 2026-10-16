@@ -38,15 +38,21 @@ final class KeychainStore: SecureStore {
     }
 
     func put(_ key: String, _ value: Bytes) {
+        try? write(key, value)
+    }
+
+    /// Update or add, and say when neither kept the value.
+    func write(_ key: String, _ value: Bytes) throws {
         let query = base(key)
         let update: [String: Any] = [kSecValueData as String: Data(value)]
-        let status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
+        var status = SecItemUpdate(query as CFDictionary, update as CFDictionary)
         if status == errSecItemNotFound {
             var item = query
             item[kSecValueData as String] = Data(value)
             item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            SecItemAdd(item as CFDictionary, nil)
+            status = SecItemAdd(item as CFDictionary, nil)
         }
+        guard status == errSecSuccess else { throw SecureStoreUnavailable(status: status) }
     }
 
     func remove(_ key: String) {

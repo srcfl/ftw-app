@@ -69,9 +69,16 @@ final class AccessTour: XCTestCase {
         Thread.sleep(forTimeInterval: 1)
         shoot(app, "help")
         app.buttons["help.look"].tap()
+        // Sourceful's offer, as it will be signed.
+        XCTAssertTrue(app.buttons["offer.approve"].waitForExistence(timeout: 10))
+        Thread.sleep(forTimeInterval: 1)
+        shoot(app, "help-review")
+        app.buttons["offer.approve"].tap()
         XCTAssertTrue(app.buttons["offer.done"].waitForExistence(timeout: 10))
         Thread.sleep(forTimeInterval: 1)
         shoot(app, "help-done")
+        app.buttons["offer.done"].tap()
+        Thread.sleep(forTimeInterval: 1)
         back(app)
         Thread.sleep(forTimeInterval: 1)
 
