@@ -50,7 +50,8 @@ public final class QUICCloudSocket: WebSocketConnection {
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: port)
         task = Task { [weak self] in
             let code = await Self.run(endpoint: endpoint, target: Array(target.utf8), anchor: anchor, outbox: stream,
-                                      opened: { self?.didOpen() }, received: { self?.didReceive($0) })
+                                      opened: { self?.didOpen() }, received: { self?.didReceive($0) },
+                                      datagram: { self?.didReceiveDatagram($0) })
             self?.didClose(code)
         }
     }
@@ -79,6 +80,11 @@ public final class QUICCloudSocket: WebSocketConnection {
         events.onBinary(bytes)
     }
 
+    private func didReceiveDatagram(_ bytes: Bytes) {
+        guard !closed, opened else { return }
+        if let onDatagram = events.onDatagram { onDatagram(bytes) } else { events.onBinary(bytes) }
+    }
+
     private func didClose(_ code: Int) {
         guard !closed else { return }
         closed = true
@@ -92,7 +98,8 @@ public final class QUICCloudSocket: WebSocketConnection {
     /// service's application error, or 1006 when the path just went.
     nonisolated private static func run(
         endpoint: NWEndpoint, target: Bytes, anchor: SecCertificate?, outbox: AsyncStream<Bytes>,
-        opened: @escaping @MainActor () -> Void, received: @escaping @MainActor (Bytes) -> Void
+        opened: @escaping @MainActor () -> Void, received: @escaping @MainActor (Bytes) -> Void,
+        datagram: @escaping @MainActor (Bytes) -> Void
     ) async -> Int {
         let connection = NetworkConnection(to: endpoint) {
             QUIC(alpn: [alpn])
@@ -137,7 +144,7 @@ public final class QUICCloudSocket: WebSocketConnection {
                 group.addTask {
                     guard let datagrams = try? await connection.datagrams else { return false }
                     while let d = try? await datagrams.receive() {
-                        await received(Bytes(d.content))
+                        await datagram(Bytes(d.content))
                     }
                     return false
                 }

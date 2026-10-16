@@ -12,8 +12,13 @@ import Foundation
 public final class NoiseTransport {
     public static let seqBytes = 8
     public static let overhead = seqBytes + Noise.tagBytes
-    /// At 1 Hz on lane 0, 64 frames is a minute of tolerance and one word.
-    public static let replayWindow: UInt64 = 64
+    /// How far out of order a frame may arrive and still open. Over QUIC,
+    /// FTW Cloud carries one session's frames on two streams and in
+    /// datagrams, so a burst of bulk frames, a few hundred at most, can
+    /// overtake a frame on the control stream. 1024 covers that in 128
+    /// bytes. The same as appwire.ReplayWindow in srcfl/ftw.
+    public static let replayWindow: UInt64 = 1024
+    private static let seenWords = Int(replayWindow / 64)
 
     public let handshakeHash: Bytes
     /// The box's static key as authenticated, not as claimed.
@@ -22,7 +27,9 @@ public final class NoiseTransport {
     private let send: CipherState
     private let recv: CipherState
     private var highestSeq: UInt64?
-    private var seen: UInt64 = 0
+    /// A bit for each sequence number in the window: bit i (word i/64, bit
+    /// i%64) is highestSeq-i, set once that frame opened.
+    private var seen = [UInt64](repeating: 0, count: NoiseTransport.seenWords)
     private var closed = false
 
     public init(_ result: HandshakeResult) {
@@ -76,7 +83,7 @@ public final class NoiseTransport {
         if behind >= Self.replayWindow {
             throw Noise.NoiseError(code: "E_NOISE_REPLAY", message: "sequence \(seq) is outside the replay window")
         }
-        if (seen >> behind) & 1 == 1 {
+        if (seen[Int(behind / 64)] >> (behind % 64)) & 1 == 1 {
             throw Noise.NoiseError(code: "E_NOISE_REPLAY", message: "sequence \(seq) was already accepted")
         }
     }
@@ -84,15 +91,37 @@ public final class NoiseTransport {
     private func markSeen(_ seq: UInt64) {
         guard let highest = highestSeq else {
             highestSeq = seq
-            seen = 1
+            seen[0] = 1
             return
         }
         if seq > highest {
-            let shift = seq - highest
-            seen = shift >= Self.replayWindow ? 1 : (seen << shift) | 1
+            shiftSeen(seq - highest)
+            seen[0] |= 1
             highestSeq = seq
         } else {
-            seen |= 1 << (highest - seq)
+            let behind = highest - seq
+            seen[Int(behind / 64)] |= 1 << (behind % 64)
+        }
+    }
+
+    /// Age the window by n: bit i moves to bit i+n, and bits that move past
+    /// the window are gone.
+    private func shiftSeen(_ n: UInt64) {
+        guard n < Self.replayWindow else {
+            seen = [UInt64](repeating: 0, count: Self.seenWords)
+            return
+        }
+        let words = Int(n / 64), bits = n % 64
+        for i in stride(from: Self.seenWords - 1, through: 0, by: -1) {
+            var w: UInt64 = 0
+            let j = i - words
+            if j >= 0 {
+                w = seen[j] << bits
+                if bits > 0 && j > 0 {
+                    w |= seen[j - 1] >> (64 - bits)
+                }
+            }
+            seen[i] = w
         }
     }
 }

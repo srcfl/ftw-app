@@ -79,6 +79,9 @@ public struct WebSocketEvents {
     public var onBinary: @MainActor (Bytes) -> Void
     /// Close code and reason. A socket that failed to open closes with 1006.
     public var onClose: @MainActor (Int, String) -> Void
+    /// A message that came as a QUIC datagram, which the network may drop,
+    /// repeat or bring late. Without it a datagram goes to `onBinary`.
+    public var onDatagram: (@MainActor (Bytes) -> Void)? = nil
 }
 
 public typealias WebSocketFactory = @MainActor (_ url: URL, _ events: WebSocketEvents) -> WebSocketConnection

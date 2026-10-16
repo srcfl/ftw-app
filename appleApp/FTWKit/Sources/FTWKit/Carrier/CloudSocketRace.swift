@@ -6,14 +6,17 @@ import Foundation
 /// the WebSocket starts too, and the first to open carries the session. The
 /// winner on each network goes first next time, and the other still gets
 /// its 250 ms. Where UDP is blocked the session waits a quarter of a second
-/// longer than it would on the WebSocket alone, and only the first time.
+/// longer than it would on the WebSocket alone, and only the first time. A
+/// QUIC session that fails soon after it opened demotes QUIC on that network
+/// for a day.
 @MainActor
 public final class CloudTransportMemory {
     /// The network the phone is on now: its interfaces and gateways.
     private let network: @MainActor () -> String
     private let now: @MainActor () -> Double
     private let defaults: UserDefaults?
-    /// Network, as a hash, to the winner and when it won.
+    /// Network, as a hash, to the winner ("t"), when it won ("at") and
+    /// whether QUIC was demoted there ("d").
     private var winners: [String: [String: Any]] = [:]
     static let key = "ftw.cloud.transports"
     /// A winner holds for a day, so a network that blocked UDP once gets
@@ -37,8 +40,35 @@ public final class CloudTransportMemory {
         return t == Contract.transportWebSocket ? Contract.transportWebSocket : Contract.transportQUIC
     }
 
+    /// The winner on this network. While QUIC is demoted here, a QUIC win
+    /// does not move it first.
     func remember(_ transport: String) {
-        winners[here()] = ["t": transport, "at": now()]
+        let key = here()
+        if transport == Contract.transportQUIC, let w = winners[key], w["d"] as? Bool == true,
+           let at = w["at"] as? Double, now() - at < Self.holdsMs {
+            return
+        }
+        store(key, ["t": transport, "at": now()])
+    }
+
+    /// QUIC failed here after its handshake: the WebSocket goes first for a
+    /// day, whatever a QUIC dial wins meanwhile.
+    func demote() {
+        store(here(), ["t": Contract.transportWebSocket, "at": now(), "d": true])
+    }
+
+    /// Whether QUIC is demoted on this network now.
+    func demoted() -> Bool {
+        guard let w = winners[here()], w["d"] as? Bool == true, let at = w["at"] as? Double else { return false }
+        return now() - at < Self.holdsMs
+    }
+
+    /// Writes one entry and drops those past a day, so the list holds only
+    /// the networks of the last day.
+    private func store(_ key: String, _ entry: [String: Any]) {
+        let cutoff = now() - Self.holdsMs
+        winners = winners.filter { ($0.value["at"] as? Double ?? 0) > cutoff }
+        winners[key] = entry
         defaults?.set(winners, forKey: Self.key)
     }
 
@@ -56,6 +86,20 @@ public enum CloudSockets {
     /// gets through here: one lost packet should not keep QUIC second for a
     /// day.
     public static let learnMs: Double = 3_000
+    /// How long a QUIC session must last past its first message before the
+    /// path dropping it stops counting as QUIC failing here. The same as
+    /// cloudwire.QUICProvenAfter.
+    public static let provenAfterMs: Double = 60_000
+
+    /// Whether a QUIC session that ended with code counts as QUIC failing on
+    /// its network: it ended before its first message, or within
+    /// `provenAfterMs` of it, and not by a close the service sent on purpose,
+    /// a code from 1000 up other than 1005 and 1006, which mean none.
+    static func quicFailed(code: Int, firstMessageAtMs: Double?, nowMs: Double) -> Bool {
+        if (1000...4999).contains(code), code != 1005, code != 1006 { return false }
+        guard let first = firstMessageAtMs else { return true }
+        return nowMs - first < provenAfterMs
+    }
 
     /// A socket factory that races QUIC against the WebSocket.
     public static func racing(quic: @escaping WebSocketFactory, webSocket: @escaping WebSocketFactory,
@@ -78,6 +122,8 @@ final class RacingCloudSocket: WebSocketConnection {
     private var lead: Cancellable?
     private var learning: Cancellable?
     private var closed = false
+    /// When the winner's first message came, for `quicFailed`.
+    private var firstMessageAtMs: Double?
 
     var transportName: String { winner ?? order[0] }
 
@@ -129,9 +175,15 @@ final class RacingCloudSocket: WebSocketConnection {
             },
             onBinary: { [weak self] bytes in
                 guard let self, self.winner == transport else { return }
+                self.heard()
                 self.events.onBinary(bytes)
             },
-            onClose: { [weak self] code, reason in self?.ended(transport, code, reason) }
+            onClose: { [weak self] code, reason in self?.ended(transport, code, reason) },
+            onDatagram: { [weak self] bytes in
+                guard let self, self.winner == transport else { return }
+                self.heard()
+                if let onDatagram = self.events.onDatagram { onDatagram(bytes) } else { self.events.onBinary(bytes) }
+            }
         ))
         sockets[transport] = socket
     }
@@ -166,9 +218,17 @@ final class RacingCloudSocket: WebSocketConnection {
         sockets[transport] = nil
     }
 
+    private func heard() {
+        if firstMessageAtMs == nil { firstMessageAtMs = scheduler.nowMs }
+    }
+
     private func ended(_ transport: String, _ code: Int, _ reason: String) {
         guard !closed else { return }
         if winner == transport {
+            if transport == Contract.transportQUIC,
+               CloudSockets.quicFailed(code: code, firstMessageAtMs: firstMessageAtMs, nowMs: scheduler.nowMs) {
+                memory.demote()
+            }
             closed = true
             events.onClose(code, reason)
             return

@@ -222,6 +222,10 @@ public final class CloudCarrier {
             onClose: { [weak self] code, _ in
                 guard let self, mine == self.generation else { return }
                 self.closed(code: code)
+            },
+            onDatagram: { [weak self] bytes in
+                guard let self, mine == self.generation else { return }
+                self.receive(bytes, datagram: true)
             }
         ))
     }
@@ -252,15 +256,16 @@ public final class CloudCarrier {
         }
     }
 
-    private func receive(_ bytes: Bytes) {
+    private func receive(_ bytes: Bytes, datagram: Bool = false) {
         let arrival = scheduler.nowMs
         if let transport {
             let frame: Bytes
             do {
                 frame = try transport.decrypt(bytes)
-            } catch let e as Noise.NoiseError where e.code == "E_NOISE_REPLAY" {
-                // Over QUIC a datagram can come after newer messages, past
-                // the window: it is old news, and the session goes on.
+            } catch let e as Noise.NoiseError where e.code == "E_NOISE_REPLAY" && datagram {
+                // A datagram may come late, past the window, or twice: it is
+                // old news, and the session goes on. On a stream the same is
+                // a broken session.
                 return
             } catch {
                 fail(code: CloudWire.closeProtocol, retrying: true)

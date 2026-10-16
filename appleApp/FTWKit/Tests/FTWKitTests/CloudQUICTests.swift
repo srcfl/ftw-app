@@ -209,6 +209,59 @@ struct CloudSocketRaceTests {
         #expect(memory.first() == Contract.transportQUIC, "a day on, QUIC goes first again")
     }
 
+    /// A QUIC session that ends before its first message counts as QUIC
+    /// failing here, as against a door that finished the handshake and then
+    /// closed: the WebSocket goes first, and a QUIC win does not undo it.
+    @Test func aQUICSessionThatEndsBeforeItsFirstMessageDemotesQUIC() {
+        let rig = RaceRig()
+        let conn = rig.dial()
+        rig.socket(Contract.transportQUIC)!.events.onOpen()
+        rig.socket(Contract.transportQUIC)!.events.onClose(0x110, "")
+        withExtendedLifetime(conn) {}
+        #expect(rig.memory.demoted())
+        #expect(rig.memory.first() == Contract.transportWebSocket)
+        rig.memory.remember(Contract.transportQUIC)
+        #expect(rig.memory.first() == Contract.transportWebSocket, "a QUIC win moved QUIC first within the day")
+    }
+
+    /// The path dropping a session within a minute of its first message
+    /// counts too; past a minute, or by a close the service sent on purpose,
+    /// it does not.
+    @Test func whatCountsAsQUICFailing() {
+        #expect(CloudSockets.quicFailed(code: 1006, firstMessageAtMs: nil, nowMs: 0))
+        #expect(CloudSockets.quicFailed(code: 1006, firstMessageAtMs: 0, nowMs: 10_000))
+        #expect(!CloudSockets.quicFailed(code: 1006, firstMessageAtMs: 0, nowMs: 120_000))
+        #expect(!CloudSockets.quicFailed(code: CloudWire.closeDenied, firstMessageAtMs: nil, nowMs: 0))
+        #expect(!CloudSockets.quicFailed(code: 4503, firstMessageAtMs: 0, nowMs: 1_000))
+        #expect(CloudSockets.quicFailed(code: 0x110, firstMessageAtMs: nil, nowMs: 0))
+    }
+
+    @Test func aSessionThatHeardAndLastedIsNotDemoted() {
+        let rig = RaceRig()
+        let conn = rig.dial()
+        let quic = rig.socket(Contract.transportQUIC)!
+        quic.events.onOpen()
+        quic.events.onBinary([1])
+        rig.scheduler.advance(CloudSockets.provenAfterMs + 1)
+        quic.events.onClose(1006, "")
+        withExtendedLifetime(conn) {}
+        #expect(rig.closes == [1006])
+        #expect(!rig.memory.demoted())
+        #expect(rig.memory.first() == Contract.transportQUIC)
+    }
+
+    @Test func theMemoryKeepsOnlyTheLastDay() {
+        let defaults = UserDefaults(suiteName: "ftw-quic-test-\(UUID().uuidString)")!
+        var here = "wifi"
+        var now: Double = 1_790_000_000_000
+        let memory = CloudTransportMemory(network: { here }, now: { now }, defaults: defaults)
+        memory.remember(Contract.transportQUIC)
+        here = "cellular"
+        now += CloudTransportMemory.holdsMs + 1
+        memory.remember(Contract.transportWebSocket)
+        #expect((defaults.dictionary(forKey: CloudTransportMemory.key) ?? [:]).count == 1)
+    }
+
     @Test func noNetworkNameIsKeptInTheClear() {
         let defaults = UserDefaults(suiteName: "ftw-quic-test-\(UUID().uuidString)")!
         let memory = CloudTransportMemory(network: { "wifi,192.168.1.1" }, defaults: defaults)
@@ -221,10 +274,10 @@ struct CloudSocketRaceTests {
 
 @MainActor
 struct CloudCarrierOverQUICTests {
-    /// Over QUIC a datagram can come after many newer messages, past the
-    /// Noise window. It is old news: the carrier drops it and the session
-    /// goes on, where a broken message still ends it.
-    @Test func aMessagePastTheWindowIsDroppedAndTheSessionGoesOn() async throws {
+    /// Over QUIC a datagram can come late, past the Noise window, or twice.
+    /// It is old news: the carrier drops it and the session goes on, where a
+    /// broken message still ends it.
+    @Test func aDatagramPastTheWindowIsDroppedAndTheSessionGoesOn() async throws {
         let rig = try CloudRig()
         rig.carrier.start()
         await rig.run(50)
@@ -233,15 +286,37 @@ struct CloudCarrierOverQUICTests {
         let hb = try rig.box.hb(rig.at, age: 900, liveSeq: 1)
         let frame = try CloudWire.encodeFrame(hb.encode())
         let late = try transport.encrypt(frame)
-        for _ in 0..<70 { socket.deliver(try transport.encrypt(frame)) }
-        socket.deliver(late)
+        for _ in 0..<1_100 { socket.deliver(try transport.encrypt(frame)) }
+        socket.deliverDatagram(late)
         await rig.run(30)
-        #expect(rig.carrier.status.isOpen, "a late message closed the session")
-        #expect(rig.envelopes.count == 70)
+        #expect(rig.carrier.status.isOpen, "a late datagram closed the session")
+        #expect(rig.envelopes.count == 1_100)
 
         socket.deliver([0, 1, 2, 3])
         await rig.run(30)
         #expect(!rig.carrier.status.isOpen, "a broken message must still end it")
+    }
+
+    /// A burst of a hundred on the bulk stream overtakes a message on the
+    /// control stream by one packet: the window takes the late one. The same
+    /// message on a stream again is a broken session.
+    @Test func aBurstOfAHundredCanOvertakeAControlMessage() async throws {
+        let rig = try CloudRig()
+        rig.carrier.start()
+        await rig.run(50)
+        let socket = try #require(rig.service.current)
+        let transport = try #require(socket.transport)
+        let frame = try CloudWire.encodeFrame(try rig.box.hb(rig.at, age: 900, liveSeq: 1).encode())
+        let control = try transport.encrypt(frame)
+        for _ in 0..<100 { socket.deliver(try transport.encrypt(frame)) }
+        socket.deliver(control)
+        await rig.run(30)
+        #expect(rig.carrier.status.isOpen, "the overtaken message closed the session")
+        #expect(rig.envelopes.count == 101)
+
+        socket.deliver(control)
+        await rig.run(30)
+        #expect(!rig.carrier.status.isOpen, "a replay on a stream must end the session")
     }
 
     /// The session says how it travels: here the fake's WebSocket.

@@ -179,4 +179,52 @@ import Testing
         forged[forged.count - 1] ^= 1
         #expect(throws: Noise.NoiseError.self) { _ = try app.decrypt(forged) }
     }
+
+    /// The window spans 16 words. Frames in a shuffled order, over shifts
+    /// of every size, open exactly as a plain record of what was seen says
+    /// they should; the same as appwire's test in srcfl/ftw.
+    @Test func theWindowMatchesARecordOfWhatWasSeen() throws {
+        let box = Primitives.generateKeyPair()
+        let appKey = Primitives.generateKeyPair()
+        let i = try HandshakeState.initiator(staticKey: appKey, remoteStatic: box.publicKey)
+        let r = HandshakeState.responder(staticKey: box)
+        _ = try r.readMessage(try i.writeMessage())
+        _ = try i.readMessage(try r.writeMessage())
+        let app = NoiseTransport(try i.split())
+        let boxSide = NoiseTransport(try r.split())
+        let n = 3_000
+        let wires = try (0..<n).map { try boxSide.encrypt([UInt8($0 & 0xff)]) }
+        var rng = SplitMix(seed: 1)
+        let window = Int(NoiseTransport.replayWindow)
+        var order = Array(0..<n)
+        for k in order.indices {
+            let j = min(order.count - 1, k + Int(rng.next() % UInt64(2 * window)))
+            order.swapAt(k, j)
+        }
+        for _ in 0..<(n / 10) { order.append(Int(rng.next() % UInt64(n))) }
+        var seen = Set<Int>()
+        var highest = -1
+        for k in order {
+            let want = !seen.contains(k) && (highest < 0 || k > highest || highest - k < window)
+            let got = (try? app.decrypt(wires[k])) != nil
+            #expect(got == want, "frame \(k) with highest \(highest)")
+            if got {
+                seen.insert(k)
+                highest = max(highest, k)
+            }
+        }
+    }
+}
+
+/// A small seeded generator, so the shuffle is the same on every run.
+struct SplitMix {
+    var state: UInt64
+    init(seed: UInt64) { state = seed }
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
 }
