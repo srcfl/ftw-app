@@ -183,8 +183,9 @@ final class WatchBridge: NSObject {
         lookTime = nil
     }
 
-    /// Now's readings to the watch as each frame lands, until the watch
-    /// looks away, stops being reachable, or says nothing for `lookMs`.
+    /// Now's readings to the watch as what it shows moves, and once a second
+    /// otherwise, until the watch looks away, stops being reachable, or says
+    /// nothing for `lookMs`.
     private func forwardNow(_ home: HomeModels) async {
         Self.log.info("watch looks: sending Now")
         let frames = FrameWatch(site: home.site)
@@ -194,18 +195,19 @@ final class WatchBridge: NSObject {
             frames.stop()
             done()
         }
-        var lastAt: Double?
         // The reply to the look: the last three minutes first, so the trace
         // opens whole, then Now as it stands.
         send(news: .recent(WatchShare.recent(home, nowMs: nowMs)))
-        send(news: WatchShare.now(home).map(WatchNews.now))
+        var last = WatchShare.now(home)
+        send(news: last.map(WatchNews.now))
         forwardedAtMs = nowMs
         // Ends when the look is let go; a watch out of reach meanwhile gets
         // nothing, and its reachability ends the look.
         for await _ in frames.stream {
             guard session?.isReachable == true else { continue }
-            guard let record = WatchShare.now(home), record.readAtMs != lastAt else { continue }
-            lastAt = record.readAtMs
+            // At most a message a second unless what the wrist shows moved.
+            guard let record = WatchShare.now(home), WatchShare.worthSending(record, after: last) else { continue }
+            last = record
             send(news: .now(record))
             forwardedAtMs = nowMs
         }

@@ -52,13 +52,34 @@ import FTWShared
     }
 
     @MainActor
-    @Test func theRingHoldsTenMinutesAndNoMore() {
+    @Test func theRingHoldsFiveMinutesAtTheFastestAndNoMore() {
         let trace = LiveTrace()
-        for i in 0..<(LiveTrace.capacity + 50) { trace.record([Contract.FID.gridW: Double(i)], atMs: Double(i) * 1000) }
+        // Five frames a second, the most the box sends through FTW Cloud.
+        for i in 0..<(LiveTrace.capacity + 50) { trace.record([Contract.FID.gridW: Double(i)], atMs: Double(i) * 200) }
         let points = trace.points(Contract.FID.gridW, sinceMs: 0)
         #expect(points.count == LiveTrace.capacity)
         #expect(points.first?.v == 50)
         #expect(points.last?.v == Double(LiveTrace.capacity + 49))
+        #expect(points.last!.t - points.first!.t >= LiveTrace.windowMs - 200)
+    }
+
+    /// Frames come as readings land, so most carry another device's news.
+    /// A device whose value did not move repeats once a second, as it did
+    /// at 1 Hz, and its curve keeps one run.
+    @MainActor
+    @Test func aFrameThatCarriesAnotherDevicesReadingAddsNoPoint() {
+        let trace = LiveTrace()
+        let t0 = 1_000_000.0
+        for i in 0..<50 {
+            trace.record([Contract.FID.gridW: Double(1000 + i), Contract.FID.pvW: -2000], atMs: t0 + Double(i) * 200)
+        }
+        #expect(trace.points(Contract.FID.gridW, sinceMs: 0).count == 50)
+        let pv = trace.points(Contract.FID.pvW, sinceMs: 0)
+        #expect(pv.count == 10)
+        #expect(Set(LiveTrace.runs(pv).map(\.run)).count == 1)
+        // A move goes in at once, whatever the last point's age.
+        trace.record([Contract.FID.pvW: -2100], atMs: t0 + 50 * 200)
+        #expect(trace.points(Contract.FID.pvW, sinceMs: 0).last?.v == -2100)
     }
 
     @MainActor

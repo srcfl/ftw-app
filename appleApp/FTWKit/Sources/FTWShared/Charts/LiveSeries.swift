@@ -15,6 +15,21 @@ public struct LiveSample: Equatable, Sendable {
         self.v = v
         self.seen = seen
     }
+
+    /// Through FTW Cloud frames come as readings land, up to five a second,
+    /// and most carry another device's news. A value a trace holds, read
+    /// again within this, adds no point; a device that did not move still
+    /// repeats once a second, as at 1 Hz. The phone's ring keeps the same
+    /// rule (FTWKit `LiveTrace.repeatMs`).
+    public static let repeatMs: Double = 1_000
+
+    /// Whether `next` adds a point after `last`: it is newer, and its value
+    /// or sight moved, or a second has passed.
+    public static func adds(_ next: LiveSample, after last: LiveSample?) -> Bool {
+        guard let last else { return true }
+        guard next.t > last.t else { return false }
+        return next.v != last.v || next.seen != last.seen || next.t - last.t >= repeatMs
+    }
 }
 
 /// The live trace's geometry, built once per reading off the main actor.
@@ -417,6 +432,16 @@ extension LiveSeries {
             out.append(Point(t: headT, v: oldHead.v + (newHead.v - oldHead.v) * p, seen: newHead.seen))
         }
         return out
+    }
+
+    /// This series as its slide from `old` draws it at `progress`: the last
+    /// run where the slide has it now. A reading that lands mid-slide slides
+    /// on from here, instead of jumping to where the last slide was headed.
+    public func midSlide(from old: LiveSeries, progress: Double) -> LiveSeries {
+        guard let curve = sliding(from: old, progress: progress), !curves.isEmpty else { return self }
+        var s = self
+        s.curves[s.curves.count - 1] = curve
+        return s
     }
 
     /// A curve as line and body paths in this geometry, for one frame of a

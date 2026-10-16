@@ -278,7 +278,7 @@ final class NodeTraceModel {
         let resized = size.height != self.size.height
         self.size = size
         let series = built
-        frame = TraceFrame(series: series, previous: resized ? nil : frame?.series, arrivedAt: now)
+        frame = resized ? TraceFrame(series: series, previous: nil, arrivedAt: now) : TraceFrame(series: series, after: frame, arrivedAt: now)
         if playing, let last = series.last, series.domain.span > 0 {
             AXLiveAudioGraph.updateValue((last.v - series.domain.lower) / series.domain.span)
         }

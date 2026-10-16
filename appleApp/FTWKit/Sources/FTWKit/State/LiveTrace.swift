@@ -90,9 +90,16 @@ public final class LiveTrace {
 
     /// What a node's live curve shows.
     public nonisolated static let windowMs: Double = 5 * 60_000
-    /// Ten minutes at 1 Hz. Hidden, at 0.2 Hz, the same room lasts longer,
-    /// and the window still shows only the last five minutes.
-    nonisolated static let capacity = 600
+    /// Five minutes at the box's fastest: through FTW Cloud it sends each
+    /// reading as it lands, at most five frames a second. A slower stream
+    /// fills the same room more slowly, and the window still shows only the
+    /// last five minutes.
+    nonisolated static let capacity = 1_500
+    /// A value the ring already holds, read again within this, adds no
+    /// point: a frame that carries another device's reading is not a new
+    /// reading of this one. A slow device still repeats once a second, as
+    /// it did when the box streamed at 1 Hz.
+    nonisolated static let repeatMs: Double = 1_000
     /// Past this a silence in a 1 Hz stream is a gap: it misses a beat now
     /// and then, and three are a stream that stopped. Each source says its
     /// own (`SiteModel.readingGapMs`); this is the box's stream in front.
@@ -105,8 +112,8 @@ public final class LiveTrace {
         public var toMs: Double?
     }
 
-    /// Moves once per recorded reading, so a curve redraws once a second
-    /// and nothing else does.
+    /// Moves once per recorded reading, so a curve redraws when a value
+    /// moves, or once a second while none does, and nothing else does.
     public private(set) var revision = 0
     /// Nil when nothing was restored at launch.
     public private(set) var resumed: Resumed?
@@ -157,6 +164,7 @@ public final class LiveTrace {
             var ring = rings[fid] ?? RingBuffer(capacity: Self.capacity)
             let last = ring.last
             if let last, atMs <= last.t { continue }
+            if let last, !last.restored, last.v == v, atMs - last.t < Self.repeatMs { continue }
             let run: Int
             if let last, !last.restored, atMs - last.t <= holds[fid, default: gapMs] {
                 run = last.run
@@ -256,7 +264,8 @@ public final class LiveTrace {
 
 /// The live rings as `ring-<site>` keeps them: per field, times as steps in
 /// whole ms after the first, the values, and where each run starts. About
-/// 15 KB for five minutes of Now's fields.
+/// 15 KB for five minutes of Now's fields read once a second, and up to five
+/// times that when a fast driver moves them five times a second.
 struct RingFile: Codable, Equatable, Sendable {
     static let version = 1
 

@@ -38,15 +38,21 @@ final class WatchTrace {
     }
 
     /// One frame from the phone. `lit` says whether it came live just now.
+    /// A frame the trace already has, an older one, or one that only
+    /// repeats a value within a second adds nothing (`LiveSample.adds`), and
+    /// the trace is built again only when a point came or the glow changed.
     func add(_ record: CacheRecord<WatchNow>, lit: Bool) {
+        var added = false
         for r in record.value.readings {
             guard let v = r.signedW else { continue }
             var run = samples[r.node, default: []]
-            // A frame the trace already has, or an older one, adds nothing.
-            if let last = run.last, last.t >= record.readAtMs { continue }
-            run.append(LiveSample(t: record.readAtMs, v: v, seen: lit && r.live))
+            let sample = LiveSample(t: record.readAtMs, v: v, seen: lit && r.live)
+            guard LiveSample.adds(sample, after: run.last) else { continue }
+            run.append(sample)
             samples[r.node] = Self.cut(run, to: record.readAtMs)
+            added = true
         }
+        guard added || live != lit else { return }
         live = lit
         rebuild(keepScale: true)
     }
@@ -123,7 +129,7 @@ final class WatchTrace {
             previous: keepScale ? frame?.series.domain : nil,
             floor: node.floorW
         )
-        frame = TraceFrame(series: series, previous: keepScale ? frame?.series : nil, arrivedAt: now)
+        frame = keepScale ? TraceFrame(series: series, after: frame, arrivedAt: now) : TraceFrame(series: series, previous: nil, arrivedAt: now)
     }
 
     /// Each node's colours, as on the phone: one hue each side of zero; the
