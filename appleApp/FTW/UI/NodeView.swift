@@ -91,7 +91,9 @@ struct NodeView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             models.history.activate()
-            models.plan.activate(forecast: node == .solar || node == .home)
+            // Every node: Today draws the sun's and the home's forecast as
+            // the rest of the day, beside whatever series it shows.
+            models.plan.activate(forecast: true)
             models.mode.activate()
             models.sources.activate(node)
             home.prices.activate()
@@ -101,7 +103,7 @@ struct NodeView: View {
         }
         .onDisappear {
             models.history.deactivate()
-            models.plan.deactivate(forecast: node == .solar || node == .home)
+            models.plan.deactivate(forecast: true)
             models.mode.deactivate()
             models.sources.deactivate(node)
             home.prices.deactivate()
@@ -159,11 +161,10 @@ struct NodeView: View {
                 .accessibilityHidden(!chips)
                 .fixedSize(horizontal: false, vertical: true)
             // A tap opens it on the whole screen, growing out of this one.
-            NodeChart(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, series: series, text: text)
+            // The chart's own overlay tells a tap from a scrub.
+            NodeChart(site: site, node: node, home: home, trace: trace, scrub: scrub, timebase: timebase, series: series, text: text, onTap: { enlarged = true })
                 .frame(minHeight: 200, idealHeight: 200, maxHeight: chartMax ?? 200)
                 .padding(.horizontal, 4)
-                .contentShape(Rectangle())
-                .simultaneousGesture(TapGesture().onEnded { enlarged = true })
                 .overlay(alignment: .topTrailing) {
                     EnlargeButton(scrub: scrub) { enlarged = true }
                         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
@@ -246,22 +247,38 @@ final class NodeTraceModel {
     var shown: TraceFrame? { held ?? frame }
 
     /// `gapMs` is the silence the source in use allows before the line
-    /// breaks.
-    func build(_ samples: [LiveSample], node: EnergyNode, gapMs: Double, size: CGSize) {
+    /// breaks. `plot` gives the plot's size for a scale, since the right
+    /// gutter holds the scale's widest label: the trace is built for the
+    /// scale on screen, and again when the new scale needs another width.
+    /// The scale comes from the window's own readings; a node other than
+    /// the home rests below `Flow.idleW`.
+    func build(_ samples: [LiveSample], node: EnergyNode, gapMs: Double, plot: (YDomain?) -> CGSize) {
+        let previous = frame?.series.domain
+        var size = plot(previous)
         guard size.width > 0, size.height > 0 else { return }
-        let resized = size != self.size
-        self.size = size
         let now = Date()
-        let series = LiveSeries.build(
-            samples,
-            sourceGapMs: gapMs,
-            windowMs: LiveTrace.windowMs,
-            nowMs: now.timeIntervalSince1970 * 1000,
-            size: size,
-            previous: frame?.series.domain,
-            floor: node.scaleFloorW()
-        )
-        frame = TraceFrame(series: series, previous: resized ? nil : frame?.series, arrivedAt: now)
+        func make(_ size: CGSize) -> LiveSeries {
+            LiveSeries.build(
+                samples,
+                sourceGapMs: gapMs,
+                windowMs: LiveTrace.windowMs,
+                nowMs: now.timeIntervalSince1970 * 1000,
+                size: size,
+                previous: previous,
+                restW: node == .home ? 0 : Flow.idleW
+            )
+        }
+        var built = make(size)
+        if plot(built.domain) != size {
+            size = plot(built.domain)
+            built = make(size)
+        }
+        // A new height starts over; a new width keeps the slide, which
+        // works in time and watts.
+        let resized = size.height != self.size.height
+        self.size = size
+        let series = built
+        frame = resized ? TraceFrame(series: series, previous: nil, arrivedAt: now) : TraceFrame(series: series, after: frame, arrivedAt: now)
         if playing, let last = series.last, series.domain.span > 0 {
             AXLiveAudioGraph.updateValue((last.v - series.domain.lower) / series.domain.span)
         }
@@ -539,19 +556,21 @@ private struct NodeChart: View {
     let timebase: NodeView.Timebase
     let series: [EnergyNode]
     let text: PeriodText
+    /// A tap that never became a scrub; nil on the whole screen.
+    var onTap: (() -> Void)?
 
     var body: some View {
         ZStack {
             switch timebase {
             case .live:
-                LiveChartArea(site: site, node: node, live: home.nodes.live, trace: trace, scrub: scrub)
+                LiveChartArea(site: site, node: node, live: home.nodes.live, trace: trace, scrub: scrub, onTap: onTap)
                     .transition(.opacity)
             case .today, .twoDays:
-                HistoryChartArea(site: site, node: node, home: home, scrub: scrub, period: timebase, series: series, text: text)
+                HistoryChartArea(site: site, node: node, home: home, scrub: scrub, period: timebase, series: series, text: text, onTap: onTap)
                     .transition(.opacity)
                     .accessibilityIdentifier("node.period.chart")
             case .ahead:
-                AheadChartArea(site: site, node: node, home: home, scrub: scrub, text: text)
+                AheadChartArea(site: site, node: node, home: home, scrub: scrub, text: text, onTap: onTap)
                     .transition(.opacity)
                     .accessibilityIdentifier("node.period.chart")
             }
@@ -650,13 +669,20 @@ private struct LiveChartArea: View {
     let live: LiveTrace
     let trace: NodeTraceModel
     let scrub: ScrubModel
+    var onTap: (() -> Void)?
     @State private var size: CGSize = .zero
     @ScaledMetric(relativeTo: .caption2) private var axis: CGFloat = 10
     @ScaledMetric(relativeTo: .caption) private var tag: CGFloat = 11
 
+    /// The frame for a scale: the right gutter holds its widest label.
+    private func chartFrame(_ domain: YDomain?) -> ChartFrame {
+        ChartFrame(top: tag * 1.35 + 8, bottom: 6, trailing: ChartAxes.gutter(domain, axis: axis))
+    }
+
     var body: some View {
         let revision = live.revision
-        let chartFrame = ChartFrame(top: tag * 1.35 + 8, bottom: 6, trailing: axis * 3.2)
+        // The frame the trace on screen was built for.
+        let drawn = chartFrame(trace.shown?.series.domain)
         // The same colours as every other chart of this node.
         let look = NodeChartLook.look(node)
         let isLive = site.freshness(node).live
@@ -665,10 +691,10 @@ private struct LiveChartArea: View {
             // geometry knows its size.
             Color.clear
             if let frame = trace.shown {
-                LiveTraceSurface(frame: frame, look: look, live: isLive, chartFrame: chartFrame, frozenAtMs: trace.frozenAtMs, catchUp: trace.catchUp, axisSize: axis)
+                LiveTraceSurface(frame: frame, look: look, live: isLive, chartFrame: drawn, frozenAtMs: trace.frozenAtMs, catchUp: trace.catchUp, axisSize: axis)
                 LiveScrubOverlay(
                     frame: frame,
-                    chartFrame: chartFrame,
+                    chartFrame: drawn,
                     model: scrub,
                     viewMs: trace.frozenAtMs ?? Date().timeIntervalSince1970 * 1000,
                     look: look,
@@ -678,14 +704,15 @@ private struct LiveChartArea: View {
                         let slice = frame.readings[r]
                         let mean = slice.map(\.v).reduce(0, +) / Double(max(1, slice.count))
                         return Readouts.seconds(slice.first!.t) + "–" + Readouts.seconds(slice.last!.t) + "  " + NodeWords.format("avg %@", AppWords.power(abs(mean)))
-                    }
+                    },
+                    onTap: onTap
                 )
             }
         }
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
-        .onChange(of: revision, initial: true) { rebuild(chartFrame) }
-        .onChange(of: size) { rebuild(chartFrame) }
+        .onChange(of: revision, initial: true) { rebuild() }
+        .onChange(of: size) { rebuild() }
         .accessibilityElement()
         .accessibilityLabel(L("Live, the last five minutes"))
         .accessibilityChartDescriptor(LiveDescriptor(node: node, readings: trace.frame?.readings ?? []))
@@ -726,13 +753,13 @@ private struct LiveChartArea: View {
     }
     #endif
 
-    private func rebuild(_ chartFrame: ChartFrame) {
-        let plot = chartFrame.plot(in: size).size
+    private func rebuild() {
+        let size = size
         #if DEBUG
         let began = ContinuousClock.now
         defer { TraceCost.log.debug("trace built in \((ContinuousClock.now - began) / .microseconds(1), format: .fixed(precision: 0)) µs") }
         #endif
-        trace.build(live.samples(node, sinceMs: Date().timeIntervalSince1970 * 1000 - LiveTrace.windowMs - 10_000), node: node, gapMs: site.readingGapMs, size: plot)
+        trace.build(live.samples(node, sinceMs: Date().timeIntervalSince1970 * 1000 - LiveTrace.windowMs - 10_000), node: node, gapMs: site.readingGapMs) { chartFrame($0).plot(in: size).size }
     }
 
 }

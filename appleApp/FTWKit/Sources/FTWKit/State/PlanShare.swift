@@ -135,7 +135,10 @@ public final class PlanShare {
     }
 
     func check() {
+        // A pushed plan moves the battery and each car's windows in one go,
+        // so the record never holds one without the other.
         plan.sync()
+        loadpoints.takePlan()
         // Nothing to say until the box has sent a plan in this session.
         guard let s = plan.stamped, !s.fromCache, let sent = plan.receivedAtMs else { return }
         let key = self.key

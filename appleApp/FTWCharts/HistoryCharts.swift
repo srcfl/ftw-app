@@ -48,7 +48,7 @@ struct HistoryDrawing: ChartDrawing {
         let toShown = TraceInk.rescale(picture.domain, shown, height: plot.height)
         let base = YMap(domain: shown, height: plot.height).baseline
 
-        ChartAxes.draw(in: &g, plot: plot, domain: picture.domain, px: px, axis: axis, look: primary.flatMap { looks[$0] }, shown: shown)
+        ChartAxes.draw(in: &g, plot: plot, domain: picture.domain, px: px, axis: axis, look: primary.flatMap { looks[$0] }, shown: shown, reach: picture.reach(width: plot.width))
 
         var p = g
         p.clip(to: Path(CGRect(x: plot.minX, y: plot.minY - 12, width: plot.width, height: plot.height + 24)))
@@ -70,6 +70,26 @@ struct HistoryDrawing: ChartDrawing {
                 var s = p
                 s.opacity = 1 - k
                 TraceInk.line(Path(gone.series.line.cgPath).applying(TraceInk.rescale(from.domain, shown, height: plot.height)), look: look, width: TraceInk.otherLine, glows: false, above: above, below: below, in: s)
+            }
+        }
+
+        // The rest of the day: the plan's or the forecast's ghost, as Ahead
+        // draws it, from now on.
+        if let now = picture.nowMs {
+            let x = picture.grid.x(atMs: now, width: plot.width)
+            var ahead = p
+            ahead.clip(to: Path(CGRect(x: x, y: -40, width: plot.width - x + 20, height: plot.height + 80)))
+            for layer in picture.layers.reversed() {
+                guard let ghost = layer.ghost else { continue }
+                let look = looks[layer.key] ?? TraceLook(up: Theme.ink2, down: Theme.ink2)
+                var faded = ahead
+                if from != nil, from?.layers.first(where: { $0.key == layer.key })?.ghost == nil, k < 1 { faded.opacity = k }
+                switch ghost.kind {
+                case .plan:
+                    Ghost.bars(ghost.values, grid: ghost.grid, look: look, width: plot.width, map: YMap(domain: shown, height: plot.height), scale: 1 / px, px: px, in: faded)
+                case .forecast:
+                    Ghost.forecast(Path(ghost.line.cgPath).applying(toShown), look: look, in: faded)
+                }
             }
         }
 
@@ -154,21 +174,25 @@ struct HistoryDrawing: ChartDrawing {
 
 /// The hours ahead, in one Canvas: a plan's quarters as ghost bars (a
 /// faint fill with a 1 px cap, equal neighbours merged), or a forecast's
-/// dashed line, and the price under the same slots as block bars in ink by
-/// thirds. The now rule sits at the left edge. A new plan or forecast for
-/// the same slots slides each slot to its new value, and a new scale
-/// springs, as on the live trace.
+/// dashed line through its own slots, and the price under the same slots
+/// as a strip of block bars, flat in ink at 0.32 and as tall as Now's, so
+/// it never speaks louder than the plan. The now rule sits at the left
+/// edge. A new plan or forecast for the same slots slides each slot to its
+/// new value, and a new scale springs, as on the live trace.
 struct AheadDrawing: ChartDrawing {
     let picture: AheadPicture
     let look: TraceLook
     let frame: ChartFrame
     var axis: CGFloat = 10
     var nowWord = "NOW"
-    /// The price strip's height inside the frame's bottom.
-    var strip: CGFloat = 18
+    /// The price strip's height inside the frame's bottom: Now's price row.
+    var strip: CGFloat = AheadDrawing.stripHeight
     var from: AheadPicture?
     var slide: Double = 1
     var spring: Double = 1
+
+    /// Now's price row at its least: eight levels of 2.5 pt.
+    static let stripHeight: CGFloat = 20
 
     func draw(in g: inout GraphicsContext, size: CGSize) {
         let plot = frame.plot(in: size)
@@ -179,41 +203,31 @@ struct AheadDrawing: ChartDrawing {
         let mixed = from.flatMap { picture.blended(from: $0, progress: slide) }
         let values = mixed?.values ?? picture.values
 
-        ChartAxes.draw(in: &g, plot: plot, domain: picture.domain, px: px, axis: axis, look: look, shown: shown)
+        let reach = values.indices.compactMap { i in values[i].map { ChartReach(x: picture.grid.x(atMs: picture.grid.startMs(i), width: plot.width), low: $0, high: $0) } }
+        ChartAxes.draw(in: &g, plot: plot, domain: picture.domain, px: px, axis: axis, look: look, shown: shown, reach: reach)
 
         var p = g
         p.translateBy(x: plot.minX, y: plot.minY)
         switch picture.kind {
         case .plan:
-            for run in ChartPaths.runs(values, grid: picture.grid, width: plot.width, map: map, scale: scale, maxRadius: 4) {
-                let color = run.value >= 0 ? look.up : look.down
-                let r = run.rect
-                let radii = run.value > 0
-                    ? RectangleCornerRadii(topLeading: run.radius, bottomLeading: 0, bottomTrailing: 0, topTrailing: run.radius)
-                    : RectangleCornerRadii(topLeading: 0, bottomLeading: run.radius, bottomTrailing: run.radius, topTrailing: 0)
-                p.fill(Path(roundedRect: r, cornerRadii: radii, style: .circular), with: .color(color.opacity(0.14)))
-                var cap = Path()
-                let y = run.value > 0 ? r.minY + px / 2 : r.maxY - px / 2
-                cap.move(to: CGPoint(x: r.minX + run.radius, y: y))
-                cap.addLine(to: CGPoint(x: r.maxX - run.radius, y: y))
-                p.stroke(cap, with: .color(color.opacity(0.7)), style: StrokeStyle(lineWidth: px, lineCap: .round, lineJoin: .round))
-            }
+            Ghost.bars(values, grid: picture.grid, look: look, width: plot.width, map: map, scale: scale, px: px, in: p)
         case .forecast:
             // An estimate, so dashed, like the estimate across a hole.
-            let line = mixed == nil && shown == picture.domain ? picture.line : AheadPicture.forecastLine(values, grid: picture.grid, domain: shown, size: plot.size)
-            p.stroke(Path(line.cgPath), with: .color(look.up.opacity(0.5)), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round, dash: [3, 4]))
+            let line = Path((mixed?.line ?? picture.line).cgPath).applying(TraceInk.rescale(picture.domain, shown, height: plot.height))
+            Ghost.forecast(line, look: look, in: p)
         }
 
-        // The price strip: block bars in eight steps, ink by thirds.
+        // The price strip: block bars in eight steps, flat in ink at 0.32.
         let stripTop = plot.maxY + 6
         let w = plot.width / CGFloat(max(1, picture.grid.count))
+        var bars = Path()
         for i in 0..<picture.grid.count {
-            guard let level = picture.priceLevels[i], let third = picture.priceThirds[i] else { continue }
+            guard let level = picture.priceLevels[i] else { continue }
             let h = strip * CGFloat(level) / 8
             let x = plot.minX + CGFloat(i) * w
-            let rect = CGRect(x: (x * scale).rounded() / scale, y: stripTop + strip - h, width: max(px, ((w - px) * scale).rounded() / scale), height: h)
-            g.fill(Path(rect), with: .color(Theme.ink.opacity(third == .cheap ? 0.32 : third == .middle ? 0.5 : 0.8)))
+            bars.addRect(CGRect(x: (x * scale).rounded() / scale, y: stripTop + strip - h, width: max(px, ((w - px) * scale).rounded() / scale), height: h))
         }
+        g.fill(bars, with: .color(Theme.ink.opacity(0.32)))
 
         // Now at the left edge, through the plot and the strip.
         let x = plot.minX + (picture.grid.x(atMs: picture.nowMs, width: plot.width) / px).rounded() * px + px / 2
@@ -225,20 +239,52 @@ struct AheadDrawing: ChartDrawing {
     }
 }
 
+/// What the box plans or forecasts, drawn the same on Ahead and on the
+/// rest of Today.
+enum Ghost {
+    /// A plan's slots as ghost bars: a faint fill in each direction's
+    /// colour with a 1 px cap, equal neighbours merged, on `g` translated
+    /// to the plot.
+    static func bars(_ values: [Double?], grid: SlotGrid, look: TraceLook, width: CGFloat, map: YMap, scale: CGFloat, px: CGFloat, in g: GraphicsContext) {
+        for run in ChartPaths.runs(values, grid: grid, width: width, map: map, scale: scale, maxRadius: 4) {
+            let color = run.value >= 0 ? look.up : look.down
+            let r = run.rect
+            let radii = run.value > 0
+                ? RectangleCornerRadii(topLeading: run.radius, bottomLeading: 0, bottomTrailing: 0, topTrailing: run.radius)
+                : RectangleCornerRadii(topLeading: 0, bottomLeading: run.radius, bottomTrailing: run.radius, topTrailing: 0)
+            g.fill(Path(roundedRect: r, cornerRadii: radii, style: .circular), with: .color(color.opacity(0.14)))
+            var cap = Path()
+            let y = run.value > 0 ? r.minY + px / 2 : r.maxY - px / 2
+            cap.move(to: CGPoint(x: r.minX + run.radius, y: y))
+            cap.addLine(to: CGPoint(x: r.maxX - run.radius, y: y))
+            g.stroke(cap, with: .color(color.opacity(0.7)), style: StrokeStyle(lineWidth: px, lineCap: .round, lineJoin: .round))
+        }
+    }
+
+    /// A forecast: an estimate, so a dashed line, at half strength.
+    static func forecast(_ line: Path, look: TraceLook, in g: GraphicsContext) {
+        g.stroke(line, with: .color(look.up.opacity(0.5)), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round, dash: [3, 4]))
+    }
+}
+
 /// The axes every chart on the engine draws in its own Canvas.
 enum ChartAxes {
     /// Zero as one device pixel; a dotted gridline and a magnitude in the
     /// right gutter at each end of the scale; the direction words, only
-    /// when the scale holds both signs.
-    static func draw(in g: inout GraphicsContext, plot: CGRect, domain: YDomain, px: CGFloat, axis: CGFloat, look: TraceLook?, shown: YDomain? = nil) {
+    /// when the scale holds both signs and, given `reach`, only in a corner
+    /// no data runs through (`CornerWords`). `zero` false leaves zero to
+    /// the chart: a source at rest draws it dotted.
+    static func draw(in g: inout GraphicsContext, plot: CGRect, domain: YDomain, px: CGFloat, axis: CGFloat, look: TraceLook?, shown: YDomain? = nil, reach: [ChartReach]? = nil, zero drawsZero: Bool = true) {
         // Labels name the scale the chart is going to; zero sits where the
         // scale on its way puts it.
         let map = YMap(domain: domain, height: plot.height)
         let base = plot.minY + (YMap(domain: shown ?? domain, height: plot.height).baseline / px).rounded() * px + px / 2
-        var zero = Path()
-        zero.move(to: CGPoint(x: plot.minX, y: base))
-        zero.addLine(to: CGPoint(x: plot.maxX, y: base))
-        g.stroke(zero, with: .color(Theme.ink.opacity(0.35)), style: StrokeStyle(lineWidth: px, lineCap: .butt, lineJoin: .round))
+        if drawsZero {
+            var zero = Path()
+            zero.move(to: CGPoint(x: plot.minX, y: base))
+            zero.addLine(to: CGPoint(x: plot.maxX, y: base))
+            g.stroke(zero, with: .color(Theme.ink.opacity(0.35)), style: StrokeStyle(lineWidth: px, lineCap: .butt, lineJoin: .round))
+        }
         for v in [domain.upper, domain.lower] where v != 0 {
             let y = plot.minY + map.y(v)
             var line = Path()
@@ -248,9 +294,23 @@ enum ChartAxes {
             g.draw(g.resolve(ChartText.label(PowerFormat.scale(abs(v)), size: axis)), at: CGPoint(x: plot.maxX + 4, y: y), anchor: .leading)
         }
         if domain.lower < 0, domain.upper > 0, let look {
-            if let up = look.upWord { g.draw(g.resolve(ChartText.label(up, size: axis)), at: CGPoint(x: plot.minX + 2, y: plot.minY + 2), anchor: .topLeading) }
-            if let down = look.downWord { g.draw(g.resolve(ChartText.label(down, size: axis)), at: CGPoint(x: plot.minX + 2, y: plot.maxY - 2), anchor: .bottomLeading) }
+            let on = YMap(domain: shown ?? domain, height: plot.height)
+            func clear(_ word: String, top: Bool) -> Bool {
+                reach.map { CornerWords.clear(word, size: axis, top: top, data: $0, map: on) } ?? true
+            }
+            let inset = CornerWords.inset
+            if let up = look.upWord, clear(up, top: true) {
+                g.draw(g.resolve(ChartText.label(up, size: axis)), at: CGPoint(x: plot.minX + inset, y: plot.minY + inset), anchor: .topLeading)
+            }
+            if let down = look.downWord, clear(down, top: false) {
+                g.draw(g.resolve(ChartText.label(down, size: axis)), at: CGPoint(x: plot.minX + inset, y: plot.maxY - inset), anchor: .bottomLeading)
+            }
         }
+    }
+
+    /// The right gutter for a power scale's labels at `axis`.
+    static func gutter(_ domain: YDomain?, axis: CGFloat) -> CGFloat {
+        ChartGutter.trailing(domain.map(ChartGutter.scaleLabels) ?? ["0 W"], size: axis)
     }
 
     /// The hour labels on the bottom row, and NOW under the now rule; a

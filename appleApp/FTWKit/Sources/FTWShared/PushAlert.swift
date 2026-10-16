@@ -26,11 +26,14 @@ public enum PushKind {
     public static let boxUnreachable = "box.unreachable"
     public static let cloudGranted = "cloud.granted"
     public static let cloudRevoked = "cloud.revoked"
+    /// The box asks which car is on a charger. The buttons, one per car,
+    /// come with the car app (docs/cars.md in srcfl/ftw).
+    public static let carWhich = "car.which"
 
     /// In the catalogue's order.
     public static let all = [
         chargingConnected, chargingSessionComplete, chargingGoalAtRisk, chargingInterrupted, updateInstalled,
-        driverOffline, fuseOverLimit, boxUnreachable, cloudGranted, cloudRevoked,
+        driverOffline, fuseOverLimit, boxUnreachable, cloudGranted, cloudRevoked, carWhich,
     ]
 }
 

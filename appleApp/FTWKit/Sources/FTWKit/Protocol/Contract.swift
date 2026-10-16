@@ -7,7 +7,9 @@ import Foundation
 /// and `ContractTests` reads the registry back and fails when anything has
 /// stopped matching. Add nothing here that is not in the registry.
 public enum Contract {
-    /// One object axis, two verb axes: `<object>.<read|write>`.
+    /// An object and a verb: `<object>.<read|write|run|hold|request>`.
+    /// read and write are a phone's; run, hold and request are an agent's
+    /// (docs/agents.md in srcfl/ftw).
     public static let scopes = [
         "ftw.live.read",
         "ftw.history.read",
@@ -19,6 +21,14 @@ public enum Contract {
         "ftw.mode.write",
         "ftw.members.read",
         "ftw.members.write",
+        "ftw.logs.read",
+        "ftw.config.read",
+        "ftw.diag.run",
+        "ftw.dispatch.hold",
+        "ftw.goals.request",
+        "ftw.update.request",
+        "ftw.cars.read",
+        "ftw.cars.write",
     ]
 
     public static let roleOwner = "owner"
@@ -47,7 +57,7 @@ public enum Contract {
         "cmd.lease", "cmd.precondition", "cmd.readback",
         "der.battery", "der.ev", "der.v2x",
         "plan.dispatch", "net.webrtc", "price.spot", "api.passthrough",
-        "cloud.link", "cloud.tun", "cmd.exchange",
+        "cloud.link", "cloud.tun", "cmd.exchange", "access.agents", "der.car",
     ]
 
     public static let capHistory5m = "history.5m"
@@ -77,8 +87,39 @@ public enum Contract {
     public static let opLoadpointBoost = "loadpoint.boost"
     public static let opLoadpointSocSet = "loadpoint.soc.set"
     public static let opLoadpointSurplusOnlySet = "loadpoint.surplus_only.set"
+    /// Cars (docs/cars.md in srcfl/ftw). A box offers them with `der.car`.
+    public static let opCarGoalSet = "car.goal.set"
+    public static let opCarSocSet = "car.soc.set"
+    public static let opSessionCarSet = "session.car.set"
+    public static let opCarAdd = "car.add"
+    public static let opCarUpdate = "car.update"
+    public static let opCarRemove = "car.remove"
 
-    public static let ops = [opSetMode, opPlannerPrefsSet, opBatteryHold, opLoadpointHold, opLoadpointBoost, opLoadpointSocSet, opLoadpointSurplusOnlySet]
+    public static let ops = [
+        opSetMode, opPlannerPrefsSet, opBatteryHold, opLoadpointHold, opLoadpointBoost, opLoadpointSocSet, opLoadpointSurplusOnlySet,
+        opCarGoalSet, opCarSocSet, opSessionCarSet, opCarAdd, opCarUpdate, opCarRemove,
+    ]
+
+    /// The box keeps cars apart from chargers. Absent, the charger is the
+    /// car, as before.
+    public static let capDerCar = "der.car"
+
+    /// A car's names on the wire, from the registry's `car_fields`: a dotted
+    /// name is a field of the object before the dot. The box spells each
+    /// one in snake_case on its HTTP routes.
+    public static let carFields = [
+        "id", "boxMinted", "ownerId", "name", "make", "vin", "capacityWh", "maxW", "phases",
+        "socPermille", "socSource", "socAgeS", "energySinceWh", "socEstimate", "chargeLimitPermille",
+        "goal", "goal.targetPermille", "goal.readyByMin", "goal.days", "goal.finishAtLimit",
+        "surplusOnly", "identifiers", "sources",
+    ]
+    /// Where a car's level comes from.
+    public static let carSocSources = ["vehicle", "manual", "assumed"]
+    /// How the box knows which car is on a charger. `asking` means the box
+    /// raised `car.which` and waits for a tap.
+    public static let carIdentifiedBy = ["charger", "car", "only", "tap", "asking", "none"]
+    /// What a charger carries about the car on it.
+    public static let chargerCarFields = ["session", "carId", "carIdentifiedBy", "carCorrected", "carCorrectedFrom", "choose"]
 
     /// The box's dispatch modes and where each is drawn. The box sends its
     /// own catalogue and is the authority on what exists; this copy is for
@@ -138,6 +179,16 @@ public enum Contract {
         "E_UNSUPPORTED_MEDIA": false,
         "E_WHOLE_DOCUMENT": false,
         "E_LOCAL_ONLY": false,
+        "E_GRANT_EXPIRED": false,
+        "E_OP_NOT_GRANTED": false,
+        "E_CAP_EXCEEDED": false,
+        "E_RATE_LIMITED": true,
+        "E_NEEDS_OWNER": false,
+        "E_BAD_SIGNATURE": false,
+        "E_NO_APPROVAL_KEY": false,
+        "E_NOT_FOUND": false,
+        "E_CLOCK_SKEW": true,
+        "E_DUPLICATE": false,
         "E_RESPONSE_TOO_LARGE": false,
         "E_NO_ACK": true,
         "E_NO_ANSWER": true,

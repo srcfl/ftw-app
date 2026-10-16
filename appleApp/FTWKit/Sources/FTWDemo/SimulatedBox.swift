@@ -49,6 +49,17 @@ public final class SimulatedBox {
     /// `time_of_day_min` on the household clock. Off, it is a Core that
     /// knows only `time_of_day_min_utc`.
     public var readsHouseholdClock = true
+    /// A Core with srcfl/ftw#1643 puts each charger's share on the plan and
+    /// pushes the plan when it replans. Off, it is a Core that does neither.
+    public var pushesPlan = true
+    /// How long the box takes to replan after a cable, a goal, a level or
+    /// solar-only charging: its checks, the solve and the push's settle. The
+    /// plan is pending meanwhile. A hold replans nothing, as in Core.
+    public var replanMs: Double = 300
+    private var replanning: Cancellable?
+    /// How long an API answer waits to leave after the box made it: a slow
+    /// box, whose answer can land after a newer push.
+    public var answerDelayMs: Double = 0
     /// The last schedule body the app sent, as sent.
     public private(set) var lastScheduleBody: JSON?
     /// The box the demo is showing, for the demo's own controls (plug the
@@ -398,9 +409,11 @@ public final class SimulatedBox {
             house.carSocSource = "inferred"
             house.carReportedAtMs = house.carReportedAtMs.map { min($0, scheduler.nowMs - 1) }
             result(cmdId, "applied", observed: house.carSocFraction)
+            replan()
         case Contract.opLoadpointSurplusOnlySet:
             house.surplusOnly = args["surplus_only"]?.bool ?? false
             result(cmdId, "applied", observed: house.surplusOnly ? 1 : 0)
+            replan()
         default:
             result(cmdId, "rejected", error: ("E_UNKNOWN_OP", []))
         }
@@ -482,7 +495,11 @@ public final class SimulatedBox {
             break
         }
         let (status, json) = answer(method, route.pattern, route.id, query, requestBody)
-        respond(id, status: status, json: json)
+        guard answerDelayMs > 0 else {
+            respond(id, status: status, json: json)
+            return
+        }
+        scheduler.after(answerDelayMs) { [weak self] in self?.respond(id, status: status, json: json) }
     }
 
     /// Core's answer to "Are we in control?" for the demo's battery and
@@ -607,9 +624,11 @@ public final class SimulatedBox {
                 Int(body?["days"]?.number ?? 0),
                 body?["surplus_unlock_bat_soc"]?.number ?? 0
             )
+            replan()
             return (200, ["ok": true])
         case ("DELETE", "/api/loadpoints/{id}/schedule"):
             house.schedule = nil
+            replan()
             return (200, ["ok": true])
         default:
             return (404, [:])
@@ -642,8 +661,8 @@ public final class SimulatedBox {
             "manual_charge_w": h.manualHoldW.map { .number($0) } ?? .null,
             "surplus_only": .bool(h.surplusOnly),
             "charger": ["known": true, "available": true, "updated_at_ms": .number(scheduler.nowMs - 2_000)],
-            "plan_pending": false,
-            "plan_outdated": false,
+            "plan_pending": .bool(replanning != nil),
+            "plan_outdated": .bool(replanning != nil),
             "commanded_known": true,
             "commanded_w": .number(h.evWatts),
             "commanded_reason": "",
@@ -695,7 +714,7 @@ public final class SimulatedBox {
                 lp = lp.setting("target_time", .string(ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: deadline / 1000))))
             }
         }
-        if let p = h.carPlan(now), p.endMs > p.startMs, p.endMs > now {
+        if replanning == nil, let p = h.carPlan(now), p.endMs > p.startMs, p.endMs > now {
             lp = lp.setting("plan_windows", [["start_ms": .number(p.startMs.rounded()), "end_ms": .number(p.endMs.rounded()), "wh": .number(p.wh)]])
             lp = lp.setting("plan_next_start_ms", .number(p.startMs.rounded()))
             lp = lp.setting("plan_next_end_ms", .number(p.endMs.rounded()))
@@ -832,6 +851,9 @@ extension SimulatedBox {
         // another planning style.
         if UserDefaults.standard.bool(forKey: "FTWDemoUnpublished") { box.publishHour = 24 }
         if UserDefaults.standard.object(forKey: "FTWDemoSafetyK") != nil { box.house.safetyK = UserDefaults.standard.double(forKey: "FTWDemoSafetyK") }
+        // For the live chart's pictures: `-FTWDemoBatteryW 450` holds the
+        // battery near 450 W, charging, with a few watts of noise.
+        if UserDefaults.standard.object(forKey: "FTWDemoBatteryW") != nil { box.house.heldBatteryW = UserDefaults.standard.double(forKey: "FTWDemoBatteryW") }
         // For recordings of light and its decay: `-FTWDemoQuiet 8` keeps
         // the box quiet for 8 s in every 16, so Now goes from live to quiet
         // and back.
@@ -851,6 +873,46 @@ extension SimulatedBox {
     /// Plug the demo car in or out.
     public func setCarPluggedIn(_ on: Bool) {
         if on { house.plugIn() } else { house.unplug() }
+        replan()
+    }
+
+    /// The charger's share of the plan, as Core puts it on the plan it
+    /// sends. A box that keeps no cars names none.
+    func planCharger(nowMs: Double) -> PlanCharger {
+        let pending = replanning != nil
+        var car = PlanCharger(id: "garage", pluggedIn: house.carPluggedIn, pending: pending, outdated: pending, goalRev: goalRev, windows: [], totalWh: 0)
+        if let p = house.carPlan(nowMs), p.endMs > p.startMs, p.endMs > nowMs {
+            car.windows = [Loadpoint.Window(fromMs: p.startMs.rounded(), toMs: p.endMs.rounded(), peakW: nil, energyWh: p.wh)]
+            car.totalWh = p.wh
+            car.shortfallWh = pending ? nil : p.shortfallWh
+        }
+        return car
+    }
+
+    /// Moves when the goal or solar-only choice does, as Core's does.
+    var goalRev: UInt32 {
+        let s = house.schedule
+        let text = "\(s.map { "\($0.socFraction) \($0.clockMin) \($0.recurring) \($0.days)" } ?? "-") \(house.surplusOnly)"
+        return text.utf8.reduce(2_166_136_261) { ($0 ^ UInt32($1)) &* 16_777_619 }
+    }
+
+    /// Something the plan depends on changed: the box replans, saying so
+    /// meanwhile. A box that pushes sends the plan when the replan starts,
+    /// pending, and again when the new one is made.
+    public func replan() {
+        replanning?.cancel()
+        replanning = scheduler.after(replanMs) { [weak self] in
+            guard let self else { return }
+            self.replanning = nil
+            self.house.planRev += 1
+            self.pushPlan()
+        }
+        pushPlan()
+    }
+
+    private func pushPlan() {
+        guard pushesPlan, subscription != nil else { return }
+        sendBulk(Envelope(t: "plan", b: sessionPlan().wire))
     }
 }
 

@@ -7,7 +7,9 @@ import FTWShared
 /// Cloud hands it to the box under the device its own handshake proved. `d`
 /// is the box session byte for byte, Noise to the box's key, so FTW Cloud
 /// can drop or delay a frame and can neither read nor forge one. Lane 0
-/// keeps its padding and cadence inside it.
+/// keeps its padding inside it. The box sends each reading as it lands
+/// rather than on a one-second pulse, and a beat when nothing moves for
+/// the subscribed period.
 ///
 /// One socket instead of two: the box session's message 1 waits for the app
 /// session's message 1 and rides inside it, so the box session is up one

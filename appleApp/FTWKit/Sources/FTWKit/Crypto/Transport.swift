@@ -12,10 +12,12 @@ import Foundation
 public final class NoiseTransport {
     public static let seqBytes = 8
     public static let overhead = seqBytes + Noise.tagBytes
-    /// How far out of order a frame may arrive and still open. Over QUIC,
-    /// FTW Cloud carries one session's frames on two streams and in
+    /// How far out of order a frame may arrive and still open. Through FTW
+    /// Cloud lane 0 goes up to five a second, while the box's link holds a
+    /// paced bulk frame at most about 9 s (srcfl/ftw `cloudlink.MaxBulkWait`).
+    /// Over QUIC one session's frames also travel on two streams and in
     /// datagrams, so a burst of bulk frames, a few hundred at most, can
-    /// overtake a frame on the control stream. 1024 covers that in 128
+    /// overtake a frame on the control stream. 1024 covers both in 128
     /// bytes. The same as appwire.ReplayWindow in srcfl/ftw.
     public static let replayWindow: UInt64 = 1024
     private static let seenWords = Int(replayWindow / 64)

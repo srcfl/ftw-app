@@ -87,12 +87,17 @@ native, and smooth enough to impress.
   the time from process start to the first frame and the first content;
   quote the numbers in any PR that touches launch.
 - **The handshake runs beside the first frame, never ahead of it.**
-- **No timer loops.** Lane 0 drives Now. Until the box streams charger
-  state (M5, or FTW Cloud C3), the chargers are read when someone starts
-  looking and the last read is over a minute old, after a command, and
-  when the stream says the car started or stopped drawing. The plan's
-  shortfall is read when the car view opens and when the car's plan
-  changes.
+- **No timer loops.** Lane 0 drives Now. The box pushes its plan, with
+  each charger's windows, cable and shortfall, whenever it replans, and Now,
+  the plan, the car view and the watch redraw from that push. The chargers
+  are read when someone starts looking and the last read is over a minute
+  old, after a command, when the stream says the car started or stopped
+  drawing, when FTW Cloud or a pushed plan says a cable went in or out, and
+  when a pushed plan says a goal changed elsewhere.
+  A box whose plan comes without chargers pushes none: its chargers are also
+  read each quarter while a car is plugged in and every 15 s while its plan
+  is being made or for a minute after a cable moved, and its shortfall
+  when the car view opens and when the car's plan changes.
 - **Ask by the data's age.** `LiveAsk` names what it wants by how old the
   data is (the five minutes, the quarter, the day) and keeps an answer
   while that name holds. A view appearing or a redial asks only when the
@@ -326,8 +331,10 @@ strip, with gold for the battery giving power.
 - **The app expresses intent; the box decides.**
 - **Positive watts flow into the site, negative out.** The UI never shows a
   raw minus sign.
-- **Lane 0 frames are byte-identical in length and constant in cadence.**
-  A test enforces this.
+- **Lane 0 frames are byte-identical in length.** A test enforces this.
+  Over the relay they also keep a constant cadence. Through FTW Cloud the
+  box sends each reading as it lands, and a beat once per subscribed
+  period when nothing moves, so nothing may assume one frame a second.
 - **The cache is a cache, never the original.**
 - **The cache key is not PRF-wrapped.** Cold start paints before Face ID.
   PRF gates enrollment and privileged commands, not reading.

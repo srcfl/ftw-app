@@ -193,4 +193,24 @@ import FTWShared
         await rig.run(6_000)
         #expect(await frames(over: 20_000) <= 6)
     }
+
+    /// Through FTW Cloud frames come up to five a second. The watch hears
+    /// one when what it shows moves, and otherwise once a second.
+    @Test func theWatchHearsAMoveAtOnceAndOtherwiseOnceASecond() {
+        func now(_ watts: Double, at t: Double, live: Bool = true) -> CacheRecord<WatchNow> {
+            CacheRecord(siteId: "s", carrier: .tunnel, srcState: .live, readAtMs: t,
+                        value: WatchNow(readings: [.init(node: .grid, watts: watts, way: .buying, live: live)], control: .inControl))
+        }
+        let last = now(1_234, at: 10_000)
+        // 1.2 kW either way: nothing the wrist shows moved.
+        #expect(!WatchShare.worthSending(now(1_236, at: 10_200), after: last))
+        #expect(WatchShare.worthSending(now(1_236, at: 11_000), after: last))
+        // 1.7 kW: a move goes at once.
+        #expect(WatchShare.worthSending(now(1_650, at: 10_200), after: last))
+        // The glow going out is a move too.
+        #expect(WatchShare.worthSending(now(1_234, at: 10_200, live: false), after: last))
+        #expect(!WatchShare.worthSending(now(1_650, at: 9_000), after: last))
+        #expect(WatchShare.worthSending(last, after: nil))
+    }
+
 }

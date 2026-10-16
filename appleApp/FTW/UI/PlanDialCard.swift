@@ -14,6 +14,18 @@ private let signposts = OSSignposter(subsystem: "energy.ftw.app", category: .poi
 /// car's goal. On lift the hand springs back to now. VoiceOver steps it an
 /// hour at a time.
 ///
+/// The dial sits in the plan's scroll, so a finger on the ring scrubs only
+/// once it moves along the ring or rests 0.1 s (`RingIntent`); a move up or
+/// down, or across the ring, scrolls the page. While it scrubs, the page
+/// holds still (`holds`). The screen's leading 20 pt are the back swipe's.
+///
+/// The ring has no gesture of its own: any gesture there, even one beside
+/// the scroll's, held the page still for every swipe that started on the
+/// ring (the simulator showed it for a drag, a long press, raw touches and
+/// a 6 pt drag alike). The page takes every touch beside its scroll and
+/// hands it here (`DialTouch`); the dial asks whether it started on the
+/// ring.
+///
 /// The face never sees the finger. Only the hand and the middle read the
 /// scrub model, so a drag redraws those two, once per quarter.
 struct PlanDialCard: View {
@@ -22,12 +34,15 @@ struct PlanDialCard: View {
     let grey: Bool
     /// The dial before the person's last change, while its plan stands.
     var fade: DialFade?
+    /// True while a finger scrubs: the page around holds still.
+    @Binding var holds: Bool
+    /// The page's touches, handed on.
+    let touch: DialTouch
 
     @State private var scrub = ScrubModel()
     /// The quarter the finger was last on, so it cannot wind past the seam.
     /// Written on every drag event and read by nothing that draws.
     @State private var finger = Finger()
-    @State private var side: CGFloat = 0
     /// Where VoiceOver has stepped to.
     @State private var spoken: Int?
 
@@ -48,11 +63,27 @@ struct PlanDialCard: View {
         .aspectRatio(1, contentMode: .fit)
         .frame(maxWidth: 340)
         .frame(maxWidth: .infinity)
-        .onGeometryChange(for: CGFloat.self) { min($0.size.width, $0.size.height) } action: { side = $0 }
-        // Only the ring takes a finger, so a drag from the middle scrolls
-        // the page.
-        .contentShape(DialRing(), eoFill: true)
-        .gesture(drag)
+        // Where the dial is on the screen, for the page's touches: written
+        // to a plain reference, so a scroll redraws nothing here.
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { finger.frame = $0 }
+        .onChange(of: dial, initial: true) { _, now in finger.dial = now }
+        .onAppear {
+            touch.changed = { value in
+                // A new touch has a new start; one the system took away
+                // never ended.
+                if finger.startAt != value.startLocation {
+                    end()
+                    start(value)
+                }
+                move(value)
+            }
+            touch.ended = { end() }
+        }
+        .onDisappear {
+            touch.changed = nil
+            touch.ended = nil
+            end()
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(PlanDial.title)
         .accessibilityValue(spokenValue(spoken ?? 0))
@@ -64,26 +95,97 @@ struct PlanDialCard: View {
         #endif
     }
 
-    /// Each drag event costs a little arithmetic and one lookup and writes
-    /// nothing a view reads. A change of quarter moves the scrub model.
-    private var drag: some Gesture {
-        DragGesture(minimumDistance: 0)
-            .onChanged { follow($0.location) }
-            .onEnded { _ in
-                finger.previous = nil
-                withAnimation(Theme.spring) { scrub.lift() }
-            }
+    /// The dial's side and its centre in its own frame, which is the whole
+    /// width the dial sits in.
+    private var side: CGFloat { min(finger.frame.width, finger.frame.height) }
+    private var centre: CGPoint { CGPoint(x: finger.frame.width / 2, y: finger.frame.height / 2) }
+
+    /// Where a point on the screen sits in the dial's frame.
+    private func local(_ p: CGPoint) -> CGPoint {
+        CGPoint(x: p.x - finger.frame.minX, y: p.y - finger.frame.minY)
+    }
+
+    /// A finger came down somewhere on the page. The dial takes it only on
+    /// the ring (`DialRing`), and never within 20 pt of the screen's
+    /// leading edge, where the back swipe starts.
+    private func start(_ v: DragGesture.Value) {
+        finger.startAt = v.startLocation
+        finger.startMs = ProcessInfo.processInfo.systemUptime * 1000
+        finger.decision = nil
+        guard v.startLocation.x >= EdgeRule.edge, DialRing.contains(local(v.startLocation), in: CGRect(origin: .zero, size: finger.frame.size)) else {
+            finger.decision = .pass
+            return
+        }
+        finger.hold = Task {
+            try? await Task.sleep(for: .milliseconds(Int(RingIntent.holdMs)))
+            guard !Task.isCancelled else { return }
+            rested()
+        }
+    }
+
+    /// Each event costs a little arithmetic and writes nothing a view
+    /// reads, until the touch is a scrub. A change of quarter moves the
+    /// scrub model.
+    private func move(_ v: DragGesture.Value) {
+        let at = local(v.location)
+        finger.last = at
+        guard finger.decision == nil else {
+            if finger.decision == .scrub { follow(at) }
+            return
+        }
+        let ms = ProcessInfo.processInfo.systemUptime * 1000
+        let held = ms - (finger.startMs ?? ms)
+        let decision = RingIntent.decide(start: local(v.startLocation), now: at, centre: centre, heldMs: held)
+        if decision != nil {
+            DialLog.log.debug("dial decides after \(Int(held)) ms on a move of \(Double(v.translation.width), format: .fixed(precision: 1)), \(Double(v.translation.height), format: .fixed(precision: 1)) pt")
+        }
+        decide(decision, at: at)
+    }
+
+    /// No move came, and the finger rests on the ring: it scrubs.
+    private func rested() {
+        guard finger.decision == nil, let at = finger.last else { return }
+        DialLog.log.debug("dial rested \(Int(RingIntent.holdMs)) ms")
+        decide(.scrub, at: at)
+    }
+
+    private func decide(_ decision: RingIntent.Decision?, at p: CGPoint) {
+        guard let decision else { return }
+        finger.decision = decision
+        finger.hold?.cancel()
+        switch decision {
+        case .scrub:
+            DialLog.log.debug("dial scrubs")
+            holds = true
+            follow(p)
+        case .pass:
+            DialLog.log.debug("dial passes the touch to the page")
+        }
+    }
+
+    private func end() {
+        guard finger.startMs != nil else { return }
+        finger.hold?.cancel()
+        finger.hold = nil
+        finger.startAt = nil
+        finger.startMs = nil
+        finger.decision = nil
+        finger.last = nil
+        finger.previous = nil
+        if holds { holds = false }
+        if scrub.isDown { withAnimation(Theme.spring) { scrub.lift() } }
     }
 
     private func follow(_ p: CGPoint) {
         let event = signposts.beginInterval("dial drag")
         defer { signposts.endInterval("dial drag", event) }
         guard side > 0 else { return }
-        let i = dial.index(x: p.x - side / 2, y: p.y - side / 2, from: finger.previous)
+        let now = finger.dial ?? dial
+        let i = now.index(x: p.x - centre.x, y: p.y - centre.y, from: finger.previous)
         finger.previous = i
         guard i != scrub.index else { return }
         signposts.emitEvent("dial quarter")
-        scrub.move(to: i, landmark: dial.landmarks.contains(i))
+        scrub.move(to: i, landmark: now.landmarks.contains(i))
     }
 
     // MARK: VoiceOver
@@ -116,7 +218,7 @@ struct PlanDialCard: View {
             let t = (ContinuousClock.now - began) / .milliseconds(6_000)
             let along = t < 1 ? t : 2 - t
             let a = dial.seam + 0.01 + along * (2 * .pi - 0.02)
-            follow(CGPoint(x: side / 2 + r * sin(a), y: side / 2 - r * cos(a)))
+            follow(CGPoint(x: centre.x + r * sin(a), y: centre.y - r * cos(a)))
             try? await Task.sleep(for: .milliseconds(8))
         }
         finger.previous = nil
@@ -125,11 +227,34 @@ struct PlanDialCard: View {
     #endif
 }
 
-/// The finger's last quarter: a plain reference, so a drag event writes
-/// nothing SwiftUI watches.
+/// The finger's last quarter, what its touch is, and where the dial sits:
+/// a plain reference, so a touch or a scroll writes nothing SwiftUI
+/// watches.
 @MainActor
 private final class Finger {
     var previous: Int?
+    /// Where and when the touch came down, on the screen.
+    var startAt: CGPoint?
+    var startMs: Double?
+    var decision: RingIntent.Decision?
+    var last: CGPoint?
+    var hold: Task<Void, Never>?
+    /// On the screen.
+    var frame: CGRect = .zero
+    /// The dial on screen: the page's handler outlives a minute's dial.
+    var dial: PlanDial?
+}
+
+/// The plan page's touches, handed to the dial: the page holds the one
+/// gesture, beside its scroll, and the dial says what each touch is.
+@MainActor
+final class DialTouch {
+    var changed: ((DragGesture.Value) -> Void)?
+    var ended: (() -> Void)?
+}
+
+private enum DialLog {
+    static let log = Logger(subsystem: "energy.ftw.app", category: "scrub")
 }
 
 /// The hand and the lock-on, the only marks that move with a finger.
@@ -181,13 +306,10 @@ private struct DialCentre: View {
 }
 
 /// Where a finger scrubs: the ring of ticks and the rim, not the middle.
-private struct DialRing: Shape {
-    func path(in rect: CGRect) -> Path {
+private enum DialRing {
+    static func contains(_ p: CGPoint, in rect: CGRect) -> Bool {
         let side = min(rect.width, rect.height)
-        let inner = side * 0.26
-        var path = Path()
-        path.addEllipse(in: CGRect(x: rect.midX - side / 2, y: rect.midY - side / 2, width: side, height: side))
-        path.addEllipse(in: CGRect(x: rect.midX - inner, y: rect.midY - inner, width: inner * 2, height: inner * 2))
-        return path
+        let r = hypot(p.x - rect.midX, p.y - rect.midY)
+        return r >= side * 0.26 && r <= side / 2
     }
 }

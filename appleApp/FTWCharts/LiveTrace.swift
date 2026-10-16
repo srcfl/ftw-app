@@ -40,6 +40,20 @@ struct TraceFrame: Equatable {
         var beforeBodyUnseen = Path()
         /// Dotted baselines across the silences.
         var gaps = Path()
+        /// A source at rest: the dotted baseline under its readings.
+        var rest = Path()
+    }
+
+    /// The frame after `old`. Its slide starts where `old` draws its head
+    /// now, so a reading that lands while the last one still slides carries
+    /// on from there rather than jumping to where that slide was headed.
+    init(series: LiveSeries, after old: TraceFrame?, arrivedAt: Date) {
+        var from = old?.series
+        if let old, let before = old.previous {
+            let progress = TraceInk.ease(arrivedAt.timeIntervalSince(old.arrivedAt), TraceInk.slide)
+            if progress < 1 { from = old.series.midSlide(from: before, progress: progress) }
+        }
+        self.init(series: series, previous: from, arrivedAt: arrivedAt)
     }
 
     init(series: LiveSeries, previous: LiveSeries?, arrivedAt: Date) {
@@ -63,6 +77,13 @@ struct TraceFrame: Equatable {
         for gap in series.gaps {
             p.gaps.move(to: CGPoint(x: series.x(gap.fromMs), y: base))
             p.gaps.addLine(to: CGPoint(x: series.x(gap.toMs), y: base))
+        }
+        if series.atRest {
+            for run in series.runs {
+                guard let first = run.first, let last = run.last else { continue }
+                p.rest.move(to: CGPoint(x: series.x(first.t), y: base))
+                p.rest.addLine(to: CGPoint(x: series.x(last.t), y: base))
+            }
         }
         paths = p
         let all = series.readings
@@ -92,6 +113,10 @@ struct TraceFrame: Equatable {
 /// lies between two readings the box sent. It glows only while live, and
 /// only in dark mode. What this phone did not see live is drawn in ink. No
 /// dot ever travels along the line.
+///
+/// A source at rest (`LiveSeries.atRest`) draws no line: zero sits
+/// mid-plot as a dotted baseline under its readings, in place of the solid
+/// zero, as Now draws a node at rest, with the head on the last reading.
 ///
 /// While a finger is down the window holds still (`frozenAtMs`); on lift
 /// it catches up with the spring.
@@ -170,8 +195,11 @@ struct LiveTraceSurface: View {
         let baseline = CGPoint(x: 0, y: base).applying(scale).y
 
         // Axes first, still: zero, the magnitudes in the gutter, and the
-        // direction words when both signs show, as on every chart.
-        ChartAxes.draw(in: &g, plot: plot, domain: series.domain, px: px, axis: axisSize, look: look, shown: shown)
+        // direction words when both signs show and no reading runs under
+        // them, as on every chart.
+        // Only the left of the window can run under a word.
+        let reach = frame.readings.prefix { series.x($0.t) - shift <= 120 }.map { ChartReach(x: series.x($0.t) - shift, low: $0.v, high: $0.v) }
+        ChartAxes.draw(in: &g, plot: plot, domain: series.domain, px: px, axis: axisSize, look: look, shown: shown, reach: reach, zero: !series.atRest)
 
         var plotting = g
         plotting.clip(to: Path(CGRect(x: plot.minX, y: plot.minY - 12, width: plot.width, height: plot.height + 24)))
@@ -202,12 +230,22 @@ struct LiveTraceSurface: View {
             p.bodyUnseen = p.bodyUnseen.applying(scale)
             p.band = p.band.applying(scale)
             p.gaps = p.gaps.applying(scale)
+            p.rest = p.rest.applying(scale)
             head = head?.applying(scale)
         }
 
         let width = series.size.width + shift + 40
         let above = Path(CGRect(x: -width, y: -40, width: 3 * width, height: baseline + 40))
         let below = Path(CGRect(x: -width, y: baseline, width: 3 * width, height: series.size.height - baseline + 40))
+
+        // At rest: the dotted baseline under the readings, the head on the
+        // last, and nothing else.
+        if series.atRest {
+            TraceInk.dotted(p.rest, px: px, in: plotting)
+            TraceInk.dotted(p.gaps, px: px, in: plotting)
+            if let head { Self.head(head, baseline: baseline, look: look, live: live, glows: glows, in: plotting) }
+            return
+        }
 
         // The band, under everything: how far the raw readings swung. Then
         // the body; what this phone did not see live in ink.
@@ -225,16 +263,18 @@ struct LiveTraceSurface: View {
         // live, and in ink once the reading is not.
         TraceInk.line(p.line, look: live ? look : TraceLook(up: Theme.ink2, down: Theme.ink2), glows: glows, above: above, below: below, in: plotting)
 
-        // The head: quiet, on the raw last reading, a small halo only while
-        // live in the dark.
-        if let head {
-            let color = head.y <= baseline ? look.up : look.down
-            if glows {
-                plotting.fill(Path(ellipseIn: CGRect(x: head.x - 4.5, y: head.y - 4.5, width: 9, height: 9)), with: .color(color.opacity(0.3)))
-            }
-            let r: CGFloat = 1.75
-            plotting.fill(Path(ellipseIn: CGRect(x: head.x - r, y: head.y - r, width: 2 * r, height: 2 * r)), with: .color(live ? Theme.ink : Theme.ink2))
+        if let head { Self.head(head, baseline: baseline, look: look, live: live, glows: glows, in: plotting) }
+    }
+
+    /// The head: quiet, on the raw last reading, a small halo only while
+    /// live in the dark.
+    private static func head(_ head: CGPoint, baseline: CGFloat, look: TraceLook, live: Bool, glows: Bool, in g: GraphicsContext) {
+        let color = head.y <= baseline ? look.up : look.down
+        if glows {
+            g.fill(Path(ellipseIn: CGRect(x: head.x - 4.5, y: head.y - 4.5, width: 9, height: 9)), with: .color(color.opacity(0.3)))
         }
+        let r: CGFloat = 1.75
+        g.fill(Path(ellipseIn: CGRect(x: head.x - r, y: head.y - r, width: 2 * r, height: 2 * r)), with: .color(live ? Theme.ink : Theme.ink2))
     }
 }
 
@@ -242,7 +282,9 @@ struct LiveTraceSurface: View {
 /// sits on the nearest raw reading, so it may sit a little off the
 /// smoothed line, inside the band. A tick per reading crossed, a light
 /// impact at the window's high and low and at the edges of a silence. Two
-/// fingers hold a span of readings.
+/// fingers hold a span of readings. As on every chart, a tap is a tap and
+/// never a scrub (`FingerGate`), and the screen's leading 20 pt are the
+/// back swipe's.
 struct LiveScrubOverlay: View {
     let frame: TraceFrame
     let chartFrame: ChartFrame
@@ -255,9 +297,12 @@ struct LiveScrubOverlay: View {
     let tag: (LiveSample) -> String
     /// "14:30:10–14:31:40  avg 1.2 kW"
     let spanTag: (ClosedRange<Int>) -> String
+    /// A touch that lifted before it scrubbed.
+    var onTap: (() -> Void)?
 
     @GestureState private var touching = false
     @State private var size: CGSize = .zero
+    @State private var gate = FingerGate()
 
     var body: some View {
         let down = model.isDown
@@ -282,15 +327,23 @@ struct LiveScrubOverlay: View {
         }
         .opacity(down ? 1 : 0)
         .animation(.easeOut(duration: down ? 0.08 : 0.15), value: down)
-        .contentShape(Rectangle())
+        .leavesTheEdge()
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
         .gesture(
             SpatialEventGesture()
                 .updating($touching) { _, state, _ in state = true }
-                .onChanged { events in follow(events) }
-                .onEnded { _ in model.lift() }
+                .onChanged { events in gate.changed(events) { follow($0) } }
+                .onEnded { _ in
+                    if gate.ended() { onTap?() }
+                    model.lift()
+                }
         )
-        .onChange(of: touching) { _, now in if !now { model.lift() } }
+        .onChange(of: touching) { _, now in
+            if !now {
+                gate.cancelled()
+                model.lift()
+            }
+        }
         .sensoryFeedback(.selection, trigger: model.ticks)
         .sensoryFeedback(.impact(weight: .light), trigger: model.bumps)
     }

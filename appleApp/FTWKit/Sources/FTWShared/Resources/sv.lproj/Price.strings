@@ -6,3 +6,5 @@
 "TOMORROW" = "I MORGON";
 "No price yet" = "Inget pris än";
 "Below zero: you are paid to use power" = "Under noll: du får betalt för att använda el";
+"STORES %@ AT %@" = "LAGRAR %@ VID %@";
+"GIVES %@ AT %@" = "GER %@ VID %@";

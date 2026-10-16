@@ -16,6 +16,9 @@ public final class SimulatedHouse {
     /// A clear midsummer's day whatever the date, for showing a day that
     /// sells more than it buys.
     public var sunny = false
+    /// Debug pictures: the battery held near this many watts, whatever the
+    /// mode says.
+    public var heldBatteryW: Double?
 
     public private(set) var socFraction: Double = 0.62
     public private(set) var batteryW: Double = 0
@@ -261,6 +264,7 @@ public final class SimulatedHouse {
             }
             if modeKey == "planner_passive_arbitrage", want < 0, priceAt(nowMs) < 45 { want = 0 }
         }
+        if let held = heldBatteryW { want = held + (nowMs / 1_000).truncatingRemainder(dividingBy: 7) * 2 - 6 }
         want = max(-batteryMaxW, min(batteryMaxW, want))
         if socFraction >= 0.995, want > 0 { want = 0 }
         if socFraction <= 0.05, want < 0 { want = 0 }
