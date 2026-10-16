@@ -1,6 +1,7 @@
 #if DEBUG && targetEnvironment(simulator)
 import Foundation
 import Observation
+import FTWShared
 
 enum DistributionScreen: String, Hashable, CaseIterable, Identifiable {
     case now, car, solar, home, battery, grid, plan, prices, history, box
@@ -34,7 +35,7 @@ enum DistributionScreen: String, Hashable, CaseIterable, Identifiable {
 }
 
 enum DistributionScenario: String, CaseIterable, Identifiable {
-    case sun, surplus, battery, night, offline, stale, viewer
+    case sun, surplus, battery, night, importing, mixed, offline, stale, viewer
     var id: String { rawValue }
     var title: String {
         switch self {
@@ -42,6 +43,8 @@ enum DistributionScenario: String, CaseIterable, Identifiable {
         case .surplus: "Stort överskott"
         case .battery: "Batteriet laddas"
         case .night: "Kväll"
+        case .importing: "Köper från nätet"
+        case .mixed: "Sol och köpt el"
         case .offline: "Tappad kontakt"
         case .stale: "Gamla mätvärden"
         case .viewer: "Endast läsning"
@@ -53,6 +56,8 @@ enum DistributionScenario: String, CaseIterable, Identifiable {
         case .surplus: [1.2, 1, 0, 3.8]
         case .battery: [2, 1.2, 2.4, 0.4]
         case .night: [0.5, 0.8, 0, 0]
+        case .importing: [3.2, 1.4, 0, 0]
+        case .mixed: [2.5, 1.3, 0, 0]
         default: nil
         }
     }
@@ -114,8 +119,21 @@ final class DistributionModel {
 
     var canControl: Bool { ![.offline, .stale, .viewer].contains(scenario) }
     var frozen: Bool { scenario == .offline || scenario == .stale }
-    var source: String { lastSource == .night ? "Från batteriet" : "Från solen" }
-    var total: Double { powers.reduce(0, +) }
+    private var solarSupply: Double {
+        switch lastSource {
+        case .sun, .offline, .stale, .viewer: 4.2
+        case .surplus, .battery: 6
+        case .mixed: 1.4
+        case .night, .importing: 0
+        }
+    }
+    private var batterySupply: Double { lastSource == .night ? 1.3 : 0 }
+    var flow: EnergyFlowBalance {
+        let demand = powers[0] + powers[1] + powers[2]
+        return EnergyFlowBalance(solar: solarSupply, grid: demand - solarSupply - batterySupply,
+                                 battery: powers[2] - batterySupply, car: powers[0], home: powers[1])
+    }
+    var total: Double { flow.incoming }
     var clock: String {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "Europe/Stockholm")!
@@ -154,7 +172,9 @@ final class DistributionModel {
         case .level(let value): level = value
         case .hold(let value):
             hold = value
-            powers = value == "paused" ? [0, 1.3, 0, 2.9] : value == "now" ? [3.1, 0.9, 0, 0.2] : (lastSource.powers ?? powers)
+            let base = lastSource.powers ?? powers
+            let car = value == "paused" ? 0 : value == "now" ? 3.1 : base[0]
+            powers = [car, base[1], base[2], max(0, solarSupply + batterySupply - car - base[1] - base[2])]
         case .mode(let value): mode = value
         case .revoke(let id): members.removeAll { $0 == id }
         }

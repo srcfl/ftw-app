@@ -25,7 +25,7 @@ public struct EnergyPartition: Sendable {
         return result
     }
 
-    public init(powers: [Double], size: CGSize, phase: Double = 0, drag: CGSize = .zero, touch: CGPoint = CGPoint(x: 0.5, y: 0.5)) {
+    public init(powers: [Double], size: CGSize, phase: Double = 0, drag: CGSize = .zero, touch: CGPoint = CGPoint(x: 0.5, y: 0.5), ripple: Double = 0) {
         let values = (0..<4).map { i in
             i < powers.count && powers[i].isFinite ? max(0, powers[i]) : 0
         }
@@ -48,13 +48,20 @@ public struct EnergyPartition: Sendable {
         let dy = drag.height.isFinite ? max(-1, min(1, Double(drag.height))) : 0
         let touchX = touch.x.isFinite ? max(0, min(1, Double(touch.x))) : 0.5
         let touchY = touch.y.isFinite ? max(0, min(1, Double(touch.y))) : 0.5
-        func bump(_ u: Double) -> Double { exp(-pow((u - touchY) / 0.18, 2)) }
-        // Remove the bump's trapezoidal mean. Dragging can move a boundary,
-        // but cannot change the energy represented by the painted polygon.
-        let mean = ((bump(0) + bump(1)) / 2 + (1..<96).reduce(0) { $0 + bump(Double($1) / 96) }) / 96
-        func wave(_ u: Double) -> Double { -0.43 * cos(2 * .pi * u + phase) + dx * 2.2 * (bump(u) - mean) }
+        let ripple = ripple.isFinite ? max(-1, min(1, ripple)) : 0
+        let gripY = max(0, min(1, touchY + dy * 0.23))
+        let spread = 0.15 + abs(dy) * 0.08
+        func rawWave(_ u: Double) -> Double {
+            let distance = (u - gripY) / spread
+            let grip = (dx * 4.8 + dy * 1.4 * distance) * exp(-distance * distance)
+            return -0.25 * cos(2 * .pi * u + phase) + 0.06 * sin(4 * .pi * u - phase * 0.7)
+                + grip + ripple * 0.22 * cos(4 * .pi * u - phase)
+        }
+        // A moving grip and its wake change the contour, never the amount.
+        let mean = ((rawWave(0) + rawWave(1)) / 2 + (1..<96).reduce(0) { $0 + rawWave(Double($1) / 96) }) / 96
+        func wave(_ u: Double) -> Double { rawWave(u) - mean }
         let peak = (0...96).map { abs(wave(Double($0) / 96)) }.max() ?? 1
-        let limit = peak > 0.86 ? 0.86 / peak : 1
+        let limit = peak > 0.96 ? 0.96 / peak : 1
         func seam(_ y: Double) -> Double { c + room * wave(y / h) * limit }
         var left = [CGPoint.zero]
         for i in 0...96 { let y = h * Double(i) / 96; left.append(CGPoint(x: seam(y), y: y)) }
@@ -67,8 +74,9 @@ public struct EnergyPartition: Sendable {
         func prefix(_ b: Double) -> [CGPoint] {
             let cross = (0...64).map { i -> CGPoint in
                 let u = Double(i) / 64
-                let finger = exp(-pow((u - touchX) / 0.24, 2))
-                let bend = 0.045 * cos(phase * 0.65) + dy * 0.18 * finger
+                let gripX = max(0, min(1, touchX + dx * 0.2))
+                let finger = exp(-pow((u - gripX) / 0.21, 2))
+                let bend = 0.03 * cos(phase * 0.65) + dy * 0.25 * finger + ripple * 0.025 * cos(3 * .pi * u)
                 let y = h * (b + bend * sin(.pi * u) * sin(.pi * b))
                 return CGPoint(x: seam(y) + (w - seam(y)) * u, y: y)
             }

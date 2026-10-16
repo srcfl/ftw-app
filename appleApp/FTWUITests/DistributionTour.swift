@@ -78,4 +78,24 @@ final class DistributionTour: XCTestCase {
         car.tap()
         XCTAssertTrue(app.buttons["distribution.goal"].waitForExistence(timeout: 5))
     }
+
+    @MainActor func testSourcePortsFollowBuyingSellingAndBatteryDischarge() {
+        for scenario in ["sun", "mixed", "importing", "night"] {
+            let app = launch(scenario: scenario)
+            let solar = app.buttons["distribution.inlet.solar"]
+            let grid = app.buttons["distribution.inlet.grid"]
+            let battery = app.buttons["distribution.inlet.battery"]
+            XCTAssertEqual(solar.exists, scenario == "sun" || scenario == "mixed")
+            XCTAssertEqual(grid.exists, scenario == "mixed" || scenario == "importing")
+            XCTAssertEqual(battery.exists, scenario == "night")
+            XCTAssertEqual(app.buttons["distribution.field.grid"].exists, scenario == "sun")
+            shoot(app, "flow-\(scenario)")
+            if scenario == "importing" {
+                grid.tap()
+                XCTAssertTrue(app.staticTexts["FRÅN NÄTET"].waitForExistence(timeout: 5))
+                shoot(app, "grid-supplying")
+            }
+            app.terminate()
+        }
+    }
 }

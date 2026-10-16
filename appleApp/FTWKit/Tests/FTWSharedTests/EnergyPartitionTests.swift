@@ -49,7 +49,7 @@ import Testing
             for force in [CGSize(width: -1, height: 1), CGSize(width: 1, height: -1), CGSize(width: 0.3, height: 0.7)] {
                 for touch in [CGPoint(x: 0.05, y: 0.1), CGPoint(x: 0.5, y: 0.5), CGPoint(x: 0.95, y: 0.9)] {
                     let powers = [2.0, 1.2, 2.4, 0.4]
-                    let layout = EnergyPartition(powers: powers, size: CGSize(width: 390, height: 385), phase: phase, drag: force, touch: touch)
+                    let layout = EnergyPartition(powers: powers, size: CGSize(width: 390, height: 385), phase: phase, drag: force, touch: touch, ripple: sin(phase))
                     let a = layout.polygons.map(area)
                     let actual = [a[0], a[1], a[2] - a[1], a[3] - a[2]]
                     for i in 0..<4 { #expect(abs(actual[i] / (390 * 385) - powers[i] / 6) < 0.00003) }
@@ -59,6 +59,32 @@ import Testing
                     }
                 }
             }
+        }
+    }
+
+    @Test func aGripStretchesTheContourNearTheFinger() {
+        let size = CGSize(width: 390, height: 410), powers = [2.5, 1.3, 0.0, 0.4]
+        let rest = EnergyPartition(powers: powers, size: size)
+        let pulled = EnergyPartition(powers: powers, size: size, drag: CGSize(width: 0.7, height: 0), touch: CGPoint(x: 0.4, y: 0.4))
+        let near = Int((0.4 * 96).rounded()) + 1, far = Int((0.85 * 96).rounded()) + 1
+        let stretch = pulled.polygons[0][near].x - rest.polygons[0][near].x
+        let distant = abs(pulled.polygons[0][far].x - rest.polygons[0][far].x)
+        #expect(stretch > 90)
+        #expect(stretch > distant * 2)
+    }
+
+    @Test func sourcesAndOutletsKeepTheirDirectionsAndBalance() {
+        let homes = [EnergyFlowBalance(solar: 4.2, grid: -0.4, battery: 0, car: 2.5, home: 1.3),
+                     EnergyFlowBalance(solar: 0, grid: 4.6, battery: 0, car: 3.2, home: 1.4),
+                     EnergyFlowBalance(solar: 1.4, grid: 2.4, battery: 0, car: 2.5, home: 1.3),
+                     EnergyFlowBalance(solar: 6, grid: -0.4, battery: 2.4, car: 2, home: 1.2),
+                     EnergyFlowBalance(solar: 0, grid: 0, battery: -1.3, car: 0.5, home: 0.8)]
+        for flow in homes {
+            #expect(abs(flow.incoming - flow.outgoing) < 0.000001)
+            #expect(abs(flow.destinations.reduce(0, +) - flow.outgoing) < 0.000001)
+            #expect(flow.destinations[3] == max(0, -flow.grid))
+            #expect(flow.destinations[2] == max(0, flow.battery))
+            #expect(flow.destinations.allSatisfy { $0 >= 0 })
         }
     }
 }

@@ -65,7 +65,7 @@ struct DistributionPrototype: View {
         .task(id: model.playbackGeneration) {
             guard model.playing, !reduceMotion, scenePhase == .active else { return }
             do {
-                for value in [DistributionScenario.surplus, .battery, .night, .sun] {
+                for value in [DistributionScenario.surplus, .mixed, .importing, .battery, .night, .sun] {
                     try await Task.sleep(for: .seconds(4.5))
                     guard model.playing, scenePhase == .active else { return }
                     withAnimation(DistributionStyle.motion) {
@@ -207,29 +207,20 @@ struct DistributionNow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            NavigationLink(value: model.lastSource == .night ? DistributionScreen.battery : .solar) {
-                VStack(spacing: 2) {
-                    Text(model.source).font(.subheadline)
-                    Text("\(Text(DistributionStyle.number(model.total)).font(.system(size: 40, weight: .medium)))\(Text(" kW").font(.system(size: 23)))")
-                        .monospacedDigit().contentTransition(.numericText(value: model.total))
-                }
-                .frame(maxWidth: .infinity).padding(.vertical, 14)
-                .background(DistributionStyle.gold.opacity(0.1).gradient)
-            }
-            .buttonStyle(.plain).accessibilityIdentifier("distribution.source")
+            DistributionInlets(flow: model.flow)
             DistributionTouchableField(namespace: namespace)
-                .frame(height: 385)
+                .frame(height: 410)
             VStack(spacing: 3) {
                 Text("Dra och putta · tryck för att öppna")
-                Text("Yta = andel av effekten")
+                Text("Yta = andel · rörelse = energins riktning")
             }.font(.caption2).foregroundStyle(DistributionStyle.muted).padding(.vertical, 10)
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
             if typeSize.isAccessibilitySize {
                 VStack {
                     ForEach(0..<4) { i in
-                        if model.powers[i] > 0 {
+                        if model.flow.destinations[i] > 0.025 {
                             NavigationLink(value: DistributionStyle.routes[i]) {
-                                LabeledContent(DistributionStyle.names[i], value: "\(DistributionStyle.number(model.powers[i])) kW")
+                                LabeledContent(DistributionStyle.names[i], value: "\(DistributionStyle.number(model.flow.destinations[i])) kW")
                             }.padding(.vertical, 10)
                                 .accessibilityIdentifier("distribution.accessible.\(DistributionStyle.routes[i].rawValue)")
                         }
@@ -269,27 +260,34 @@ struct DistributionTouchableField: View {
     @State private var visible = false
     @State private var heldPhase = Date.now.timeIntervalSinceReferenceDate * 0.22
     @State private var grabs = 0
+    @State private var releasedAt = Date.distantPast
+    @State private var releaseStrength = 0.0
 
     var body: some View {
         GeometryReader { proxy in
             TimelineView(.animation(minimumInterval: 1.0 / 60, paused: reduceMotion || model.frozen || !visible || scenePhase != .active)) { clock in
                 let phase = reduceMotion || model.frozen ? heldPhase : clock.date.timeIntervalSinceReferenceDate * 0.22
-                DistributionField(powers: model.powers, namespace: namespace, happy: model.happy, frozen: model.frozen,
-                                  phase: phase, drag: force, touch: touch, grabbing: grabbing)
-                    .animation(reduceMotion || model.frozen ? nil : DistributionStyle.motion, value: model.powers)
+                let elapsed = max(0, clock.date.timeIntervalSince(releasedAt))
+                let ripple = reduceMotion || model.frozen || elapsed > 3 ? 0 : sin(elapsed * 9) * exp(-elapsed * 2.4) * releaseStrength
+                DistributionField(powers: model.flow.destinations, flow: model.flow, namespace: namespace, happy: model.happy, frozen: model.frozen,
+                                  phase: phase, time: reduceMotion || model.frozen ? 0 : clock.date.timeIntervalSinceReferenceDate,
+                                  drag: force, touch: touch, grabbing: grabbing, ripple: ripple)
+                    .animation(reduceMotion || model.frozen ? nil : DistributionStyle.motion, value: model.flow.destinations)
             }
             .contentShape(Rectangle())
-            .highPriorityGesture(DragGesture(minimumDistance: 4)
+            .highPriorityGesture(DragGesture(minimumDistance: 3)
                 .onChanged { value in
-                    if !grabbing { grabbing = true; grabs += 1; model.stop() }
+                    if !grabbing { grabbing = true; grabs += 1; releaseStrength = 0; model.stop() }
                     touch = CGPoint(x: value.startLocation.x / max(1, proxy.size.width), y: value.startLocation.y / max(1, proxy.size.height))
-                    force = CGSize(width: tanh(value.translation.width / 110), height: tanh(value.translation.height / 120))
+                    force = CGSize(width: tanh(value.translation.width / 95), height: tanh(value.translation.height / 105))
                 }
                 .onEnded { value in
                     let distance = max(35, hypot(value.translation.width, value.translation.height))
                     let outward = (value.velocity.width * force.width + value.velocity.height * force.height) / distance
-                    let velocity = max(-3, min(3, -outward))
-                    withAnimation(reduceMotion ? nil : .interpolatingSpring(stiffness: 75, damping: 13, initialVelocity: velocity)) { force = .zero; grabbing = false }
+                    let velocity = max(-5, min(5, -outward))
+                    releasedAt = .now
+                    releaseStrength = min(1, hypot(force.width, force.height))
+                    withAnimation(reduceMotion ? nil : .interpolatingSpring(stiffness: 40, damping: 6.5, initialVelocity: velocity)) { force = .zero; grabbing = false }
                 }, including: model.frozen ? .none : .all)
             .sensoryFeedback(.impact(weight: .light), trigger: grabs)
             .accessibilityElement(children: .contain)
@@ -305,16 +303,19 @@ nonisolated struct DistributionField: View, Animatable {
     private var phase: Double
     private var drag: CGSize
     private var touch: CGPoint
+    let flow: EnergyFlowBalance
+    let time, ripple: Double
     let grabbing: Bool
     let namespace: Namespace.ID
     var happy: Bool
     var frozen: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    init(powers: [Double], namespace: Namespace.ID, happy: Bool, frozen: Bool, phase: Double = 0, drag: CGSize = .zero, touch: CGPoint = CGPoint(x: 0.5, y: 0.5), grabbing: Bool = false) {
+    init(powers: [Double], flow: EnergyFlowBalance, namespace: Namespace.ID, happy: Bool, frozen: Bool, phase: Double = 0, time: Double = 0, drag: CGSize = .zero, touch: CGPoint = CGPoint(x: 0.5, y: 0.5), grabbing: Bool = false, ripple: Double = 0) {
         a = powers[0]; b = powers[1]; c = powers[2]; d = powers[3]
         self.namespace = namespace; self.happy = happy; self.frozen = frozen
         self.phase = phase; self.drag = drag; self.touch = touch; self.grabbing = grabbing
+        self.flow = flow; self.time = time; self.ripple = ripple
     }
     typealias Four = AnimatablePair<AnimatablePair<Double, Double>, AnimatablePair<Double, Double>>
     var animatableData: AnimatablePair<Four, Four> {
@@ -329,13 +330,20 @@ nonisolated struct DistributionField: View, Animatable {
     @MainActor var body: some View {
         GeometryReader { proxy in
             let values = [a, b, c, d].map { max(0, $0) }
-            let layout = EnergyPartition(powers: values, size: proxy.size, phase: phase, drag: drag, touch: touch)
+            let layout = EnergyPartition(powers: values, size: proxy.size, phase: phase, drag: drag, touch: touch, ripple: ripple)
             let w = proxy.size.width, h = proxy.size.height
             ZStack {
-                ForEach([3, 2, 1, 0], id: \.self) { i in
-                    fieldPath(layout.polygons[i])
-                        .fill(LinearGradient(colors: [DistributionStyle.colors[i], i == 0 ? DistributionStyle.purpleDeep : DistributionStyle.colors[i].opacity(0.82)], startPoint: .topLeading, endPoint: .bottomTrailing))
-                        .shadow(color: DistributionStyle.ink.opacity(0.07), radius: 5, x: 1, y: 2)
+                ZStack {
+                    ZStack {
+                        ForEach([3, 2, 1, 0], id: \.self) { i in
+                            fieldPath(layout.polygons[i])
+                                .fill(LinearGradient(colors: [DistributionStyle.colors[i], i == 0 ? DistributionStyle.purpleDeep : DistributionStyle.colors[i].opacity(0.88)], startPoint: .topLeading, endPoint: .bottomTrailing))
+                        }
+                    }.blur(radius: 1.8)
+                    DistributionFluidInk(layout: layout, flow: flow, time: time, drag: drag, touch: touch, grabbing: grabbing)
+                        .allowsHitTesting(false).accessibilityHidden(true)
+                }.mask {
+                    LinearGradient(stops: [.init(color: .clear, location: 0), .init(color: .white, location: 0.035), .init(color: .white, location: 0.96), .init(color: .clear, location: 1)], startPoint: .top, endPoint: .bottom)
                 }
                 ForEach(0..<4) { i in
                     if values[i] > 0.025 {
@@ -344,7 +352,18 @@ nonisolated struct DistributionField: View, Animatable {
                         let halfHeight: CGFloat = tiny ? 26 : 45
                         NavigationLink(value: DistributionStyle.routes[i]) {
                             VStack(spacing: 3) {
-                                if !tiny { Image(systemName: DistributionStyle.symbols[i]).font(.system(size: 20)); Text(DistributionStyle.names[i]).font(.system(size: 13)) }
+                                if !tiny {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: DistributionStyle.symbols[i]).font(.system(size: 20))
+                                        Image(systemName: i == 0 ? "arrow.left" : i == 3 ? "arrow.down" : "arrow.right").font(.system(size: 11, weight: .medium))
+                                    }
+                                    Text(["Till bilen", "Till hemmet", "Till batteriet", "Till nätet"][i]).font(.system(size: 13))
+                                } else {
+                                    HStack(spacing: 3) {
+                                        Text(["Till bilen", "Till hemmet", "Till batteriet", "Till nätet"][i])
+                                        Image(systemName: i == 0 ? "arrow.left" : i == 3 ? "arrow.down" : "arrow.right")
+                                    }.font(.system(size: 10, weight: .medium))
+                                }
                                 HStack(alignment: .firstTextBaseline, spacing: 2) {
                                     Text(DistributionStyle.number(values[i])).font(.system(size: tiny ? 20 : 27, weight: .medium))
                                     Text("kW").font(.system(size: 12))
@@ -363,14 +382,8 @@ nonisolated struct DistributionField: View, Animatable {
                         .accessibilityHidden(typeSize.isAccessibilitySize)
                     }
                 }
-                if grabbing {
-                    Ellipse().fill(DistributionStyle.ground.opacity(0.22))
-                        .frame(width: 100, height: 70).blur(radius: 13)
-                        .position(x: touch.x * w + drag.width * 60, y: touch.y * h + drag.height * 60)
-                        .allowsHitTesting(false)
-                }
                 DistributionRobot(happy: happy, frozen: frozen, gaze: Double(drag.width) * 2)
-                    .frame(width: 110)
+                    .frame(width: 102)
                     .rotationEffect(.degrees(Double(drag.width) * 8))
                     .position(x: max(62, min(w - 62, layout.junction.x - 16)), y: max(64, min(h - 62, layout.junction.y - 35)))
             }
@@ -390,6 +403,7 @@ nonisolated struct DistributionField: View, Animatable {
 struct DistributionHero: View {
     let title, value, unit, detail: String
     let color, ink: Color
+    var flowPower = 0.0
     @Environment(DistributionModel.self) private var model
     @ScaledMetric(relativeTo: .largeTitle) private var figure = 66.0
 
@@ -407,15 +421,52 @@ struct DistributionHero: View {
         .padding(26).padding(.bottom, 25)
         .foregroundStyle(ink)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(HeroField().fill(color.gradient))
+        .background(DistributionHeroMaterial(color: color, power: flowPower, frozen: model.frozen))
+    }
+}
+
+private struct DistributionHeroMaterial: View {
+    let color: Color
+    let power: Double
+    let frozen: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var visible = false
+    @State private var heldPhase = Date.now.timeIntervalSinceReferenceDate * 0.6
+
+    var body: some View {
+        let moving = visible && power > 0.025 && !frozen && !reduceMotion && scenePhase == .active
+        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: !moving)) { clock in
+            let t = clock.date.timeIntervalSinceReferenceDate
+            let shape = HeroField(phase: moving ? t * 0.6 : heldPhase)
+            ZStack {
+                shape.fill(color.gradient).blur(radius: 1.5)
+                if moving {
+                    Canvas { context, size in
+                        var path = Path()
+                        path.move(to: CGPoint(x: size.width * 0.55, y: -40))
+                        path.addCurve(to: CGPoint(x: size.width * 0.18, y: size.height + 30),
+                                      control1: CGPoint(x: size.width * 0.28, y: size.height * 0.25),
+                                      control2: CGPoint(x: size.width * 0.45, y: size.height * 0.7))
+                        DistributionFluidInk.paint(path, power: power, time: t, color: DistributionStyle.eye, context: context, scale: 1.6)
+                    }.mask(shape).allowsHitTesting(false)
+                }
+            }
+        }
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
+        .onChange(of: moving) { _, value in if !value { heldPhase = Date.now.timeIntervalSinceReferenceDate * 0.6 } }
+        .accessibilityHidden(true)
     }
 }
 
 private struct HeroField: Shape {
+    var phase = 0.0
     func path(in r: CGRect) -> Path {
         Path { p in
+            let wave = sin(phase) * 8
             p.move(to: .zero); p.addLine(to: CGPoint(x: r.maxX, y: 0)); p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - 20))
-            p.addCurve(to: CGPoint(x: 0, y: r.maxY), control1: CGPoint(x: r.width * 0.75, y: r.maxY - 55), control2: CGPoint(x: r.width * 0.3, y: r.maxY - 30))
+            p.addCurve(to: CGPoint(x: 0, y: r.maxY), control1: CGPoint(x: r.width * 0.75, y: r.maxY - 55 + wave), control2: CGPoint(x: r.width * 0.3, y: r.maxY - 30 - wave))
             p.closeSubpath()
         }
     }
@@ -436,7 +487,7 @@ struct DistributionCar: View {
     @Environment(DistributionModel.self) private var model
     var body: some View {
         VStack(spacing: 0) {
-            DistributionHero(title: "Bilen", value: "\(model.level)", unit: "%", detail: model.frozen ? "Senast kända läget · \(DistributionStyle.number(model.powers[0])) kW till bilen." : model.hold == "paused" ? "Laddningen är pausad." : model.hold == "now" ? "Laddar nu. Du väljer när planen tar över." : "Laddar med \(DistributionStyle.number(model.powers[0])) kW.", color: DistributionStyle.purple, ink: DistributionStyle.purpleInk)
+            DistributionHero(title: "Bilen", value: "\(model.level)", unit: "%", detail: model.frozen ? "Senast kända läget · \(DistributionStyle.number(model.powers[0])) kW till bilen." : model.hold == "paused" ? "Laddningen är pausad." : model.hold == "now" ? "Laddar nu. Du väljer när planen tar över." : "Laddar med \(DistributionStyle.number(model.powers[0])) kW.", color: DistributionStyle.purple, ink: DistributionStyle.purpleInk, flowPower: model.powers[0])
             VStack(alignment: .leading, spacing: 20) {
                 Button { model.sheet = .goal } label: {
                     HStack {
@@ -479,15 +530,16 @@ struct DistributionNode: View {
     @Environment(DistributionModel.self) private var model
     private var info: (String, String, String, Color, Color) {
         switch node {
-        case .solar: (model.source == "Från solen" ? DistributionStyle.number(model.total) : "0,0", "kW", "Solen driver bilen och hemmet.", DistributionStyle.gold, DistributionStyle.goldInk)
+        case .solar: (DistributionStyle.number(model.flow.solar), "kW", model.flow.solar > 0 ? "Solen tillför energi till hemmet." : "Solen tillför ingen energi just nu.", DistributionStyle.gold, DistributionStyle.goldInk)
         case .home: (DistributionStyle.number(model.powers[1]), "kW", "Hemmets förbrukning just nu.", DistributionStyle.home, DistributionStyle.homeInk)
-        case .battery: ("68", "%", model.powers[2] > 0 ? "Laddas med \(DistributionStyle.number(model.powers[2])) kW." : "Vilar just nu. Hjälper hemmet i kväll.", DistributionStyle.cyan, DistributionStyle.cyanInk)
-        default: (DistributionStyle.number(model.powers[3]), "kW", model.powers[3] > 0 ? "Överskottet går till elnätet." : "Ingen el går till nätet just nu.", DistributionStyle.green, DistributionStyle.greenInk)
+        case .battery: ("68", "%", model.flow.battery > 0 ? "Laddas med \(DistributionStyle.number(model.flow.battery)) kW." : model.flow.battery < 0 ? "Tillför \(DistributionStyle.number(-model.flow.battery)) kW till hemmet." : "Vilar just nu. Hjälper hemmet i kväll.", DistributionStyle.cyan, DistributionStyle.cyanInk)
+        default: (DistributionStyle.number(abs(model.flow.grid)), "kW", model.flow.grid > 0.025 ? "Köpt el fyller på när solen inte räcker." : model.flow.grid < -0.025 ? "Överskottet går till elnätet." : "Inget flöde till eller från nätet just nu.", DistributionStyle.green, DistributionStyle.greenInk)
         }
     }
     var body: some View {
         VStack(spacing: 0) {
-            DistributionHero(title: node == .grid ? "Till nätet" : node.title, value: info.0, unit: info.1, detail: info.2, color: info.3, ink: info.4)
+            DistributionHero(title: node == .grid ? (model.flow.grid > 0.025 ? "Från nätet" : "Till nätet") : node.title, value: info.0, unit: info.1, detail: info.2, color: info.3, ink: info.4,
+                             flowPower: node == .solar ? model.flow.solar : node == .home ? model.flow.home : node == .battery ? abs(model.flow.battery) : abs(model.flow.grid))
             VStack(alignment: .leading, spacing: 22) {
                 switch node {
                 case .solar:
