@@ -56,6 +56,14 @@ import FTWDemo
         #expect(yaml.contains("carrier_states: [\(Contract.carrierStates.joined(separator: ", "))]"))
     }
 
+    /// The car's names, before the app draws a car.
+    @Test func carNamesAreTheRegistrys() {
+        #expect(values("car_fields", "name") == Contract.carFields)
+        #expect(values("charger_car_fields", "name") == Contract.chargerCarFields)
+        #expect(yaml.contains("car_soc_sources: [\(Contract.carSocSources.joined(separator: ", "))]"))
+        #expect(yaml.contains("car_identified_by: [\(Contract.carIdentifiedBy.joined(separator: ", "))]"))
+    }
+
     /// FTWShared spells the same states as enums, for widgets that never
     /// link FTWKit.
     @Test func sharedStatesAreTheRegistrys() {
