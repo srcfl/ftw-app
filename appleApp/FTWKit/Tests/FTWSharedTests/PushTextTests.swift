@@ -256,7 +256,7 @@ import Testing
                 == "\(long) was given access to your box. See who has access in the app.")
         for client in ["", "Claude\nPay here", "Claude\u{202E}", String(repeating: "c", count: 66)] {
             #expect(PushText.content(Self.event(PushKind.agentAdded, args: ["client": client]), language: .en).body
-                    == "You gave an assistant or Sourceful access. See who has access in the app.", "\(client)")
+                    == "An assistant or Sourceful was given access to your box. See who has access in the app.", "\(client)")
         }
         #expect(PushText.content(Self.event(PushKind.ownerAdded, args: ["client": "Claude"]), language: .sv)
                 == .init(title: "En ny ägare", body: "En telefon har parats som ägare av din box. Var det inte du, ta bort den i appen."))
