@@ -4,6 +4,10 @@ import Foundation
 /// Swedish, with the language `AppWords` uses. A scope, an op or an argument
 /// is named by what it lets someone do, never by its registry name.
 public enum AccessWords {
+    /// What this phone unlocks with, as the system names it: "Face ID" or
+    /// "Touch ID". The app sets it once at launch.
+    nonisolated(unsafe) public static var biometry = "Face ID"
+
     public static func text(_ en: String) -> String {
         AppWords.language == .sv ? (sv[en] ?? en) : en
     }
@@ -78,7 +82,7 @@ public enum AccessWords {
             parts.append(format("It may charge the car for up to %@ at a time, at most %@.", minutes(Double(caps.holdS)), AppWords.power(Double(caps.maxW))))
         }
         if scopes.contains(AccessWire.scopeRequest) {
-            parts.append(text("Lasting changes, such as the mode or a goal, wait for your Face ID."))
+            parts.append(format("Lasting changes, such as the mode or a goal, wait for your %@.", biometry))
         }
         return parts.joined(separator: " ")
     }
@@ -202,11 +206,23 @@ public enum AccessWords {
         ms <= 0 ? text("Never used") : format("Last used %@", AppWords.day(Double(ms), nowMs: nowMs, zone: zone))
     }
 
-    /// Who approved it: this phone, another owner phone or the box's page.
-    public static func approvedBy(_ row: AgentRow, me: String) -> String {
-        if row.approvedBy == "lan" { return text("Approved on the box's page") }
+    /// The end as a value under "Ends": "8 Nov", "today 18:00" or "Ended".
+    public static func ends(_ ms: Int64, nowMs: Double, zone: TimeZone = .current) -> String {
+        if Double(ms) <= nowMs { return text("Ended") }
+        if Double(ms) - nowMs < 86_400_000 { return AppWords.day(Double(ms), nowMs: nowMs, zone: zone) }
+        return dayOnly(ms, zone: zone)
+    }
+
+    /// The last call as a value under "Last used": "today 08:12" or "Never".
+    public static func lastCall(_ ms: Int64, nowMs: Double, zone: TimeZone = .current) -> String {
+        ms <= 0 ? text("Never") : AppWords.day(Double(ms), nowMs: nowMs, zone: zone)
+    }
+
+    /// Where it was approved, as a value under "Approved".
+    public static func approvedWhere(_ row: AgentRow, me: String) -> String {
+        if row.approvedBy == "lan" { return text("On the box's page") }
         let id = row.approvedBy.hasPrefix("app:") ? String(row.approvedBy.dropFirst(4)) : row.approvedBy
-        return id == me ? text("Approved on this phone") : format("Approved on phone %@", id)
+        return id == me ? text("On this phone") : format("On phone %@", id)
     }
 
     // MARK: The audit log
@@ -288,7 +304,7 @@ public enum AccessWords {
         case is ApprovalCancelled:
             return nil
         case is ApprovalKeyLost:
-            return text("The approval key on this phone stopped working when Face ID changed. Replace it on your box's page with the house password.")
+            return format("The approval key on this phone stopped working when %@ changed. Replace it on your box's page with the house password.", biometry)
         case let e as OfferError:
             return offer(e)
         case let r as BoxRefusal:
@@ -385,7 +401,7 @@ public enum AccessWords {
         "Charge the car for a short while": "Ladda bilen en kort stund",
         "Ask you for lasting changes": "Be dig om varaktiga ändringar",
         "It may charge the car for up to %@ at a time, at most %@.": "Den får ladda bilen i högst %@ åt gången, med högst %@.",
-        "Lasting changes, such as the mode or a goal, wait for your Face ID.": "Varaktiga ändringar, som läget eller ett mål, väntar på ditt Face ID.",
+        "Lasting changes, such as the mode or a goal, wait for your %@.": "Varaktiga ändringar, som läget eller ett mål, väntar på ditt %@.",
         "Off: it reads and changes nothing.": "Av: den läser och ändrar ingenting.",
         "For": "I",
         "1 day": "1 dag",
@@ -395,9 +411,10 @@ public enum AccessWords {
         "Ended": "Slutat",
         "Never used": "Aldrig använd",
         "Last used %@": "Senast använd %@",
-        "Approved on the box's page": "Godkänd på boxens sida",
-        "Approved on this phone": "Godkänd på den här telefonen",
-        "Approved on phone %@": "Godkänd på telefon %@",
+        "Never": "Aldrig",
+        "On the box's page": "På boxens sida",
+        "On this phone": "På den här telefonen",
+        "On phone %@": "På telefon %@",
         "Choose at least one thing it may do.": "Välj minst en sak den får göra.",
         "Ticket %@": "Ärende %@",
         // Offer
@@ -406,7 +423,7 @@ public enum AccessWords {
             "Sidan som bad om åtkomst visar en kod. När du skriver den här vet du att det är den begäran du har framför dig.",
         "Continue": "Fortsätt",
         "Cancel": "Avbryt",
-        "Approve with Face ID": "Godkänn med Face ID",
+        "Approve with %@": "Godkänn med %@",
         "Let %@ reach your home": "Låt %@ nå ditt hem",
         "%@ can now reach your home.": "%@ når nu ditt hem.",
         "Your box checks every call, and you can remove the access at any time.":
@@ -414,7 +431,7 @@ public enum AccessWords {
         "Done": "Klar",
         "Checking the offer": "Kontrollerar erbjudandet",
         // One grant
-        "Save with Face ID": "Spara med Face ID",
+        "Save with %@": "Spara med %@",
         "Remove access": "Ta bort åtkomst",
         "Change what %@ may do": "Ändra vad %@ får göra",
         "Approved": "Godkänd",
@@ -497,13 +514,13 @@ public enum AccessWords {
         "Read the settings": "Läste inställningarna",
         "Ran a check": "Körde en kontroll",
         // The key
-        "Approvals on this phone use Face ID.": "Godkännanden på den här telefonen använder Face ID.",
-        "This phone makes its approval key the first time you approve, under the same Face ID.":
-            "Telefonen gör sin godkännandenyckel första gången du godkänner, med samma Face ID.",
+        "Approvals on this phone use %@.": "Godkännanden på den här telefonen använder %@.",
+        "This phone makes its approval key the first time you approve, under the same %@.":
+            "Telefonen gör sin godkännandenyckel första gången du godkänner, med samma %@.",
         "Replace the approval key": "Byt godkännandenyckel",
         "Replace the approval key on this phone": "Byt godkännandenyckeln på den här telefonen",
-        "The approval key on this phone stopped working when Face ID changed. Replace it on your box's page with the house password.":
-            "Godkännandenyckeln på telefonen slutade fungera när Face ID ändrades. Byt den på boxens sida med husets lösenord.",
+        "The approval key on this phone stopped working when %@ changed. Replace it on your box's page with the house password.":
+            "Godkännandenyckeln på telefonen slutade fungera när %@ ändrades. Byt den på boxens sida med husets lösenord.",
         "This phone can't approve on its own. Use your box's page.": "Telefonen kan inte godkänna själv. Använd boxens sida.",
         // Get help
         "Describe the problem": "Beskriv problemet",
@@ -517,6 +534,7 @@ public enum AccessWords {
         "Sourceful can now look at your home for ticket %@.": "Sourceful kan nu titta på ditt hem för ärende %@.",
         "Let Sourceful look at your home": "Låt Sourceful titta på ditt hem",
         // Refusals
+        "Set up %@ on this phone to approve from it, or approve on your box's page.": "Ställ in %@ på telefonen för att godkänna från den, eller godkänn på boxens sida.",
         "This version of the app can't check offers from FTW Cloud yet.": "Den här versionen av appen kan inte kontrollera erbjudanden från FTW Cloud än.",
         "This offer isn't signed by FTW Cloud. Nothing was granted.": "Erbjudandet är inte signerat av FTW Cloud. Inget har getts.",
         "This offer has run out. Start again on the page that showed it.": "Erbjudandet har gått ut. Börja om på sidan som visade det.",

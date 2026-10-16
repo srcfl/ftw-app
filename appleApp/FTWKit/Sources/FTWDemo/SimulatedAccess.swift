@@ -220,6 +220,15 @@ public final class SimulatedAccess {
         return SignedOffer(o: raw, kid: OfferKeys.kid(offerKey.publicKey), sig: (try? offerKey.sign(SignedOffer.signedBytes(raw))) ?? [])
     }
 
+    /// The simulated consent page's code lookup: the demo's code finds a
+    /// fresh offer, any other none.
+    public static let lookup = OfferLookup(base: URL(string: "https://demo.invalid")!) { req in
+        let code = URLComponents(url: req.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "code" }?.value
+        guard code == "K7QF2MXD" else { return (Data(), 404) }
+        let offer = await MainActor.run { offer(nowMs: Date().timeIntervalSince1970 * 1000).base64url }
+        return (try JSONSerialization.data(withJSONObject: ["offer": offer, "status": "pending"]), 200)
+    }
+
     // MARK: Encoding, as the box encodes
 
     static func cbor(_ r: AgentRow) -> CBOR {
@@ -266,6 +275,7 @@ public final class SimulatedKeyring: ApprovalKeyring, ApprovalUnlock {
         return self
     }
 
+    public func forget(home: String) { kept[home] = nil }
     public func existing() throws -> ApprovalSigner? { kept[home] }
     public func make() throws -> ApprovalSigner { SoftwareSigner() }
     public func keep(_ signer: ApprovalSigner) {

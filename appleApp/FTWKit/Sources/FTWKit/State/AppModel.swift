@@ -84,7 +84,7 @@ public final class AppModel {
     /// yet.
     @ObservationIgnored public var supportDesk: SupportDesk = NoSupportDesk()
     /// The simulated home's keys, offer key and desk, from FTWDemo.
-    @ObservationIgnored public var demoAccess: (keys: ApprovalKeyring, offers: OfferKeys, desk: SupportDesk)?
+    @ObservationIgnored public var demoAccess: (keys: ApprovalKeyring, offers: OfferKeys, desk: SupportDesk, lookup: OfferLookup)?
 
     @ObservationIgnored public let vault: Vault
     @ObservationIgnored public let sites: SiteList
@@ -160,7 +160,8 @@ public final class AppModel {
         }
         let models = HomeModels(site: site, cache: shared.map { CacheReader(sources: [$0]) })
         if let stored = sites.get(siteId), let device = vault.deviceIDOnBox {
-            models.access = AccessModel(site: site, signedFor: SignedFor(boxKey: stored.boxStaticKey.byteArray, deviceID: device), keyring: approvalKeys)
+            models.access = AccessModel(site: site, signedFor: SignedFor(boxKey: stored.boxStaticKey.byteArray, deviceID: device), keyring: approvalKeys,
+                                        wallMs: { [scheduler] in scheduler.nowMs })
         }
         home = models
         sites.setCurrent(siteId)
@@ -335,6 +336,10 @@ public final class AppModel {
 
     public var desk: SupportDesk { isDemo ? (demoAccess?.desk ?? supportDesk) : supportDesk }
 
+    /// Where a typed code finds its offer: FTW Cloud, or the simulated
+    /// home's own page in the demo.
+    public var offerLookup: OfferLookup { isDemo ? (demoAccess?.lookup ?? .current()) : .current() }
+
     /// The open home's id at FTW Cloud, which an offer that names a home
     /// must match.
     public var cloudHome: String? {
@@ -357,7 +362,9 @@ public final class AppModel {
         if shares { site.sharedWritten = sharedWritten }
         site.ceilingW = 11_000
         let models = HomeModels(site: site, cache: shares ? shared.map { CacheReader(sources: [$0]) } : nil)
-        if let demoAccess { models.access = AccessModel(site: site, signedFor: AccessModel.demoFor, keyring: demoAccess.keys) }
+        if let demoAccess {
+            models.access = AccessModel(site: site, signedFor: AccessModel.demoFor, keyring: demoAccess.keys, wallMs: { [scheduler] in scheduler.nowMs })
+        }
         home = models
         isDemo = true
         recovering = false
@@ -387,6 +394,7 @@ public final class AppModel {
         home?.loadpoints.endLiveActivities()
         home?.site.destroy()
         home = nil
+        for h in sites.all() { approvalKeys?.forget(home: h.siteId) }
         vault.reset()
         sites.clear()
         files?.clear()

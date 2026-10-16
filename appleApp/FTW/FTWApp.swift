@@ -41,6 +41,11 @@ struct FTWApp: App {
         // The Apple Watch reads through this phone and sends its commands
         // here, over the same runner.
         if let runner = IntentRunner.shared { WatchBridge.shared.install(model, runner: runner) }
+        // Approving an assistant or support signs with this phone's key in
+        // the Secure Enclave, behind Face ID; the demo has keys of its own.
+        model.approvalKeys = ApprovalKeychain(store: store)
+        Biometry.name()
+        model.demoAccess = (SimulatedKeyring(), SimulatedAccess.offerKeys, SimulatedDesk(), SimulatedAccess.lookup)
         // A paired phone paints its cached home before anything else runs.
         model.launch()
         #if DEBUG
@@ -54,6 +59,9 @@ struct FTWApp: App {
         // For end-to-end tests: `-FTWPairLink <url>` offers a pairing link
         // as a scanned QR would, where the simulator has no camera.
         if let link = UserDefaults.standard.string(forKey: "FTWPairLink") { model.offer(link) }
+        // `-FTWAccessLink <url>` offers a consent page's link as a tap on it
+        // would, where the simulator has no universal link to the app yet.
+        if let link = UserDefaults.standard.string(forKey: "FTWAccessLink") { model.offer(link) }
         #endif
         _app = State(initialValue: model)
         network = NetworkWatch { [weak model] in model?.networkOnline() }
@@ -75,7 +83,9 @@ struct FTWApp: App {
             RootView(app: app)
                 // A pairing QR scanned with the iOS camera arrives as a
                 // universal link to https://app.ftw.energy/p#…, and takes the
-                // same path as any other pairing link.
+                // same path as any other pairing link. An assistant's consent
+                // page links to https://app.ftw.energy/a#…, which opens its
+                // own sheet.
                 .onOpenURL { app.offer($0.absoluteString) }
                 .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
                     if let url = activity.webpageURL { app.offer(url.absoluteString) }

@@ -13,6 +13,8 @@ public protocol ApprovalKeyring: AnyObject {
     /// through the answer is covered by it. Throws `ApprovalCancelled` when
     /// the person backs out.
     func unlock(home: String, reason: String) async throws -> ApprovalUnlock
+    /// Drop a home's key, when the phone forgets the home.
+    func forget(home: String)
 }
 
 @MainActor
@@ -160,6 +162,10 @@ public final class AccessModel {
 
     var nowMs: Int64 { Int64((wallMs() + boxOffsetMs).rounded()) }
 
+    /// The home the approval key is kept under. The simulated home has no
+    /// id of its own.
+    var keyHome: String? { site.siteId ?? (site.isDemo ? "demo" : nil) }
+
     // MARK: Reading
 
     public func refresh() async {
@@ -289,7 +295,7 @@ public final class AccessModel {
     /// box takes it. One Face ID.
     @discardableResult
     public func replaceKey() async -> Bool {
-        guard let keyring, let home = site.siteId else { return false }
+        guard let keyring, let home = keyHome else { return false }
         working = "key"
         defer { working = nil }
         do {
@@ -320,8 +326,12 @@ public final class AccessModel {
     /// phone, then `work` with the key; again once with the box's time if
     /// the box says this phone's clock is off.
     private func signed<T>(_ reason: String, target: String, _ work: @escaping @MainActor (ApprovalSigner) async throws -> T?) async -> T? {
-        guard let keyring, let home = site.siteId else {
+        guard let keyring, let home = keyHome else {
             help = AccessWords.text("This phone can't approve on its own. Use your box's page.")
+            return nil
+        }
+        guard available else {
+            help = AccessWords.help(SessionError.noCarrier)
             return nil
         }
         working = target

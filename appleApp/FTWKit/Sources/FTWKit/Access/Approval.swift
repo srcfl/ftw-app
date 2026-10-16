@@ -137,6 +137,9 @@ public final class SoftwareSigner: ApprovalSigner {
 
     public var publicKey: Bytes { key.publicKey.x963Representation.byteArray }
 
+    /// The private scalar, for a store that keeps a software key.
+    public var rawKey: Bytes { key.rawRepresentation.byteArray }
+
     public func sign(_ message: Bytes) throws -> Bytes {
         try key.signature(for: Data(message)).rawRepresentation.byteArray
     }

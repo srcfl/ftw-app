@@ -224,6 +224,32 @@ import FTWDemo
         #expect(w.access.audit.map(\.seq) == w.access.audit.map(\.seq).sorted(by: >))
     }
 
+    /// The simulated home has no id; its key is kept under one anyway.
+    @Test func theDemoApproves() async throws {
+        let scheduler = ManualScheduler(nowMs: 1_792_000_000_000)
+        let app = AppModel(store: MemoryStore(), files: nil, passkeys: nil, scheduler: scheduler, build: "t", ua: "t", demo: SimulatedBox.loopback)
+        let keyring = SimulatedKeyring()
+        app.demoAccess = (keyring, SimulatedAccess.offerKeys, SimulatedDesk(), SimulatedAccess.lookup)
+        app.startDemo()
+        let access = try #require(app.home?.access)
+        func run(_ ms: Double) async {
+            var left = ms
+            while left > 0 {
+                for _ in 0..<20 { await Task.yield() }
+                scheduler.advance(10)
+                left -= 10
+            }
+        }
+        await run(1_000)
+        #expect(access.available)
+        let offer = try SimulatedAccess.offer(nowMs: scheduler.nowMs).open(keys: app.offerKeys, nowMs: Int64(scheduler.nowMs))
+        let task = Task { await access.approve(offer, grant: Grant.from(offer, control: false, lengthMs: 86_400_000)) }
+        await run(3_000)
+        let row = await task.value
+        #expect(row != nil, "\(access.help ?? "")")
+        #expect(keyring.unlocks == 1)
+    }
+
     /// Every word an owner reads has its Swedish.
     @Test func everyWordHasItsSwedish() {
         for scope in Contract.agentRoleScopes[Contract.roleAgent]! {
