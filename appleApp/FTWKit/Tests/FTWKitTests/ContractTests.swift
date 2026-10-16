@@ -66,6 +66,69 @@ import FTWDemo
         #expect(yaml.contains("car_identified_by: [\(Contract.carIdentifiedBy.joined(separator: ", "))]"))
     }
 
+    /// The agents' names (docs/agents.md in srcfl/ftw): what each role may
+    /// carry, which scope opens each op, and what an agent may put in it,
+    /// with the label an owner reads.
+    @Test func agentNamesAreTheRegistrys() {
+        let roles = section("roles")
+        for role in [Contract.roleAgent, Contract.roleSupport, Contract.roleRelease] {
+            let start = roles.firstIndex { $0.trimmingCharacters(in: .whitespaces) == "\(role):" }!
+            let label = roles[roles.index(after: start)].trimmingCharacters(in: .whitespaces)
+            let scopes = roles[roles.index(start, offsetBy: 2)].trimmingCharacters(in: .whitespaces)
+            #expect(label == "label: \(Contract.roleLabels[role]!)", "\(role)")
+            #expect(scopes == "scopes: [\(Contract.agentRoleScopes[role]!.joined(separator: ", "))]", "\(role)")
+        }
+        for line in section("scopes") where line.contains("{ name:") {
+            let name = values("scopes", "name").first { line.contains("name: \($0),") }!
+            #expect(line.contains("desc: \(Contract.scopeDescs[name]!) }"), "\(name)")
+        }
+        #expect(Set(Contract.scopeDescs.keys) == Set(Contract.scopes))
+        var agentOps = [String: String]()
+        for line in section("ops") where line.contains("{ name:") {
+            let name = String(line.split(separator: "name: ")[1].prefix { $0 != "," })
+            #expect(line.contains("desc: \(Contract.opDescs[name]!) }"), "\(name)")
+            if let r = line.range(of: "agent: ") { agentOps[name] = String(line[r.upperBound...].prefix { $0 != "," }) }
+        }
+        #expect(agentOps == Contract.agentOps)
+        // agent_args: an op's name on its own line, then one line per argument.
+        var args = [String: [Contract.AgentArg]]()
+        var op = ""
+        for line in section("agent_args") {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if t.hasSuffix(":"), !t.hasPrefix("-") { op = String(t.dropLast()); continue }
+            guard t.hasPrefix("- {") else { continue }
+            let body = t.dropFirst(3).dropLast(1).trimmingCharacters(in: .whitespaces)
+            var fields = [String: String]()
+            var rest = Substring(body)
+            while let colon = rest.range(of: ": ") {
+                let key = rest[..<colon.lowerBound].trimmingCharacters(in: CharacterSet(charactersIn: ", "))
+                rest = rest[colon.upperBound...]
+                if key == "label" {
+                    fields[key] = rest.trimmingCharacters(in: .whitespaces)
+                    break
+                }
+                if rest.hasPrefix("[") {
+                    let end = rest.firstIndex(of: "]")!
+                    fields[key] = String(rest[rest.index(after: rest.startIndex)..<end])
+                    rest = rest[rest.index(after: end)...]
+                } else {
+                    let end = rest.firstIndex(of: ",") ?? rest.endIndex
+                    fields[key] = String(rest[..<end])
+                    rest = rest[end...]
+                }
+            }
+            args[op, default: []].append(Contract.AgentArg(
+                fields["name"]!, fields["kind"]!, unit: fields["unit"], min: fields["min"].flatMap(Double.init),
+                max: fields["max"].flatMap(Double.init),
+                values: fields["values"]?.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) } ?? [],
+                required: fields["required"] == "true", cap: fields["cap"], label: fields["label"]!
+            ))
+        }
+        #expect(args == Contract.agentArgs)
+        #expect(Set(args.keys).isSubset(of: Set(Contract.agentOps.keys)))
+        #expect(list("capabilities").contains(Contract.capAccessAgents))
+    }
+
     /// FTWShared spells the same states as enums, for widgets that never
     /// link FTWKit.
     @Test func sharedStatesAreTheRegistrys() {

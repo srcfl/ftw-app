@@ -772,6 +772,7 @@
 				INFOPLIST_FILE = "FTW-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = FTW;
 				INFOPLIST_KEY_NSCameraUsageDescription = "FTW uses the camera to read the pairing code from your box.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "FTW uses Face ID when you let an assistant or Sourceful support reach your home.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -803,6 +804,7 @@
 				INFOPLIST_FILE = "FTW-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = FTW;
 				INFOPLIST_KEY_NSCameraUsageDescription = "FTW uses the camera to read the pairing code from your box.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "FTW uses Face ID when you let an assistant or Sourceful support reach your home.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

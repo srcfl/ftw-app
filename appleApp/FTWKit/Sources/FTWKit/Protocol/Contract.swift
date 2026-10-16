@@ -47,6 +47,48 @@ public enum Contract {
         roleOwner: "Owner",
         roleViewer: "Viewer",
         roleWatch: "Watch",
+        roleAgent: "Assistant",
+        roleSupport: "Sourceful support",
+        roleRelease: "Release check",
+    ]
+
+    /// Grants an owner gives to something other than a paired device
+    /// (docs/agents.md in srcfl/ftw). A role is the most a grant of that
+    /// kind may carry; each grant names a subset.
+    public static let roleAgent = "agent"
+    public static let roleSupport = "support"
+    public static let roleRelease = "release"
+    public static let agentRoleScopes: [String: [String]] = [
+        roleAgent: agentScopes,
+        roleSupport: agentScopes,
+        roleRelease: ["ftw.health.read"],
+    ]
+    static let agentScopes = [
+        "ftw.live.read", "ftw.history.read", "ftw.plan.read", "ftw.health.read", "ftw.events.read",
+        "ftw.logs.read", "ftw.config.read", "ftw.diag.run", "ftw.dispatch.hold", "ftw.goals.request",
+    ]
+
+    /// Each scope's description, from the registry. Words for an owner come
+    /// from `AccessWords`; this is what they translate.
+    public static let scopeDescs: [String: String] = [
+        "ftw.live.read": "Current readings and freshness",
+        "ftw.history.read": "Stored history",
+        "ftw.plan.read": "Dispatch plan and its reasoning",
+        "ftw.health.read": "Box and driver health",
+        "ftw.assets.read": "Devices and their capabilities",
+        "ftw.events.read": "Events behind notifications",
+        "ftw.dispatch.write": "Control energy assets",
+        "ftw.mode.write": "Change site operating mode",
+        "ftw.members.read": "See who has access",
+        "ftw.members.write": "Invite and revoke",
+        "ftw.logs.read": "Log excerpts the box redacts",
+        "ftw.config.read": "Configuration the box redacts",
+        "ftw.diag.run": "Checks that change nothing",
+        "ftw.dispatch.hold": "Hold energy assets for a capped time",
+        "ftw.goals.request": "Ask an owner to change a durable goal",
+        "ftw.update.request": "Ask an owner to install a version",
+        "ftw.cars.read": "See the owner's cars with their VINs and identifiers and sources",
+        "ftw.cars.write": "Keep the owner's list of cars",
     ]
 
     public static let scopeModeWrite = "ftw.mode.write"
@@ -73,6 +115,9 @@ public enum Contract {
     public static let capCloudTun = "cloud.tun"
     /// The box can take a watch. Absent, the phone offers no Add watch.
     public static let capCmdExchange = "cmd.exchange"
+    /// The box takes agents and answers the agent messages. Absent, the app
+    /// offers no Access list.
+    public static let capAccessAgents = "access.agents"
 
     /// The scopes an FTW Cloud grant may name, and what its data may be
     /// used for: the registry's `cloud_scopes` and `cloud_purposes`.
@@ -98,6 +143,101 @@ public enum Contract {
     public static let ops = [
         opSetMode, opPlannerPrefsSet, opBatteryHold, opLoadpointHold, opLoadpointBoost, opLoadpointSocSet, opLoadpointSurplusOnlySet,
         opCarGoalSet, opCarSocSet, opSessionCarSet, opCarAdd, opCarUpdate, opCarRemove,
+    ]
+
+    /// The scope that opens each op to an agent, from the registry's `agent`
+    /// on each op. `ftw.dispatch.hold` runs as a `cmd` within the grant's
+    /// caps; `ftw.goals.request` waits as an `agent.request` for an owner.
+    /// An op not listed is never open to an agent.
+    public static let agentOps: [String: String] = [
+        opSetMode: "ftw.goals.request",
+        opPlannerPrefsSet: "ftw.goals.request",
+        opLoadpointHold: "ftw.dispatch.hold",
+        opLoadpointSocSet: "ftw.goals.request",
+        opLoadpointSurplusOnlySet: "ftw.goals.request",
+        opCarGoalSet: "ftw.goals.request",
+        opCarSocSet: "ftw.goals.request",
+    ]
+
+    /// Each op's description, from the registry.
+    public static let opDescs: [String: String] = [
+        opSetMode: "Change the site operating mode",
+        opPlannerPrefsSet: "Set household planner preferences",
+        opBatteryHold: "Hold the battery at a fixed setpoint",
+        opLoadpointHold: "Charge the car now at a fixed current",
+        opLoadpointBoost: "Boost the car from the house battery",
+        opLoadpointSocSet: "Correct the car's current charge level",
+        opLoadpointSurplusOnlySet: "Charge the car from surplus PV only",
+        opCarGoalSet: "Set how and when a car charges",
+        opCarSocSet: "Set a car's level by hand",
+        opSessionCarSet: "Say which car is on a charger",
+        opCarAdd: "Add a car to the owner's list",
+        opCarUpdate: "Change what the box knows about a car",
+        opCarRemove: "Remove a car from the owner's list",
+    ]
+
+    /// One argument an agent may put in an op: the registry's `agent_args`.
+    /// `label` is the words the app shows an owner for the value.
+    public struct AgentArg: Equatable, Sendable {
+        public var name: String
+        public var kind: String
+        public var unit: String?
+        public var min: Double?
+        public var max: Double?
+        public var values: [String]
+        public var required: Bool
+        public var cap: String?
+        public var label: String
+
+        init(_ name: String, _ kind: String, unit: String? = nil, min: Double? = nil, max: Double? = nil, values: [String] = [], required: Bool = false, cap: String? = nil, label: String) {
+            self.name = name
+            self.kind = kind
+            self.unit = unit
+            self.min = min
+            self.max = max
+            self.values = values
+            self.required = required
+            self.cap = cap
+            self.label = label
+        }
+    }
+
+    public static let agentArgs: [String: [AgentArg]] = [
+        opSetMode: [AgentArg("mode", "mode", required: true, label: "Operating mode")],
+        opPlannerPrefsSet: [
+            AgentArg("safety_k", "number", min: 0, max: 2, label: "How cautious the plan is"),
+            AgentArg("battery_export", "enum", values: ["unknown", "not_allowed", "allowed"], label: "Whether the battery may sell to the grid"),
+        ],
+        opLoadpointHold: [
+            AgentArg("id", "loadpoint", required: true, label: "Charger"),
+            AgentArg("power_w", "power", unit: "W", min: 0, cap: "maxW", label: "Charging power"),
+            AgentArg("hold_s", "duration", unit: "s", min: 1, cap: "holdS", label: "For how long"),
+            AgentArg("phase_mode", "enum", values: ["auto", "1p", "3p"], label: "Phases"),
+            AgentArg("clear", "bool", label: "Stop the agent's own hold"),
+        ],
+        opLoadpointSocSet: [
+            AgentArg("id", "loadpoint", required: true, label: "Charger"),
+            AgentArg("soc", "ratio", min: 0, max: 1, required: true, label: "The car's charge level"),
+        ],
+        opLoadpointSurplusOnlySet: [
+            AgentArg("id", "loadpoint", required: true, label: "Charger"),
+            AgentArg("surplus_only", "bool", required: true, label: "Charge from solar only"),
+        ],
+        opCarGoalSet: [
+            AgentArg("id", "car", label: "Car"),
+            AgentArg("charger_id", "loadpoint", label: "Charger"),
+            AgentArg("target", "ratio", min: 0, max: 1, label: "The level to reach"),
+            AgentArg("ready_by_min", "number", min: 0, max: 1439, label: "Ready by, in minutes after midnight"),
+            AgentArg("days", "number", min: 0, max: 127, label: "Weekdays"),
+            AgentArg("finish_at_limit", "bool", label: "Charge on to the car's own limit"),
+            AgentArg("clear", "bool", label: "Remove the goal"),
+            AgentArg("surplus_only", "bool", label: "Charge from solar only"),
+        ],
+        opCarSocSet: [
+            AgentArg("id", "car", label: "Car"),
+            AgentArg("charger_id", "loadpoint", label: "Charger"),
+            AgentArg("soc", "ratio", min: 0, max: 1, required: true, label: "The car's charge level"),
+        ],
     ]
 
     /// The box keeps cars apart from chargers. Absent, the charger is the

@@ -36,6 +36,9 @@ struct ModeSheet: View {
             List {
                 planSection
                 manualSection
+                if let app, let access = app.home?.access {
+                    AccessSettingsSection(app: app, access: access)
+                }
                 phoneSection
             }
             .listStyle(.insetGrouped)

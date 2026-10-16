@@ -180,6 +180,7 @@ public final class Session {
     private var pendingPlan: [UInt32: PendingSingle<Plan>] = [:]
     private var pendingAPI: [UInt32: PendingAPI] = [:]
     private var pendingCommands: [String: PendingCommand] = [:]
+    private var pendingAsks: [UInt32: PendingSingle<CBOR>] = [:]
 
     // The api queue: one call on the wire at a time, because that is how
     // many the box serves. Waiting calls go in `ReadOrder`, then in turn.
@@ -348,6 +349,28 @@ public final class Session {
             pendingPlan[id] = PendingSingle(continuation: cont, timer: timer)
             sent("plan.get")
             carrier?.send(frame)
+        }
+    }
+
+    /// One of the box's own messages that answers in kind: the agent
+    /// messages, which get `agent.ok` with the request's id, or an `error`
+    /// with it (`BoxRefusal`). Bulk lane, since a signed body or a list of
+    /// grants varies in length with what it says.
+    public func ask(_ t: String, _ body: CBOR, timeoutMs: Double = Session.planTimeoutMs) async throws -> CBOR {
+        guard carrier != nil else { throw SessionError.noCarrier }
+        let id = takeRequestID()
+        let frame = try Frame.encodeBulk(envelope: Envelope(t: t, id: id, b: body))
+        return try await withCheckedThrowingContinuation { cont in
+            let timer = scheduler.after(timeoutMs) { [weak self] in
+                guard let p = self?.pendingAsks.removeValue(forKey: id) else { return }
+                p.continuation.resume(throwing: SessionError.timedOut(t))
+            }
+            pendingAsks[id] = PendingSingle(continuation: cont, timer: timer)
+            sent(t)
+            if carrier?.send(frame) != true, let p = pendingAsks.removeValue(forKey: id) {
+                p.timer?.cancel()
+                p.continuation.resume(throwing: SessionError.carrierClosed)
+            }
         }
     }
 
@@ -582,6 +605,10 @@ public final class Session {
             p.ackTimer.cancel()
             p.confirmTimer.cancel()
             p.continuation.resume(returning: result)
+        case "agent.ok":
+            guard let id = env.id, let pending = pendingAsks.removeValue(forKey: id) else { return }
+            pending.timer?.cancel()
+            pending.continuation.resume(returning: body)
         case "error": onError(ErrorMsg(body), id: env.id)
         case "session.terminate":
             var s = state
@@ -725,6 +752,11 @@ public final class Session {
                 p.continuation.resume(throwing: BoxRefusal(detail: b))
                 return
             }
+            if let p = pendingAsks.removeValue(forKey: id) {
+                p.timer?.cancel()
+                p.continuation.resume(throwing: BoxRefusal(detail: b))
+                return
+            }
         }
         var s = state
         s.lastError = b
@@ -799,6 +831,8 @@ public final class Session {
         pendingHistory = [:]
         for (_, p) in pendingPlan { p.timer?.cancel(); p.continuation.resume(throwing: SessionError.carrierClosed) }
         pendingPlan = [:]
+        for (_, p) in pendingAsks { p.timer?.cancel(); p.continuation.resume(throwing: SessionError.carrierClosed) }
+        pendingAsks = [:]
         let commands = pendingCommands
         pendingCommands = [:]
         for (cmdId, p) in commands {

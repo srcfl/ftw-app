@@ -17,6 +17,9 @@ public protocol SecureStore: AnyObject {
     /// not mean the value is gone.
     func read(_ key: String) throws -> Bytes?
     func put(_ key: String, _ value: Bytes)
+    /// As `put`, and an error when the store did not keep it: anything a
+    /// box will hold this phone to, such as an approval key, must know.
+    func write(_ key: String, _ value: Bytes) throws
     func remove(_ key: String)
 }
 
@@ -45,6 +48,9 @@ public final class MemoryStore: SecureStore {
 extension SecureStore {
     /// A store that cannot fail to answer, such as `MemoryStore`.
     public func read(_ key: String) throws -> Bytes? { get(key) }
+
+    /// A store that cannot fail to keep, such as `MemoryStore`.
+    public func write(_ key: String, _ value: Bytes) throws { put(key, value) }
 
     func getJSON<T: Decodable>(_ type: T.Type, _ key: String) -> T? {
         guard let raw = get(key) else { return nil }
