@@ -241,4 +241,27 @@ import Testing
         #expect(again.thread == "fjzyr67buzpyncqmjliwgezvde")
         #expect(connected.sound && unreachable.sound)
     }
+
+    /// A notice that names the client says so; without a name that will
+    /// do, the catalogue's sentence shows. No notice gets buttons.
+    @Test func aNoticeNamesTheClientWhenItCan() {
+        let named = Self.event(PushKind.agentAdded, args: ["client": "Claude"])
+        #expect(PushText.content(named, language: .en) == .init(title: "New access to your box",
+                                                                  body: "Claude was given access to your box. See who has access in the app."))
+        #expect(PushText.content(named, language: .sv) == .init(title: "Ny åtkomst till din box",
+                                                                  body: "Claude har fått åtkomst till din box. Se vem som har åtkomst i appen."))
+        // A name the consent page cut: 64 characters and "…".
+        let long = String(repeating: "ö", count: 64) + "…"
+        #expect(PushText.content(Self.event(PushKind.agentAdded, args: ["client": long]), language: .en).body
+                == "\(long) was given access to your box. See who has access in the app.")
+        for client in ["", "Claude\nPay here", "Claude\u{202E}", String(repeating: "c", count: 66)] {
+            #expect(PushText.content(Self.event(PushKind.agentAdded, args: ["client": client]), language: .en).body
+                    == "An assistant or Sourceful was given access to your box. See who has access in the app.", "\(client)")
+        }
+        #expect(PushText.content(Self.event(PushKind.ownerAdded, args: ["client": "Claude"]), language: .sv)
+                == .init(title: "En ny ägare", body: "En telefon har parats som ägare av din box. Var det inte du, ta bort den i appen."))
+        for kind in PushKind.notices {
+            #expect(PushNotice(Self.event(kind), home: nil, language: .en).category == "", "\(kind)")
+        }
+    }
 }

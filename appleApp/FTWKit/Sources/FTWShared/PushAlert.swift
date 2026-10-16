@@ -27,7 +27,8 @@ public enum PushKind {
     public static let cloudGranted = "cloud.granted"
     public static let cloudRevoked = "cloud.revoked"
     /// Access from outside the house, for every owner (docs/agents.md in
-    /// srcfl/ftw). They come as the box's `notice`, never as an event.
+    /// srcfl/ftw). They come as the box's `notice`, never as an event, and
+    /// FTW Cloud brings them with the readable copy on or off.
     public static let agentAdded = "agent.added"
     public static let agentRequest = "agent.request"
     public static let agentExpiring = "agent.expiring"
@@ -98,6 +99,8 @@ public struct PushAlert: Sendable, Equatable {
     static let clockLeadMs: Int64 = 2_000
     /// How old an event may be and still get its text and buttons.
     static let maxAgeMs: Int64 = 10 * 60_000
+    /// How old a notice may be: a day.
+    static let noticeMaxAgeMs: Int64 = 24 * 60 * 60_000
     /// How long rule U's anchor stays usable after it was last learned.
     static let ruleULifetimeMs: Int64 = 24 * 60 * 60_000
     /// Rule U's drift margin: 0.01 % of the time since it was learned.
@@ -138,16 +141,22 @@ public struct PushAlert: Sendable, Equatable {
         guard let event = a.event, !event.isEmpty else {
             return a.kind == PushKind.boxUnreachable ? PushAlert(.unreachable, home: home) : generic
         }
+        // A notice reads as an event of its kind, with the client's name as
+        // its one argument when it carries one.
         guard a.kind == nil || a.kind == "",
-              let env = Envelope(Array(event)), env.t == "event",
+              let env = Envelope(Array(event)), env.t == "event" || env.t == "notice",
               let pk = boxKey(home), verify(pk, home: home, env),
-              let ev = Event(env.b), var at = sendTime(ev, offset: offset(home), nowMs: nowMs) else {
+              let ev = env.t == "event" ? Event(env.b) : Event(notice: env.b),
+              var at = sendTime(ev, offset: offset(home), nowMs: nowMs) else {
             return generic
         }
         if let ts = ev.ts { at = min(at, ts) }
         let age = nowMs.subtractingReportingOverflow(at)
-        guard PushKind.all.contains(ev.kind), ev.kind != PushKind.boxUnreachable, !PushKind.notices.contains(ev.kind),
-              !age.overflow, age.partialValue <= maxAgeMs else {
+        // A notice kind comes only as a notice, and a notice states a
+        // lasting fact, so it lasts a day.
+        let notice = env.t == "notice"
+        guard PushKind.all.contains(ev.kind), ev.kind != PushKind.boxUnreachable, PushKind.notices.contains(ev.kind) == notice,
+              !age.overflow, age.partialValue <= (notice ? noticeMaxAgeMs : maxAgeMs) else {
             return generic
         }
         return PushAlert(.event, home: home, kind: ev.kind, args: ev.args, src: ev.src, lp: ev.lp, boot: ev.boot.map { Data($0) }, seq: ev.seq, atMs: at)
@@ -202,6 +211,17 @@ public struct PushAlert: Sendable, Equatable {
         }
     }
 
+    /// A notice's client name may be at most this many characters: the
+    /// consent page keeps 64 and marks a cut name with "…", as in Go.
+    static let noticeClientMaxRunes = 65
+
+    /// A client name as Go's NoticeClientOK takes it: no control or format
+    /// character, and not too long.
+    static func clientOK(_ c: String) -> Bool {
+        !c.isEmpty && c.unicodeScalars.count <= noticeClientMaxRunes &&
+            !c.unicodeScalars.contains { $0.properties.generalCategory == .control || $0.properties.generalCategory == .format }
+    }
+
     /// The event body. A field may be missing or null; one of the wrong
     /// type makes the whole body unreadable, as it does in Go.
     struct Event {
@@ -234,6 +254,32 @@ public struct PushAlert: Sendable, Equatable {
                 args = try field("args", \.textOfText) ?? [:]
                 src = try field("src", \.text)
                 lp = try field("lp", \.text)
+            } catch {
+                return nil
+            }
+        }
+
+        /// A notice body, read as ReadNotice in Go reads it: the header, a
+        /// notice kind and, on agent.added only, the client's name. Any
+        /// other field makes it no notice, so it cannot carry a reading.
+        init?(notice b: [UInt8]) {
+            let allowed: Set<String> = ["seq", "boot", "uptimeMs", "wallMs", "kind", "client"]
+            guard let m = (try? PushCBOR.decode(b))?.textMap, Set(m.keys).isSubset(of: allowed) else { return nil }
+            func field<T>(_ key: String, _ read: (PushCBOR) -> T?) throws -> T? {
+                guard let v = m[key], v != .null else { return nil }
+                guard let out = read(v) else { throw PushCBOR.Malformed() }
+                return out
+            }
+            do {
+                seq = try field("seq", \.uint) ?? 0
+                boot = try field("boot", \.byteString)
+                uptimeMs = try field("uptimeMs", \.int64) ?? 0
+                wallMs = try field("wallMs", \.int64)
+                kind = try field("kind", \.text) ?? ""
+                let client = try field("client", \.text) ?? ""
+                guard PushKind.notices.contains(kind), boot?.count == 16, uptimeMs >= 0,
+                      client.isEmpty || (kind == PushKind.agentAdded && PushAlert.clientOK(client)) else { return nil }
+                if !client.isEmpty { args = ["client": client] }
             } catch {
                 return nil
             }

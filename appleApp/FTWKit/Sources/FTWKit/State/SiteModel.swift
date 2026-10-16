@@ -1143,7 +1143,7 @@ extension SiteModel {
         cloud = c
         cloudHome = home
         cloudStatus = c.status
-        if cloudOn { installPushSink() }
+        if takesAlerts { installPushSink() }
         c.start()
     }
 
@@ -1199,10 +1199,17 @@ extension SiteModel {
         cloudDirty = true
         persistNow()
         startCloud()
-        // Alerts come with the readable copy, and only then is the person
-        // asked to allow them.
-        if cloudOn, cloud != nil { installPushSink() } else if !cloudOn { uninstallPushSink() }
+        // Alerts come with the readable copy, or to an owner's phone for the
+        // security notices whenever the box is linked, and only then is the
+        // person asked to allow them.
+        if takesAlerts, cloud != nil { installPushSink() } else if !takesAlerts { uninstallPushSink() }
     }
+
+    /// Whether this phone registers for FTW Cloud's alerts: an owner's
+    /// whenever the box is linked, since security notices go to every owner
+    /// with the readable copy on or off; another phone only while the copy
+    /// carries its events.
+    private var takesAlerts: Bool { cloudOn || canConfigure }
 
     // MARK: Pushes
 
@@ -1293,7 +1300,7 @@ extension SiteModel {
         guard var view = cloudView, (try? view.accept(env, arrivalMs: Int64(at))) != nil else { return false }
         cloudView = view
         switch env.t {
-        case CloudWire.msgLP: takeCloudCars(at)
+        case CloudWire.msgLP, CloudWire.msgCar: takeCloudCars(at)
         case CloudWire.msgPrices: takeCloudPrices(at)
         default: break
         }
@@ -1402,13 +1409,16 @@ extension SiteModel {
         guard let view = cloudView, let lp = view.lp, let identity = cloudIdentity else { return }
         let now = scheduler.nowMs
         let g = view.grade(nowMs: Int64(now))
-        let cars = lp.loadpoints.map { l in
+        let cars = lp.loadpoints.map(view.joined).map { l in
             CarEntry.Car(
                 loadpointID: identity.loadpoints[l.id] ?? l.id,
                 pluggedIn: l.plugged,
                 socPct: l.socPermille.map { (Double($0) / 10).rounded() },
                 socSource: l.socSource,
-                socReadAtMs: l.socAgeS.map { now - Double($0) * 1000 },
+                // Dated from the message that carried the age: the car
+                // class's own send for a car. Without an anchor, a charger
+                // without a car is dated from now, as before cars.
+                socReadAtMs: view.socReadAtMs(l).map(Double.init) ?? (l.carId.isEmpty ? l.socAgeS.map { now - Double($0) * 1000 } : nil),
                 powerW: Double(l.powerW),
                 targetSocPct: l.targetPermille.map { (Double($0) / 10).rounded() }
             )

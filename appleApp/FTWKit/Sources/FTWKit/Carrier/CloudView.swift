@@ -80,6 +80,12 @@ public struct CloudView: Sendable {
     /// The newest of each class this phone shows.
     public private(set) var live: CloudWire.Live?
     public private(set) var lp: CloudWire.LP?
+    /// Each car's level and goal. A charger's `carId` joins it; where the
+    /// two disagree, this wins.
+    public private(set) var cars: CloudWire.Cars?
+    /// When the box sent the newest lp and car, by the phone's clock, when
+    /// a rule anchors it.
+    private var sentAt: [String: Int64] = [:]
     /// Kept for the screens and left out of `grade`, as in Go: a price
     /// window ages by its own slots, not by the box's sources.
     public private(set) var prices: CloudWire.Prices?
@@ -113,6 +119,45 @@ public struct CloudView: Sendable {
     /// screen can say how old a reading is. Nil before an anchored message.
     public var anchorReadings: (uptimeMs: Int64, ages: [String: Int64])? {
         m.map { ($0.uptimeMs, $0.ages) }
+    }
+
+    /// A charger's level and goal as its session's car has them, when the
+    /// car class holds that car; the charger as sent otherwise. The box
+    /// fills a charger's level fields from its car, so the two agree; where
+    /// they do not, as when one class arrived after the other, the car
+    /// wins (srcfl/ftw `docs/protocol-cloud.md`, lp). `socAgeS` is then the
+    /// car's, counted to the car class's send; `socReadAtMs` dates it.
+    public func joined(_ l: CloudWire.Loadpoint) -> CloudWire.Loadpoint {
+        guard let car = cars?.car(l.carId) else { return l }
+        var out = l
+        out.socPermille = car.socPermille
+        out.socAgeS = nil
+        switch true {
+        case car.socPermille == nil: out.socSource = "unknown"
+        case car.socSource == "assumed": out.socSource = "assumed"
+        case car.socEstimate || car.socSource != "vehicle": out.socSource = "inferred"
+        default:
+            out.socSource = "vehicle"
+            out.socAgeS = car.socAgeS
+        }
+        out.targetPermille = car.goal.flatMap { $0.targetPermille > 0 ? $0.targetPermille : nil }
+        out.recurring = (car.goal?.days ?? 0) != 0
+        if car.goal == nil { out.readyByMs = nil }
+        out.surplusOnly = car.surplusOnly
+        return out
+    }
+
+    /// When a charger's level was read, by the phone's clock: from its
+    /// car's class and that class's own send time when the class holds the
+    /// car, from the charger's message and its send otherwise. Nil without
+    /// an age, or when no rule anchors that send.
+    public func socReadAtMs(_ l: CloudWire.Loadpoint) -> Int64? {
+        if let car = cars?.car(l.carId) {
+            guard let age = car.socAgeS, let sent = sentAt[CloudWire.msgCar] else { return nil }
+            return sent &- age &* 1000
+        }
+        guard let age = l.socAgeS, let sent = sentAt[CloudWire.msgLP] else { return nil }
+        return sent &- age &* 1000
     }
 
     /// The boot the view holds, nil before the first message.
@@ -195,6 +240,8 @@ public struct CloudView: Sendable {
             }
         case .lp(let p):
             lp = p
+        case .cars(let c):
+            cars = c
         case .prices(let p):
             prices = p
         case .hb(let b):
@@ -207,6 +254,7 @@ public struct CloudView: Sendable {
             break
         }
         seq[envelope.t] = h.seq
+        if envelope.t == CloudWire.msgLP || envelope.t == CloudWire.msgCar { sentAt[envelope.t] = send }
         if let send, send > newest { newest = send }
     }
 
@@ -319,6 +367,7 @@ public struct CloudView: Sendable {
     private enum Message {
         case live(CloudWire.Live)
         case lp(CloudWire.LP)
+        case cars(CloudWire.Cars)
         case prices(CloudWire.Prices)
         case hb(CloudWire.HB)
         /// Classes the view only orders by seq.
@@ -328,6 +377,7 @@ public struct CloudView: Sendable {
             switch t {
             case CloudWire.msgLive: self = .live(try CloudWire.Live(body: b))
             case CloudWire.msgLP: self = .lp(try CloudWire.LP(body: b))
+            case CloudWire.msgCar: self = .cars(try CloudWire.Cars(body: b))
             case CloudWire.msgPrices: self = .prices(try CloudWire.Prices(body: b))
             case CloudWire.msgHB: self = .hb(try CloudWire.HB(body: b))
             default: self = .other(try CloudWire.Header(body: b))
@@ -338,6 +388,7 @@ public struct CloudView: Sendable {
             switch self {
             case .live(let l): return l.header
             case .lp(let p): return p.header
+            case .cars(let c): return c.header
             case .prices(let p): return p.header
             case .hb(let b): return b.header
             case .other(let h): return h
@@ -360,6 +411,8 @@ public struct CloudView: Sendable {
         fieldSources = [:]
         live = nil
         lp = nil
+        cars = nil
+        sentAt = [:]
         prices = nil
         hb = nil
         m = nil

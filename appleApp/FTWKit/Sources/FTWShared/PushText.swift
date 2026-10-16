@@ -29,11 +29,14 @@ public enum PushText {
     }
 
     /// One kind's sentence. `{name}` marks an argument; `without` is the
-    /// body to show when an argument is missing or will not do.
+    /// body to show when an argument is missing or will not do. `named` is
+    /// the phone's own body for a notice that names the client given
+    /// access; without the name, `body` shows.
     struct Sentence {
         var title: String
         var body: String
         var without: String?
+        var named: String?
     }
 
     /// The line for anything that did not check out: no signature, an old
@@ -57,6 +60,7 @@ public enum PushText {
         }
         guard let s = sentences(language)[kind] else { return generic(language) }
         let values = arguments(alert.args, name: sourceName, decimalSeparator: decimalSeparator)
+        if let named = s.named, let body = fill(named, values) { return Content(title: s.title, body: body) }
         guard let body = fill(s.body, values) else { return Content(title: s.title, body: s.without ?? s.body) }
         return Content(title: s.title, body: body)
     }
@@ -76,7 +80,8 @@ public enum PushText {
         PushKind.boxUnreachable: Sentence(title: "Your box is out of reach", body: "It stopped answering. Power cut, or the internet at home is down."),
         PushKind.cloudGranted: Sentence(title: "FTW Cloud is on", body: "Your box now shares a copy of its readings with FTW Cloud. You can turn it off in the app or on the box."),
         PushKind.cloudRevoked: Sentence(title: "FTW Cloud is off", body: "Your box stopped sharing with FTW Cloud and asked it to delete its copy."),
-        PushKind.agentAdded: Sentence(title: "New access to your box", body: "You gave an assistant or Sourceful access. See who has access in the app."),
+        PushKind.agentAdded: Sentence(title: "New access to your box", body: "An assistant or Sourceful was given access to your box. See who has access in the app.",
+                                      named: "{client} was given access to your box. See who has access in the app."),
         PushKind.agentRequest: Sentence(title: "Waiting for your answer", body: "An assistant asks to change a setting. Open FTW to confirm or decline."),
         PushKind.agentExpiring: Sentence(title: "Access ends tomorrow", body: "An assistant's or Sourceful's access to your box runs out in a day. Renew it in the app if it should go on."),
         PushKind.approvalKeySet: Sentence(title: "A phone can now approve access", body: "A phone set up the key it uses to approve access to your box. If that was not you, remove the phone in the app."),
@@ -95,7 +100,8 @@ public enum PushText {
         PushKind.boxUnreachable: Sentence(title: "Din box går inte att nå", body: "Den har slutat svara. Strömavbrott, eller så är internet hemma nere."),
         PushKind.cloudGranted: Sentence(title: "FTW Cloud är på", body: "Din box delar nu en kopia av sina mätvärden med FTW Cloud. Du kan stänga av det i appen eller på boxen."),
         PushKind.cloudRevoked: Sentence(title: "FTW Cloud är av", body: "Din box har slutat dela med FTW Cloud och bett den radera sin kopia."),
-        PushKind.agentAdded: Sentence(title: "Ny åtkomst till din box", body: "En assistent eller Sourceful har fått åtkomst. Se vem som har åtkomst i appen."),
+        PushKind.agentAdded: Sentence(title: "Ny åtkomst till din box", body: "En assistent eller Sourceful har fått åtkomst till din box. Se vem som har åtkomst i appen.",
+                                      named: "{client} har fått åtkomst till din box. Se vem som har åtkomst i appen."),
         PushKind.agentRequest: Sentence(title: "Väntar på ditt svar", body: "En assistent vill ändra en inställning. Öppna FTW för att godkänna eller avböja."),
         PushKind.agentExpiring: Sentence(title: "Åtkomsten upphör i morgon", body: "En assistents eller Sourcefuls åtkomst till din box går ut om ett dygn. Förnya den i appen om den ska fortsätta."),
         PushKind.approvalKeySet: Sentence(title: "En telefon kan nu godkänna åtkomst", body: "En telefon har satt upp nyckeln den använder för att godkänna åtkomst till din box. Var det inte du, ta bort telefonen i appen."),
@@ -119,16 +125,19 @@ public enum PushText {
             out["by"] = by
         }
         for key in ["version", "phase"] {
-            if let v = args[key].flatMap(plain) { out[key] = v }
+            if let v = args[key].flatMap({ plain($0) }) { out[key] = v }
         }
-        if let name = name.flatMap(plain) { out["name"] = name }
+        // A client's name as the consent page cut it: up to 64 characters
+        // and "…".
+        if let c = args["client"].flatMap({ plain($0, upTo: PushAlert.noticeClientMaxRunes) }) { out["client"] = c }
+        if let name = name.flatMap({ plain($0) }) { out["name"] = name }
         return out
     }
 
     /// A short line of text, or nil.
-    static func plain(_ s: String) -> String? {
+    static func plain(_ s: String, upTo most: Int = 40) -> String? {
         let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard (1...40).contains(t.count), t.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) && !CharacterSet.newlines.contains($0) }) else { return nil }
+        guard (1...most).contains(t.count), t.unicodeScalars.allSatisfy({ $0.properties.generalCategory != .format }), t.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) && !CharacterSet.newlines.contains($0) }) else { return nil }
         return t
     }
 

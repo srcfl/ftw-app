@@ -68,7 +68,8 @@ import Testing
         let seen = PushSeen(file: dir.appendingPathComponent("push-seen"))
         #expect(seen.accept(Self.event(seq: 9), nowMs: 1))
         #expect(!seen.accept(Self.event(seq: 9), nowMs: 2))
-        // Older than one shown.
+        // A notice numbered before an event shown, and late: shown once.
+        #expect(seen.accept(Self.event(seq: 8), nowMs: 3))
         #expect(!seen.accept(Self.event(seq: 8), nowMs: 3))
         #expect(seen.accept(Self.event(seq: 10), nowMs: 4))
         // A restart counts again; another home counts on its own.
@@ -80,6 +81,30 @@ import Testing
         #expect(seen.accept(PushAlert(.unreachable, home: Self.home), nowMs: 8))
         #expect(seen.accept(PushAlert(.unreachable, home: Self.home), nowMs: 9))
         #expect(seen.accept(PushAlert(.generic, home: Self.home), nowMs: 10))
+    }
+
+    /// Past `recent` numbers the oldest fall below the floor, which counts
+    /// as shown; a file from before the list keeps its highest as the
+    /// floor.
+    @Test func theNumbersKeptAreBounded() throws {
+        let dir = Self.temp()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let seen = PushSeen(file: dir.appendingPathComponent("push-seen"))
+        for seq in UInt64(1)...UInt64(PushSeen.recent + 1) {
+            #expect(seen.accept(Self.event(seq: seq * 2), nowMs: Double(seq)))
+        }
+        let entry = try #require(seen.load().first)
+        #expect(entry.shown?.count == PushSeen.recent && entry.seq == 2)
+        #expect(!seen.accept(Self.event(seq: 1), nowMs: 100))
+        #expect(seen.accept(Self.event(seq: 5), nowMs: 101))
+
+        let legacy = PushSeen(file: dir.appendingPathComponent("legacy"))
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let boot = try #require(Self.event(seq: 1).boot)
+        try JSONSerialization.data(withJSONObject: [["home": Self.home, "boot": boot.base64EncodedString(), "seq": 9, "atMs": 1]])
+            .write(to: legacy.file)
+        #expect(!legacy.accept(Self.event(seq: 8), nowMs: 2))
+        #expect(legacy.accept(Self.event(seq: 10), nowMs: 3))
     }
 
     @Test func theFileStaysSmall() {
