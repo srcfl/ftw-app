@@ -164,13 +164,17 @@ public struct Plan: Equatable, Sendable, Codable {
     /// different sentences.
     public var stale: Bool
     public var ceilingW: Double?
+    /// Each charger's share of the plan. Nil from a box that sends none,
+    /// which also pushes no plan when it replans.
+    public var chargers: [PlanCharger]?
 
-    public init(rev: UInt64, uptimeMs: Double, slots: [PlanSlot], stale: Bool, ceilingW: Double?) {
+    public init(rev: UInt64, uptimeMs: Double, slots: [PlanSlot], stale: Bool, ceilingW: Double?, chargers: [PlanCharger]? = nil) {
         self.rev = rev
         self.uptimeMs = uptimeMs
         self.slots = slots
         self.stale = stale
         self.ceilingW = ceilingW
+        self.chargers = chargers
     }
 
     init(_ c: CBOR) {
@@ -190,6 +194,7 @@ public struct Plan: Equatable, Sendable, Codable {
         }
         stale = c["stale"]?.bool ?? false
         ceilingW = c["ceilingW"]?.double
+        chargers = c["chargers"]?.array?.compactMap { PlanCharger($0) }
     }
 
     var cbor: CBOR {
@@ -207,6 +212,76 @@ public struct Plan: Equatable, Sendable, Codable {
             ("stale", .bool(stale)),
         ]
         pairs.append(("ceilingW", ceilingW.map { .ms($0) } ?? .null))
+        if let chargers { pairs.append(("chargers", .array(chargers.map(\.cbor)))) }
+        return .map(pairs)
+    }
+}
+
+/// One charger's share of the plan, as `GET /api/loadpoints` gives it, so
+/// a plan the box pushes redraws the charger without a read. Keyed by the
+/// charger: a car visits chargers.
+public struct PlanCharger: Equatable, Sendable, Codable {
+    /// The charger's loadpoint id.
+    public var id: String
+    /// The session's car, nil while the box does not know which, and from
+    /// a box that keeps no cars.
+    public var carId: String?
+    public var pluggedIn: Bool
+    /// A newer plan is being made: the windows are the plan the box goes on
+    /// acting on until the new one lands. Outdated comes with it, and alone
+    /// when the plan is not one the box acts on; then there are no windows.
+    public var pending: Bool
+    public var outdated: Bool
+    /// Grid-funded charging waits for prices that reach the deadline.
+    public var gridDeferred: Bool
+    /// Moves when the charger's goal, ready time, schedule or solar-only
+    /// choice changes, wherever that was done. Nil from a box without it.
+    public var goalRev: UInt32?
+    public var windows: [Loadpoint.Window]
+    public var totalWh: Double
+    /// How far short of the goal the plan leaves the car, in battery
+    /// watt-hours. Nil when the plan has no goal for it.
+    public var shortfallWh: Double?
+
+    public init(id: String, carId: String? = nil, pluggedIn: Bool, pending: Bool = false, outdated: Bool = false, gridDeferred: Bool = false, goalRev: UInt32? = nil, windows: [Loadpoint.Window], totalWh: Double, shortfallWh: Double? = nil) {
+        self.id = id
+        self.carId = carId
+        self.pluggedIn = pluggedIn
+        self.pending = pending
+        self.outdated = outdated
+        self.gridDeferred = gridDeferred
+        self.goalRev = goalRev
+        self.windows = windows
+        self.totalWh = totalWh
+        self.shortfallWh = shortfallWh
+    }
+
+    init?(_ c: CBOR) {
+        guard let id = c["id"]?.string else { return nil }
+        self.id = id
+        carId = c["carId"]?.string.flatMap { $0.isEmpty ? nil : $0 }
+        pluggedIn = c["pluggedIn"]?.bool ?? false
+        pending = c["pending"]?.bool ?? false
+        outdated = c["outdated"]?.bool ?? false
+        gridDeferred = c["gridDeferred"]?.bool ?? false
+        goalRev = c["goalRev"]?.int64.flatMap { UInt32(exactly: $0) }
+        windows = (c["windows"]?.array ?? []).compactMap { w in
+            guard let s = w["startMs"]?.double, let e = w["endMs"]?.double, e > s, let wh = w["wh"]?.double, wh >= 0 else { return nil }
+            return Loadpoint.Window(fromMs: s, toMs: e, peakW: nil, energyWh: wh)
+        }
+        totalWh = c["totalWh"]?.double ?? 0
+        shortfallWh = c["shortfallWh"]?.double.map { max(0, $0) }
+    }
+
+    var cbor: CBOR {
+        var pairs: [(String, CBOR)] = [
+            ("id", .text(id)), ("pluggedIn", .bool(pluggedIn)), ("pending", .bool(pending)), ("outdated", .bool(outdated)), ("gridDeferred", .bool(gridDeferred)),
+            ("windows", .array(windows.map { .map([("startMs", .ms($0.fromMs)), ("endMs", .ms($0.toMs)), ("wh", .ms($0.energyWh ?? 0))]) })),
+            ("totalWh", .ms(totalWh)),
+        ]
+        if let carId { pairs.append(("carId", .text(carId))) }
+        if let goalRev { pairs.append(("goalRev", .unsigned(UInt64(goalRev)))) }
+        if let shortfallWh { pairs.append(("shortfallWh", .ms(shortfallWh))) }
         return .map(pairs)
     }
 }

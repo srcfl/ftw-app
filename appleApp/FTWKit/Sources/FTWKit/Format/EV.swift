@@ -54,6 +54,13 @@ public struct Loadpoint: Equatable, Sendable, Identifiable, Codable {
         public var peakW: Double?
         public var energyWh: Double?
         public var id: Double { fromMs }
+
+        public init(fromMs: Double, toMs: Double, peakW: Double?, energyWh: Double?) {
+            self.fromMs = fromMs
+            self.toMs = toMs
+            self.peakW = peakW
+            self.energyWh = energyWh
+        }
     }
 
     public var id: String

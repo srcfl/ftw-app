@@ -120,7 +120,7 @@ public final class SiteModel {
     /// FTW Cloud's price window and chargers as last accepted, for the
     /// models that show them. Each change comes with a `notify`.
     @ObservationIgnored public private(set) var cloudPrices: Stamped<PriceEntry>?
-    @ObservationIgnored public private(set) var cloudCars: Stamped<[CarEntry.Car]>?
+    @ObservationIgnored public internal(set) var cloudCars: Stamped<[CarEntry.Car]>?
     @ObservationIgnored private var destroyed = false
     /// The box session's own state, as the last frame left it.
     @ObservationIgnored private var relay = SessionState()
