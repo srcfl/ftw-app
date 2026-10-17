@@ -221,7 +221,10 @@ public final class CarsModel: Activatable {
             "\(lp.id) \(lp.pluggedIn) \(lp.chargerCar?.carID ?? "-") \(lp.chargerCar?.identifiedBy ?? "-") \(lp.socPct ?? -1) \(lp.socSource)"
         }
         defer { chargerSeen = seen }
-        guard seen != chargerSeen, !chargerSeen.isEmpty || points.contains(where: { $0.chargerCar != nil }) else { return }
+        // The first read after a hello is news only for a car the list does
+        // not have; the hello reads the list anyway.
+        let unknown = loaded && points.contains { lp in car(on: lp) == nil && !(lp.chargerCar?.carID ?? "").isEmpty }
+        guard unknown || (!chargerSeen.isEmpty && seen != chargerSeen) else { return }
         news += 1
         ask?.evaluate()
     }
@@ -602,9 +605,10 @@ public final class CarsModel: Activatable {
     }
 
     /// The level sources this box could bind to a car: each source the
-    /// car has, then each driver the box reports that no other car has.
+    /// car has, then each driver the box reports that no other car has and
+    /// that is not a charger.
     public func sourceChoices(for car: Car) -> [String] {
-        let taken = Set(cars.filter { $0.id != car.id }.flatMap(\.sources))
+        let taken = Set(cars.filter { $0.id != car.id }.flatMap(\.sources)).union(loadpoints.points.compactMap(\.driverName))
         let others = site.session.sources.keys.filter { !taken.contains($0) && !car.sources.contains($0) }.sorted()
         return car.sources + others
     }

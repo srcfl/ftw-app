@@ -26,6 +26,11 @@ iPhone-only app on iOS 26: pairing, a lean Now, a car view and price
 widgets. The car view sets the level with 20/40/60/80 and ±5 through
 `loadpoint.soc.set`, the goal through the schedule PUT, and has Charge now,
 Pause and Back to the plan. M1 needs no server and no change in Core.
+On a box that lists `der.car` (docs/cars.md in srcfl/ftw) the car is its
+own entity: the app reads `GET /api/cars`, draws the car before the
+charger, sets its level and goal with `car.soc.set` and `car.goal.set`, and
+answers "Which car?" with `session.car.set`. A box without `der.car` keeps
+the charger view.
 His decisions:
 
 - iOS 26 is the minimum. iPhone only, no macOS.

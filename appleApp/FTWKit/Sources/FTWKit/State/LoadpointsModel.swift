@@ -971,6 +971,11 @@ public final class LoadpointsModel: Activatable {
         }
         answer.receipt = outcome(hold: lp)?.text
         if let level { answer.details.append("\(AppWords.percent(level.pct)) · \(EVText.originShort(level, zone: zone))") }
+        // A car with the cable out still has its last level, on a box that
+        // keeps cars.
+        if level == nil, let cars, cars.keepsCars, let car = cars.ordered.first, let l = cars.level(car) {
+            answer.details.append("\(car.shownName): \(CarText.percent(l)) · \(CarText.origin(l, nowMs: site.nowMs, zone: zone))")
+        }
         if !holds, let plan = EVText.plan(lp, windows: windows[lp.id] ?? lp.planWindows, nowMs: site.nowMs, zone: zone) {
             answer.details.append(plan)
         } else if let goal = EVText.nextGoal(lp, nowMs: site.nowMs, zone: zone), gist == .pluggedIn {

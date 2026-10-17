@@ -214,6 +214,10 @@ import FTWShared
             let entry = CarShare.entry(home.loadpoints.points, answeredAtMs: rig.scheduler.nowMs, level: { _ in nil }, cars: home.cars)
             #expect(entry.owned == [CarEntry.Owned(id: DemoCars.modelY, name: "Model Y", socPct: 72, socSource: "vehicle", socReadAtMs: level.atMs, socEstimate: false, targetSocPct: 80, loadpointID: nil)])
             #expect(entry.asking == [])
+            // "Is the car ready?" says where the car stands, with its level.
+            let answer = home.loadpoints.answer(locked: false)
+            #expect(answer.gist == .unplugged)
+            #expect(answer.details.contains("Model Y: 72\u{00A0}% · from the car · 1 h ago"))
 
             // No timer asks again.
             await rig.run(120_000, step: 1_000)
@@ -242,7 +246,9 @@ import FTWShared
         #expect(entry.cars.first?.carName == "Model Y")
         #expect(entry.cars.first?.socPct == 64)
         #expect(entry.owned?.first?.loadpointID == "garage")
-        #expect(carReads(box) >= 1)
+        // Read once after hello; the first read of the chargers asks nothing
+        // more, and nor does the replan's push of the same car.
+        #expect(carReads(box) == 1)
     }
 
     /// Two cars and no answer: the charger asks, and one tap names the car.

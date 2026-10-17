@@ -78,6 +78,13 @@ struct ChargerLine: View {
                         .font(.footnote)
                         .foregroundStyle(Theme.ink2)
                 }
+                // The tap that named this car, until its receipt fades.
+                if let step = cars.choice[lp.id], step.carID == car.id {
+                    let said = cars.choiceText(step)
+                    CommandReceipt(receipt: cars.choiceReceipt(step), text: said.text, tone: said.tone)
+                        .padding(.top, 6)
+                        .transition(.opacity)
+                }
             } else {
                 Text(C("Not plugged in"))
                     .font(.subheadline.weight(.medium))
@@ -138,6 +145,7 @@ struct WhichCar: View {
             case nil: return nil
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("car.which")
     }
 
