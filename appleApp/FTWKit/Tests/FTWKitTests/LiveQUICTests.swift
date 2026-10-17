@@ -44,7 +44,7 @@ struct LiveQUICTests {
         }
         let files = SealedFiles(directory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ftw-live-quic-\(UUID().uuidString)"), store: MemoryStore())
         let app = AppModel(store: MemoryStore(), files: files, passkeys: FakePasskeys(), scheduler: LiveScheduler(),
-                           build: "live-quic-test", ua: "test", relayURL: relayURL, cloudEndpoint: endpoint,
+                           build: "live-quic-test", ua: "test", cloudEndpoint: endpoint,
                            makeSocket: URLSessionWebSocket.factory(), makeCloudSocket: cloud)
 
         let link = try await pairingLink()

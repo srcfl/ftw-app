@@ -26,6 +26,9 @@ public final class Pairing {
     /// Throws `EnrollmentError` with a sentence, or `PasskeyCancelled`.
     public func pair(scanned: String) async throws -> StoredSite {
         let enrollment = try Enrollment.parse(scanned: scanned)
+        guard enrollment.home != nil else {
+            throw EnrollmentError(code: "E_QR_HOME", message: "Cloud home missing", help: EnrollmentError.boxTooOld)
+        }
 
         let wrapping = vault.isEnrolled
             ? try await vault.unlockWrappingKey(passkeys)

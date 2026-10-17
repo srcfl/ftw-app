@@ -42,7 +42,7 @@ final class LockedStore: SecureStore {
         #expect(said.contains("Connecting to your box"))
         #expect(!said.contains("Reconnecting to your box"), "\(said)")
 
-        world.relay.closeCurrent(code: 1006, reason: "")
+        world.cloud.close(code: 1006)
         await world.run(40, step: 10)
         #expect(site.freshness(noCarrier: false).message == "Reconnecting to your box")
     }

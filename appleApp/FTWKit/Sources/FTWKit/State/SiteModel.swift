@@ -1099,14 +1099,11 @@ extension SiteModel {
     /// The box has not spoken to this phone, now or at an earlier launch.
     var neverHeard: Bool { !core.state.heardFromBox && kept?.hello == nil }
 
-    /// FTW Cloud's session for the box session to ride, when the box takes
-    /// the tunnel: it said `cloud.tun` at its last hello, or has never
-    /// spoken and the QR named its home. Nil sends the box session to the
-    /// relay.
+    /// The box session always rides FTW Cloud. A cached hello never chooses
+    /// a different route for a new session.
     public func tunnelCloud() -> CloudCarrier? {
-        guard let cloud, !destroyed else { return nil }
-        let takes = neverHeard ? storedHome != nil : core.state.caps.contains(Contract.capCloudTun)
-        return takes ? cloud : nil
+        guard !destroyed else { return nil }
+        return cloud
     }
 
     /// An owner pauses FTW Cloud for one of the home's phones, or lifts the

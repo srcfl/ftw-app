@@ -39,7 +39,7 @@ struct LiveTunnelTests {
         }
         let files = SealedFiles(directory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ftw-live-tunnel-\(UUID().uuidString)"), store: MemoryStore())
         let app = AppModel(store: MemoryStore(), files: files, passkeys: FakePasskeys(), scheduler: LiveScheduler(),
-                           build: "live-tunnel-test", ua: "test", relayURL: relayURL, cloudEndpoint: endpoint, makeSocket: sockets)
+                           build: "live-tunnel-test", ua: "test", cloudEndpoint: endpoint, makeSocket: sockets)
 
         let link = try read("pair.url")
         #expect(link.contains("#v3."))

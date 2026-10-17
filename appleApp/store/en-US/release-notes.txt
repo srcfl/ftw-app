@@ -1,1 +1,1 @@
-The first FTW app for iPhone. Pair with your box, see your home's energy now, steer the car's charging and put electricity prices on your Home Screen and Lock Screen.
+FTW now reaches your box only through FTW Cloud. If an older pairing needs it, open Settings → FTW app on your updated box and scan a new QR. Readings keep their age while the connection recovers.

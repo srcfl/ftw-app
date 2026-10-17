@@ -1,4 +1,5 @@
 import Foundation
+@testable import FTWKit
 import FTWShared
 
 /// A WebSocket to Sourceful's blind relay, wrapped so nothing above it ever
@@ -55,7 +56,7 @@ public final class RelayCarrier: Carrier {
     private var onFrame: @MainActor (Bytes) -> Void = { _ in }
     private var onStatus: @MainActor (CarrierStatus) -> Void = { _ in }
 
-    public init(url: URL = Origin.relayURL, secret: Bytes, scheduler: Scheduler, makeSocket: @escaping WebSocketFactory = URLSessionWebSocket.factory()) {
+    public init(url: URL = URL(string: "wss://relay.test")!, secret: Bytes, scheduler: Scheduler, makeSocket: @escaping WebSocketFactory = URLSessionWebSocket.factory()) {
         self.url = url
         self.secret = secret
         self.scheduler = scheduler

@@ -333,7 +333,7 @@ public enum AppWords {
         // Connecting, and the device key (AppModel.connect, Vault)
         "This phone has no record of that home.": "Telefonen har inga uppgifter om det hemmet.",
         "This device has no key for that home.": "Den här enheten har ingen nyckel till det hemmet.",
-        "This home was paired before this app could reach it privately.": "Hemmet parkopplades innan appen kunde nå det privat.",
+        "Pair this home again with a new QR from Settings → FTW app on your box.": "Parkoppla hemmet igen med en ny QR-kod från Settings → FTW app på boxen.",
         "Unlocking was cancelled. Try again to open your home.": "Upplåsningen avbröts. Försök igen för att öppna ditt hem.",
         "This device can no longer unlock its key. Open your box's local dashboard, then Settings → FTW app → Show pairing code, and scan a new QR.": "Enheten kan inte längre låsa upp sin nyckel. Öppna boxens lokala dashboard, välj Settings → FTW app → Show pairing code och skanna en ny QR-kod.",
         "This phone is already set up for a home. Sign out of it first.": "Telefonen är redan kopplad till ett hem. Logga ut från det först.",
