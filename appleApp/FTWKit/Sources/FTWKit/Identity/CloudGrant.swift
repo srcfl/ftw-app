@@ -1,175 +1,147 @@
 import Foundation
 import Observation
 
-/// FTW Cloud as the person agrees to it, and as the box holds it.
-///
-/// The app uses FTW Cloud as part of the service, so the answer is given
-/// once, when the person starts using the app, on one screen. Statistics are
-/// a separate box on that screen, off until ticked. The grant itself lives on
-/// the box: an owner's phone turns it on there over its Noise session, the
-/// first time, and an owner can turn it off again from About. A viewer cannot
-/// change it and is told to ask the owner.
+/// The current FTW Cloud terms. Statistics are part of Cloud; the box owns
+/// the accepted version. A local-only statistics choice lives on the box UI.
 @Observable
 @MainActor
 public final class CloudConsent {
-    /// The consent texts the person read. The box records the names.
-    public static let policy = "ftw-cloud-2026-10"
-    public static let statsPolicy = "ftw-stats-2026-10"
+    nonisolated public static let policy = "ftw-cloud-2026-10-v2"
+    nonisolated public static let statsPolicy = "ftw-project-stats-2026-10-v2"
+    nonisolated public static let statisticsDetails = "Recorded hourly energy, configured battery capacity, battery and charger power limits, and solar capacity help Sourceful improve FTW and publish group totals. Values are rounded to 10 Wh or W. No names, addresses or device ids."
+    nonisolated public static let statisticsPrivacy = "Sourceful links reports to your Cloud home for deletion. They are not anonymous and stay for 13 months. Public values need at least 20 homes, with no home above 30% of a sum. Turning FTW Cloud off deletes unpublished reports when the box reaches Cloud; published totals remain."
+    nonisolated public static let statisticsWaiting = "Hourly collection waits for privacy review and policy activation. Your choice can be saved now; no hourly report leaves before approval."
+    nonisolated public static let included = "Everyone using FTW Cloud contributes to project statistics. There is no separate statistics switch. If you do not want to contribute, use FTW locally without Cloud. Local users can choose to share statistics without enabling remote access."
 
-    /// What the box says about FTW Cloud, for an owner.
     public struct BoxState: Equatable, Sendable {
-        /// off, on or revoking.
         public var state: String
         public var stats: Bool
+        public var termsAccepted: Bool
         public var connected: Bool
-        /// When the service confirmed it erased the home's copy.
         public var erasedAtMs: Double?
-
         public var on: Bool { state == "on" }
         public var erasing: Bool { state == "revoking" }
-
         init(_ json: JSON) {
             state = json["state"]?.string ?? "off"
-            stats = (json["purposes"]?.array ?? []).contains { $0.string == Contract.cloudPurposeStats }
+            stats = json["statisticsPolicy"]?.string == CloudConsent.statsPolicy && json["statisticsActive"]?.bool == true
+            termsAccepted = json["cloudPolicy"]?.string == CloudConsent.policy && json["cloudTermsAccepted"]?.bool == true
             connected = json["connected"]?.bool ?? false
             erasedAtMs = json["purgedAtMs"]?.number.flatMap { $0 > 0 ? $0 : nil }
         }
     }
-
-    /// Whom the screen speaks to.
-    public enum Audience: Equatable, Sendable {
-        /// An owner whose box can run FTW Cloud.
-        case owner
-        /// An owner whose box cannot yet: it turns FTW Cloud on after an
-        /// update.
-        case ownerLater
-        case viewer
-        /// The box has not answered yet.
-        case unknown
-    }
-
+    public enum Audience: Hashable, Sendable { case owner, ownerLater, viewer, unknown }
     public private(set) var answered: Bool
-    /// The statistics box. Off until the person ticks it.
-    public var contributeStats = false
+    public private(set) var acceptedHome: String?
     public private(set) var box: BoxState?
     public private(set) var working = false
     public private(set) var help: String?
-
+    public private(set) var statisticsReady = false
+    public private(set) var policyAvailable = false
     @ObservationIgnored private let defaults: UserDefaults
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         answered = defaults.string(forKey: Keys.answered) == Self.policy
-        contributeStats = defaults.bool(forKey: Keys.stats)
     }
-
-    /// The one screen, once, on a real home.
     public func shouldAsk(_ site: SiteModel?) -> Bool {
         guard let site, !site.isDemo, site.siteId != nil else { return false }
-        return !answered
+        let accepted = acceptedHome == site.siteId || defaults.string(forKey: Keys.asked(site.siteId!)) == Self.policy
+        return !answered || !accepted || defaults.string(forKey: Keys.pending(site.siteId!)) == Self.policy
     }
-
     public static func audience(_ site: SiteModel) -> Audience {
         guard site.heardFromBox else { return .unknown }
         guard site.canConfigure else { return .viewer }
         return site.session.caps.contains(Contract.capCloudLink) ? .owner : .ownerLater
     }
-
-    /// The person read the screen and went on. An owner's phone turns FTW
-    /// Cloud on at the box now, or once the box can.
-    public func accept(_ site: SiteModel?) async {
+    @discardableResult
+    public func accept(_ site: SiteModel?) async -> Bool {
+        guard let site else { return false }
+        switch Self.audience(site) {
+        case .owner:
+            guard await turnOn(site) else { return false }
+        case .viewer:
+            // This phone accepts the terms; only an owner can grant the
+            // home's scope. Cloud enforces that scope for the whole home.
+            break
+        case .ownerLater, .unknown:
+            help = CloudWords.text("Update your box before accepting the new Cloud terms.")
+            return false
+        }
+        if let id = site.siteId {
+            defaults.set(Self.policy, forKey: Keys.asked(id))
+            defaults.removeObject(forKey: Keys.pending(id))
+        }
         defaults.set(Self.policy, forKey: Keys.answered)
-        defaults.set(contributeStats, forKey: Keys.stats)
+        acceptedHome = site.siteId
         answered = true
-        guard let site else { return }
-        await ensure(site)
+        return true
     }
-
-    /// Turn FTW Cloud on at the box for an owner who agreed, once per home.
-    /// After that the box's word stands: if someone turned it off, on the box
-    /// or in About, it stays off until an owner turns it on again.
-    public func ensure(_ site: SiteModel) async {
-        guard answered, let siteId = site.siteId, !site.isDemo, Self.audience(site) == .owner,
-              !defaults.bool(forKey: Keys.asked(siteId)) else { return }
-        // Already on: nothing to ask for, now or later.
-        if site.cloudOn {
-            defaults.set(true, forKey: Keys.asked(siteId))
-            return
-        }
-        if await turnOn(site) {
-            defaults.set(true, forKey: Keys.asked(siteId))
-        }
+    public func review() {
+        defaults.removeObject(forKey: Keys.answered)
+        answered = false
     }
-
-    /// What the box holds now. Owners only; a viewer's phone may not ask.
+    /// Reading terms never reconnects. Only the explicit accept action saves
+    /// this per-home intent; fresh box policy is checked after reconnecting.
+    public func prepareReconnect(_ id: String) { defaults.set(Self.policy,forKey:Keys.pending(id)) }
+    public func cancelReconnect(_ id: String) { defaults.removeObject(forKey:Keys.pending(id)) }
+    public func finishPendingAcceptance(_ site: SiteModel) async {
+        guard let id=site.siteId, site.heardFromBox, !working,
+              defaults.string(forKey:Keys.pending(id))==Self.policy else { return }
+        working=true
+        defer { working=false }
+        _ = await accept(site)
+    }
     public func refresh(_ site: SiteModel) async {
         guard site.canConfigure else { return }
         do {
             box = try await site.callBox(.get, "/api/cloud").map(BoxState.init)
+            await refreshStatisticsPolicy(site)
             help = nil
-        } catch let e as BoxAPIError {
-            help = e.help
-        } catch {
-            help = nil
-        }
+        } catch let e as BoxAPIError { help = e.help }
+        catch { help = CloudWords.text("The choice could not be saved. Check the box status before trying again.") }
     }
-
-    /// FTW Cloud on, with statistics if the person agreed to them.
     @discardableResult
     public func turnOn(_ site: SiteModel) async -> Bool {
-        await act {
+        guard site.canConfigure else { return false }
+        await refreshStatisticsPolicy(site)
+        guard policyAvailable else {
+            help = CloudWords.text("Update your box before accepting the new Cloud terms.")
+            return false
+        }
+        return await act {
             let scopes = JSON.array(Contract.cloudScopes.map { .string($0) })
-            let granted = try await site.callBox(.post, "/api/cloud/grant", body: .object([("scopes", scopes), ("policy", .string(Self.policy))]))
-            box = granted.map(BoxState.init)
-            if contributeStats {
-                box = try await site.callBox(.post, "/api/cloud/stats", body: .object([("policy", .string(Self.statsPolicy))])).map(BoxState.init)
-            }
-            if let siteId = site.siteId { defaults.set(true, forKey: Keys.asked(siteId)) }
+            box = try await site.callBox(.post, "/api/cloud/grant", body: .object([("scopes", scopes), ("policy", .string(Self.policy))])).map(BoxState.init)
+            if let id = site.siteId { defaults.set(Self.policy, forKey: Keys.asked(id)) }
         }
     }
-
-    /// FTW Cloud off. The box asks the service to erase its copy and shows
-    /// the receipt once it has one.
+    /// This ends all Cloud functions, rather than opting out of statistics.
+    /// A remote connection can close before its deletion receipt arrives;
+    /// the local box remains the place to verify that receipt.
     @discardableResult
     public func turnOff(_ site: SiteModel) async -> Bool {
-        // Off by hand is the person's word: the app never turns it on again
-        // by itself.
-        if let siteId = site.siteId { defaults.set(true, forKey: Keys.asked(siteId)) }
-        return await act {
-            box = try await site.callBox(.delete, "/api/cloud/grant").map(BoxState.init)
-        }
+        if let id = site.siteId { defaults.set(Self.policy, forKey: Keys.asked(id)) }
+        return await act { box = try await site.callBox(.delete, "/api/cloud").map(BoxState.init) }
     }
-
-    @discardableResult
-    public func setStats(_ on: Bool, _ site: SiteModel) async -> Bool {
-        contributeStats = on
-        defaults.set(on, forKey: Keys.stats)
-        return await act {
-            box = on
-                ? try await site.callBox(.post, "/api/cloud/stats", body: .object([("policy", .string(Self.statsPolicy))])).map(BoxState.init)
-                : try await site.callBox(.delete, "/api/cloud/stats").map(BoxState.init)
-        }
+    public func refreshStatisticsPolicy(_ site: SiteModel) async {
+        guard site.canConfigure else { policyAvailable = false; statisticsReady = false; return }
+        do {
+            let p = try await site.callBox(.get, "/api/cloud/stats-policy")
+            policyAvailable = p?["policy"]?.string == Self.statsPolicy && p?["cloud_policy"]?.string == Self.policy && p?["cloud_includes_statistics"]?.bool == true
+            statisticsReady = policyAvailable && p?["available"]?.bool == true
+        } catch { policyAvailable = false; statisticsReady = false }
     }
-
     private func act(_ work: () async throws -> Void) async -> Bool {
         working = true
         defer { working = false }
-        do {
-            try await work()
-            help = nil
-            return true
-        } catch let e as BoxAPIError {
-            help = e.help
-        } catch {
-            help = CloudWords.text("That didn't work. Nothing on your box has changed.")
-        }
+        do { try await work(); help = nil; return true }
+        catch let e as BoxAPIError { help = e.help }
+        catch { help = CloudWords.text("The choice could not be saved. Check the box status before trying again.") }
         return false
     }
-
     enum Keys {
         static let answered = "FTWCloudConsent"
-        static let stats = "FTWCloudStats"
-        static func asked(_ siteId: String) -> String { "FTWCloudAsked-\(siteId)" }
+        static func asked(_ id: String) -> String { "FTWCloudAsked-\(id)" }
+        static func pending(_ id: String) -> String { "FTWCloudPending-\(id)" }
     }
 }
 
@@ -190,11 +162,30 @@ public enum CloudWords {
     }
 
     static let sv: [String: String] = [
+        "Demo: no reports leave this phone.":        "Demo: inga rapporter lämnar telefonen.",
+        CloudConsent.statisticsDetails: "Dela registrerad timenergi, inställd batterikapacitet, effektgränser för batterier och laddare samt solkapacitet med Sourceful för att förbättra FTW och publicera gruppsummor. Värden avrundas till 10 Wh eller W. Inga namn, adresser eller enhets-id:n.",
+        CloudConsent.statisticsPrivacy: "Sourceful kopplar rapporterna till ditt Cloud-hem för att kunna radera dem. De är inte anonyma och sparas i 13 månader. Publika värden kräver minst 20 hem och att inget hem står för mer än 30 procent av summan. Stänger du av FTW Cloud raderas opublicerade rapporter när boxen når Cloud; publicerade gruppsummor finns kvar.",
+        CloudConsent.statisticsWaiting: "Timinsamlingen väntar på integritetsgranskning och aktivering. Ditt val kan sparas nu; ingen timrapport lämnar boxen före godkännandet.",
+        CloudConsent.included: "Alla som använder FTW Cloud bidrar till projektstatistik. Det finns inget separat statistikval. Vill du inte bidra använder du FTW lokalt utan Cloud. Lokala användare kan välja att dela statistik utan att slå på fjärråtkomst.",
+        "Accept Cloud terms": "Godkänn Cloud-villkoren",
+        "Homes": "Hem",
+        "Pair a home": "Parkoppla ett hem",
+        "Use the box locally": "Använd boxen lokalt",
+        "Statistics are included with FTW Cloud": "Statistik ingår i FTW Cloud",
+        "Update your box before accepting the new Cloud terms.": "Uppdatera boxen innan du godkänner de nya Cloud-villkoren.",
+        "This phone has stopped using FTW Cloud. Your box keeps working locally.": "Den här telefonen har slutat använda FTW Cloud. Boxen fungerar vidare lokalt.",
+        "Review Cloud terms": "Läs Cloud-villkoren",
+        "Turning FTW Cloud off stops remote access for phones and assistants. The box keeps working locally. You may need to pair phones again later. Check the local box for the deletion receipt.": "Stänger du av FTW Cloud förlorar telefoner och assistenter sin fjärråtkomst. Boxen fungerar vidare lokalt. Du kan behöva parkoppla telefonerna igen senare. Boxens lokala sida visar kvittot på radering.",
+        "Turn FTW Cloud off?": "Stänga av FTW Cloud?",
+        "Turn off": "Stäng av",
+        "Cancel": "Avbryt",
+        "Review the new statistics policy": "Läs den nya statistikpolicyn",
+
         "The FTW app uses FTW Cloud": "FTW-appen använder FTW Cloud",
         "FTW Cloud is part of the service. It keeps a copy of your home, signed by your box, so the app opens at once and stays up to date.":
             "FTW Cloud ingår i tjänsten. Den håller en kopia av ditt hem, signerad av din box, så att appen öppnar direkt och håller sig uppdaterad.",
-        "Your box still decides. Commands go straight to it, never through FTW Cloud.":
-            "Boxen bestämmer fortfarande. Kommandon går direkt till den, aldrig via FTW Cloud.",
+        "Your box still decides. Commands stay encrypted between this phone and your box.":
+            "Boxen bestämmer fortfarande. Kommandon är krypterade mellan telefonen och boxen.",
         "Contribute to statistics": "Bidra till statistik",
         "Hourly energy totals, without your name or address, help make FTW better. Off unless you turn it on.":
             "Energisummor per timme, utan namn eller adress, hjälper oss att göra FTW bättre. Av tills du slår på det.",
@@ -203,7 +194,7 @@ public enum CloudWords {
         "Continue": "Fortsätt",
         "Privacy policy": "Integritetspolicy",
         "You can turn FTW Cloud off in About.": "Du kan stänga av FTW Cloud under Om.",
-        "That didn't work. Nothing on your box has changed.": "Det gick inte. Inget på din box har ändrats.",
+        "The choice could not be saved. Check the box status before trying again.": "Valet kunde inte sparas. Kontrollera boxens status innan du försöker igen.",
         "FTW Cloud": "FTW Cloud",
         "On": "På",
         "Off": "Av",
@@ -215,8 +206,8 @@ public enum CloudWords {
         "FTW Cloud is on for this home.": "FTW Cloud är på för det här hemmet.",
         "FTW Cloud is off for this home.": "FTW Cloud är av för det här hemmet.",
         "Your box can't use FTW Cloud yet.": "Din box kan inte använda FTW Cloud än.",
-        "Turning it off erases the copy in FTW Cloud. Your box shows when it is gone.":
-            "Stänger du av raderas kopian i FTW Cloud. Boxen visar när den är borta.",
+        "Turning it off ends remote access and requests deletion. Check the local box for the receipt.":
+            "Stänger du av upphör fjärråtkomst och boxen begär radering. Boxens lokala sida visar kvittot.",
         "With FTW Cloud on, Sourceful keeps a copy of your home's readings, signed by your box, to serve this app. Commands travel encrypted between this phone and your box, and Sourceful cannot read them.":
             "Med FTW Cloud på håller Sourceful en kopia av hemmets mätvärden, signerad av din box, för den här appen. Kommandon går krypterade mellan telefonen och boxen, och Sourceful kan inte läsa dem.",
     ]

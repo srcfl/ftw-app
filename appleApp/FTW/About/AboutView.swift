@@ -5,7 +5,7 @@ import SwiftUI
 /// the license texts the build copied in from the repository root.
 struct AboutView: View {
     enum Start: Hashable, Identifiable {
-        case about, remove
+        case about, remove, statistics, cloudTerms
         case document(LicenseText.Document)
 
         var id: Self { self }
@@ -14,6 +14,8 @@ struct AboutView: View {
             switch name {
             case "about": self = .about
             case "remove": self = .remove
+            case "statistics": self = .statistics
+            case "cloud-terms": self = .cloudTerms
             default:
                 guard let document = LicenseText.Document(rawValue: name) else { return nil }
                 self = .document(document)
@@ -24,10 +26,13 @@ struct AboutView: View {
     enum Route: Hashable {
         case document(LicenseText.Document)
         case remove
+        case statistics
+        case cloudTerms
     }
 
     let app: AppModel
     @State private var path: [Route]
+    @State private var reviewConsent = CloudConsent()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.dynamicTypeSize) private var typeSize
     @ScaledMetric(relativeTo: .title2) private var markSize: CGFloat = 52
@@ -38,6 +43,8 @@ struct AboutView: View {
         switch start {
         case .about: _path = State(initialValue: [])
         case .remove: _path = State(initialValue: [.remove])
+        case .statistics: _path = State(initialValue: [.statistics])
+        case .cloudTerms: _path = State(initialValue: [.cloudTerms])
         case .document(let document): _path = State(initialValue: [.document(document)])
         }
     }
@@ -134,6 +141,10 @@ struct AboutView: View {
                 switch route {
                 case .document(let document):
                     LicenseView(document: document, source: source)
+                case .statistics:
+                    CloudSettingsView(app:app)
+                case .cloudTerms:
+                    CloudConsentView(app:app, consent:reviewConsent)
                 case .remove:
                     RemovePhoneView(app: app) { dismiss() }
                 }

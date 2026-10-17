@@ -2,170 +2,163 @@ import Foundation
 import Testing
 @testable import FTWKit
 
-/// The first-start consent and the owner's grant at the box.
 @MainActor
 @Suite struct CloudConsentTests {
     func defaults() throws -> UserDefaults {
         try #require(UserDefaults(suiteName: "ftw-consent-\(UUID().uuidString)"))
     }
-
-    /// A home whose box answers hello and the cloud routes as Core does.
+    static let currentPolicy = #"{"policy":"ftw-project-stats-2026-10-v2","cloud_policy":"ftw-cloud-2026-10-v2","cloud_includes_statistics":true,"available":false}"#
+    static let granted = #"{"state":"on","policy":"ftw-cloud-2026-10-v2","cloudPolicy":"ftw-cloud-2026-10-v2","cloudTermsAccepted":true,"statisticsPolicy":"ftw-project-stats-2026-10-v2","statisticsActive":true,"connected":true}"#
     func home(role: String = Contract.roleOwner, caps: [String] = [Contract.capCloudLink, Contract.capAPIPassthrough], cloud: Bool = false) async throws -> CloudSite {
         let w = try CloudSite()
         w.open()
         w.site.connect(w.relay)
         w.relay.api = { method, path, _ in
             switch (method, path) {
-            case ("POST", "/api/cloud/grant"): return (200, #"{"state":"on","purposes":["serve"],"connected":false}"#)
-            case ("POST", "/api/cloud/stats"): return (200, #"{"state":"on","purposes":["serve","stats"]}"#)
-            case ("DELETE", "/api/cloud/grant"): return (200, #"{"state":"revoking","purposes":["serve"]}"#)
-            case ("GET", "/api/cloud"): return (200, #"{"state":"off","purposes":[],"purgedAtMs":1791821000000}"#)
+            case ("GET", "/api/cloud/stats-policy"): return (200, Self.currentPolicy)
+            case ("POST", "/api/cloud/grant"): return (200, Self.granted)
+            case ("DELETE", "/api/cloud"): return (200, #"{"state":"revoking","link":"ending"}"#)
+            case ("GET", "/api/cloud"): return (200, #"{"state":"off","purgedAtMs":1791821000000}"#)
             default: return (404, #"{"code":"E_NOT_FOUND"}"#)
             }
         }
         w.relay.open(w.scheduler.nowMs)
         w.relay.helloOk(uptimeMs: w.uptime, cloud: cloud ? w.identity : nil, role: role, caps: caps)
-        // The screens see a burst one display frame later.
         await w.run(20)
         return w
     }
-
-    @Test func askedOnceOnARealHome() throws {
+    @Test func oldAnswersAndCheckboxesDoNotAcceptTheNewCloudTerms() async throws {
         let d = try defaults()
-        let consent = CloudConsent(defaults: d)
-        #expect(!consent.shouldAsk(nil))
-        let demo = SiteModel(siteId: nil, build: "t", ua: "t", scheduler: ManualScheduler(), files: nil, isDemo: true)
-        #expect(!consent.shouldAsk(demo))
-        let w = try CloudSite()
-        w.open()
-        #expect(consent.shouldAsk(w.site))
-        #expect(!consent.contributeStats)
+        d.set("ftw-cloud-2026-10", forKey: CloudConsent.Keys.answered)
+        d.set(true, forKey: "FTWCloudStats")
+        let c = CloudConsent(defaults: d)
+        let w = try await home()
+        #expect(!c.answered)
+        #expect(c.shouldAsk(w.site))
+        _ = c.shouldAsk(w.site)
+        #expect(w.relay.calls.isEmpty)
     }
-
-    @Test func anOwnerTurnsItOnAtTheBoxWithEveryCloudScope() async throws {
+    @Test func acceptingCloudUsesOneBundledGrantAndNoSeparateStatisticsRequest() async throws {
         let w = try await home()
         let d = try defaults()
-        let consent = CloudConsent(defaults: d)
-        #expect(CloudConsent.audience(w.site) == .owner)
-        await consent.accept(w.site)
-        #expect(consent.answered)
-        #expect(!consent.shouldAsk(w.site))
-        #expect(CloudConsent(defaults: d).answered)
-        let grant = try #require(w.relay.calls.first)
-        #expect(grant.method == "POST" && grant.path == "/api/cloud/grant")
-        let body = try JSON(parsing: Bytes(grant.body.utf8))
-        #expect(body["scopes"]?.array?.compactMap(\.string) == Contract.cloudScopes)
+        let c = CloudConsent(defaults: d)
+        #expect(await c.accept(w.site))
+        #expect(c.answered && c.box?.stats == true && c.box?.termsAccepted == true)
+        let posts = w.relay.calls.filter { $0.method == "POST" }
+        #expect(posts.map(\.path) == ["/api/cloud/grant"])
+        let body = try JSON(parsing: Bytes(posts[0].body.utf8))
         #expect(body["policy"]?.string == CloudConsent.policy)
-        // No statistics unless ticked.
-        #expect(w.relay.calls.count == 1)
-        #expect(consent.box?.on == true)
+        #expect(body["scopes"]?.array?.compactMap(\.string) == Contract.cloudScopes)
+        #expect(d.string(forKey: CloudConsent.Keys.asked(w.site.siteId!)) == CloudConsent.policy)
+        #expect(!c.statisticsReady) // approval gate off; only the choice is saved
     }
-
-    @Test func statisticsGoOnlyWhenTicked() async throws {
-        let w = try await home()
-        let consent = CloudConsent(defaults: try defaults())
-        consent.contributeStats = true
-        await consent.accept(w.site)
-        #expect(w.relay.calls.map(\.path) == ["/api/cloud/grant", "/api/cloud/stats"])
-        #expect(consent.box?.stats == true)
-    }
-
-    /// The grant is asked for once per home. After that the box's word
-    /// stands: turned off on the box or in About, it stays off.
-    @Test func theGrantIsAskedForOncePerHome() async throws {
-        let w = try await home()
+    @Test func aLegacyCloudHomeMustAcceptEvenWhenItWasAlreadyOn() async throws {
+        let w = try await home(cloud: true)
         let d = try defaults()
-        let consent = CloudConsent(defaults: d)
-        await consent.accept(w.site)
-        await consent.ensure(w.site)
-        await CloudConsent(defaults: d).ensure(w.site)
-        #expect(w.relay.calls.count == 1)
+        d.set(true, forKey: CloudConsent.Keys.asked(w.site.siteId!))
+        let c = CloudConsent(defaults: d)
+        #expect(await c.accept(w.site))
+        #expect(w.relay.calls.contains { $0.path == "/api/cloud/grant" })
     }
-
-    @Test func aViewerIsToldToAskTheOwner() async throws {
+    @Test func unknownOrOlderPolicyIsNotAccepted() async throws {
+        for p in [#"{"policy":"ftw-project-stats-2026-10-v1","available":true}"#, #"{"policy":"future-policy","cloud_policy":"future","cloud_includes_statistics":true}"#] {
+            let w = try await home()
+            w.relay.api = { _, _, _ in (200, p) }
+            let c = CloudConsent(defaults: try defaults())
+            #expect(await c.accept(w.site) == false)
+            #expect(!c.answered)
+            #expect(w.relay.calls.allSatisfy { $0.method == "GET" })
+        }
+    }
+    @Test func aFailedGrantDoesNotSaveAnAcceptedAnswer() async throws {
+        let w = try await home()
+        w.relay.api = { _, path, _ in path == "/api/cloud/stats-policy" ? (200, Self.currentPolicy) : (503, #"{"code":"E_UNAVAILABLE"}"#) }
+        let d = try defaults()
+        let c = CloudConsent(defaults: d)
+        #expect(await c.accept(w.site) == false)
+        #expect(!c.answered && c.box?.stats != true)
+        #expect(d.string(forKey: CloudConsent.Keys.asked(w.site.siteId!)) == nil)
+    }
+    @Test func anAcceptedHomeIsNotGrantedAgainOnEveryFrame() async throws {
+        let w = try await home()
+        let c = CloudConsent(defaults: try defaults())
+        await c.accept(w.site)
+        _ = c.shouldAsk(w.site)
+        #expect(w.relay.calls.filter { $0.method == "POST" }.count == 1)
+    }
+    @Test func turningCloudOffDoesNotTurnItBackOnAtRestart() async throws {
+        let d = try defaults()
+        let w = try await home()
+        let c = CloudConsent(defaults: d)
+        await c.accept(w.site)
+        #expect(await c.turnOff(w.site))
+        #expect(w.relay.calls.last?.path == "/api/cloud")
+        let later = try await home()
+        _ = CloudConsent(defaults: d).shouldAsk(later.site)
+        #expect(later.relay.calls.isEmpty)
+    }
+    @Test func acceptingAnotherHomeDoesNotSilentlyEnableThisOne() async throws {
+        let d = try defaults()
+        d.set(CloudConsent.policy,forKey:CloudConsent.Keys.answered)
+        d.set(CloudConsent.policy,forKey:CloudConsent.Keys.asked("another-home"))
+        let w = try await home()
+        let c = CloudConsent(defaults:d)
+        #expect(c.shouldAsk(w.site))
+        #expect(w.relay.calls.isEmpty)
+    }
+    @Test func aViewerCannotGrantTheHomeScope() async throws {
         let w = try await home(role: Contract.roleViewer)
-        let consent = CloudConsent(defaults: try defaults())
-        #expect(CloudConsent.audience(w.site) == .viewer)
-        await consent.accept(w.site)
-        await consent.refresh(w.site)
+        let c = CloudConsent(defaults: try defaults())
+        #expect(await c.accept(w.site))
+        #expect(c.answered)
         #expect(w.relay.calls.isEmpty)
-        #expect(consent.answered)
     }
-
-    /// A box that cannot run the uplink yet gets the grant once it can.
-    @Test func aBoxWithoutTheUplinkIsAskedLater() async throws {
+    @Test func anOldBoxWaitsForAnUpdate() async throws {
         let w = try await home(caps: [Contract.capAPIPassthrough])
+        let c = CloudConsent(defaults: try defaults())
+        #expect(await c.accept(w.site) == false)
+        #expect(!c.answered && w.relay.calls.isEmpty)
+    }
+    @Test func oldStatisticsStateIsNeverShownAsTheNewScope() throws {
+        let old = CloudConsent.BoxState(try JSON(parsing: Bytes(#"{"state":"on","purposes":["serve","stats"]}"#.utf8)))
+        #expect(!old.stats && !old.termsAccepted)
+    }
+    @Test func theNewTermsCanBeReviewedAgain() throws {
         let d = try defaults()
-        let consent = CloudConsent(defaults: d)
-        #expect(CloudConsent.audience(w.site) == .ownerLater)
-        await consent.accept(w.site)
+        d.set(CloudConsent.policy, forKey: CloudConsent.Keys.answered)
+        let c = CloudConsent(defaults: d)
+        #expect(c.answered)
+        c.review()
+        #expect(!c.answered)
+    }
+    @Test func readingTermsCreatesNoReconnectIntentAndNoGrant() async throws {
+        let w=try await home();let c=CloudConsent(defaults:try defaults())
+        c.review()
+        await c.finishPendingAcceptance(w.site)
         #expect(w.relay.calls.isEmpty)
-        w.relay.helloOk(uptimeMs: w.uptime, cloud: nil, caps: [Contract.capCloudLink, Contract.capAPIPassthrough])
-        await w.run(20)
-        await consent.ensure(w.site)
-        #expect(w.relay.calls.map(\.path) == ["/api/cloud/grant"])
     }
-
-    @Test func alreadyOnIsLeftAlone() async throws {
-        let w = try await home(cloud: true)
-        let consent = CloudConsent(defaults: try defaults())
-        await consent.accept(w.site)
+    @Test func onlyExplicitPerHomeReconnectAcceptanceCanFinishAGrant() async throws {
+        let w=try await home();let c=CloudConsent(defaults:try defaults())
+        c.prepareReconnect("another-home")
+        await c.finishPendingAcceptance(w.site)
+        #expect(w.relay.calls.isEmpty)
+        c.prepareReconnect(w.site.siteId!)
+        #expect(w.relay.calls.isEmpty)
+        await c.finishPendingAcceptance(w.site)
+        await c.finishPendingAcceptance(w.site)
+        #expect(w.relay.calls.filter{$0.method=="POST"}.count==1)
+        #expect(c.answered)
+    }
+    @Test func decliningAgainCancelsThePendingReconnectGrant() async throws {
+        let w=try await home();let c=CloudConsent(defaults:try defaults())
+        c.prepareReconnect(w.site.siteId!)
+        c.cancelReconnect(w.site.siteId!)
+        await c.finishPendingAcceptance(w.site)
         #expect(w.relay.calls.isEmpty)
     }
-
-    /// Found in the simulator: consent given while FTW Cloud was already
-    /// on, then turned off in About. The next start must not turn it on
-    /// again.
-    @Test func offInAboutStaysOffAfterARestart() async throws {
-        let d = try defaults()
-        let w = try await home(cloud: true)
-        let consent = CloudConsent(defaults: d)
-        await consent.accept(w.site)
-        await consent.turnOff(w.site)
-        // The next start: the box says FTW Cloud is off now.
-        let later = try await home(cloud: false)
-        await CloudConsent(defaults: d).ensure(later.site)
-        #expect(later.relay.calls.isEmpty)
-    }
-
-    /// Turned off on the box itself, not in the app: the app still leaves
-    /// it off, because it already asked once.
-    @Test func offOnTheBoxStaysOff() async throws {
-        let d = try defaults()
-        let w = try await home(cloud: true)
-        await CloudConsent(defaults: d).accept(w.site)
-        let later = try await home(cloud: false)
-        await CloudConsent(defaults: d).ensure(later.site)
-        #expect(later.relay.calls.isEmpty)
-    }
-
-    /// About: off asks the box to erase the copy; the receipt is the time on
-    /// the service's confirmation.
-    @Test func offAndTheReceipt() async throws {
-        let w = try await home(cloud: true)
-        let consent = CloudConsent(defaults: try defaults())
-        #expect(await consent.turnOff(w.site))
-        #expect(consent.box?.erasing == true)
-        await consent.refresh(w.site)
-        #expect(consent.box?.on == false)
-        #expect(consent.box?.erasedAtMs == 1_791_821_000_000)
-    }
-
-    @Test func theScopesAreTheRegistrys() throws {
-        let yaml = try RepoFiles.read("protocol/registry.yaml")
-        #expect(yaml.contains("cloud_scopes: [\(Contract.cloudScopes.joined(separator: ", "))]"))
-        #expect(yaml.contains("cloud_purposes: [\(Contract.cloudPurposes.joined(separator: ", "))]"))
-        #expect(Contract.cloudPurposes.contains(Contract.cloudPurposeStats))
-    }
-
-    /// Every sentence of the screen has Swedish.
     @Test func theWordsAreInBothLanguages() {
-        let keys = ["The FTW app uses FTW Cloud", "Contribute to statistics", "Ask the owner of this home to turn on FTW Cloud.", "Continue",
-                    "Copy erased %@", "FTW Cloud is on for this home."]
-        for k in keys { #expect(CloudWords.sv[k] != nil, "\(k)") }
-        AppWords.$language.withValue(.sv) {
-            #expect(CloudWords.text("Continue") == "Fortsätt")
-            #expect(CloudWords.text("Contribute to statistics") == "Bidra till statistik")
+        for key in [CloudConsent.included, CloudConsent.statisticsDetails, CloudConsent.statisticsPrivacy, CloudConsent.statisticsWaiting, "Accept Cloud terms", "Use the box locally", "Review Cloud terms"] {
+            #expect(CloudWords.sv[key] != nil, "Missing translation: \(key)")
         }
     }
 }

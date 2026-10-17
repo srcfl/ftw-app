@@ -26,6 +26,26 @@ import FTWDemo
         for _ in 0..<10 { await Task.yield() }
     }
 
+    @Test func demoStatisticsUsesTheRealSettingsRoutesWithoutSendingReports() async throws {
+        let (_, home, s) = await demo()
+        let d = try #require(UserDefaults(suiteName: "ftw-demo-consent-\(UUID().uuidString)"))
+        let c = CloudConsent(defaults: d)
+        let refresh = Task { await c.refresh(home.site) }
+        await run(s, 1_000)
+        await refresh.value
+        #expect(c.box?.on == true)
+        #expect(c.statisticsReady)
+        #expect(c.box?.stats == false)
+        let enable = Task { await c.accept(home.site) }
+        await run(s, 1_000)
+        #expect(await enable.value)
+        #expect(c.box?.stats == true && c.box?.termsAccepted == true)
+        let disable = Task { await c.turnOff(home.site) }
+        await run(s, 1_000)
+        #expect(await disable.value)
+        #expect(c.box?.stats == false)
+    }
+
     @Test func theDemoStreamsAndSaysItIsLive() async {
         let (app, home, s) = await demo()
         #expect(app.isDemo)
@@ -132,6 +152,43 @@ import FTWDemo
             }
             for _ in 0..<10 { await Task.yield() }
         }
+    }
+
+    @Test func decliningCloudOnThisPhoneSurvivesRestartWithoutOpeningASocket() async throws {
+        let world = World()
+        let app = world.app()
+        let pairing = Task { await PairModel(app: app).pair(world.pairingURL) }
+        await world.run(500)
+        await pairing.value
+        #expect(app.site?.session.phase == .streaming)
+        app.pauseCloud()
+        let opened = world.cloud.dialled.count
+        app.setVisible(true)
+        app.networkOnline()
+        await app.refresh()
+        await world.run(500)
+        #expect(app.cloudPaused)
+        #expect(world.cloud.dialled.count == opened)
+        let again = world.app()
+        again.launch()
+        await world.run(500)
+        #expect(again.cloudPaused)
+        #expect(world.cloud.dialled.count == opened)
+        #expect(again.vault.isEnrolled)
+    }
+
+    @Test func pausingOneHomeDoesNotPauseAnotherPairedHome() async throws {
+        let world=World();let app=world.app()
+        let pairing=Task { await PairModel(app:app).pair(world.pairingURL) }
+        await world.run(500);await pairing.value
+        let original=try #require(app.sites.current())
+        var other=original;other.siteId="other-paired-home";other.label="Other"
+        app.sites.put(other)
+        app.pauseCloud()
+        app.open(other.siteId)
+        #expect(!app.cloudPaused)
+        #expect(app.sites.get(original.siteId)?.cloudPaused==true)
+        #expect(app.sites.get(other.siteId)?.cloudPaused != true)
     }
 
     @Test func pairStreamCloseAndReopenFromCache() async throws {

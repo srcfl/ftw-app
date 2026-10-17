@@ -12,6 +12,8 @@ public struct StoredSite: Codable, Equatable, Sendable, Identifiable {
     /// Single use, spent in the first handshake. Kept until then.
     public var pairingCode: Data?
     public var lanHint: String?
+    /// A local choice on this phone, kept across restarts.
+    public var cloudPaused: Bool? = nil
     /// The home id at FTW Cloud, where the box session is reached without
     /// the relay. From a v3 QR, or from the box at its first hello. Nil for
     /// a box that has not linked.
