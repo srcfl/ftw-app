@@ -436,7 +436,9 @@ declaration is free.
 
 - **M3, push:** an APNs key (**Certificates, Identifiers & Profiles → Keys
   → (+) → Apple Push Notification service**). Not before.
-- **FTW Cloud:** update the privacy pages, App Privacy, `review-notes.txt`
-  and the description before it ships.
+- **FTW Cloud:** keep privacy pages, App Privacy, the manifest,
+  `review-notes.txt` and the description in step when its data use changes.
+  The October 2026 declaration includes project statistics; it does not
+  enable hourly collection or replace the signed C8 review.
 - **April 2027:** apps on the iOS 27.1 SDK or later also need iPhone Duo
   screenshots.

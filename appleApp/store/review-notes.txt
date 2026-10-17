@@ -1,4 +1,4 @@
-FTW is the phone app for FTW, open-source home energy software that runs on a box in the user's home (a Raspberry Pi or another Linux computer). The app talks only to that box, through an end-to-end encrypted relay. There is no account and nothing to sign in to. You do not have a box, so the app has a built-in demo for you.
+FTW is the phone app for FTW, open-source home energy software that runs on a box in the user's home (a Raspberry Pi or another Linux computer). The app carries its encrypted app-to-box session through FTW Cloud at cloud.ftw.energy. An optional readable copy in Cloud supports faster views and notifications; the privacy notice explains it. There is no account and nothing to sign in to. You do not have a box, so the app has a built-in demo for you.
 
 THE DEMO
 1. Open the app. On the first screen, tap "Try the live demo".
@@ -8,7 +8,7 @@ THE DEMO
 5. "Exit demo" at the top returns to the first screen.
 
 WITH A REAL BOX (needs the hardware)
-The owner opens the box's local dashboard, chooses Settings → FTW app → Show pairing code and scans the QR code with this app or the iPhone camera (links to https://app.ftw.energy/p). The app then creates a passkey for app.ftw.energy and connects through wss://relay.ftw.energy.
+The owner opens the box's local dashboard, chooses Settings → FTW app → Show pairing code and scans the QR code with this app or the iPhone camera (links to https://app.ftw.energy/p). The app then creates a passkey for app.ftw.energy and connects through FTW Cloud at cloud.ftw.energy. The separate relay is retired.
 
 WIDGETS
 The price widgets show prices the app saved from a real box. The demo saves nothing, so in review a widget says "Open FTW to see prices".
@@ -17,6 +17,8 @@ OTHER
 - Privacy policy: "Privacy" at the foot of Now and of the first screen, and in About.
 - No account to delete. "Remove this phone" at the foot of Now unpairs the phone.
 - Camera: used only to read the pairing QR code.
-- No sign-in, no in-app purchases, no ads, no analytics, no tracking.
+- No username/password sign-in, no in-app purchases, no ads and no cross-app tracking.
+- Cloud holds pseudonymous home and device identifiers. App Privacy declares User ID, Device ID and Other Data as linked to the user.
+- The planned project statistics are included in new Cloud terms; local-only users get a separate choice. Household reports have a 48-hour retention limit. Hourly collection remains disabled pending privacy review and policy activation.
 - Encryption: Noise protocol built on Apple's CryptoKit only.
 - The demo stands in for the hardware, not for a login: the app has no login.
