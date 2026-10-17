@@ -31,6 +31,7 @@ public final class CloudConsent {
     }
     public enum Audience: Hashable, Sendable { case owner, ownerLater, viewer, unknown }
     public private(set) var answered: Bool
+    public private(set) var acceptedHome: String?
     public private(set) var box: BoxState?
     public private(set) var working = false
     public private(set) var help: String?
@@ -44,7 +45,8 @@ public final class CloudConsent {
     }
     public func shouldAsk(_ site: SiteModel?) -> Bool {
         guard let site, !site.isDemo, site.siteId != nil else { return false }
-        return !answered || defaults.string(forKey: Keys.asked(site.siteId!)) != Self.policy || defaults.string(forKey: Keys.pending(site.siteId!)) == Self.policy
+        let accepted = acceptedHome == site.siteId || defaults.string(forKey: Keys.asked(site.siteId!)) == Self.policy
+        return !answered || !accepted || defaults.string(forKey: Keys.pending(site.siteId!)) == Self.policy
     }
     public static func audience(_ site: SiteModel) -> Audience {
         guard site.heardFromBox else { return .unknown }
@@ -70,6 +72,7 @@ public final class CloudConsent {
             defaults.removeObject(forKey: Keys.pending(id))
         }
         defaults.set(Self.policy, forKey: Keys.answered)
+        acceptedHome = site.siteId
         answered = true
         return true
     }
