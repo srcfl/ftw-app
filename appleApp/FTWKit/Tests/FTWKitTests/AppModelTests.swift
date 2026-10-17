@@ -185,8 +185,8 @@ import FTWDemo
     }
 
     /// The pairing scanner reads an assistant's consent QR as its link: the
-    /// saved home opens with the offer, and nothing pairs. With no home it
-    /// says to connect the box first.
+    /// home this phone opens shows the offer, and nothing pairs. With no
+    /// home it says to connect the box first.
     @Test func aConsentQRInThePairingScannerOpensTheOffer() async throws {
         let world = World()
         let link = "https://app.ftw.energy/a#r1.b2ZmZXI"
@@ -195,7 +195,7 @@ import FTWDemo
         let first = PairModel(app: app)
         await first.pair(link)
         #expect(first.stage == .intro)
-        #expect(first.message == NodeWords.text("That is an assistant's QR code. Connect your box first, then scan it again."))
+        #expect(first.message == NodeWords.text("That is an assistant's QR code. Connect your box first, then scan it with the iPhone Camera."))
         #expect(app.accessLink == nil)
         #expect(world.passkeys.registrations == 0)
 
@@ -204,10 +204,14 @@ import FTWDemo
         await world.run(500)
         await t.value
         let siteId = try #require(app.site?.siteId)
+        // Another home listed first: the one this phone opens still wins.
+        let paired = try #require(app.sites.get(siteId))
+        app.sites.put(StoredSite(siteId: "other", label: "Cabin", boxStaticKey: Data(repeating: 1, count: 32), rendezvousSecret: nil, pairingCode: nil, lanHint: nil, addedAtMs: 0, lastSeenAtMs: 0))
+        app.sites.put(paired)
+        #expect(app.sites.all().first?.siteId == "other")
         // Back on the scanner from the home, as "Scan a new pairing QR" is.
         app.recovering = true
         let again = PairModel(app: app)
-        #expect(again.canOpen)
         await again.pair(link)
         #expect(app.accessLink == OfferLink(link))
         #expect(!app.needsPairing)

@@ -85,9 +85,10 @@ public final class OfferFlow {
         return OfferCode.show(offer.code)
     }
 
-    /// The owner typed the code: fetch the offer it names.
+    /// The owner typed the code: fetch the offer it names, once. A second
+    /// press while the first is out asks nothing: the code works once.
     public func submit(home: String?) async {
-        guard link == nil else { return }
+        guard link == nil, step == .code else { return }
         codeHelp = nil
         guard let code = OfferCode.normalize(typed) else {
             codeHelp = AccessWords.offer(.wrongCode)
@@ -112,7 +113,10 @@ public final class OfferFlow {
     }
 
     /// An offer that came another way, such as Get help: checked like any.
+    /// Only before one is shown, so nothing swaps the signed offer under a
+    /// review or an approval.
     public func present(_ given: SignedOffer, home: String?) {
+        guard step == .code || step == .checking else { return }
         do {
             let offer = try check(given, home: home)
             signed = given

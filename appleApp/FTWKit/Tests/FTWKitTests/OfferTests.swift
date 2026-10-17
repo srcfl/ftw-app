@@ -227,6 +227,57 @@ import Testing
         #expect(gone.codeHelp == AccessWords.offer(.notFound))
     }
 
+    /// A typed code must be the offer's own. FTW Cloud is asked once, even
+    /// when Return and Continue both fire: the code works once.
+    @Test func aTypedCodeIsAskedOnceAndMustMatch() async throws {
+        let key = SoftwareSigner()
+        let keys = OfferKeys(pins: ["\(OfferKeys.kid(key.publicKey)):\(Base64url.encode(key.publicKey))"])
+        let wire = try sign(offer(), key).base64url
+        let asked = Asked()
+        let flow = OfferFlow(link: nil, lookup: lookup { _ in
+            asked.add()
+            return (try JSONSerialization.data(withJSONObject: ["offer": wire, "status": "pending"]), 200)
+        }, keys: keys, wallMs: { 1_000 })
+        flow.typed = "AAAA-BBBB"
+        await flow.submit(home: nil)
+        #expect(flow.step == .refused(.wrongCode))
+        #expect(asked.count == 1)
+
+        let twice = OfferFlow(link: nil, lookup: lookup { _ in
+            asked.add()
+            return (try JSONSerialization.data(withJSONObject: ["offer": wire, "status": "pending"]), 200)
+        }, keys: keys, wallMs: { 1_000 })
+        twice.typed = "K7QF2MXD"
+        async let first: Void = twice.submit(home: nil)
+        async let second: Void = twice.submit(home: nil)
+        _ = await (first, second)
+        guard case .review = twice.step else { Issue.record("no review: \(twice.step)"); return }
+        #expect(asked.count == 2)
+    }
+
+    /// Coming back to the page runs `start` again; it changes nothing the
+    /// owner chose, and no other offer can be swapped in under the review.
+    @Test func startingAgainChangesNothing() async throws {
+        let key = SoftwareSigner()
+        let keys = OfferKeys(pins: ["\(OfferKeys.kid(key.publicKey)):\(Base64url.encode(key.publicKey))"])
+        var o = offer()
+        o.verified = false
+        o.scopes = ["ftw.dispatch.hold", "ftw.live.read"]
+        let flow = OfferFlow(link: OfferLink(request: "r1", offer: try sign(o, key).base64url), lookup: lookup { _ in (Data(), 500) }, keys: keys, wallMs: { 1_000 })
+        await flow.start(home: nil)
+        guard case .review(let shown) = flow.step else { Issue.record("no review: \(flow.step)"); return }
+        flow.control = true
+        flow.trustsUnknown = true
+        flow.lengthMs = 86_400_000
+        await flow.start(home: nil)
+        var other = offer()
+        other.client = "Someone else"
+        flow.present(try sign(other, key), home: nil)
+        #expect(flow.step == .review(shown))
+        #expect(flow.control && flow.trustsUnknown)
+        #expect(flow.lengthMs == 86_400_000)
+    }
+
     /// Approving checks the signed offer again, against the home open then
     /// and the clock then: a home picked after the review, or an offer
     /// that ran out while the owner read, is refused.
@@ -343,4 +394,12 @@ import Testing
     func lookup(_ answer: @escaping @Sendable (URLRequest) throws -> (Data, Int)) -> OfferLookup {
         OfferLookup(base: URL(string: "https://cloud.test")!) { try answer($0) }
     }
+}
+
+/// How many times FTW Cloud's code lookup was asked.
+final class Asked: @unchecked Sendable {
+    private let lock = NSLock()
+    private var n = 0
+    var count: Int { lock.withLock { n } }
+    func add() { lock.withLock { n += 1 } }
 }
