@@ -123,10 +123,7 @@ extension NowFlow {
         }
         if fields[Contract.FID.evW] == nil, !points.isEmpty { fields[Contract.FID.evW] = chargeW }
         let fromCharger = fields[Contract.FID.evW] != wire
-        // On a box that keeps cars, a car with the cable out still has its
-        // last level.
-        let car = points.first.flatMap { loadpoints.level($0) }
-            ?? loadpoints.cars.flatMap { cars in cars.keepsCars ? cars.ordered.first.flatMap { cars.level($0)?.asLevel(nowMs: site.nowMs) } : nil }
+        let car = loadpoints.carLevel
         return readings(
             fields: fields,
             freshness: { fid in fid == Contract.FID.evW && fromCharger ? loadpoints.freshness : site.freshness(fid: fid) },

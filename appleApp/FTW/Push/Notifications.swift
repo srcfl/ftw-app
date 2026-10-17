@@ -41,6 +41,10 @@ enum Notifications {
     static func start() {
         let center = UNUserNotificationCenter.current()
         center.delegate = delegate
+        // The categories replace the ones registered before, so the cars'
+        // come from the App Group row: a launch in the background for a
+        // push keeps its "Which car?" buttons.
+        cars = CloudKeys.shared()?.lastCars() ?? []
         center.setNotificationCategories(categories(.preferred()))
         // "Which car?" names the owner's cars on its buttons: registered
         // again whenever the cars or their names change.

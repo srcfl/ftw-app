@@ -102,6 +102,12 @@ public final class SimulatedBox {
     public var cars: [SimulatedCar]?
     /// The garage charger's plug-in on a box that keeps cars.
     public var garage: SimulatedSession?
+    /// A box linked to FTW Cloud: hello carries its session information,
+    /// with the table of opaque car ids for the cars it keeps then.
+    public var linkedToCloud = false
+    /// Every hello, and every sub, as they came.
+    public private(set) var hellos = 0
+    public private(set) var subs = 0
     /// The ids an owner removed, as `GET /api/cars` lists them.
     public internal(set) var removed: [String] = []
     var sessions = 0
@@ -140,8 +146,11 @@ public final class SimulatedBox {
         let body = env.b ?? CBOR.emptyMap
         if ["price.get", "hist.query", "plan.get"].contains(env.t) { asks.append(env.t) }
         switch env.t {
-        case "hello": onHello(body)
+        case "hello":
+            hellos += 1
+            onHello(body)
         case "sub":
+            subs += 1
             let first = subscription == nil
             subscription = Subscription(bucket: body["bucket"]?.int ?? 512, hz: body["hz"]?.double ?? 1)
             if first { sendSnap() }
@@ -209,6 +218,7 @@ public final class SimulatedBox {
             ("role", .text(Contract.roleOwner)),
             ("scopes", .array(Contract.scopes.map { .text($0) })),
         ]
+        if linkedToCloud, cars != nil { pairs.append(("cloud", cloudSession())) }
         if booting {
             pairs.append(("boot", .map([("phase", .text("vacuum")), ("pct", .int(40)), ("etaMs", .null)])))
         } else if let sub = wantsSub, sub.entries != nil {

@@ -277,22 +277,25 @@ public struct CarEntry: CacheValue {
         public var name: String
         /// Whole percent. Nil when the box has none.
         public var socPct: Double?
-        /// In the same words as a charger's: vehicle, inferred or assumed.
-        public var socSource: String
+        /// Where the level comes from, in the car's own words (the registry's
+        /// `car_soc_sources`): vehicle, manual or assumed. A charger's word
+        /// stays on `Car`.
+        public var source: String
         /// When the car reported the level or someone set it.
         public var socReadAtMs: Double?
-        /// The box counts the level as an estimate.
+        /// The box counts the level as an estimate: energy has flowed since
+        /// the reading, or it is assumed.
         public var socEstimate: Bool
         /// The goal, whole percent.
         public var targetSocPct: Double?
         /// The charger the car is plugged into; nil when it is not.
         public var loadpointID: String?
 
-        public init(id: String, name: String, socPct: Double?, socSource: String, socReadAtMs: Double?, socEstimate: Bool, targetSocPct: Double?, loadpointID: String?) {
+        public init(id: String, name: String, socPct: Double?, source: String, socReadAtMs: Double?, socEstimate: Bool, targetSocPct: Double?, loadpointID: String?) {
             self.id = id
             self.name = name
             self.socPct = socPct
-            self.socSource = socSource
+            self.source = source
             self.socReadAtMs = socReadAtMs
             self.socEstimate = socEstimate
             self.targetSocPct = targetSocPct

@@ -431,8 +431,9 @@ struct SecondFact: View {
             case .car:
                 // Never worked out from power: the level as the car, this
                 // phone or the box last gave it, with where from and how old.
-                // On a box that keeps cars, the car's own, plugged in or not.
-                if home.cars.keepsCars, let car = home.cars.ordered.first, let level = home.cars.level(car) {
+                // On a box that keeps cars, the car's own, plugged in or not;
+                // none for a plugged-in car the box cannot name.
+                if home.cars.keepsCars, let car = home.cars.shownCar, let level = home.cars.level(car) {
                     Text(CarText.percent(level))
                         .font(Theme.figure(levelSize))
                         .foregroundStyle(level.guessed ? Theme.ink3 : Theme.ink)
@@ -442,7 +443,7 @@ struct SecondFact: View {
                     Text(CarText.origin(level, nowMs: site.minuteMs, zone: home.loadpoints.zone))
                         .font(.footnote)
                         .foregroundStyle(Theme.ink2)
-                } else if let lp = home.loadpoints.points.first, let level = home.loadpoints.level(lp) {
+                } else if let level = home.loadpoints.carLevel {
                     let guessed = level.origin == .assumed || level.origin == .unconfirmed
                     Text(AppWords.percent(level.pct))
                         .font(Theme.figure(levelSize))
@@ -937,7 +938,7 @@ private struct CarRow: View {
     var body: some View {
         let cars = home.cars
         let loadpoints = home.loadpoints
-        if cars.keepsCars, !cars.cars.isEmpty || !cars.asking.isEmpty {
+        if cars.keepsCars, !cars.cars.isEmpty || !cars.asking.isEmpty || !cars.visitors.isEmpty {
             VStack(alignment: .leading, spacing: 0) {
                 if let asking = cars.asking.first {
                     row(.car(asking.id), id: "node.car.which") {
@@ -946,7 +947,16 @@ private struct CarRow: View {
                         Text(CarText.chargerName(asking)).foregroundStyle(Theme.ink2)
                     }
                 }
-                ForEach(cars.ordered.prefix(cars.asking.isEmpty ? 2 : 1)) { car in
+                // A visitor's charger, or one whose car the box no longer
+                // asks about: still a way into its controls.
+                ForEach(cars.visitors) { lp in
+                    row(.car(lp.id), id: "node.car.visitor") {
+                        Text(C("A visitor's car")).foregroundStyle(Theme.ink)
+                        Text(verbatim: "·").foregroundStyle(Theme.ink3)
+                        Text(EVText.status(lp, zone: loadpoints.zone)).foregroundStyle(Theme.ink2)
+                    }
+                }
+                ForEach(cars.ordered.prefix(cars.asking.isEmpty && cars.visitors.isEmpty ? 2 : 1)) { car in
                     row(.car(car.id), id: "node.car.open") {
                         Text(car.shownName).foregroundStyle(Theme.ink)
                         if let level = cars.level(car) {

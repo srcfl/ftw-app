@@ -63,7 +63,7 @@ import Testing
         let t: Double = 1_791_799_200_000
         let entry = CarEntry(
             cars: [CarEntry.Car(loadpointID: "easee", pluggedIn: false, socPct: nil, socSource: "", socReadAtMs: nil, powerW: 0, targetSocPct: nil, holding: false)],
-            owned: [CarEntry.Owned(id: Self.tesla, name: "Model Y", socPct: 72, socSource: "vehicle", socReadAtMs: t - 67 * 60_000, socEstimate: false, targetSocPct: 80, loadpointID: nil)],
+            owned: [CarEntry.Owned(id: Self.tesla, name: "Model Y", socPct: 72, source: "vehicle", socReadAtMs: t - 67 * 60_000, socEstimate: false, targetSocPct: 80, loadpointID: nil)],
             asking: []
         )
         let record = CacheRecord(siteId: "s1", carrier: .relay, srcState: .live, readAtMs: t, value: entry)
@@ -82,6 +82,66 @@ import Testing
         let ask = WatchGlance.asking(CacheRecord(siteId: "s1", carrier: .relay, srcState: .live, readAtMs: t, value: asked))
         #expect(ask.map(\.loadpointID) == ["easee"])
         #expect(ask.first?.choices.map(\.name) == ["Model Y", "Zoe"])
+    }
+
+    /// The car's own estimate stays the car's: an estimate from the car is
+    /// "≈" and "from the car", never "set by hand".
+    @Test func theWatchKeepsAnEstimateFromTheCarTheCars() {
+        let t: Double = 1_791_799_200_000
+        func glance(_ source: String, estimate: Bool) -> WatchGlance.Car {
+            let entry = CarEntry(cars: [], owned: [CarEntry.Owned(id: Self.tesla, name: "Model Y", socPct: 75, source: source, socReadAtMs: t - 3_600_000, socEstimate: estimate, targetSocPct: nil, loadpointID: nil)], asking: [])
+            return WatchGlance.cars(CacheRecord(siteId: "s1", carrier: .relay, srcState: .live, readAtMs: t, value: entry), plan: nil, nowMs: t, zone: .current)[0]
+        }
+        let estimate = glance("vehicle", estimate: true)
+        #expect(estimate.levelText == "≈ 75\u{00A0}%")
+        #expect(estimate.origin == "from the car · 1 h ago")
+        #expect(glance("manual", estimate: false).origin == "set by hand · 1 h ago")
+        #expect(glance("manual", estimate: false).levelText == "75\u{00A0}%")
+        #expect(glance("assumed", estimate: true).origin == "assumed at plug-in")
+    }
+
+    /// Until the list is read, and for a car the box cannot name, the
+    /// watch keeps the chargers: a visitor's car still gets Charge now.
+    @Test func theWatchKeepsAChargerWithNoNamedCar() {
+        let t: Double = 1_791_799_200_000
+        let visitor = CarEntry.Car(loadpointID: "easee", pluggedIn: true, socPct: nil, socSource: "unknown", socReadAtMs: nil, powerW: 7_000, targetSocPct: nil, holding: false)
+        func record(_ entry: CarEntry) -> CacheRecord<CarEntry> { CacheRecord(siteId: "s1", carrier: .relay, srcState: .live, readAtMs: t, value: entry) }
+        let unread = WatchGlance.cars(record(CarEntry(cars: [visitor], owned: [], asking: [])), plan: nil, nowMs: t, zone: .current)
+        #expect(unread.map(\.loadpointID) == ["easee"])
+        #expect(unread.first?.state.hasPrefix("Charging") == true)
+        #expect(unread.first?.levelText == nil)
+        let away = CarEntry.Owned(id: Self.tesla, name: "Model Y", socPct: 72, source: "vehicle", socReadAtMs: t, socEstimate: false, targetSocPct: nil, loadpointID: nil)
+        let both = WatchGlance.cars(record(CarEntry(cars: [visitor], owned: [away], asking: [])), plan: nil, nowMs: t, zone: .current)
+        #expect(both.map(\.id) == [Self.tesla, "easee"])
+        #expect(both.first(where: \.pluggedIn)?.loadpointID == "easee")
+        // A charger whose car is named is the car's row, not a second one.
+        var named = visitor
+        named.carID = Self.tesla
+        let on = CarEntry.Owned(id: Self.tesla, name: "Model Y", socPct: 72, source: "vehicle", socReadAtMs: t, socEstimate: false, targetSocPct: nil, loadpointID: "easee")
+        #expect(WatchGlance.cars(record(CarEntry(cars: [named], owned: [on], asking: [])), plan: nil, nowMs: t, zone: .current).count == 1)
+    }
+
+    /// A question the phone did not read live says when it did.
+    @Test func theWatchDatesAnOldQuestion() {
+        let t: Double = 1_791_799_200_000
+        let entry = CarEntry(cars: [], owned: nil, asking: [CarEntry.Asking(loadpointID: "easee", session: "s9", choices: [.init(id: Self.tesla, name: "Model Y")])])
+        let old = WatchGlance.asking(CacheRecord(siteId: "s1", carrier: .cache, srcState: .stale, readAtMs: t, value: entry), zone: TimeZone(identifier: "UTC")!)
+        #expect(old.first?.live == false)
+        #expect(old.first?.asOf.hasPrefix("AS OF") == true)
+        #expect(WatchGlance.asking(CacheRecord(siteId: "s1", carrier: .relay, srcState: .live, readAtMs: t, value: entry)).first?.live == true)
+    }
+
+    /// At launch the buttons come from the row written last.
+    @Test func theButtonsAtLaunchComeFromTheLastRow() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("carkeys-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let keys = CloudKeys(directory: dir)
+        #expect(keys.lastCars().isEmpty)
+        let key = Data([0x04] + [UInt8](repeating: 1, count: 64))
+        try keys.write(CloudHome(home: "aaaaaaaaaaaaaaaaaaaaaaaaaa", siteId: "s1", boxKey: key, cars: Self.cars))
+        #expect(keys.lastCars() == Self.cars)
+        try keys.write(CloudHome(home: "bbbbbbbbbbbbbbbbbbbbbbbbbb", siteId: "s2", boxKey: key))
+        #expect(keys.lastCars() == Self.cars)
     }
 
     /// A record an older build left, before cars, still reads, as the

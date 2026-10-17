@@ -182,15 +182,15 @@ public struct Car: Equatable, Sendable, Identifiable, Codable {
         vin = r.text(.vin) ?? ""
         capacityWh = max(0, r.num(.capacityWh) ?? 0)
         maxW = max(0, r.num(.maxW) ?? 0)
-        phases = Int(r.num(.phases) ?? 0)
+        phases = whole(r.num(.phases)) ?? 0
         socPermille = r.num(.socPermille).flatMap { (0...1000).contains($0) ? Int($0.rounded()) : nil }
         socSource = r.text(.socSource) ?? ""
         socAgeS = r.num(.socAgeS).flatMap { $0 >= 0 ? $0 : nil }
         energySinceWh = r.num(.energySinceWh) ?? 0
         socEstimate = r.flag(.socEstimate) ?? false
         chargeLimitPermille = r.num(.chargeLimitPermille).flatMap { (1...1000).contains($0) ? Int($0.rounded()) : nil }
-        if let g = r.goal(), let target = g.num(.goalTargetPermille), let ready = g.num(.goalReadyByMin) {
-            goal = Goal(targetPermille: Int(target.rounded()), readyByMin: Int(ready), days: Int(g.num(.goalDays) ?? 0) & 0x7F,
+        if let g = r.goal(), let target = whole(g.num(.goalTargetPermille)), let ready = whole(g.num(.goalReadyByMin)) {
+            goal = Goal(targetPermille: target, readyByMin: ready, days: (whole(g.num(.goalDays)) ?? 0) & 0x7F,
                         finishAtLimit: g.flag(.goalFinishAtLimit) ?? false)
         } else {
             goal = nil
@@ -229,6 +229,13 @@ public struct Car: Equatable, Sendable, Identifiable, Codable {
     public static func isID(_ id: String) -> Bool {
         id.count == 32 && id.allSatisfy { $0.isHexDigit && !$0.isUppercase }
     }
+}
+
+/// A whole number from the wire, or nil: a NaN or a huge value never
+/// reaches `Int`, which would trap.
+private func whole(_ v: Double?) -> Int? {
+    guard let v, v.isFinite, abs(v) < 1e9 else { return nil }
+    return Int(v.rounded())
 }
 
 /// Reads a car's fields by their registry names, from JSON or CBOR.

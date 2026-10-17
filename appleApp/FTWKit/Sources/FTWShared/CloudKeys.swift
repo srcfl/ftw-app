@@ -113,6 +113,20 @@ public struct CloudKeys: Sendable {
         return row
     }
 
+    /// The owner's cars from the row written last: what the app registers
+    /// "Which car?" buttons for at launch, before any home opens. A launch
+    /// in the background for a push has no session to ask.
+    public func lastCars() -> [CloudHome.Car] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        let rows = files.compactMap { url -> (row: CloudHome, at: Date)? in
+            let name = url.lastPathComponent
+            guard name.hasPrefix("cloud-"), let row = read(home: String(name.dropFirst("cloud-".count))), let cars = row.cars, !cars.isEmpty else { return nil }
+            let at = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            return (row, at)
+        }
+        return rows.max { $0.at < $1.at }?.row.cars ?? []
+    }
+
     /// The box key for a home, for `PushAlert.read`.
     public func boxKey(home: String) -> Data? {
         read(home: home)?.boxKey

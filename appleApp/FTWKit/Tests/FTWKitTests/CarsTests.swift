@@ -13,6 +13,7 @@ import FTWShared
         #expect(ChargerCarField.allCases.map(\.rawValue) == Contract.chargerCarFields)
         #expect(CarSocSource.allCases.map(\.rawValue) == Contract.carSocSources)
         #expect(CarIdentifiedBy.allCases.map(\.rawValue) == Contract.carIdentifiedBy)
+        #expect(WatchGlance.CarSource.all == Contract.carSocSources)
         #expect(Contract.scopes.contains(Contract.scopeCarsWrite))
         // The box spells each one in snake_case on its HTTP routes.
         #expect(CarField.socPermille.http == "soc_permille")
@@ -136,13 +137,14 @@ import FTWShared
         var box: SimulatedBox?
         var app: AppModel!
 
-        init(_ cars: DemoCars, car: DemoCar? = nil, nowMs: Double = CarTextTests.t) {
+        init(_ cars: DemoCars, car: DemoCar? = nil, cloud: Bool = false, nowMs: Double = CarTextTests.t) {
             scheduler = ManualScheduler(nowMs: nowMs)
             app = AppModel(store: MemoryStore(), files: nil, passkeys: nil, scheduler: scheduler, build: "test", ua: "test", demo: { [unowned self] s in
                 let box = SimulatedBox(scheduler: s, house: SimulatedHouse(timeZone: CarTextTests.stockholm))
                 box.resultDelayMs = 300
                 car?.apply(to: box.house, nowMs: s.nowMs)
                 cars.apply(to: box, nowMs: s.nowMs)
+                box.linkedToCloud = cloud
                 self.box = box
                 return LoopbackCarrier(box: box, scheduler: s)
             })
@@ -212,7 +214,7 @@ import FTWShared
             #expect(CarText.origin(level, nowMs: rig.scheduler.nowMs, zone: CarTextTests.stockholm) == "from the car · 1 h ago")
             // The widgets and the watch get the car, plugged in or not.
             let entry = CarShare.entry(home.loadpoints.points, answeredAtMs: rig.scheduler.nowMs, level: { _ in nil }, cars: home.cars)
-            #expect(entry.owned == [CarEntry.Owned(id: DemoCars.modelY, name: "Model Y", socPct: 72, socSource: "vehicle", socReadAtMs: level.atMs, socEstimate: false, targetSocPct: 80, loadpointID: nil)])
+            #expect(entry.owned == [CarEntry.Owned(id: DemoCars.modelY, name: "Model Y", socPct: 72, source: "vehicle", socReadAtMs: level.atMs, socEstimate: false, targetSocPct: 80, loadpointID: nil)])
             #expect(entry.asking == [])
             // "Is the car ready?" says where the car stands, with its level.
             let answer = home.loadpoints.answer(locked: false)
@@ -380,6 +382,127 @@ import FTWShared
         #expect(home.cars.car(zoe.id) == nil)
         #expect(box.removed == [zoe.id])
         #expect(box.receivedCommands.suffix(1) == [Contract.opCarRemove])
+    }
+
+    /// FTW Cloud's car class moves a car's level as the box sends it: newer
+    /// than the box's last answer here, and only for a car the list has.
+    @Test func theCloudsCarClassMovesTheLevel() async throws {
+        try await AppWords.$language.withValue(.en) {
+            let rig = Rig(.two, car: .car)
+            let (home, _) = try rig.start()
+            await rig.run(2_000)
+            let read = try #require(home.cars.readAtMs)
+            let before = try #require(home.cars.car(DemoCars.zoe))
+            // Ten minutes on, the Tesla reports 66 % through the cloud.
+            let at = read + 600_000
+            var tesla = Car(id: DemoCars.modelY, name: "")
+            tesla.socPermille = 660
+            tesla.socSource = CarSocSource.vehicle.rawValue
+            tesla.socAgeS = 20
+            let stranger = Car(id: Car.mintID(), name: "", socPermille: 300, socSource: "vehicle", socAgeS: 1)
+            home.cars.take(cloud: Stamped([tesla, stranger], asOfMs: at, origin: .cloud))
+            let level = try #require(home.cars.car(DemoCars.modelY).flatMap { home.cars.level($0) })
+            #expect(level.pct == 66)
+            #expect(level.atMs == at - 20_000)
+            #expect(home.cars.stamp?.origin == .cloud)
+            // The list keeps its own cars and names; a car it has not read
+            // is not added from the cloud, which names nothing.
+            #expect(home.cars.cars.map(\.id) == [DemoCars.modelY, DemoCars.zoe])
+            #expect(home.cars.car(DemoCars.modelY)?.name == "Model Y")
+            // The car the cloud did not mention keeps its reading's time.
+            let zoe = try #require(home.cars.car(DemoCars.zoe))
+            #expect(home.cars.level(zoe)?.atMs == before.level(answeredAtMs: read)?.atMs)
+            // An older copy changes nothing.
+            var old = tesla
+            old.socPermille = 500
+            home.cars.take(cloud: Stamped([old], asOfMs: read - 1_000, origin: .cloud))
+            #expect(home.cars.car(DemoCars.modelY).flatMap { home.cars.level($0) }?.pct == 66)
+        }
+    }
+
+    /// Never fake live: a plugged-in car the box cannot name has no level on
+    /// Now or in the car's node, and never borrows another car's; its
+    /// charger still has a way in.
+    @Test func aVisitorNeverShowsAnotherCarsLevel() async throws {
+        try await AppWords.$language.withValue(.en) {
+            let rig = Rig(.asking)
+            let (home, _) = try rig.start()
+            await rig.run(2_000)
+            #expect(home.loadpoints.carLevel == nil)
+            #expect(home.cars.shownCar == nil)
+            #expect(NowFlow.readings(site: home.site, loadpoints: home.loadpoints).first { $0.node == .car }?.levelPct == nil)
+            let lp = try #require(home.cars.asking.first)
+            await rig.settle { await home.cars.choose(lp, carID: nil) }
+            #expect(home.cars.visitors.map(\.id) == ["garage"])
+            #expect(home.loadpoints.carLevel == nil)
+            #expect(home.cars.shownCar == nil)
+
+            // With every cable out, the first car's last level shows.
+            let away = Rig(.away)
+            let (other, _) = try away.start()
+            await away.run(2_000)
+            #expect(other.loadpoints.carLevel?.pct == 72)
+            #expect(other.cars.shownCar?.id == DemoCars.modelY)
+            #expect(NowFlow.readings(site: other.site, loadpoints: other.loadpoints).first { $0.node == .car }?.levelPct == 72)
+        }
+    }
+
+    /// The notification's table keeps the box's order, whichever car is
+    /// plugged in, so a category's buttons always mean the same cars.
+    @Test func theNotificationTableKeepsTheBoxsOrder() async throws {
+        let rig = Rig(.asking)
+        let (home, _) = try rig.start()
+        await rig.run(2_000)
+        let lp = try #require(home.cars.asking.first)
+        await rig.settle { await home.cars.choose(lp, carID: DemoCars.zoe) }
+        #expect(home.cars.ordered.map(\.id) == [DemoCars.zoe, DemoCars.modelY])
+        #expect(home.site.carNames.map(\.id) == [DemoCars.modelY, DemoCars.zoe])
+        let table = [SimulatedBox.opaque(DemoCars.zoe): DemoCars.zoe, SimulatedBox.opaque(DemoCars.modelY): DemoCars.modelY]
+        let cars = SiteModel.cloudCars(home.site.carNames, table: table)
+        #expect(cars?.map(\.id) == [DemoCars.modelY, DemoCars.zoe])
+        #expect(cars?.map(\.opaque) == [SimulatedBox.opaque(DemoCars.modelY), SimulatedBox.opaque(DemoCars.zoe)])
+        #expect(SiteModel.cloudCars(home.site.carNames, table: nil) == nil)
+        // A car the table lacks is left out until it is asked for again.
+        #expect(SiteModel.cloudCars(home.site.carNames, table: [SimulatedBox.opaque(DemoCars.zoe): DemoCars.zoe])?.map(\.id) == [DemoCars.zoe])
+    }
+
+    /// A car added after hello is missing from FTW Cloud's table: the app
+    /// asks for hello again, without a sub, and the stream runs on.
+    @Test func aNewCarAsksForTheCloudTableAgainOnce() async throws {
+        let rig = Rig(.one, cloud: true)
+        let (home, box) = try rig.start()
+        await rig.run(2_000)
+        #expect(home.site.session.cloud?.cars?.values.sorted() == [DemoCars.modelY])
+        #expect(box.hellos == 1)
+        let subs = box.subs
+        await rig.settle { await home.cars.add(name: "Zoe", capacityWh: 52_000) }
+        await rig.run(1_000)
+        let zoe = try #require(home.cars.cars.first { $0.name == "Zoe" })
+        #expect(box.hellos == 2)
+        #expect(box.subs == subs)
+        #expect(home.site.session.phase == .streaming)
+        #expect(home.site.session.cloud?.cars?.values.contains(zoe.id) == true)
+        // The table now has every car: nothing more to ask.
+        await rig.settle { try? await home.cars.load() }
+        #expect(box.hellos == 2)
+    }
+
+    @Test func aGoalToTheCarsLimitStaysOneAndARetriedAddKeepsItsID() async throws {
+        let rig = Rig(.one)
+        let (home, box) = try rig.start()
+        await rig.run(2_000)
+        let tesla = try #require(home.cars.car(DemoCars.modelY))
+        await rig.settle { await home.cars.saveGoal(tesla, socPct: 100, clock: 7 * 60, recurring: true, days: 0x7F, finishAtLimit: true) }
+        #expect(home.cars.car(tesla.id)?.goal?.finishAtLimit == true)
+
+        // A box that never answers: the add is not confirmed, and the next
+        // try sends the same id.
+        box.neverConfirm = true
+        await rig.settle(40_000) { await home.cars.add(name: "Zoe", capacityWh: 52_000) }
+        box.neverConfirm = false
+        await rig.settle { await home.cars.add(name: "Zoe", capacityWh: 52_000) }
+        #expect(home.cars.cars.filter { $0.name == "Zoe" }.count == 1)
+        #expect(box.cars?.filter { $0.name == "Zoe" }.count == 1)
     }
 
     /// An old box refuses the car ops it does not know, and the words say

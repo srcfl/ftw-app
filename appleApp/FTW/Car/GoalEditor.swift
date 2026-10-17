@@ -67,7 +67,7 @@ struct GoalEditor: View {
     init(cars: CarsModel, car: Car, zone: TimeZone) {
         self.init(schedule: car.goal.map { CarsModel.schedule($0, nowMs: Date().timeIntervalSince1970 * 1000, zone: zone) }, zone: zone,
                   state: { cars.goalSave[car.id] },
-                  save: { await cars.saveGoal(car, socPct: $0, clock: $1, recurring: $2, days: $3) },
+                  save: { await cars.saveGoal(car, socPct: $0, clock: $1, recurring: $2, days: $3, finishAtLimit: car.goal?.finishAtLimit == true && $0 >= 100) },
                   remove: { await cars.removeGoal(car) })
     }
 

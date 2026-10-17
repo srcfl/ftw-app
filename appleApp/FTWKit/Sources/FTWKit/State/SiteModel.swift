@@ -1185,6 +1185,8 @@ extension SiteModel {
             return
         }
         adoptCloud(identity, offset: nil)
+        // A fresh table can name cars the last car class could not.
+        takeCloudCarList(scheduler.nowMs)
         if identity.home != storedHome {
             storedHome = identity.home
             learnedHome?(identity.home)
@@ -1217,6 +1219,8 @@ extension SiteModel {
     /// owner's cars; this tells it when the cars or their names change.
     public static var carButtons: (@MainActor ([CloudHome.Car]) -> Void)?
 
+    /// The owner's cars in the box's order, so a category's set of buttons
+    /// means the same cars whichever car is plugged in.
     func shareCarNames(_ cars: [Car]) {
         let names = cars.map { CloudHome.Car(opaque: "", id: $0.id, name: $0.shownName) }
         guard names != carNames else { return }
@@ -1224,13 +1228,27 @@ extension SiteModel {
         shareCloudHome()
     }
 
+    /// The cars under the opaque ids FTW Cloud names them by, in the order
+    /// given. Nil from a box whose hello carries no car table; a car the
+    /// table does not have yet is left out.
+    nonisolated static func cloudCars(_ names: [CloudHome.Car], table: [String: String]?) -> [CloudHome.Car]? {
+        guard let table else { return nil }
+        let opaque = Dictionary(table.map { ($0.value, $0.key) }, uniquingKeysWith: { a, _ in a })
+        return names.compactMap { c in opaque[c.id].map { CloudHome.Car(opaque: $0, id: c.id, name: c.name) } }
+    }
+
+    /// Ask the box again for hello's session information: FTW Cloud's table
+    /// of opaque car ids lacks a car added since.
+    func refreshHello() {
+        core.refreshHello()
+    }
+
     /// Give the notification extension what the box said over Noise: its
     /// key, its names, and rule U's anchor; and the owner's cars under the
     /// ids FTW Cloud names them by. Written only when it changed.
     private func shareCloudHome() {
         guard let siteId, let keys = cloudKeys, let identity = cloudIdentity else { return }
-        let opaque = Dictionary((identity.cars ?? [:]).map { ($0.value, $0.key) }, uniquingKeysWith: { a, _ in a })
-        let cars = identity.cars == nil ? nil : carNames.compactMap { c in opaque[c.id].map { CloudHome.Car(opaque: $0, id: c.id, name: c.name) } }
+        let cars = Self.cloudCars(carNames, table: identity.cars)
         let row = CloudHome(home: identity.home, siteId: siteId, boxKey: Data(identity.pk),
                             loadpoints: identity.loadpoints, sources: identity.sources, offset: ruleU, cars: cars)
         guard row != sharedCloudHome else { return }

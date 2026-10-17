@@ -27,7 +27,7 @@ struct CarPage: View {
             let nowMs = timeline.date.timeIntervalSince1970 * 1000
             let cars = WatchGlance.cars(model.context?.cars, plan: model.context?.plan?.value, nowMs: nowMs, zone: model.zone)
             let car = cars.first(where: \.pluggedIn) ?? cars.first
-            let ask = WatchGlance.asking(model.context?.cars).first
+            let ask = WatchGlance.asking(model.context?.cars, zone: model.zone).first
             Group {
                 if let ask {
                     OnePage { WhichCarBlock(ask: ask, model: model) }
@@ -63,9 +63,20 @@ private struct WhichCarBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(WatchWord.whichCar.text)
-                .font(.headline)
-                .foregroundStyle(Theme.ink)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(WatchWord.whichCar.text)
+                    .font(.headline)
+                    .foregroundStyle(Theme.ink)
+                Spacer(minLength: 2)
+                // A question the phone did not read live says when it did.
+                if !ask.live {
+                    Text(ask.asOf)
+                        .font(Theme.mono(.caption2))
+                        .foregroundStyle(Theme.ink3)
+                        .lineLimit(1)
+                        .fixedSize()
+                }
+            }
             if let r = model.receipt(for: ask.loadpointID) {
                 ReceiptLine(receipt: r)
             }

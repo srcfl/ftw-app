@@ -59,7 +59,7 @@ struct CarsSettingsView: View {
     private func line(_ car: Car) -> String {
         var parts: [String] = []
         if let level = cars.level(car) {
-            parts.append(CarText.percent(level) + " · " + CarText.origin(level, nowMs: Date().timeIntervalSince1970 * 1000, zone: .current))
+            parts.append(CarText.percent(level) + " · " + CarText.origin(level, nowMs: cars.minuteMs, zone: cars.zone))
         } else {
             parts.append(C("Level unknown"))
         }
@@ -106,14 +106,19 @@ struct CarSettingsView: View {
             guard !started, let car else { return }
             started = true
             name = car.name
-            kWh = car.capacityWh > 0 ? (car.capacityWh / 1000).rounded() : 60
+            kWh = car.capacityWh / 1000
         }
     }
 
     private func form(_ car: Car) -> some View {
         let canEdit = cars.canEdit
         let choices = cars.sourceChoices(for: car)
-        let changed = name.trimmingCharacters(in: .whitespacesAndNewlines) != car.name || (kWh * 1000).rounded() != car.capacityWh.rounded()
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Only what changed goes to the box, so a rename never rewrites the
+        // battery size.
+        let newName = trimmed != car.name ? trimmed : nil
+        let newWh = (kWh * 1000).rounded() != car.capacityWh.rounded() ? (kWh * 1000).rounded() : nil
+        let valid = !trimmed.isEmpty && (newWh.map { CarSize.range.contains($0 / 1000) } ?? true)
         return Form {
             Section(C("Name")) {
                 TextField(C("Name"), text: $name)
@@ -124,19 +129,16 @@ struct CarSettingsView: View {
             }
             .listRowBackground(Theme.raised)
             Section(C("Battery size")) {
-                Stepper(value: $kWh, in: 10...200, step: 1) {
-                    Text(CarWords.format("%@ kWh", String(Int(kWh))))
-                        .font(Theme.figure(22))
-                }
-                .disabled(!canEdit)
+                CarSize(kWh: $kWh)
+                    .disabled(!canEdit)
             }
             .listRowBackground(Theme.raised)
             if canEdit {
                 Section {
                     Button(L("Save")) {
-                        Task { await cars.update(car, name: name, capacityWh: kWh * 1000) }
+                        Task { await cars.update(car, name: newName, capacityWh: newWh) }
                     }
-                    .disabled(!changed || name.trimmingCharacters(in: .whitespaces).isEmpty || cars.edit[car.id] == .saving)
+                    .disabled((newName == nil && newWh == nil) || !valid || cars.edit[car.id] == .saving)
                     .accessibilityIdentifier("car.settings.save")
                     if let edit = cars.edit[car.id] {
                         Text(CarsModel.editText(edit))
@@ -209,10 +211,7 @@ struct AddCarView: View {
                 }
                 .listRowBackground(Theme.raised)
                 Section(C("Battery size")) {
-                    Stepper(value: $kWh, in: 10...200, step: 1) {
-                        Text(CarWords.format("%@ kWh", String(Int(kWh))))
-                            .font(Theme.figure(22))
-                    }
+                    CarSize(kWh: $kWh)
                 }
                 .listRowBackground(Theme.raised)
                 if case .failed(let why)? = cars.edit[CarsModel.newCarKey], !saving {
@@ -237,15 +236,43 @@ struct AddCarView: View {
                         Button(C("Add")) {
                             Task {
                                 saving = true
-                                await cars.add(name: name, capacityWh: kWh * 1000)
+                                await cars.add(name: name, capacityWh: (kWh * 1000).rounded())
                                 saving = false
                                 if cars.edit[CarsModel.newCarKey] == .saved { dismiss() }
                             }
                         }
-                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || !CarSize.range.contains(kWh))
                         .accessibilityIdentifier("car.add.save")
                     }
                 }
+            }
+        }
+    }
+}
+
+/// A battery's size in kWh with one decimal, as Core takes it: from 1 to
+/// 300 kWh, so a small plug-in hybrid fits as well as a large truck.
+struct CarSize: View {
+    @Binding var kWh: Double
+    static let range: ClosedRange<Double> = 1...300
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            // The field is as wide as its figure, so the unit sits beside it.
+            TextField(String(60), value: $kWh, format: .number.precision(.fractionLength(0...1)))
+                .accessibilityLabel(C("Battery size"))
+                .keyboardType(.decimalPad)
+                .font(Theme.figure(22))
+                .fixedSize()
+                .accessibilityIdentifier("car.settings.kwh")
+            Text(verbatim: "kWh")
+                .font(.headline)
+                .foregroundStyle(Theme.ink2)
+            Spacer(minLength: 0)
+            if !Self.range.contains(kWh) {
+                Text(verbatim: "1–300")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.alarm)
             }
         }
     }

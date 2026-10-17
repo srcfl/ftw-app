@@ -52,6 +52,14 @@ struct CarHero: View {
                     .font(.subheadline)
                     .foregroundStyle(Theme.ink2)
             }
+            // The list from the cache or a read that failed says so: the
+            // level is the box's last word, dated.
+            if let note = cars.staleNote {
+                Text(note)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.alarm)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         .accessibilityElement(children: .combine)
@@ -282,6 +290,9 @@ struct CarGoalBlock: View {
                     .foregroundStyle(Theme.ink)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("car.goal")
+                if cars.fromCache, let at = cars.readAtMs {
+                    Hint(AppWords.format("Last known %@.", AppWords.clock(at, zone: zone)), tone: Theme.ink2)
+                }
                 if let lp, let next = EVText.nextGoal(lp, nowMs: site.minuteMs, zone: zone), lp.schedule != nil {
                     Hint(next, tone: Theme.ink2)
                 } else {

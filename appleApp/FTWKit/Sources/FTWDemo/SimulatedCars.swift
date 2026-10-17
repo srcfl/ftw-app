@@ -100,6 +100,19 @@ extension SimulatedBox {
         if let car = list.first(where: { $0.id == carID }) { house.carCapacityWh = car.capacityWh }
     }
 
+    /// FTW Cloud's session information as hello carries it: the box's key,
+    /// its boot, and each car under an opaque id. The key is a fixed point,
+    /// which the demo never signs with.
+    func cloudSession() -> CBOR {
+        let pk: Bytes = [0x04] + Bytes(repeating: 0x2a, count: 64)
+        let table = (cars ?? []).map { (Self.opaque($0.id), CBOR.text($0.id)) }
+        return .map([("pk", .bytes(pk)), ("boot", .bytes(Bytes(repeating: 0x0b, count: 16))), ("sources", .map([(String, CBOR)]())),
+                     ("loadpoints", .map([("o-garage", .text("garage"))])), ("cars", .map(table))])
+    }
+
+    /// The demo's stand-in for HMAC(grantKey, "car\0" ‖ id).
+    public static func opaque(_ id: String) -> String { "o-" + id.prefix(8) }
+
     func newSessionID() -> String {
         sessions += 1
         return "s\(sessions)"
@@ -133,7 +146,8 @@ extension SimulatedBox {
                 out.socEstimate = out.energySinceWh > 1_000
             }
             out.goal = h.schedule.map { s in
-                Car.Goal(targetPermille: Int((s.socFraction * 1000).rounded()), readyByMin: s.clockMin, days: s.recurring ? (s.days & 0x7F == 0 ? Car.Goal.everyDay : s.days) : 0, finishAtLimit: false)
+                Car.Goal(targetPermille: Int((s.socFraction * 1000).rounded()), readyByMin: s.clockMin, days: s.recurring ? (s.days & 0x7F == 0 ? Car.Goal.everyDay : s.days) : 0,
+                         finishAtLimit: c.goal?.finishAtLimit ?? false)
             }
             out.surplusOnly = h.surplusOnly
             out.capacityWh = h.carCapacityWh

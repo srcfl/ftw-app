@@ -84,6 +84,10 @@ public final class CarsModel: Activatable {
     @ObservationIgnored private var planSeen: [String] = []
     /// FTW Cloud's cars as last taken, so they are taken once.
     @ObservationIgnored private var cloudTaken: Stamped<[Car]>?
+    /// The id of a car being added, kept until the box confirms it.
+    @ObservationIgnored private var addingID: String?
+    /// The cars the cloud table lacked when hello was last asked for again.
+    @ObservationIgnored private var askedTableFor: [String] = []
 
     /// How long a read of the list stands when the home comes back on
     /// screen. A car that is not plugged in changes only when its own
@@ -185,7 +189,21 @@ public final class CarsModel: Activatable {
         guard let taken = Stamped.taking(next, over: stamp) else { return }
         stamp = taken
         loadpoints.shareOutside()
-        site.shareCarNames(ordered)
+        site.shareCarNames(taken.value)
+        refreshCloudTable()
+    }
+
+    /// FTW Cloud names a car by an opaque id the box gives in hello. A car
+    /// the table lacks, one added here or on the box page, gets no cloud
+    /// level and no "Which car?" button until the table is asked for again:
+    /// once per set of missing cars.
+    private func refreshCloudTable() {
+        guard keepsCars, let table = site.session.cloud?.cars else { return }
+        let known = Set(table.values)
+        let missing = cars.map(\.id).filter { !known.contains($0) }
+        guard !missing.isEmpty, missing != askedTableFor else { return }
+        askedTableFor = missing
+        site.refreshHello()
     }
 
     // MARK: From outside the app
@@ -245,7 +263,12 @@ public final class CarsModel: Activatable {
     /// them, under ids the phone maps from the table the box gave over
     /// Noise. Taken when newer than the box's last answer here.
     private func takeCloud() {
-        guard keepsCars, let cloud = site.cloudCarList, cloud != cloudTaken else { return }
+        guard let cloud = site.cloudCarList else { return }
+        take(cloud: cloud)
+    }
+
+    func take(cloud: Stamped<[Car]>) {
+        guard keepsCars, cloud != cloudTaken else { return }
         cloudTaken = cloud
         guard let stamp, stamp.fromCache || stamp.asOfMs < cloud.asOfMs else { return }
         let byID = Dictionary(cloud.value.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -273,6 +296,19 @@ public final class CarsModel: Activatable {
     // MARK: What the screens read
 
     public var readAtMs: Double? { stamp?.asOfMs }
+    /// The clock the screens date levels by, ticking by the minute.
+    public var minuteMs: Double { site.minuteMs }
+    /// The household zone, from the box's hello.
+    public var zone: TimeZone { loadpoints.zone }
+
+    /// When the list is out of date, what to say: the box's last word and
+    /// when, or why there is none now. Nil while it stands.
+    public var staleNote: String? {
+        guard stale else { return nil }
+        if let error, !fromCache { return error }
+        guard let at = readAtMs else { return AppWords.text("Waiting for your box.") }
+        return AppWords.format("Last known %@.", AppWords.clock(at, zone: zone))
+    }
     public var fromCache: Bool { stamp?.fromCache ?? false }
 
     public func car(_ id: String?) -> Car? {
@@ -310,6 +346,20 @@ public final class CarsModel: Activatable {
     public func choices(_ lp: Loadpoint) -> [Car] {
         let ids = lp.chargerCar?.choose ?? []
         return ids.compactMap { car($0) }
+    }
+
+    /// The plugged-in chargers with a car the box cannot name and no longer
+    /// asks about: a visitor's.
+    public var visitors: [Loadpoint] {
+        loadpoints.points.filter { unnamed($0) && $0.chargerCar?.asking != true }
+    }
+
+    /// The car whose level stands beside the car's power: the one on a
+    /// charger, else the first. Nil while a plugged-in car is one the box
+    /// cannot name, so a visitor never shows another car's level.
+    public var shownCar: Car? {
+        if let plugged = loadpoints.points.first(where: \.pluggedIn) { return car(on: plugged) }
+        return ordered.first
     }
 
     /// A plugged-in charger whose car the box cannot name: a visitor's, or
@@ -490,12 +540,14 @@ public final class CarsModel: Activatable {
     // MARK: The goal
 
     /// One goal per car (`car.goal.set`), used wherever it is plugged in.
-    /// `recurring` false is once; every day is all seven days.
-    public func saveGoal(_ car: Car, socPct: Double, clock: Int, recurring: Bool, days: Int) async {
+    /// `recurring` false is once; every day is all seven days. The goal is
+    /// replaced whole, so "to the car's own limit" goes with it each time.
+    public func saveGoal(_ car: Car, socPct: Double, clock: Int, recurring: Bool, days: Int, finishAtLimit: Bool = false) async {
         guard (0..<1440).contains(clock) else { goalSave[car.id] = .failed(AppWords.text("Choose a valid ready time.")); return }
         guard (10...100).contains(socPct) else { goalSave[car.id] = .failed(AppWords.text("Choose a charge target from 10 to 100 %.")); return }
         guard !recurring || days & 0x7F != 0 else { goalSave[car.id] = .failed(AppWords.text("Choose at least one day.")); return }
-        await goalOp(car, [("target", .number(socPct / 100)), ("ready_by_min", .int(clock)), ("days", .int(Self.goalDays(recurring: recurring, days: days)))], removing: false)
+        await goalOp(car, [("target", .number(socPct / 100)), ("ready_by_min", .int(clock)), ("days", .int(Self.goalDays(recurring: recurring, days: days))),
+                           ("finish_at_limit", .bool(finishAtLimit))], removing: false)
     }
 
     public func removeGoal(_ car: Car) async {
@@ -546,9 +598,12 @@ public final class CarsModel: Activatable {
 
     // MARK: The list
 
-    /// Add a car with the id this phone mints.
+    /// Add a car with the id this phone mints. A try after one the box did
+    /// not confirm keeps the id, so it updates that car rather than adding
+    /// a second.
     public func add(name: String, capacityWh: Double) async {
-        let id = Car.mintID()
+        let id = addingID ?? Car.mintID()
+        addingID = id
         var args: [(String, CBOR)] = [("id", .text(id)), ("name", .text(name.trimmingCharacters(in: .whitespacesAndNewlines)))]
         if capacityWh > 0 { args.append(("capacity_wh", .int(Int(capacityWh.rounded())))) }
         await listOp(Self.newCarKey, Contract.opCarAdd, args, removing: false)
@@ -578,6 +633,7 @@ public final class CarsModel: Activatable {
             switch r.state {
             case .applied:
                 edit[key] = removing ? .removed : .saved
+                if key == Self.newCarKey { addingID = nil }
                 if removing, var s = stamp {
                     s.value.removeAll { $0.id == key }
                     stamp = s

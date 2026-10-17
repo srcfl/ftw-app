@@ -513,6 +513,18 @@ public final class LoadpointsModel: Activatable {
         }
     }
 
+    /// The level beside the car's power on Now and in the car's node: the
+    /// car on the charger with a car plugged in, else the first charger's.
+    /// On a box that keeps cars, a car with every cable out still has its
+    /// last level; a plugged-in car the box cannot name has none, and never
+    /// borrows another car's.
+    public var carLevel: EVText.Level? {
+        let plugged = points.first(where: \.pluggedIn)
+        if let lp = plugged ?? points.first, let level = level(lp) { return level }
+        guard plugged == nil, let cars, cars.keepsCars, let car = cars.ordered.first else { return nil }
+        return cars.level(car)?.asLevel(nowMs: site.nowMs)
+    }
+
     /// Leave the chargers, and the cars on them, for the widgets and the
     /// watch, as the box last described them.
     func shareOutside() {

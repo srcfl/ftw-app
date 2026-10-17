@@ -302,43 +302,10 @@ public enum WatchGlance {
         }
         func cells(_ pct: Double?) -> Int? { pct.map { min(10, max(0, Int(($0 / 10).rounded(.down)))) } }
         let asOf = WatchWord.asOf.format(clock.label(record.readAtMs))
-        // A box that keeps cars: each of the owner's cars, plugged in or not,
-        // with its own level and how old it is.
-        if let owned = record.value.owned {
-            return owned.map { o in
-                let charger = o.loadpointID.flatMap { id in record.value.cars.first { $0.loadpointID == id } }
-                let level = o.socPct.map { PlanGlance.percent($0) }
-                let shown = level.map { o.socEstimate || o.socSource == "assumed" ? WatchWord.estimated.format($0) : $0 }
-                let origin: String?
-                switch o.socSource {
-                case _ where o.socPct == nil: origin = nil
-                case "assumed": origin = WatchWord.assumedAtPlugIn.text
-                default:
-                    let age = o.socReadAtMs.map { PowerFormat.age(max(0, nowMs - $0) < 60_000 ? 0 : (max(0, nowMs - $0) / 60_000).rounded(.down) * 60_000) }
-                    origin = age.map { (o.socSource == "vehicle" ? WatchWord.fromCar : WatchWord.setByHand).format($0) }
-                }
-                var car = Car(
-                    loadpointID: o.loadpointID ?? "",
-                    levelPct: o.socPct,
-                    cells: cells(o.socPct),
-                    levelText: shown,
-                    state: state(charger),
-                    holding: charger?.holding == true,
-                    pluggedIn: charger?.pluggedIn == true,
-                    goal: o.targetSocPct.map { WatchWord.goal.format(PlanGlance.percent($0)) },
-                    next: o.loadpointID.flatMap(next),
-                    asOf: asOf
-                )
-                car.carID = o.id
-                car.name = o.name
-                car.origin = origin
-                return car
-            }
-        }
-        return record.value.cars.map { c in
+        func charger(_ c: CarEntry.Car) -> Car {
             let assumed = c.socSource == "assumed"
             let level = c.socPct.map { PlanGlance.percent($0) }
-            return Car(
+            var car = Car(
                 loadpointID: c.loadpointID,
                 levelPct: c.socPct,
                 cells: cells(c.socPct),
@@ -350,7 +317,55 @@ public enum WatchGlance {
                 next: next(c.loadpointID),
                 asOf: asOf
             )
+            car.name = c.carName
+            return car
         }
+        // A box that keeps cars: each of the owner's cars, plugged in or not,
+        // with its own level and how old it is, then each plugged-in charger
+        // whose car the box cannot name, so Charge now still reaches a
+        // visitor. Until the list is read, the chargers as before.
+        guard let owned = record.value.owned, !owned.isEmpty else { return record.value.cars.map(charger) }
+        let cars = owned.map { o in
+            let on = o.loadpointID.flatMap { id in record.value.cars.first { $0.loadpointID == id } }
+            let level = o.socPct.map { PlanGlance.percent($0) }
+            let shown = level.map { o.socEstimate ? WatchWord.estimated.format($0) : $0 }
+            let origin: String?
+            switch o.source {
+            case _ where o.socPct == nil: origin = nil
+            case CarSource.assumed: origin = WatchWord.assumedAtPlugIn.text
+            case CarSource.vehicle, CarSource.manual:
+                let age = o.socReadAtMs.map { PowerFormat.age(max(0, nowMs - $0) < 60_000 ? 0 : (max(0, nowMs - $0) / 60_000).rounded(.down) * 60_000) }
+                origin = age.map { (o.source == CarSource.vehicle ? WatchWord.fromCar : WatchWord.setByHand).format($0) }
+            default: origin = nil
+            }
+            var car = Car(
+                loadpointID: o.loadpointID ?? "",
+                levelPct: o.socPct,
+                cells: cells(o.socPct),
+                levelText: shown,
+                state: state(on),
+                holding: on?.holding == true,
+                pluggedIn: on?.pluggedIn == true,
+                goal: o.targetSocPct.map { WatchWord.goal.format(PlanGlance.percent($0)) },
+                next: o.loadpointID.flatMap(next),
+                asOf: asOf
+            )
+            car.carID = o.id
+            car.name = o.name
+            car.origin = origin
+            return car
+        }
+        let named = Set(owned.compactMap(\.loadpointID))
+        return cars + record.value.cars.filter { $0.pluggedIn && $0.carID == nil && !named.contains($0.loadpointID) }.map(charger)
+    }
+
+    /// A car's level sources as `CarEntry.Owned` carries them: the registry's
+    /// `car_soc_sources`, held to it by a test in FTWKit.
+    public enum CarSource {
+        public static let vehicle = "vehicle"
+        public static let manual = "manual"
+        public static let assumed = "assumed"
+        public static let all = [vehicle, manual, assumed]
     }
 
     /// A charger that asks which car is on it, with the cars one tap may
@@ -359,12 +374,18 @@ public enum WatchGlance {
         public let loadpointID: String
         public let session: String
         public let choices: [CarEntry.Asking.Choice]
+        /// The phone read it live, or else when: "AS OF 14:05".
+        public let live: Bool
+        public let asOf: String
         public var id: String { loadpointID }
     }
 
-    public static func asking(_ record: CacheRecord<CarEntry>?) -> [Asking] {
-        (record?.value.asking ?? []).filter { !$0.session.isEmpty && !$0.choices.isEmpty }.map {
-            Asking(loadpointID: $0.loadpointID, session: $0.session, choices: $0.choices)
+    public static func asking(_ record: CacheRecord<CarEntry>?, zone: TimeZone = .current) -> [Asking] {
+        guard let record else { return [] }
+        let live = record.carrier.connected && record.srcState == .live
+        let asOf = WatchWord.asOf.format(ZoneClock.of(zone).label(record.readAtMs))
+        return (record.value.asking ?? []).filter { !$0.session.isEmpty && !$0.choices.isEmpty }.map {
+            Asking(loadpointID: $0.loadpointID, session: $0.session, choices: $0.choices, live: live, asOf: asOf)
         }
     }
 

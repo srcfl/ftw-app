@@ -34,7 +34,7 @@ enum CarShare {
         guard keeps, let cars else { return CarEntry(cars: chargers) }
         let owned = cars.ordered.map { car -> CarEntry.Owned in
             let l = cars.level(car)
-            return CarEntry.Owned(id: car.id, name: car.shownName, socPct: l?.pct, socSource: l?.legacySource ?? "", socReadAtMs: l?.atMs,
+            return CarEntry.Owned(id: car.id, name: car.shownName, socPct: l?.pct, source: l?.source.rawValue ?? "", socReadAtMs: l?.atMs,
                                   socEstimate: l?.estimate ?? false, targetSocPct: car.goal.map { (Double($0.targetPermille) / 10).rounded() },
                                   loadpointID: cars.charger(of: car)?.id)
         }
