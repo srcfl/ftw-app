@@ -249,9 +249,10 @@ public enum AccessWords {
 
     // MARK: Time
 
-    /// "1 day", "7 days", "30 days".
+    /// "1 day", "7 days", "30 days", "1 year".
     public static func length(_ ms: Int64) -> String {
         let days = Int((Double(ms) / 86_400_000).rounded())
+        if days == 365 { return text("1 year") }
         return days == 1 ? text("1 day") : format("%@ days", String(days))
     }
 
@@ -496,6 +497,7 @@ public enum AccessWords {
         "Off: it reads and changes nothing.": "Av: den läser och ändrar ingenting.",
         "For": "Hur länge",
         "1 day": "1 dag",
+        "1 year": "1 år",
         "%@ days": "%@ dagar",
         "Until %@": "Till %@",
         "Ends %@": "Slutar %@",

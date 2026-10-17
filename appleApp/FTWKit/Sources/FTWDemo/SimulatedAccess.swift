@@ -17,6 +17,11 @@ public final class SimulatedAccess {
     /// deviceId → registered approval key.
     public private(set) var keys: [String: Bytes] = [:]
     public private(set) var audit: [AuditRow] = []
+    /// The longest grant this box takes for each role, as its `agent.list`
+    /// says. Nil is a box from before `longestMs`: it says nothing and takes
+    /// 30 days for an assistant.
+    public var longestMs: [String: Int64]? = Dictionary(uniqueKeysWithValues:
+        [Contract.roleAgent, Contract.roleSupport, Contract.roleRelease].map { ($0, AccessWire.longestMs($0)) })
     private var seen = Set<Bytes>()
     private var seq: UInt64 = 0
     let nowMs: @MainActor () -> Double
@@ -24,6 +29,10 @@ public final class SimulatedAccess {
 
     init(nowMs: @escaping @MainActor () -> Double) {
         self.nowMs = nowMs
+    }
+
+    func longest(_ role: String) -> Int64 {
+        longestMs?[role] ?? AccessWire.unstatedLongestMs(role)
     }
 
     /// A lived-in home: Claude for a week, Sourceful on a ticket, and Claude
@@ -78,11 +87,15 @@ public final class SimulatedAccess {
         let now = Int64(nowMs())
         switch env.t {
         case AccessWire.msgList:
-            ok(.map([
+            var list: [(String, CBOR)] = [
                 ("agents", .array(rows.map(Self.cbor))),
                 ("requests", .array(requests.map(Self.cbor))),
                 ("keys", .array(keys.keys.sorted().map { .map([("deviceId", .text($0)), ("setAtMs", .int(now))]) })),
-            ]))
+            ]
+            if let longestMs {
+                list.append(("longestMs", .map(longestMs.keys.sorted().map { CBOR.Entry(.text($0), .int(longestMs[$0] ?? 0)) })))
+            }
+            ok(.map(list))
         case AccessWire.msgAudit:
             let before = body["beforeSeq"]?.int64.map(UInt64.init) ?? .max
             let n = min(body["n"]?.int ?? 200, 200)
@@ -113,8 +126,8 @@ public final class SimulatedAccess {
             add.sig = sig
             guard let msg = try? Approval.addBytes(signedFor, add) else { return refuse("E_UNKNOWN_OP", [("field", .text("order"))]) }
             if let code = check(pub, msg, sig, atMs: atMs, now: now) { return refuse(code.0, code.1) }
-            guard add.expiresAtMs > now, add.expiresAtMs <= now + AccessWire.longestMs(add.role) else {
-                return refuse("E_CAP_EXCEEDED", [("cap", .text("expiresAtMs")), ("max", .int(now + AccessWire.longestMs(add.role)))])
+            guard add.expiresAtMs > now, add.expiresAtMs <= now + longest(add.role) else {
+                return refuse("E_CAP_EXCEEDED", [("cap", .text("expiresAtMs")), ("max", .int(now + longest(add.role)))])
             }
             let id = String(Base64url.encode(key).prefix(8))
             guard !rows.contains(where: { $0.id == id }) else { return refuse("E_UNKNOWN_OP", [("field", .text("key"))]) }
@@ -138,6 +151,9 @@ public final class SimulatedAccess {
                                expiresAtMs: body["expiresAtMs"]?.int64 ?? 0, atMs: atMs)
             guard let msg = try? Approval.widenBytes(signedFor, m, key: rows[i].key) else { return refuse("E_UNKNOWN_OP", [("field", .text("order"))]) }
             if let code = check(pub, msg, sig, atMs: atMs, now: now) { return refuse(code.0, code.1) }
+            guard m.expiresAtMs > now, m.expiresAtMs <= now + longest(rows[i].role) else {
+                return refuse("E_CAP_EXCEEDED", [("cap", .text("expiresAtMs")), ("max", .int(now + longest(rows[i].role)))])
+            }
             rows[i].scopes = m.scopes
             rows[i].ops = m.ops
             rows[i].caps = m.caps

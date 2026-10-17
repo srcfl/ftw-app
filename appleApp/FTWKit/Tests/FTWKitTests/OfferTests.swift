@@ -171,7 +171,7 @@ import Testing
         #expect(o.client == "Claude")
         #expect(flow.typed.isEmpty)
         #expect(flow.pageCode == "K7QF-2MXD")
-        // Control is off until ticked, and the length is the longest asked.
+        // Control is off until ticked, and the length starts at 30 days.
         #expect(!flow.control)
         #expect(flow.lengthMs == 30 * 86_400_000)
         // A code typed into a link's flow changes nothing.
@@ -366,6 +366,47 @@ import Testing
         big.caps = Caps(holdS: 99_999, maxW: 999_999, perMin: 600)
         let capped = Grant.from(big, control: true, lengthMs: 86_400_000)
         #expect(capped.caps == Caps(holdS: 1_800, maxW: 100_000, perMin: 60))
+    }
+
+    /// An assistant may have up to a year, where the offer and the box allow
+    /// it. A box that says nothing takes 30 days, so it is offered no more,
+    /// whatever the offer asks.
+    @Test func aYearOnlyWhereTheBoxSaysItTakesOne() {
+        let day: Int64 = 86_400_000
+        let year = 365 * day
+        var o = offer()
+        o.ttlS = 365 * 86_400
+        #expect(Grant.lengths(role: Contract.roleAgent, offeredS: o.ttlS, boxMs: year) == [day, 7 * day, 30 * day, 90 * day, year])
+        #expect(Grant.lengths(role: Contract.roleAgent, offeredS: o.ttlS, boxMs: nil) == [day, 7 * day, 30 * day])
+        #expect(Grant.lengths(role: Contract.roleAgent, offeredS: 30 * 86_400, boxMs: year).last == 30 * day)
+        #expect(Grant.from(o, control: false, lengthMs: year, boxMs: year).lengthMs == year)
+        #expect(Grant.from(o, control: false, lengthMs: year, boxMs: nil).lengthMs == 30 * day)
+        // Never past the app's own year, whatever a box says.
+        #expect(Grant.lengths(role: Contract.roleAgent, offeredS: 0, boxMs: 2 * year).last == year)
+        // Support stays at 14 days; the box saying nothing changes nothing.
+        #expect(Grant.lengths(role: Contract.roleSupport, boxMs: nil).last == 14 * day)
+        #expect(AccessWords.length(year) == AccessWords.text("1 year"))
+    }
+
+    /// The offer asks for a year; the owner starts at 30 days, Sourceful at a
+    /// week.
+    @Test func anOfferStartsAt30Days() {
+        let day: Int64 = 86_400_000
+        #expect(Grant.startLength(role: Contract.roleAgent, in: [day, 7 * day, 30 * day, 90 * day, 365 * day]) == 30 * day)
+        #expect(Grant.startLength(role: Contract.roleAgent, in: [day, 7 * day]) == 7 * day)
+        #expect(Grant.startLength(role: Contract.roleSupport, in: [day, 3 * day, 7 * day, 14 * day]) == 7 * day)
+    }
+
+    /// agent.list's longestMs, read as the box sent it; a box from before it
+    /// sends none.
+    @Test func theBoxSaysHowLongItTakes() {
+        let year: Int64 = 365 * 86_400_000
+        let newer = AgentList(CBOR.map([("agents", .array([])), ("longestMs", .map([
+            CBOR.Entry(.text(Contract.roleAgent), .int(year)), CBOR.Entry(.text(Contract.roleSupport), .int(14 * 86_400_000)),
+        ]))]))
+        #expect(newer.longestMs == [Contract.roleAgent: year, Contract.roleSupport: 14 * 86_400_000])
+        let older = AgentList(CBOR.map([("agents", .array([])), ("requests", .array([])), ("keys", .array([]))]))
+        #expect(older.longestMs.isEmpty)
     }
 
     // MARK: Helpers

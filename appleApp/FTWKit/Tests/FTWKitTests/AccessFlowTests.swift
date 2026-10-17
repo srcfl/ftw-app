@@ -54,6 +54,44 @@ import FTWDemo
         return w
     }
 
+    /// A box that takes a year says so, and the owner may grant it.
+    @Test func aBoxThatTakesAYearIsOfferedAYear() async throws {
+        let w = await world()
+        let year: Int64 = 365 * 86_400_000
+        await w.during { await w.access.refresh() }
+        #expect(w.access.boxLongestMs(Contract.roleAgent) == year)
+        let offer = try w.offer()
+        let boxMs = w.access.boxLongestMs(offer.role)
+        #expect(Grant.lengths(role: offer.role, offeredS: offer.ttlS, boxMs: boxMs).last == year)
+        let row = await w.during { await w.access.approve(offer, grant: Grant.from(offer, control: false, lengthMs: year, boxMs: boxMs)) }
+        let added = try #require(row)
+        #expect(added.expiresAtMs > Int64(w.scheduler.nowMs) + year - 86_400_000)
+    }
+
+    /// A box from before longestMs says nothing and takes 30 days. The app
+    /// offers it no more, though the offer asks for a year, so the grant goes
+    /// through; a year would have been refused.
+    @Test func anOlderBoxIsOfferedNoMoreThan30Days() async throws {
+        let w = await world()
+        w.box.access.longestMs = nil
+        let day: Int64 = 86_400_000
+        await w.during { await w.access.refresh() }
+        #expect(w.access.boxLongestMs(Contract.roleAgent) == nil)
+        let offer = try w.offer()
+        #expect(offer.ttlS == 365 * 86_400)
+        let boxMs = w.access.boxLongestMs(offer.role)
+        #expect(Grant.lengths(role: offer.role, offeredS: offer.ttlS, boxMs: boxMs).last == 30 * day)
+        let grant = Grant.from(offer, control: false, lengthMs: 365 * day, boxMs: boxMs)
+        #expect(grant.lengthMs == 30 * day)
+        #expect(await w.during { await w.access.approve(offer, grant: grant) } != nil)
+
+        var tooLong = grant
+        tooLong.lengthMs = 365 * day
+        let second = try w.offer()
+        #expect(await w.during { await w.access.approve(second, grant: tooLong) } == nil)
+        #expect(w.access.help != nil)
+    }
+
     @Test func theBoxSaysWhoHasAccess() async {
         let w = await world()
         #expect(w.access.available)

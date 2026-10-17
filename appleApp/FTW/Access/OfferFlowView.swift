@@ -171,7 +171,7 @@ struct OfferReview: View {
 
             Section {
                 Picker(AccessWords.text("For"), selection: $flow.lengthMs) {
-                    ForEach(flow.lengths, id: \.self) { Text(AccessWords.length($0)).tag($0) }
+                    ForEach(flow.lengths(boxMs: access.boxLongestMs(offer.role)), id: \.self) { Text(AccessWords.length($0)).tag($0) }
                 }
                 .accessibilityIdentifier("offer.length")
                 HomePick(app: app, flow: flow, offer: offer)

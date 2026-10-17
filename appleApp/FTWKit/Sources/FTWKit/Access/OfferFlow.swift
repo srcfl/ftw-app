@@ -144,7 +144,7 @@ public final class OfferFlow {
         }
         guard offer == shown else { return refuse(.malformed) }
         step = .approving(offer)
-        if let row = await access.approve(offer, grant: grant(offer)) {
+        if let row = await access.approve(offer, grant: grant(offer, boxMs: access.boxLongestMs(offer.role))) {
             step = .done(row)
             onDone?(row)
         } else {
@@ -152,14 +152,15 @@ public final class OfferFlow {
         }
     }
 
-    /// What the owner has chosen so far.
-    public func grant(_ offer: GrantOffer) -> Grant {
-        Grant.from(offer, control: control, lengthMs: lengthMs)
+    /// What the owner has chosen so far, within what the box takes.
+    public func grant(_ offer: GrantOffer, boxMs: Int64? = nil) -> Grant {
+        Grant.from(offer, control: control, lengthMs: lengthMs, boxMs: boxMs)
     }
 
-    public var lengths: [Int64] {
+    /// The lengths to pick from, within the offer and what the box takes.
+    public func lengths(boxMs: Int64?) -> [Int64] {
         guard let offer else { return [] }
-        return Grant.lengths(role: offer.role, offeredS: offer.ttlS)
+        return Grant.lengths(role: offer.role, offeredS: offer.ttlS, boxMs: boxMs)
     }
 
     func check(_ signed: SignedOffer, home: String?) throws -> GrantOffer {
@@ -171,9 +172,7 @@ public final class OfferFlow {
     }
 
     private func review(_ offer: GrantOffer) {
-        let picks = Grant.lengths(role: offer.role, offeredS: offer.ttlS)
-        lengthMs = picks.last ?? lengthMs
-        if offer.isSupport, let week = picks.last(where: { $0 <= 7 * 86_400_000 }) { lengthMs = week }
+        lengthMs = Grant.startLength(role: offer.role, in: Grant.lengths(role: offer.role, offeredS: offer.ttlS))
         control = false
         trustsUnknown = false
         step = .review(offer)
