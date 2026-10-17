@@ -397,6 +397,24 @@ import Testing
         #expect(Grant.startLength(role: Contract.roleSupport, in: [day, 3 * day, 7 * day, 14 * day]) == 7 * day)
     }
 
+    /// A year-long grant shows its year, so it never reads as ending today;
+    /// a near end in the same year needs none.
+    @Test func aFarEndShowsItsYear() {
+        let zone = TimeZone(identifier: "Europe/Stockholm")!
+        let now = 1_792_224_000_000.0 // 17 Oct 2026, 10:00 in Stockholm
+        let day: Int64 = 86_400_000
+        let oct17 = AccessWords.dayOnly(Int64(now), nowMs: now, zone: zone)
+        #expect(AccessWords.until(Int64(now) + 365 * day, nowMs: now, zone: zone) == AccessWords.format("Until %@", oct17 + " 2027"))
+        #expect(AccessWords.ends(Int64(now) + 365 * day, nowMs: now, zone: zone) == oct17 + " 2027")
+        #expect(!AccessWords.ends(Int64(now) + 30 * day, nowMs: now, zone: zone).contains("2026"))
+        // Another calendar year, though near.
+        #expect(AccessWords.ends(Int64(now) + 80 * day, nowMs: now, zone: zone).hasSuffix(" 2027"))
+        // More than five months off in the same year.
+        let jan2 = 1_767_348_000_000.0 // 2 Jan 2026
+        #expect(AccessWords.ends(Int64(jan2) + 200 * day, nowMs: jan2, zone: zone).hasSuffix(" 2026"))
+        #expect(!AccessWords.ends(Int64(jan2) + 100 * day, nowMs: jan2, zone: zone).contains("2026"))
+    }
+
     /// agent.list's longestMs, read as the box sent it; a box from before it
     /// sends none.
     @Test func theBoxSaysHowLongItTakes() {
