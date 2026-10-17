@@ -132,7 +132,7 @@ struct HomeView: View {
         }
         .sheet(item: $sheet) { which in
             switch which {
-            case .settings: ModeSheet(mode: home.nodes.mode, app: app, plan: home.nodes.planShare)
+            case .settings: ModeSheet(mode: home.nodes.mode, app: app, plan: home.nodes.planShare, cars: home.cars)
             case .mode: ModeSheet(mode: home.nodes.mode, plan: home.nodes.planShare)
             case .about(let start): AboutView(app: app, start: start)
             }
@@ -148,9 +148,15 @@ struct HomeView: View {
             path.append(.offer(link))
         }
         // Now and the car read the chargers from one model, so a screen
-        // appearing asks the box once.
-        .onAppear { home.loadpoints.activate() }
-        .onDisappear { home.loadpoints.deactivate() }
+        // appearing asks the box once; the cars after each hello.
+        .onAppear {
+            home.loadpoints.activate()
+            home.cars.activate()
+        }
+        .onDisappear {
+            home.loadpoints.deactivate()
+            home.cars.deactivate()
+        }
         #if DEBUG
         // For screenshots: `-FTWSheet settings` opens the settings, and
         // `-FTWAbout about`, `remove` or a file name such as `LICENSE` opens

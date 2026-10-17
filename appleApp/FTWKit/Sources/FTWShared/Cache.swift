@@ -250,8 +250,13 @@ public struct CarEntry: CacheValue {
         /// Whether Charge now is on, in the box's account. Nil in a record
         /// written before the app kept it.
         public var holding: Bool?
+        /// The car on this charger, from a box that keeps cars: its id and
+        /// the owner's name for it. Nil while the box does not know which,
+        /// and from a box without cars.
+        public var carID: String?
+        public var carName: String?
 
-        public init(loadpointID: String, pluggedIn: Bool, socPct: Double?, socSource: String, socReadAtMs: Double?, powerW: Double, targetSocPct: Double?, holding: Bool? = nil) {
+        public init(loadpointID: String, pluggedIn: Bool, socPct: Double?, socSource: String, socReadAtMs: Double?, powerW: Double, targetSocPct: Double?, holding: Bool? = nil, carID: String? = nil, carName: String? = nil) {
             self.loadpointID = loadpointID
             self.pluggedIn = pluggedIn
             self.socPct = socPct
@@ -260,19 +265,87 @@ public struct CarEntry: CacheValue {
             self.powerW = powerW
             self.targetSocPct = targetSocPct
             self.holding = holding
+            self.carID = carID
+            self.carName = carName
+        }
+    }
+
+    /// One of the owner's cars, from a box that keeps cars: its level
+    /// whether or not it is plugged in.
+    public struct Owned: Codable, Sendable, Equatable {
+        public var id: String
+        public var name: String
+        /// Whole percent. Nil when the box has none.
+        public var socPct: Double?
+        /// Where the level comes from, in the car's own words (the registry's
+        /// `car_soc_sources`): vehicle, manual or assumed. A charger's word
+        /// stays on `Car`.
+        public var source: String
+        /// When the car reported the level or someone set it.
+        public var socReadAtMs: Double?
+        /// The box counts the level as an estimate: energy has flowed since
+        /// the reading, or it is assumed.
+        public var socEstimate: Bool
+        /// The goal, whole percent.
+        public var targetSocPct: Double?
+        /// The charger the car is plugged into; nil when it is not.
+        public var loadpointID: String?
+
+        public init(id: String, name: String, socPct: Double?, source: String, socReadAtMs: Double?, socEstimate: Bool, targetSocPct: Double?, loadpointID: String?) {
+            self.id = id
+            self.name = name
+            self.socPct = socPct
+            self.source = source
+            self.socReadAtMs = socReadAtMs
+            self.socEstimate = socEstimate
+            self.targetSocPct = targetSocPct
+            self.loadpointID = loadpointID
+        }
+    }
+
+    /// A charger whose car the box asks about: one tap names it.
+    public struct Asking: Codable, Sendable, Equatable {
+        public struct Choice: Codable, Sendable, Equatable {
+            public var id: String
+            public var name: String
+
+            public init(id: String, name: String) {
+                self.id = id
+                self.name = name
+            }
+        }
+
+        public var loadpointID: String
+        /// The plug-in the tap names.
+        public var session: String
+        /// At most four, in the box's order.
+        public var choices: [Choice]
+
+        public init(loadpointID: String, session: String, choices: [Choice]) {
+            self.loadpointID = loadpointID
+            self.session = session
+            self.choices = choices
         }
     }
 
     public var cars: [Car]
+    /// The owner's cars, from a box that keeps them. Nil from a box without
+    /// cars, whose chargers are the cars.
+    public var owned: [Owned]?
+    /// The chargers that ask which car is plugged in.
+    public var asking: [Asking]?
 
-    public init(cars: [Car]) {
+    public init(cars: [Car], owned: [Owned]? = nil, asking: [Asking]? = nil) {
         self.cars = cars
+        self.owned = owned
+        self.asking = asking
     }
 
     /// The same cars at the same levels, whenever each level was read. A
     /// rewrite of that tells a widget nothing new.
     public func sameReading(_ other: CarEntry) -> Bool {
         func levels(_ e: CarEntry) -> [Car] { e.cars.map { var c = $0; c.socReadAtMs = nil; return c } }
-        return levels(self) == levels(other)
+        func owned(_ e: CarEntry) -> [Owned]? { e.owned?.map { var c = $0; c.socReadAtMs = nil; return c } }
+        return levels(self) == levels(other) && owned(self) == owned(other) && asking == other.asking
     }
 }

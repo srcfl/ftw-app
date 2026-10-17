@@ -112,6 +112,12 @@ public struct Loadpoint: Equatable, Sendable, Identifiable, Codable {
     public var boostReservePct: Double?
     public var boostStopReason: String?
     public var schedule: Schedule?
+    /// The charger's driver, as the box names it: what the car view calls
+    /// the charger. Nil in a record from before the app kept it.
+    public var driverName: String?
+    /// The car on this charger, from a box that keeps cars. Nil while
+    /// nothing is plugged in and from a box without cars.
+    public var chargerCar: ChargerCar?
 
     /// When the level was read, on the phone's clock. A level from the car
     /// is as old as the car's last report; any other level is the box's
@@ -148,7 +154,9 @@ public struct Loadpoint: Equatable, Sendable, Identifiable, Codable {
     public init(_ w: JSON) {
         let num: (String) -> Double? = { w[$0]?.number }
         id = w["id"]?.string ?? ""
+        driverName = w["driver_name"]?.string
         pluggedIn = w["plugged_in"]?.bool == true
+        chargerCar = pluggedIn ? ChargerCar(json: w) : nil
         powerW = num("current_power_w") ?? 0
         let fraction = num("current_soc")
         if w["plugged_in"]?.bool == false {

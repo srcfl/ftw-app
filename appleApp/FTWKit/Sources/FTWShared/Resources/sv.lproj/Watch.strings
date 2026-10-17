@@ -80,3 +80,10 @@
 "Shows up in the Smart Stack while power is at its cheapest." = "Syns i Smart Stack när elen är som billigast.";
 "FTW plan" = "FTW-plan";
 "The next 24 hours on a dial, and what FTW plans now." = "De närmaste 24 timmarna på en tavla, och vad FTW planerar nu.";
+"Which car?" = "Vilken bil?";
+"None of these" = "Ingen av dessa";
+"Is %@ the car on the charger?" = "Är det %@ som står på laddaren?";
+"from the car · %@" = "från bilen · %@";
+"set by hand · %@" = "satt för hand · %@";
+"≈ %@" = "≈ %@";
+"assumed at plug-in" = "antagen vid inkoppling";

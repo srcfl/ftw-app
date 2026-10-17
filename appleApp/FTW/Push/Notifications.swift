@@ -41,7 +41,17 @@ enum Notifications {
     static func start() {
         let center = UNUserNotificationCenter.current()
         center.delegate = delegate
+        // The categories replace the ones registered before, so the cars'
+        // come from the App Group row: a launch in the background for a
+        // push keeps its "Which car?" buttons.
+        cars = CloudKeys.shared()?.lastCars() ?? []
         center.setNotificationCategories(categories(.preferred()))
+        // "Which car?" names the owner's cars on its buttons: registered
+        // again whenever the cars or their names change.
+        SiteModel.carButtons = { cars in
+            Self.cars = cars
+            UNUserNotificationCenter.current().setNotificationCategories(categories(.preferred()))
+        }
         PushTokens.setAsk { await askAndRegister() }
         #if DEBUG
         if UserDefaults.standard.bool(forKey: "FTWPushRegister") {
@@ -76,10 +86,23 @@ enum Notifications {
         Task { await PushTokens.received(token, environment: environment) }
     }
 
+    /// The owner's cars, for the buttons of "Which car?".
+    private static var cars: [CloudHome.Car] = []
+
     /// The level and Charge now run behind the lock screen once the phone is
-    /// unlocked; Open brings the app up.
+    /// unlocked; Open brings the app up. "Which car?" gets one category for
+    /// each set of the owner's cars, a button per car and None of these.
     static func categories(_ language: PushText.Language) -> Set<UNNotificationCategory> {
-        Set(PushActions.Category.allCases.map { category in
+        let which = PushActions.carCategories(cars).map { set in
+            UNNotificationCategory(
+                identifier: set.id,
+                actions: set.cars.map { car in
+                    UNNotificationAction(identifier: PushActions.carAction(car.id), title: car.name, options: [.authenticationRequired], icon: UNNotificationActionIcon(systemImageName: "car.side"))
+                } + [UNNotificationAction(identifier: PushActions.carAction(nil), title: PushActions.noneTitle(language), options: [.authenticationRequired])],
+                intentIdentifiers: []
+            )
+        }
+        return Set(which).union(PushActions.Category.allCases.map { category in
             UNNotificationCategory(
                 identifier: category.rawValue,
                 actions: category.actions.map { action in
@@ -115,6 +138,25 @@ enum Notifications {
         let out = await runner.run(command, loadpointID: loadpointID)
         log.info("push: \(action.rawValue, privacy: .public): \(String(describing: out.kind), privacy: .public): \(out.text, privacy: .public)")
     }
+
+    /// A car's button on "Which car?": only for a verified event that
+    /// offered that car, on the plug-in it named, in the home this app opens.
+    static func choose(_ carID: String, alert: PushAlert, home: CloudHome?) async {
+        guard PushActions.allowsCar(carID, for: alert, home: home) else {
+            log.notice("push: car not sent: \(alert.verdict.rawValue, privacy: .public) \(alert.kind, privacy: .public)")
+            return
+        }
+        guard let home, let loadpointID = home.loadpointID(opaque: alert.lp), let session = alert.args["session"], !session.isEmpty else {
+            log.notice("push: car not sent: no charger or plug-in for this event on this phone")
+            return
+        }
+        guard let runner = IntentRunner.shared, runner.opens(siteId: home.siteId) else {
+            log.notice("push: car not sent: not the home this app opens")
+            return
+        }
+        let out = await runner.hold { await $0.cars.perform(choice: carID.isEmpty ? nil : carID, loadpointID: loadpointID, session: session) }
+        log.info("push: car: \(String(describing: out?.kind), privacy: .public): \(out?.text ?? "", privacy: .public)")
+    }
 }
 
 /// Where the system hands a pressed button and a notification that arrives
@@ -123,7 +165,9 @@ final class NotificationButtons: NSObject, UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         // A tap on the notification, Open, or a dismissal asks the box
         // nothing.
-        guard let action = PushActions.Action(rawValue: response.actionIdentifier), let command = PushActions.command(action) else { return }
+        let car = PushActions.carChoice(response.actionIdentifier)
+        let action = PushActions.Action(rawValue: response.actionIdentifier)
+        guard car != nil || action.flatMap(PushActions.command) != nil else { return }
         let keys = CloudKeys.shared()
         let alert = PushAlert.read(
             userInfo: response.notification.request.content.userInfo,
@@ -131,7 +175,12 @@ final class NotificationButtons: NSObject, UNUserNotificationCenterDelegate {
             offset: { keys?.offset(home: $0) },
             nowMs: Int64(response.notification.date.timeIntervalSince1970 * 1000)
         )
-        await Notifications.act(action, command, alert: alert, home: keys?.read(home: alert.home))
+        let home = keys?.read(home: alert.home)
+        if let car {
+            await Notifications.choose(car, alert: alert, home: home)
+        } else if let action, let command = PushActions.command(action) {
+            await Notifications.act(action, command, alert: alert, home: home)
+        }
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {

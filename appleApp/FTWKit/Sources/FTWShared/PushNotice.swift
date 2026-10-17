@@ -85,6 +85,70 @@ public enum PushActions {
     }
 }
 
+// MARK: Which car?
+
+extension PushActions {
+    /// "Which car?" gets one button per car the box offers and "None of
+    /// these", with the names from the phone's own table. A category's
+    /// buttons are fixed when the app registers it, so the app registers
+    /// one for each set of the owner's cars (`carCategories`) and the
+    /// extension picks the set an event offers.
+    public static let carPrefix = "ftw.car."
+    public static let carNone = "ftw.car.none"
+    static let carCategoryPrefix = "ftw.car.which."
+    /// The most cars whose every set gets a category: 63 of them.
+    public static let carSetMax = 6
+    /// docs/cars.md: at most four buttons, else none and the tap opens FTW.
+    public static let carButtonsMax = 4
+
+    /// A category for each set of up to four of `cars`, each in their order.
+    public static func carCategories(_ cars: [CloudHome.Car]) -> [(id: String, cars: [CloudHome.Car])] {
+        guard !cars.isEmpty, cars.count <= carSetMax else { return [] }
+        return (1..<(1 << cars.count)).compactMap { mask in
+            let set = cars.indices.filter { mask & (1 << $0) != 0 }.map { cars[$0] }
+            return set.count <= carButtonsMax ? (carCategoryPrefix + String(mask), set) : nil
+        }
+    }
+
+    /// The category a verified `car.which` gets: the set of cars it offers,
+    /// when the phone knows each of them. Nil gives no buttons.
+    public static func carCategory(for alert: PushAlert, home: CloudHome?) -> String? {
+        guard alert.verdict == .event, alert.kind == PushKind.carWhich, let cars = home?.cars, cars.count <= carSetMax,
+              !alert.cars.isEmpty, alert.cars.count <= carButtonsMax else { return nil }
+        var mask = 0
+        for opaque in alert.cars {
+            guard let i = cars.firstIndex(where: { $0.opaque == opaque }) else { return nil }
+            mask |= 1 << i
+        }
+        return carCategoryPrefix + String(mask)
+    }
+
+    /// A car's button; nil is "None of these".
+    public static func carAction(_ carID: String?) -> String { carID.map { carPrefix + $0 } ?? carNone }
+
+    /// The car a button names: its id, "" for None of these, nil for any
+    /// other button.
+    public static func carChoice(_ actionID: String) -> String? {
+        if actionID == carNone { return "" }
+        guard actionID.hasPrefix(carPrefix) else { return nil }
+        let id = String(actionID.dropFirst(carPrefix.count))
+        return id.count == 32 && id.allSatisfy({ $0.isHexDigit && !$0.isUppercase }) ? id : nil
+    }
+
+    /// Whether a car's button may run: a verified `car.which` that offered
+    /// that car. None of these is always one of its buttons.
+    public static func allowsCar(_ carID: String, for alert: PushAlert, home: CloudHome?) -> Bool {
+        guard alert.verdict == .event, alert.kind == PushKind.carWhich, carCategory(for: alert, home: home) != nil else { return false }
+        if carID.isEmpty { return true }
+        guard let car = home?.cars?.first(where: { $0.id == carID }) else { return false }
+        return alert.cars.contains(car.opaque)
+    }
+
+    public static func noneTitle(_ language: PushText.Language) -> String {
+        language == .sv ? "Ingen av dessa" : "None of these"
+    }
+}
+
 /// Everything the extension sets on a notification, from one checked alert.
 public struct PushNotice: Sendable, Equatable {
     public var title: String
@@ -105,7 +169,7 @@ public struct PushNotice: Sendable, Equatable {
         let words = PushText.content(alert, sourceName: home?.sourceName(opaque: alert.src), language: language, decimalSeparator: decimalSeparator)
         title = words.title
         body = words.body
-        category = PushActions.category(for: alert)?.rawValue ?? ""
+        category = PushActions.category(for: alert)?.rawValue ?? PushActions.carCategory(for: alert, home: home) ?? ""
         level = Self.level(alert)
         thread = alert.home
         verified = alert.verdict == .generic ? [:] : ["verdict": alert.verdict.rawValue, "home": alert.home]
@@ -114,6 +178,7 @@ public struct PushNotice: Sendable, Equatable {
             verified["seq"] = String(alert.seq)
             verified["atMs"] = String(alert.atMs)
             if let lp = home?.loadpointID(opaque: alert.lp) { verified["loadpointID"] = lp }
+            if let session = alert.args["session"], alert.kind == PushKind.carWhich { verified["session"] = session }
         }
     }
 

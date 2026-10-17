@@ -16,15 +16,18 @@ struct ModeSheet: View {
     var app: AppModel?
     /// The plan, to say what a change of style moved.
     var plan: PlanShare?
+    /// The owner's cars, on a box that keeps them.
+    var cars: CarsModel?
     /// The change the sheet opened on, which is not its own to close for:
     /// a sheet opened again just after a mode was applied stays open.
     @State private var openedOn: ModeModel.Change?
     @Environment(\.dismiss) private var dismiss
 
-    init(mode: ModeModel, app: AppModel? = nil, plan: PlanShare? = nil) {
+    init(mode: ModeModel, app: AppModel? = nil, plan: PlanShare? = nil, cars: CarsModel? = nil) {
         self.mode = mode
         self.app = app
         self.plan = plan
+        self.cars = cars
         _openedOn = State(initialValue: mode.change)
     }
     /// The sheet's height for its content, measured once laid out.
@@ -36,6 +39,19 @@ struct ModeSheet: View {
             List {
                 planSection
                 manualSection
+                if app != nil, let cars, cars.keepsCars {
+                    Section {
+                        NavigationLink { CarsSettingsView(cars: cars) } label: {
+                            LabeledContent {
+                                Text(cars.cars.map(\.shownName).joined(separator: ", "))
+                                    .lineLimit(1)
+                            } label: {
+                                Label(C("Cars"), systemImage: "car.side")
+                            }
+                        }
+                        .accessibilityIdentifier("settings.cars")
+                    }
+                }
                 if let app, let access = app.home?.access {
                     AccessSettingsSection(app: app, access: access)
                 }

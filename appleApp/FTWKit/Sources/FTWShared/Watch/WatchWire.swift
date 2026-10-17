@@ -370,6 +370,9 @@ public struct WatchCommand: Codable, Sendable, Equatable, Identifiable {
         case pause(loadpointID: String)
         case backToPlan(loadpointID: String)
         case mode(String)
+        /// Which car is on a charger: one tap names the plug-in's car, or
+        /// none of them when `carID` is empty.
+        case chooseCar(loadpointID: String, session: String, carID: String)
     }
 
     /// How long a command stays worth running. A tap that reaches the

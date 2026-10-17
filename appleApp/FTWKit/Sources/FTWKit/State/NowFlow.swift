@@ -123,7 +123,7 @@ extension NowFlow {
         }
         if fields[Contract.FID.evW] == nil, !points.isEmpty { fields[Contract.FID.evW] = chargeW }
         let fromCharger = fields[Contract.FID.evW] != wire
-        let car = points.first.flatMap { loadpoints.level($0) }
+        let car = loadpoints.carLevel
         return readings(
             fields: fields,
             freshness: { fid in fid == Contract.FID.evW && fromCharger ? loadpoints.freshness : site.freshness(fid: fid) },

@@ -145,6 +145,9 @@ public final class Session {
     private var carrier: Carrier?
     private var subscription: Subscription
     private var helloSub: Subscription?
+    /// A hello asked for while streaming, for its session information
+    /// alone: its `hello_ok` leaves the stream as it is.
+    private var refreshingHello = false
     private var nextRequestID: UInt32 = 1
     private var bootRetry: Cancellable?
 
@@ -625,6 +628,20 @@ public final class Session {
 
     private func onHelloOk(_ b: HelloOk) {
         var s = state
+        if refreshingHello, s.phase == .streaming, b.mode != .booting {
+            // The answer to `refreshHello`: what the box says about this
+            // session, and nothing about the stream, which runs on.
+            refreshingHello = false
+            s.caps = Set(b.caps)
+            s.role = b.role ?? Contract.roleOwner
+            s.scopes = Set(b.scopes ?? Contract.roleScopes[b.role ?? Contract.roleOwner] ?? [])
+            s.modes = b.modes
+            s.box = b.box
+            s.cloud = b.cloud
+            state = s
+            return
+        }
+        refreshingHello = false
         s.proto = b.proto
         s.mode = b.mode
         s.caps = Set(b.caps)
@@ -765,9 +782,24 @@ public final class Session {
 
     // MARK: Frames out
 
+    /// Ask the box again for what hello says about this session, such as
+    /// FTW Cloud's table of opaque ids, while the stream runs. A hello with
+    /// no `sub` is answered with `hello_ok` alone, so the subscription and
+    /// its frames go on as they were.
+    public func refreshHello() {
+        guard state.phase == .streaming, !refreshingHello else { return }
+        refreshingHello = true
+        send(Envelope(t: "hello", b: .map([
+            ("proto", .map([("min", .int(Proto.min)), ("max", .int(Proto.max))])),
+            ("app", .map([("build", .text(build)), ("ua", .text(ua))])),
+            ("locales", .array(locales.map { .text($0) })),
+        ])))
+    }
+
     private func sendHello() {
         // Any hello supersedes a retry waiting to send one.
         bootRetry?.cancel()
+        refreshingHello = false
         helloSub = subscription
         send(Envelope(t: "hello", b: .map([
             ("proto", .map([("min", .int(Proto.min)), ("max", .int(Proto.max))])),

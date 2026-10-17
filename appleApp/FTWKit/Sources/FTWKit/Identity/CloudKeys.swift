@@ -71,13 +71,17 @@ public struct CloudIdentity: Codable, Equatable, Sendable {
     public var sources: [String: String]
     /// Anonymous loadpoint id to the loadpoint id the box session uses.
     public var loadpoints: [String: String]
+    /// Anonymous car id to the car's id, from a box that keeps cars. Nil in
+    /// what an older build kept.
+    public var cars: [String: String]?
 
-    public init(pk: Bytes, boot: Bytes, sources: [String: String] = [:], loadpoints: [String: String] = [:]) {
+    public init(pk: Bytes, boot: Bytes, sources: [String: String] = [:], loadpoints: [String: String] = [:], cars: [String: String]? = nil) {
         self.pk = pk
         home = CloudWire.homeID(pk: pk)
         self.boot = boot
         self.sources = sources
         self.loadpoints = loadpoints
+        self.cars = cars
     }
 
     /// hello_ok's `cloud`, or nil when it is absent or malformed. A home id
@@ -85,7 +89,7 @@ public struct CloudIdentity: Codable, Equatable, Sendable {
     init?(_ c: CBOR?) {
         guard let c, let pk = c["pk"]?.byteString, pk.count == CloudWire.publicKeyBytes,
               let boot = c["boot"]?.byteString, boot.count == CloudWire.bootBytes else { return nil }
-        self.init(pk: pk, boot: boot, sources: Self.names(c["sources"]), loadpoints: Self.names(c["loadpoints"]))
+        self.init(pk: pk, boot: boot, sources: Self.names(c["sources"]), loadpoints: Self.names(c["loadpoints"]), cars: c["cars"] == nil ? nil : Self.names(c["cars"]))
         if let said = c["home"]?.string, said != home { return nil }
     }
 

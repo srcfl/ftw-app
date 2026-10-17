@@ -121,6 +121,13 @@ public final class SiteModel {
     /// models that show them. Each change comes with a `notify`.
     @ObservationIgnored public private(set) var cloudPrices: Stamped<PriceEntry>?
     @ObservationIgnored public internal(set) var cloudCars: Stamped<[CarEntry.Car]>?
+    /// FTW Cloud's car class under the cars' own ids, from a box that keeps
+    /// cars: each car's level, goal and surplus choice, and nothing that
+    /// names it.
+    @ObservationIgnored public internal(set) var cloudCarList: Stamped<[Car]>?
+    /// The owner's cars by name, in the car model's order, for the buttons
+    /// of a `car.which`.
+    @ObservationIgnored var carNames: [CloudHome.Car] = []
     @ObservationIgnored private var destroyed = false
     /// The box session's own state, as the last frame left it.
     @ObservationIgnored private var relay = SessionState()
@@ -865,22 +872,12 @@ public final class SiteModel {
         return write(record, to: shared)
     }
 
-    /// Leave the chargers for the widgets, as the box just described them.
-    /// `fresh` says whether the box's own reading of the charger is current.
-    func shareCars(_ points: [Loadpoint], fresh: Bool) {
+    /// Leave the chargers for the widgets, as the box just described them,
+    /// with the cars on them from a box that keeps cars. `fresh` says
+    /// whether the box's own reading of the charger is current.
+    func shareCars(_ points: [Loadpoint], fresh: Bool, cars: CarsModel? = nil) {
         let now = scheduler.nowMs
-        let entry = CarEntry(cars: points.map { lp in
-            CarEntry.Car(
-                loadpointID: lp.id,
-                pluggedIn: lp.pluggedIn,
-                socPct: lp.socPct,
-                socSource: lp.socSource,
-                socReadAtMs: lp.socReadAtMs(answeredAtMs: now),
-                powerW: lp.powerW,
-                targetSocPct: lp.targetSocPct,
-                holding: LoadpointsModel.holding(lp)
-            )
-        })
+        let entry = CarShare.entry(points, answeredAtMs: now, level: { _ in nil }, cars: cars)
         shareCarEntry(entry, answering: fresh && points.allSatisfy { $0.charger?.available != false })
     }
 
@@ -1188,6 +1185,8 @@ extension SiteModel {
             return
         }
         adoptCloud(identity, offset: nil)
+        // A fresh table can name cars the last car class could not.
+        takeCloudCarList(scheduler.nowMs)
         if identity.home != storedHome {
             storedHome = identity.home
             learnedHome?(identity.home)
@@ -1216,16 +1215,47 @@ extension SiteModel {
         shared.map { CloudKeys(directory: $0.directory) }
     }
 
+    /// The app registers a notification category for each set of the
+    /// owner's cars; this tells it when the cars or their names change.
+    public static var carButtons: (@MainActor ([CloudHome.Car]) -> Void)?
+
+    /// The owner's cars in the box's order, so a category's set of buttons
+    /// means the same cars whichever car is plugged in.
+    func shareCarNames(_ cars: [Car]) {
+        let names = cars.map { CloudHome.Car(opaque: "", id: $0.id, name: $0.shownName) }
+        guard names != carNames else { return }
+        carNames = names
+        shareCloudHome()
+    }
+
+    /// The cars under the opaque ids FTW Cloud names them by, in the order
+    /// given. Nil from a box whose hello carries no car table; a car the
+    /// table does not have yet is left out.
+    nonisolated static func cloudCars(_ names: [CloudHome.Car], table: [String: String]?) -> [CloudHome.Car]? {
+        guard let table else { return nil }
+        let opaque = Dictionary(table.map { ($0.value, $0.key) }, uniquingKeysWith: { a, _ in a })
+        return names.compactMap { c in opaque[c.id].map { CloudHome.Car(opaque: $0, id: c.id, name: c.name) } }
+    }
+
+    /// Ask the box again for hello's session information: FTW Cloud's table
+    /// of opaque car ids lacks a car added since.
+    func refreshHello() {
+        core.refreshHello()
+    }
+
     /// Give the notification extension what the box said over Noise: its
-    /// key, its names, and rule U's anchor. Written only when it changed.
+    /// key, its names, and rule U's anchor; and the owner's cars under the
+    /// ids FTW Cloud names them by. Written only when it changed.
     private func shareCloudHome() {
         guard let siteId, let keys = cloudKeys, let identity = cloudIdentity else { return }
+        let cars = Self.cloudCars(carNames, table: identity.cars)
         let row = CloudHome(home: identity.home, siteId: siteId, boxKey: Data(identity.pk),
-                            loadpoints: identity.loadpoints, sources: identity.sources, offset: ruleU)
+                            loadpoints: identity.loadpoints, sources: identity.sources, offset: ruleU, cars: cars)
         guard row != sharedCloudHome else { return }
         if let old = sharedCloudHome, old.home != row.home { keys.remove(home: old.home) }
         do {
             try keys.write(row)
+            if row.cars != sharedCloudHome?.cars { Self.carButtons?(row.cars ?? []) }
             sharedCloudHome = row
         } catch {
             log.error("cloud keys not written: \(String(describing: error), privacy: .public)")
@@ -1403,6 +1433,7 @@ extension SiteModel {
     /// The cars as the cloud's lp has them, for the car's models and the
     /// widgets, dated when the box sent them.
     private func takeCloudCars(_ at: Double) {
+        takeCloudCarList(at)
         guard let view = cloudView, let lp = view.lp, let identity = cloudIdentity else { return }
         let now = scheduler.nowMs
         let g = view.grade(nowMs: Int64(now))
@@ -1421,7 +1452,26 @@ extension SiteModel {
             )
         }
         cloudCars = Stamped(cars, asOfMs: view.sentMs(lp.header, arrivalMs: Int64(at)).map(Double.init) ?? at, origin: .cloud)
-        shareCarEntry(CarEntry(cars: cars), answering: lp.loadpoints.allSatisfy { g.loadpoints[$0.id] == .live }, via: .cloud)
+        // The owner's cars and the chargers asking stay as the box session
+        // last gave them; the car model moves their levels from the cloud.
+        let last = lastCars?.entry
+        shareCarEntry(CarEntry(cars: cars, owned: last?.owned, asking: last?.asking), answering: lp.loadpoints.allSatisfy { g.loadpoints[$0.id] == .live }, via: .cloud)
+    }
+
+    /// The car class under the ids the box gave over Noise, dated when the
+    /// box sent it. A car the table does not name is left out.
+    private func takeCloudCarList(_ at: Double) {
+        guard let view = cloudView, let wire = view.cars, let names = cloudIdentity?.cars else { return }
+        let sent = view.sentMs(wire.header, arrivalMs: Int64(at)).map(Double.init) ?? at
+        let list = wire.cars.compactMap { c -> Car? in
+            guard let id = names[c.id] else { return nil }
+            return Car(id: id, name: "", socPermille: c.socPermille.map(Int.init), socSource: c.socSource, socAgeS: c.socAgeS.map(Double.init),
+                       energySinceWh: Double(c.energySinceWh), socEstimate: c.socEstimate, chargeLimitPermille: c.chargeLimitPermille.map(Int.init),
+                       goal: c.goal.map { Car.Goal(targetPermille: Int($0.targetPermille), readyByMin: Int($0.readyByMin), days: Int($0.days), finishAtLimit: $0.finishAtLimit) },
+                       surplusOnly: c.surplusOnly)
+        }
+        let next = Stamped(list, asOfMs: sent, origin: .cloud)
+        if next != cloudCarList { cloudCarList = next }
     }
 
     /// The cloud's price window in the box session's shape, for the price

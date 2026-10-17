@@ -73,19 +73,22 @@ public struct PushAlert: Sendable, Equatable {
     public let src: String?
     /// The opaque id of the loadpoint it concerns.
     public let lp: String?
+    /// The opaque ids of the cars a `car.which` offers, in the box's order.
+    public let cars: [String]
     public let boot: Data?
     public let seq: UInt64
     /// When it happened by the phone's reading of the box clock, less rule
     /// U's drift margin when rule U dates it: never later than it arrived.
     public let atMs: Int64
 
-    init(_ verdict: Verdict, home: String, kind: String = "", args: [String: String] = [:], src: String? = nil, lp: String? = nil, boot: Data? = nil, seq: UInt64 = 0, atMs: Int64 = 0) {
+    init(_ verdict: Verdict, home: String, kind: String = "", args: [String: String] = [:], src: String? = nil, lp: String? = nil, cars: [String] = [], boot: Data? = nil, seq: UInt64 = 0, atMs: Int64 = 0) {
         self.verdict = verdict
         self.home = home
         self.kind = kind
         self.args = args
         self.src = src
         self.lp = lp
+        self.cars = cars
         self.boot = boot
         self.seq = seq
         self.atMs = atMs
@@ -159,7 +162,7 @@ public struct PushAlert: Sendable, Equatable {
               !age.overflow, age.partialValue <= (notice ? noticeMaxAgeMs : maxAgeMs) else {
             return generic
         }
-        return PushAlert(.event, home: home, kind: ev.kind, args: ev.args, src: ev.src, lp: ev.lp, boot: ev.boot.map { Data($0) }, seq: ev.seq, atMs: at)
+        return PushAlert(.event, home: home, kind: ev.kind, args: ev.args, src: ev.src, lp: ev.lp, cars: ev.cars, boot: ev.boot.map { Data($0) }, seq: ev.seq, atMs: at)
     }
 
     /// When the event was sent, as the Go reference dates it: the earlier
@@ -234,6 +237,7 @@ public struct PushAlert: Sendable, Equatable {
         var args: [String: String] = [:]
         var src: String?
         var lp: String?
+        var cars: [String] = []
 
         init?(_ b: [UInt8]) {
             guard let m = (try? PushCBOR.decode(b))?.textMap else { return nil }
@@ -254,6 +258,7 @@ public struct PushAlert: Sendable, Equatable {
                 args = try field("args", \.textOfText) ?? [:]
                 src = try field("src", \.text)
                 lp = try field("lp", \.text)
+                cars = try field("cars", \.textList) ?? []
             } catch {
                 return nil
             }
@@ -309,6 +314,17 @@ extension PushCBOR {
     var byteString: [UInt8]? {
         if case .bytes(let b) = self { return b }
         return nil
+    }
+
+    /// A list of text, as Go's []string.
+    var textList: [String]? {
+        guard case .array(let items) = self else { return nil }
+        var out = [String]()
+        for item in items {
+            guard case .text(let s) = item else { return nil }
+            out.append(s)
+        }
+        return out
     }
 
     /// A text-to-text map. A null value reads as empty text, as in Go.
