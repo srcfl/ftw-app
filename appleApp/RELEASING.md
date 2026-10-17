@@ -254,38 +254,33 @@ ftw-web and FTW's SUPPORT.md link to. No phone number is published.
 
 ### 4. App Privacy
 
-**Apps → FTW → App Privacy → Get Started → "No, we do not collect data
-from this app" → Save → Publish.**
+The old M1 answer, “Data Not Collected”, does not cover FTW Cloud.
+Cloud holds a readable home copy, home and phone identifiers and push tokens.
+The versioned statistics scope adds rounded energy and configured capacities.
+Collection of those hourly reports still waits for the signed privacy review.
 
-Apple's test: data is collected when it leaves the device "in a way that
-allows you and/or your third-party partners to access it for a period
-longer than what is necessary to service the transmitted request in real
-time". In M1:
+Prepare **Apps → FTW → App Privacy** with this mapping:
 
-- The app's only network peer is `wss://relay.ftw.energy`. Everything it
-  sends is end-to-end encrypted to the user's box; the relay has no key.
-- The relay keeps no traffic. Its access log drops addresses and
-  rendezvous handles (`relay/deploy/Caddyfile` in ftw-webapp).
-- No analytics, ads, third-party code or tracking.
+| Type | Use | Linked | Tracking |
+|---|---|---|---|
+| User ID | Home and statistics ids: App Functionality and Analytics | Yes | No |
+| Device ID | Phone keys and push tokens: App Functionality | Yes | No |
+| Other Data Types | Home readings, plans and configuration: App Functionality; project statistics: Analytics | Yes | No |
 
-One edge: when the relay fails to proxy a connection, Caddy's error log
-may still hold the client address and request URI (rotated, 3 × 10 MB).
-**Decide** before you publish the answer:
+Pseudonymous home ids still link records. No advertising or data broker receives
+them. Local encrypted sessions and the on-phone demo do not add a server copy.
+The app's privacy manifest declares the same categories. Extensions keep their
+own declarations: reading an App Group cache alone is not collection.
 
-- remove addresses from that log too, in ftw-webapp, so "Data Not
-  Collected" holds exactly; or
-- declare **Other Diagnostic Data**: not linked to the user, not used for
-  tracking, purpose App Functionality.
+Before publishing, compare the actual shipped Cloud fields with this table,
+check the Swedish and English privacy pages, and preview Apple's label.
+**Publish** includes a legal attestation; the responsible person must approve
+that final step. Record its date and a screenshot with the statistics DPIA.
+A code change or upload does not update App Store Connect's answers.
 
-The privacy pages in srcfl/ftw-web#18 already mention the log.
-
-The privacy manifests from #13 match this answer. Both the app's and the
-widget's declare no tracking, no tracking domains and no collected data.
-Required-reason APIs: file timestamps (`C617.1`) in both, since the cache
-sorts App Group files by date, and `UserDefaults` (`CA92.1`) in the app.
-
-Both answers change when FTW Cloud ships: it will hold readable data the
-user turns on.
+Sources checked 17 October 2026: [Apple's definitions](https://developer.apple.com/app-store/app-privacy-details/),
+[App Privacy steps](https://developer.apple.com/help/app-store-connect/manage-app-information/manage-app-privacy/)
+and [manifest fields](https://developer.apple.com/documentation/bundleresources/app-privacy-configuration/nsprivacycollecteddatatypes).
 
 ### 5. Encryption and export
 

@@ -22,8 +22,8 @@ PRISWIDGETAR
 
 INTEGRITET
 • Inget konto och inget lösenord. Skanna parkopplingskoden som boxen visar och bekräfta med en lösenordsnyckel.
-• Din data stannar i boxen och i telefonen. Appen når boxen genom Sourcefuls relä, som bär krypterad trafik det inte kan läsa.
-• Ingen reklam, ingen analys, ingen spårning.
+• Boxen behåller historiken. FTW Cloud kopplar appen till boxen och kan hålla en läsbar kopia av läget; Sourceful kan läsa den kopian.
+• Ingen reklam eller reklamspårning. Cloud-villkoren omfattar projektstatistik; timinsamlingen väntar på godkänd integritetsgranskning. Rapporter sparas i 48 timmar och publika summor kräver minst 20 hem. Lokal drift kan bidra efter en separat Ja/Nej-fråga.
 
 DET HÄR BEHÖVER DU
 • En FTW-box hemma med FTW-appen påslagen i boxens inställningar. FTW körs på en Raspberry Pi eller en annan Linuxdator. Läs mer på ftw.energy.

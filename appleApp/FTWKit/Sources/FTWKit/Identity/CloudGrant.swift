@@ -6,10 +6,10 @@ import Observation
 @Observable
 @MainActor
 public final class CloudConsent {
-    nonisolated public static let policy = "ftw-cloud-2026-10-v2"
-    nonisolated public static let statsPolicy = "ftw-project-stats-2026-10-v2"
+    nonisolated public static let policy = "ftw-cloud-2026-10-v3"
+    nonisolated public static let statsPolicy = "ftw-project-stats-2026-10-v3"
     nonisolated public static let statisticsDetails = "Recorded hourly energy, configured battery capacity, battery and charger power limits, and solar capacity help Sourceful improve FTW and publish group totals. Values are rounded to 10 Wh or W. No names, addresses or device ids."
-    nonisolated public static let statisticsPrivacy = "Sourceful links reports to your Cloud home for deletion. They are not anonymous and stay for 13 months. Public values need at least 20 homes, with no home above 30% of a sum. Turning FTW Cloud off deletes unpublished reports when the box reaches Cloud; published totals remain."
+    nonisolated public static let statisticsPrivacy = "Sourceful links reports to your Cloud home for deletion. They are not anonymous and stay for 48 hours. Public values need at least 20 homes, with no home above 30% of a sum. Turning FTW Cloud off deletes unpublished reports when the box reaches Cloud; published totals remain."
     nonisolated public static let statisticsWaiting = "Hourly collection waits for privacy review and policy activation. Your choice can be saved now; no hourly report leaves before approval."
     nonisolated public static let included = "Everyone using FTW Cloud contributes to project statistics. There is no separate statistics switch. If you do not want to contribute, use FTW locally without Cloud. Local users can choose to share statistics without enabling remote access."
 
@@ -164,7 +164,7 @@ public enum CloudWords {
     static let sv: [String: String] = [
         "Demo: no reports leave this phone.":        "Demo: inga rapporter lämnar telefonen.",
         CloudConsent.statisticsDetails: "Dela registrerad timenergi, inställd batterikapacitet, effektgränser för batterier och laddare samt solkapacitet med Sourceful för att förbättra FTW och publicera gruppsummor. Värden avrundas till 10 Wh eller W. Inga namn, adresser eller enhets-id:n.",
-        CloudConsent.statisticsPrivacy: "Sourceful kopplar rapporterna till ditt Cloud-hem för att kunna radera dem. De är inte anonyma och sparas i 13 månader. Publika värden kräver minst 20 hem och att inget hem står för mer än 30 procent av summan. Stänger du av FTW Cloud raderas opublicerade rapporter när boxen når Cloud; publicerade gruppsummor finns kvar.",
+        CloudConsent.statisticsPrivacy: "Sourceful kopplar rapporterna till ditt Cloud-hem för att kunna radera dem. De är inte anonyma och sparas i 48 timmar. Publika värden kräver minst 20 hem och att inget hem står för mer än 30 procent av summan. Stänger du av FTW Cloud raderas opublicerade rapporter när boxen når Cloud; publicerade gruppsummor finns kvar.",
         CloudConsent.statisticsWaiting: "Timinsamlingen väntar på integritetsgranskning och aktivering. Ditt val kan sparas nu; ingen timrapport lämnar boxen före godkännandet.",
         CloudConsent.included: "Alla som använder FTW Cloud bidrar till projektstatistik. Det finns inget separat statistikval. Vill du inte bidra använder du FTW lokalt utan Cloud. Lokala användare kan välja att dela statistik utan att slå på fjärråtkomst.",
         "Accept Cloud terms": "Godkänn Cloud-villkoren",
