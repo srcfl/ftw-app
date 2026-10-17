@@ -1,14 +1,18 @@
 import FTWKit
 import SwiftUI
 
-/// FTW Cloud in About: on or off, and the receipt once the copy is erased.
+/// FTW Cloud in About: current terms and one choice for the whole service.
 /// An owner changes it at the box over Noise; a viewer sees it.
 struct CloudSettingsView: View {
     let app: AppModel
     @State private var consent = CloudConsent()
+    @State private var stopping = false
 
     var body: some View {
         List {
+            if app.isDemo {
+                Section { Text(CloudWords.text("Demo: no reports leave this phone.")) }
+            }
             if let site = app.site {
                 switch CloudConsent.audience(site) {
                 case .owner:
@@ -33,8 +37,16 @@ struct CloudSettingsView: View {
         .background(Theme.surface)
         .navigationTitle(CloudWords.text("FTW Cloud"))
         .navigationBarTitleDisplayMode(.inline)
-        .task {
-            guard let site = app.site else { return }
+        .confirmationDialog(CloudWords.text("Turn FTW Cloud off?"), isPresented: $stopping, titleVisibility: .visible) {
+            Button(CloudWords.text("Turn off"), role: .destructive) {
+                Task { if let site = app.site { _ = await consent.turnOff(site) }; app.pauseCloud() }
+            }
+            Button(CloudWords.text("Cancel"), role: .cancel) { }
+        } message: {
+            Text(CloudWords.text("Turning FTW Cloud off stops remote access for phones and assistants. The box keeps working locally. You may need to pair phones again later. Check the local box for the deletion receipt."))
+        }
+        .task(id: app.site.map(CloudConsent.audience)) {
+            guard let site = app.site, CloudConsent.audience(site) == .owner else { return }
             await consent.refresh(site)
         }
     }
@@ -46,7 +58,7 @@ struct CloudSettingsView: View {
         Section {
             Toggle(CloudWords.text("FTW Cloud"), isOn: Binding(get: { on }, set: { want in
                 Task {
-                    if want { await consent.turnOn(site) } else { await followErasure(site) }
+                    if want { await consent.turnOn(site) } else { stopping = true }
                 }
             }))
             .tint(Theme.live)
@@ -71,19 +83,21 @@ struct CloudSettingsView: View {
             }
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
-                Text(CloudWords.text("Turning it off erases the copy in FTW Cloud. Your box shows when it is gone."))
+                Text(CloudWords.text("Turning it off ends remote access and requests deletion. Check the local box for the receipt."))
                 if let help = consent.help { Text(help).foregroundStyle(Theme.alarm) }
             }
         }
         if on {
             Section {
-                Toggle(CloudWords.text("Contribute to statistics"), isOn: Binding(get: { box?.stats ?? false }, set: { want in
-                    Task { await consent.setStats(want, site) }
-                }))
-                .tint(Theme.live)
-                .disabled(consent.working)
-            } footer: {
-                Text(CloudWords.text("Hourly energy totals, without your name or address, help make FTW better. Off unless you turn it on."))
+                Label(CloudWords.text("Statistics are included with FTW Cloud"), systemImage: "chart.bar")
+                if box?.termsAccepted != true {
+                    Button(CloudWords.text("Accept Cloud terms")) { Task { await consent.accept(site) } }
+                        .disabled(consent.working || !consent.policyAvailable)
+                }
+                Text(CloudWords.text(CloudConsent.included))
+                Text(CloudWords.text(CloudConsent.statisticsDetails))
+                Text(CloudWords.text(CloudConsent.statisticsPrivacy))
+                if !consent.statisticsReady { Text(CloudWords.text(CloudConsent.statisticsWaiting)) }
             }
         }
     }
@@ -93,14 +107,4 @@ struct CloudSettingsView: View {
         transport == Contract.transportQUIC ? "QUIC" : "WebSocket"
     }
 
-    /// Off, then the receipt: the box has it once the service confirms the
-    /// copy is gone, usually within seconds. Asked a few times after the
-    /// tap, never on a timer of its own.
-    private func followErasure(_ site: SiteModel) async {
-        guard await consent.turnOff(site) else { return }
-        for _ in 0..<5 where consent.box?.erasing == true {
-            try? await Task.sleep(for: .seconds(2))
-            await consent.refresh(site)
-        }
-    }
 }

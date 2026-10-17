@@ -105,6 +105,10 @@ public final class SimulatedBox {
     /// A box linked to FTW Cloud: hello carries its session information,
     /// with the table of opaque car ids for the cars it keeps then.
     public var linkedToCloud = false
+    public var statisticsAvailable = true
+    private var statisticsOn = false
+    private var cloudCopyOn = true
+    private var cloudTermsAccepted = false
     /// Every hello, and every sub, as they came.
     public private(set) var hellos = 0
     public private(set) var subs = 0
@@ -212,7 +216,7 @@ public final class SimulatedBox {
             ("mode", .text(booting ? "booting" : "full")),
             ("box", .map([("id", .text("demo-box")), ("build", .text("0.131.0-demo")), ("tz", .text(house.timeZone.identifier))])),
             ("clock", .map([("source", .text("ntp")), ("syncedAtMs", .number(scheduler.nowMs - 60_000)), ("uptimeMs", .number(uptimeMs))])),
-            ("caps", .array((Self.caps + moreCaps + (cars == nil ? [] : [Contract.capDerCar])).map { .text($0) })),
+            ("caps", .array((Self.caps + [Contract.capCloudLink] + moreCaps + (cars == nil ? [] : [Contract.capDerCar])).map { .text($0) })),
             ("capsHash", .text("demo")),
             ("modes", .array(Self.modes.map { .map([("key", .text($0.key)), ("label", .text($0.label)), ("tooltip", .text($0.tooltip)), ("tier", .text($0.tier))]) })),
             ("role", .text(Contract.roleOwner)),
@@ -468,6 +472,13 @@ public final class SimulatedBox {
     /// Priced beside the route, never from the method, as the box does.
     static let routes: [(method: String, path: String, tier: Tier, op: String?)] = [
         ("GET", "/api/status", .read, nil),
+        ("GET", "/api/cloud", .configure, nil),
+        ("DELETE", "/api/cloud", .configure, nil),
+        ("GET", "/api/cloud/stats-policy", .configure, nil),
+        ("POST", "/api/cloud/grant", .configure, nil),
+        ("DELETE", "/api/cloud/grant", .configure, nil),
+        ("POST", "/api/cloud/stats", .configure, nil),
+        ("DELETE", "/api/cloud/stats", .configure, nil),
         ("GET", "/api/energy/daily", .read, nil),
         ("GET", "/api/savings/daily", .read, nil),
         ("GET", "/api/loadpoints", .read, nil),
@@ -574,9 +585,43 @@ public final class SimulatedBox {
         return [battery, car]
     }
 
+    private func cloudConsentState() -> JSON {
+        [
+            "state": .string(cloudCopyOn ? "on" : "off"), "connected": true,
+            "cloudPolicy": .string(CloudConsent.policy), "cloudTermsAccepted": .bool(cloudTermsAccepted),
+            "statisticsPolicy": .string(CloudConsent.statsPolicy),
+            "statisticsActive": .bool(statisticsOn), "statisticsReady": .bool(statisticsAvailable),
+        ]
+    }
+
     private func answer(_ method: String, _ pattern: String, _ itemID: String?, _ query: [String: String], _ body: JSON?) -> (Int, JSON) {
         let now = scheduler.nowMs
         switch (method, pattern) {
+        case ("GET", "/api/cloud/stats-policy"):
+            return (200, ["policy": .string(CloudConsent.statsPolicy), "cloud_policy": .string(CloudConsent.policy), "cloud_includes_statistics": true, "available": .bool(statisticsAvailable)])
+        case ("GET", "/api/cloud"):
+            return (200, cloudConsentState())
+        case ("POST", "/api/cloud/grant"):
+            guard body?["policy"]?.string == CloudConsent.policy else { return (400, ["code": "E_UNAVAILABLE"]) }
+            cloudCopyOn = true
+            cloudTermsAccepted = true
+            statisticsOn = true
+            return (200, cloudConsentState())
+        case ("POST", "/api/cloud/stats"):
+            guard statisticsAvailable, body?["policy"]?.string == CloudConsent.statsPolicy else {
+                return (409, ["code": "E_UNAVAILABLE"])
+            }
+            statisticsOn = true
+            return (200, cloudConsentState())
+        case ("DELETE", "/api/cloud/stats"):
+            guard !cloudTermsAccepted else { return (409, ["code": "E_UNAVAILABLE"]) }
+            statisticsOn = false
+            return (200, cloudConsentState())
+        case ("DELETE", "/api/cloud"), ("DELETE", "/api/cloud/grant"):
+            cloudCopyOn = false
+            cloudTermsAccepted = false
+            statisticsOn = false
+            return (200, cloudConsentState())
         case ("GET", "/api/status"):
             let perPhase = house.gridW / 3
             return (200, [

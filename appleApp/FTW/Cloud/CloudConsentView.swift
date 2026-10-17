@@ -1,12 +1,12 @@
 import FTWKit
 import SwiftUI
 
-/// The one screen, at first start: the app uses FTW Cloud, and statistics
-/// are a separate choice, off until ticked. An owner's phone turns FTW Cloud
-/// on at the box when the person goes on; a viewer is told to ask the owner.
+/// Current Cloud terms at first start. Statistics come with Cloud;
+/// an owner grants the scope, while a viewer accepts it for this phone.
 struct CloudConsentView: View {
     let app: AppModel
     @Bindable var consent: CloudConsent
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var audience: CloudConsent.Audience {
         app.site.map(CloudConsent.audience) ?? .unknown
@@ -24,28 +24,26 @@ struct CloudConsentView: View {
                     Text(CloudWords.text("The FTW app uses FTW Cloud"))
                         .font(.title2.weight(.bold))
                     Text(CloudWords.text("FTW Cloud is part of the service. It keeps a copy of your home, signed by your box, so the app opens at once and stays up to date."))
-                    Text(CloudWords.text("Your box still decides. Commands go straight to it, never through FTW Cloud."))
+                    Text(CloudWords.text("Your box still decides. Commands stay encrypted between this phone and your box."))
                         .foregroundStyle(Theme.fgDim)
                 }
                 .padding(.vertical, 4)
             }
 
-            switch audience {
-            case .viewer:
+            Section {
+                Text(CloudWords.text(CloudConsent.included))
+                Text(CloudWords.text(CloudConsent.statisticsDetails))
+                Text(CloudWords.text(CloudConsent.statisticsPrivacy))
+                if !consent.statisticsReady { Text(CloudWords.text(CloudConsent.statisticsWaiting)) }
+                if let help = consent.help { Text(help).foregroundStyle(Theme.alarm) }
+            }
+            if audience == .viewer {
                 Section {
                     Label(CloudWords.text("Ask the owner of this home to turn on FTW Cloud."), systemImage: "person.crop.circle.badge.questionmark")
                 }
-            case .owner, .ownerLater, .unknown:
+            } else if audience == .ownerLater {
                 Section {
-                    Toggle(CloudWords.text("Contribute to statistics"), isOn: $consent.contributeStats)
-                        .tint(Theme.live)
-                } footer: {
-                    Text(CloudWords.text("Hourly energy totals, without your name or address, help make FTW better. Off unless you turn it on."))
-                }
-                if audience == .ownerLater {
-                    Section {
-                        Label(CloudWords.text("Your box turns on FTW Cloud after its next update."), systemImage: "arrow.down.circle")
-                    }
+                    Label(CloudWords.text("Update your box before accepting the new Cloud terms."), systemImage: "arrow.down.circle")
                 }
             }
 
@@ -56,19 +54,33 @@ struct CloudConsentView: View {
             } footer: {
                 Text(CloudWords.text("You can turn FTW Cloud off in About."))
             }
+            if typeSize.isAccessibilitySize { Section { actions } }
         }
         .scrollContentBackground(.hidden)
         .background(Theme.surface)
         .safeAreaInset(edge: .bottom) {
-            Button(CloudWords.text("Continue")) {
-                Task { await consent.accept(app.site) }
+            if !typeSize.isAccessibilitySize {
+                actions.padding(16).background(Theme.surface)
             }
-            .buttonStyle(FTWButtonStyle(kind: .primary))
-            .padding(16)
-            .background(Theme.surface)
+        }
+        .task(id: audience) {
+            if let site = app.site, audience == .owner { await consent.refreshStatisticsPolicy(site) }
         }
         .animation(Theme.spring, value: audience)
         .sensoryFeedback(.success, trigger: consent.answered)
         .interactiveDismissDisabled()
     }
+
+    private var actions: some View {
+        VStack(spacing: 8) {
+            Button(CloudWords.text("Accept Cloud terms")) {
+                Task { await consent.accept(app.site) }
+            }
+            .buttonStyle(FTWButtonStyle(kind: .primary))
+            .disabled(consent.working || audience == .unknown || audience == .ownerLater || (audience == .owner && !consent.policyAvailable))
+            Button(CloudWords.text("Use the box locally")) { app.pauseCloud() }
+                .buttonStyle(FTWButtonStyle(kind: .quiet))
+        }
+    }
+
 }

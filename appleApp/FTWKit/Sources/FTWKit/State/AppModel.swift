@@ -140,6 +140,21 @@ public final class AppModel {
     }
 
     public var site: SiteModel? { home?.site }
+    public private(set) var cloudPaused = false
+    public func pauseCloud() {
+        guard let id = site?.siteId else { return }
+        sites.update(id) { $0.cloudPaused = true }
+        cloudPaused = true
+        connectGeneration += 1
+        site?.destroy()
+        connectHelp = CloudWords.text("This phone has stopped using FTW Cloud. Your box keeps working locally.")
+    }
+    public func resumeCloud() {
+        guard let id = site?.siteId else { return }
+        sites.update(id) { $0.cloudPaused = false }
+        cloudPaused = false
+        open(id)
+    }
 
     /// Nothing paired and nothing to show: the only screen is pairing.
     public var needsPairing: Bool { home == nil || recovering || offeredLink != nil }
@@ -153,6 +168,7 @@ public final class AppModel {
 
     /// Point the app at a home and connect to it.
     public func open(_ siteId: String) {
+        cloudPaused = sites.get(siteId)?.cloudPaused ?? false
         exitDemo()
         home?.site.destroy()
         let site = SiteModel(siteId: siteId, build: build, ua: ua, scheduler: scheduler, files: files, shared: shared)
@@ -182,6 +198,7 @@ public final class AppModel {
     /// privilege; a device enrolled before the local copy pays one last
     /// prompt, and never again.
     public func connect() async {
+        guard !cloudPaused else { return }
         guard let site = home?.site, let siteId = site.siteId else { return }
         connectGeneration += 1
         let mine = connectGeneration
@@ -237,6 +254,7 @@ public final class AppModel {
     /// Pull to refresh: a fresh stream in place, or a new carrier if there
     /// was none.
     public func refresh() async {
+        guard !cloudPaused else { return }
         if isDemo {
             site?.refresh()
             return
@@ -251,6 +269,7 @@ public final class AppModel {
     /// Whether anyone is looking. Coming back from the background builds a
     /// new carrier, because `suspend` closed the old one.
     public func setVisible(_ visible: Bool) {
+        guard !cloudPaused else { return }
         guard let site else { return }
         site.setVisible(visible)
         if visible, suspended {
@@ -285,6 +304,7 @@ public final class AppModel {
     }
 
     public func networkOnline() {
+        guard !cloudPaused else { return }
         site?.networkOnline()
     }
 
