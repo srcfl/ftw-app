@@ -41,6 +41,7 @@ jobs:
       # the build red.
       - name: Photograph the demo in the iOS Simulator
         continue-on-error: true
+        timeout-minutes: 5
         working-directory: appleApp
         run: scripts/demo-screenshots.sh build/screenshots
       - name: Keep the screenshots
