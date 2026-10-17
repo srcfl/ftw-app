@@ -3,7 +3,9 @@ import Testing
 @testable import FTWKit
 
 /// A real offer from a local ftwcloudd, read the way the app reads it. Off
-/// unless FTW_LIVE_OFFER_LINK names the consent page's link:
+/// unless FTW_LIVE_OFFER_LINK names the consent page's link. The link goes
+/// straight to review; FTW_LIVE_OFFER_CODE, if set, must be the code the
+/// review shows:
 ///
 ///     FTW_LIVE_OFFER_LINK='https://app.ftw.energy/a#…' FTW_LIVE_OFFER_CODE=ABCD-EFGH \
 ///     FTW_LIVE_OFFER_KEYS='<kid>:<pub>' swift test --filter LiveOfferTests
@@ -19,12 +21,12 @@ import Testing
         #expect(!keys.isEmpty)
         let flow = OfferFlow(link: link, lookup: OfferLookup(base: URL(string: "https://127.0.0.1:18943")!) { _ in (Data(), 500) }, keys: keys)
         await flow.start(home: nil)
-        #expect(flow.step == .code)
-        flow.typed = env["FTW_LIVE_OFFER_CODE"] ?? ""
-        await flow.submit(home: nil)
         guard case .review(let offer) = flow.step else {
             Issue.record("no review: \(flow.step)")
             return
+        }
+        if let code = env["FTW_LIVE_OFFER_CODE"] {
+            #expect(flow.pageCode == OfferCode.normalize(code).map(OfferCode.show))
         }
         #expect(offer.role == Contract.roleAgent)
         #expect(offer.key.count == 32)

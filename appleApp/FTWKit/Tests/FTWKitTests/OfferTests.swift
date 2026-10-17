@@ -154,35 +154,51 @@ import Testing
 
     // MARK: The flow
 
-    /// A link's offer is checked at once, then waits for the code on the
-    /// page: a link someone else sent never reaches Face ID on its own.
-    @Test func aLinkWaitsForTheCodeOnThePage() async throws {
+    /// A link, tapped or opened by the iPhone Camera from the page's QR
+    /// code, is checked at once and goes straight to review: no code to
+    /// type. The page's code is there to compare.
+    @Test func aLinkGoesStraightToReview() async throws {
         let key = SoftwareSigner()
         let keys = OfferKeys(pins: ["\(OfferKeys.kid(key.publicKey)):\(Base64url.encode(key.publicKey))"])
         let link = OfferLink(request: "r1", offer: try sign(offer(), key).base64url)
-        let flow = OfferFlow(link: link, lookup: lookup { _ in (Data(), 500) }, keys: keys, wallMs: { 1_000 })
+        let flow = OfferFlow(link: link, lookup: lookup { _ in
+            Issue.record("a link asked FTW Cloud")
+            return (Data(), 500)
+        }, keys: keys, wallMs: { 1_000 })
+        #expect(flow.step == .checking)
         await flow.start(home: nil)
-        #expect(flow.step == .code)
-        flow.typed = "AAAA-BBBB"
-        await flow.submit(home: nil)
-        #expect(flow.step == .code)
-        #expect(flow.codeHelp == AccessWords.offer(.wrongCode))
-        flow.typed = "k7qf-2mxd"
-        await flow.submit(home: nil)
         guard case .review(let o) = flow.step else { Issue.record("no review: \(flow.step)"); return }
         #expect(o.client == "Claude")
+        #expect(flow.typed.isEmpty)
+        #expect(flow.pageCode == "K7QF-2MXD")
         // Control is off until ticked, and the length is the longest asked.
         #expect(!flow.control)
         #expect(flow.lengthMs == 30 * 86_400_000)
+        // A code typed into a link's flow changes nothing.
+        flow.typed = "AAAA-BBBB"
+        await flow.submit(home: nil)
+        #expect(flow.step == .review(o))
     }
 
-    @Test func aLinkWithABadOfferStopsBeforeTheCode() async throws {
-        let stranger = SoftwareSigner()
+    /// The checks a link always had: unsigned, expired, broken, support from
+    /// anyone but Sourceful, or a build that pins no key. None reaches review.
+    @Test func aBadLinkIsStillRefused() async throws {
         let pinned = SoftwareSigner()
         let keys = OfferKeys(pins: ["\(OfferKeys.kid(pinned.publicKey)):\(Base64url.encode(pinned.publicKey))"])
-        let flow = OfferFlow(link: OfferLink(request: "r1", offer: try sign(offer(), stranger).base64url), lookup: lookup { _ in (Data(), 500) }, keys: keys, wallMs: { 1_000 })
-        await flow.start(home: nil)
-        #expect(flow.step == .refused(.unsigned))
+        func flow(_ text: String, keys: OfferKeys = keys) async -> OfferFlow {
+            let f = OfferFlow(link: OfferLink(request: "r1", offer: text), lookup: lookup { _ in (Data(), 500) }, keys: keys, wallMs: { 1_000 })
+            await f.start(home: nil)
+            return f
+        }
+        #expect(await flow(try sign(offer(), SoftwareSigner()).base64url).step == .refused(.unsigned))
+        var old = offer()
+        old.expMs = 1_000
+        #expect(await flow(try sign(old, pinned).base64url).step == .refused(.expired))
+        #expect(await flow("bm90LWFuLW9mZmVy").step == .refused(.malformed))
+        var support = offer()
+        support.role = Contract.roleSupport
+        #expect(await flow(try sign(support, pinned).base64url).step == .refused(.notFromSourceful))
+        #expect(await flow(try sign(offer(), pinned).base64url, keys: OfferKeys(pins: [])).step == .refused(.noPinnedKey))
     }
 
     /// Typed with no link, the code fetches the offer from FTW Cloud.
@@ -194,9 +210,15 @@ import Testing
             #expect(req.url?.absoluteString == "https://cloud.test/oauth/requests?code=K7QF2MXD")
             return (try JSONSerialization.data(withJSONObject: ["offer": wire, "status": "pending"]), 200)
         }, keys: keys, wallMs: { 1_000 })
+        // No link: the code first, and start does nothing.
+        #expect(flow.step == .code)
+        await flow.start(home: nil)
+        #expect(flow.step == .code)
         flow.typed = "k7qf2mxd"
         await flow.submit(home: nil)
         guard case .review = flow.step else { Issue.record("no review: \(flow.step)"); return }
+        // The owner just typed it: nothing to compare.
+        #expect(flow.pageCode == nil)
 
         let gone = OfferFlow(link: nil, lookup: lookup { _ in (Data(), 404) }, keys: keys, wallMs: { 1_000 })
         gone.typed = "K7QF2MXD"
@@ -216,8 +238,6 @@ import Testing
         var now = 1_000.0
         let flow = OfferFlow(link: OfferLink(request: "r1", offer: try sign(o, key).base64url), lookup: lookup { _ in (Data(), 500) }, keys: keys, wallMs: { now })
         await flow.start(home: "homeA")
-        flow.typed = "K7QF2MXD"
-        await flow.submit(home: "homeA")
         guard case .review = flow.step else { Issue.record("no review: \(flow.step)"); return }
         let site = SiteModel(siteId: "homeB", build: "t", ua: "t", scheduler: ManualScheduler(), files: nil)
         let access = AccessModel(site: site, signedFor: SignedFor(boxKey: [], deviceID: "x"), keyring: nil)
@@ -226,8 +246,6 @@ import Testing
 
         let late = OfferFlow(link: OfferLink(request: "r1", offer: try sign(o, key).base64url), lookup: lookup { _ in (Data(), 500) }, keys: keys, wallMs: { now })
         await late.start(home: "homeA")
-        late.typed = "K7QF2MXD"
-        await late.submit(home: "homeA")
         now += 10 * 60_000
         await late.approve(access, home: "homeA")
         #expect(late.step == .refused(.expired))
@@ -241,8 +259,6 @@ import Testing
         o.verified = false
         let flow = OfferFlow(link: OfferLink(request: "r1", offer: try sign(o, key).base64url), lookup: lookup { _ in (Data(), 500) }, keys: keys, wallMs: { 1_000 })
         await flow.start(home: nil)
-        flow.typed = "K7QF2MXD"
-        await flow.submit(home: nil)
         let site = SiteModel(siteId: "h", build: "t", ua: "t", scheduler: ManualScheduler(), files: nil)
         await flow.approve(AccessModel(site: site, signedFor: SignedFor(boxKey: [], deviceID: "x"), keyring: nil), home: nil)
         guard case .review = flow.step else { Issue.record("moved without the owner's word: \(flow.step)"); return }
@@ -261,7 +277,7 @@ import Testing
         #expect(flow.step == .refused(.unknownHome))
         let same = OfferFlow(link: OfferLink(request: "r1", offer: try sign(o, key).base64url), lookup: lookup { _ in (Data(), 500) }, keys: keys, wallMs: { 1_000 })
         await same.start(home: "otherhome")
-        #expect(same.step == .code)
+        guard case .review = same.step else { Issue.record("no review: \(same.step)"); return }
     }
 
     // MARK: What the owner grants

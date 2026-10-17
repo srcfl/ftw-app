@@ -39,7 +39,18 @@ public final class PairModel {
     public var canOpen: Bool { known != nil && app.connectHelp == nil }
 
     /// Scanned with the camera or pasted: a deliberate act, so it pairs.
+    /// An assistant's consent page goes where its link goes: the saved home
+    /// opens with the offer.
     public func pair(_ raw: String) async {
+        if OfferLink(raw) != nil {
+            guard canOpen else {
+                stage = .intro
+                message = NodeWords.text("That is an assistant's QR code. Connect your box first, then scan it again.")
+                return
+            }
+            app.offer(raw)
+            return openKnown()
+        }
         stage = .pairing
         message = nil
         do {

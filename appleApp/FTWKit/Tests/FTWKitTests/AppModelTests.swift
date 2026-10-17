@@ -184,6 +184,37 @@ import FTWDemo
         #expect(PairModel(app: app).offeredFingerprint != nil)
     }
 
+    /// The pairing scanner reads an assistant's consent QR as its link: the
+    /// saved home opens with the offer, and nothing pairs. With no home it
+    /// says to connect the box first.
+    @Test func aConsentQRInThePairingScannerOpensTheOffer() async throws {
+        let world = World()
+        let link = "https://app.ftw.energy/a#r1.b2ZmZXI"
+        let app = world.app()
+        app.launch()
+        let first = PairModel(app: app)
+        await first.pair(link)
+        #expect(first.stage == .intro)
+        #expect(first.message == NodeWords.text("That is an assistant's QR code. Connect your box first, then scan it again."))
+        #expect(app.accessLink == nil)
+        #expect(world.passkeys.registrations == 0)
+
+        let pairing = PairModel(app: app)
+        let t = Task { await pairing.pair(world.pairingURL) }
+        await world.run(500)
+        await t.value
+        let siteId = try #require(app.site?.siteId)
+        // Back on the scanner from the home, as "Scan a new pairing QR" is.
+        app.recovering = true
+        let again = PairModel(app: app)
+        #expect(again.canOpen)
+        await again.pair(link)
+        #expect(app.accessLink == OfferLink(link))
+        #expect(!app.needsPairing)
+        #expect(app.site?.siteId == siteId)
+        #expect(world.passkeys.registrations == 1)
+    }
+
     @Test func aConfigureWriteGoesThrough() async throws {
         let world = World()
         let app = world.app()

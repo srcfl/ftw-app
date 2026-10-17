@@ -5,7 +5,6 @@ import XCTest
 ///
 ///     TEST_RUNNER_FTW_E2E_PAIR=<pairing link from the box>
 ///     TEST_RUNNER_FTW_E2E_LINK=<the consent page's app link>
-///     TEST_RUNNER_FTW_E2E_CODE=<the consent page's code>
 ///     TEST_RUNNER_FTW_E2E_CLOUD=wss://127.0.0.1:18943/v1/app
 ///     TEST_RUNNER_FTW_E2E_CLOUD_KEY=<ftwcloudd's Noise key, base64url>
 ///     TEST_RUNNER_FTW_E2E_OFFER_KEYS=<kid>:<pub>
@@ -20,7 +19,7 @@ final class AccessE2E: XCTestCase {
     @MainActor
     func testApproveThenRemove() throws {
         let env = ProcessInfo.processInfo.environment
-        guard let pair = env["FTW_E2E_PAIR"], let link = env["FTW_E2E_LINK"], let code = env["FTW_E2E_CODE"],
+        guard let pair = env["FTW_E2E_PAIR"], let link = env["FTW_E2E_LINK"],
               let cloud = env["FTW_E2E_CLOUD"], let key = env["FTW_E2E_CLOUD_KEY"], let offers = env["FTW_E2E_OFFER_KEYS"] else {
             throw XCTSkip("Set the TEST_RUNNER_FTW_E2E_* variables to run against the rig.")
         }
@@ -49,20 +48,16 @@ final class AccessE2E: XCTestCase {
             }
         }
         // FTW Cloud's one screen at first start, over the consent link's
-        // page, which waits under it.
+        // page, which waits under it. The link opens the offer itself, with
+        // no code to type.
         let carryOn = app.buttons.matching(NSPredicate(format: "label == 'Continue' AND identifier != 'offer.continue'")).firstMatch
-        let field = app.textFields["offer.code"]
-        for _ in 0..<60 where !field.isHittable {
+        let host = app.staticTexts["offer.host"]
+        for _ in 0..<60 where !host.isHittable {
             if carryOn.exists, carryOn.isHittable { carryOn.tap() }
             Thread.sleep(forTimeInterval: 1)
         }
-        // The code from the page, then the offer.
-        XCTAssertTrue(field.waitForExistence(timeout: 5))
-        field.tap()
-        shoot(app, "e2e-code")
-        field.typeText(code)
-        app.buttons["offer.continue"].tap()
-        XCTAssertTrue(app.staticTexts["offer.host"].waitForExistence(timeout: 15))
+        XCTAssertTrue(host.waitForExistence(timeout: 15))
+        XCTAssertFalse(app.textFields["offer.code"].exists)
         shoot(app, "e2e-offer")
         let control = app.switches["offer.control"]
         if control.waitForExistence(timeout: 3) {

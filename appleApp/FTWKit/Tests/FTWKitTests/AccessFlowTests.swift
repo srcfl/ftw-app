@@ -258,6 +258,25 @@ import FTWDemo
         #expect(keyring.unlocks == 1)
     }
 
+    /// A consent page's link, tapped or opened from its QR code, reaches the
+    /// box with one Face ID and no code typed. Approving checks the offer
+    /// again before it signs.
+    @Test func aLinkIsApprovedWithNoCode() async throws {
+        let w = await world(seed: false)
+        let link = OfferLink(request: "r1", offer: SimulatedAccess.offer(nowMs: w.scheduler.nowMs).base64url)
+        let flow = OfferFlow(link: link, lookup: OfferLookup(base: URL(string: "https://cloud.test")!) { _ in
+            Issue.record("a link asked FTW Cloud")
+            return (Data(), 500)
+        }, keys: SimulatedAccess.offerKeys, wallMs: { [s = w.scheduler] in s.nowMs })
+        await flow.start(home: nil)
+        guard case .review = flow.step else { Issue.record("no review: \(flow.step)"); return }
+        await w.during { await flow.approve(w.access, home: nil) }
+        guard case .done(let row) = flow.step else { Issue.record("not granted: \(flow.step) \(w.access.help ?? "")"); return }
+        #expect(row.principal.client == "Claude")
+        #expect(w.keyring.unlocks == 1)
+        #expect(w.box.access.rows.contains { $0.id == row.id })
+    }
+
     /// A cached list knows no keys: the box's own list decides, and with
     /// no answer nothing is signed.
     @Test func aCachedListNeverRegistersAKey() async throws {

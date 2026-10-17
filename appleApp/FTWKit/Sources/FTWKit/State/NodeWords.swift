@@ -308,6 +308,7 @@ public enum NodeWords {
         "That link is not an FTW pairing code.": "Länken är ingen FTW-kod för parkoppling.",
         "That didn't work. Try scanning again.": "Det gick inte. Försök skanna igen.",
         "There is no FTW pairing code in that picture. Try a closer screenshot of the QR.": "Bilden har ingen FTW-kod för parkoppling. Prova en närmare skärmbild av QR-koden.",
+        "That is an assistant's QR code. Connect your box first, then scan it again.": "Det är en assistents QR-kod. Anslut boxen först och skanna den sedan igen.",
 
         // The status line under Now's title: short words in mono caps.
         // LIVE and AS OF are the node view's, above.
