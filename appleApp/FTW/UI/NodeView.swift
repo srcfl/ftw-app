@@ -188,7 +188,7 @@ struct NodeView: View {
                         .padding(.horizontal, 20)
                         .padding(.top, 4)
                 } else if node == .car {
-                    CarRow(loadpoints: home.loadpoints, zoom: zoom)
+                    CarRow(home: home, zoom: zoom)
                         .padding(.horizontal, 20)
                         .padding(.top, 4)
                 } else if node == .home {
@@ -227,6 +227,7 @@ struct NodeView: View {
         }
     }
 }
+
 
 // MARK: - The trace
 
@@ -430,7 +431,18 @@ struct SecondFact: View {
             case .car:
                 // Never worked out from power: the level as the car, this
                 // phone or the box last gave it, with where from and how old.
-                if let lp = home.loadpoints.points.first, let level = home.loadpoints.level(lp) {
+                // On a box that keeps cars, the car's own, plugged in or not.
+                if home.cars.keepsCars, let car = home.cars.ordered.first, let level = home.cars.level(car) {
+                    Text(CarText.percent(level))
+                        .font(Theme.figure(levelSize))
+                        .foregroundStyle(level.guessed ? Theme.ink3 : Theme.ink)
+                        .contentTransition(.numericText(value: level.pct))
+                    CellMeter(pct: level.pct, tint: Theme.car, live: !level.guessed, glows: false)
+                        .frame(width: 74, height: 4)
+                    Text(CarText.origin(level, nowMs: site.minuteMs, zone: home.loadpoints.zone))
+                        .font(.footnote)
+                        .foregroundStyle(Theme.ink2)
+                } else if let lp = home.loadpoints.points.first, let level = home.loadpoints.level(lp) {
                     let guessed = level.origin == .assumed || level.origin == .unconfirmed
                     Text(AppWords.percent(level.pct))
                         .font(Theme.figure(levelSize))
@@ -915,30 +927,61 @@ private struct ModeRow: View {
     }
 }
 
-/// The car's one extra row: what it does now, into the car view.
+/// The car's one extra row: what it does now, into the car view. On a box
+/// that keeps cars, a row per car, the one on a charger first, each with
+/// its level, and "Which car?" while a charger asks.
 private struct CarRow: View {
-    let loadpoints: LoadpointsModel
+    let home: HomeModels
     let zoom: Namespace.ID
 
     var body: some View {
-        if let lp = loadpoints.points.first {
-            NavigationLink(value: HomeRoute.car(lp.id)) {
-                HStack(spacing: 6) {
-                    Text(EVText.status(lp, zone: loadpoints.zone)).foregroundStyle(Theme.ink)
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Theme.ink3)
-                    Spacer(minLength: 0)
+        let cars = home.cars
+        let loadpoints = home.loadpoints
+        if cars.keepsCars, !cars.cars.isEmpty || !cars.asking.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                if let asking = cars.asking.first {
+                    row(.car(asking.id), id: "node.car.which") {
+                        Text(C("Which car?")).foregroundStyle(Theme.ink)
+                        Text(verbatim: "·").foregroundStyle(Theme.ink3)
+                        Text(CarText.chargerName(asking)).foregroundStyle(Theme.ink2)
+                    }
                 }
-                .font(.subheadline)
-                .lineLimit(1)
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
+                ForEach(cars.ordered.prefix(cars.asking.isEmpty ? 2 : 1)) { car in
+                    row(.car(car.id), id: "node.car.open") {
+                        Text(car.shownName).foregroundStyle(Theme.ink)
+                        if let level = cars.level(car) {
+                            Text(verbatim: "·").foregroundStyle(Theme.ink3)
+                            Text(CarText.percent(level)).foregroundStyle(level.guessed ? Theme.ink3 : Theme.ink).monospacedDigit()
+                        }
+                        Text(verbatim: "·").foregroundStyle(Theme.ink3)
+                        Text(cars.charger(of: car).map { EVText.status($0, zone: loadpoints.zone) } ?? C("Not plugged in")).foregroundStyle(Theme.ink2)
+                    }
+                }
             }
-            .buttonStyle(.plain)
-            .matchedTransitionSource(id: HomeRoute.car(lp.id), in: zoom)
-            .accessibilityIdentifier("node.car.open")
+        } else if let lp = loadpoints.points.first {
+            row(.car(lp.id), id: "node.car.open") {
+                Text(EVText.status(lp, zone: loadpoints.zone)).foregroundStyle(Theme.ink)
+            }
         }
+    }
+
+    private func row<Label: View>(_ route: HomeRoute, id: String, @ViewBuilder label: () -> Label) -> some View {
+        NavigationLink(value: route) {
+            HStack(spacing: 6) {
+                label()
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.ink3)
+                Spacer(minLength: 0)
+            }
+            .font(.subheadline)
+            .lineLimit(1)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .matchedTransitionSource(id: route, in: zoom)
+        .accessibilityIdentifier(id)
     }
 }
 

@@ -294,13 +294,20 @@ public struct CmdResult: Equatable, Sendable {
     public var observedValue: Double?
     public var errorCode: String?
     public var errorArgs: [String: CBOR]
+    /// After a car op: the car as the box holds it now, in brief (docs/cars.md,
+    /// Ops). Absent from a session whose frames are too small for it.
+    public var car: Car?
+    /// After `session.car.set`: the charger's car as the box holds it now.
+    public var charger: ChargerCar?
 
-    public init(cmdId: String, state: State, observedValue: Double? = nil, errorCode: String? = nil, errorArgs: [String: CBOR] = [:]) {
+    public init(cmdId: String, state: State, observedValue: Double? = nil, errorCode: String? = nil, errorArgs: [String: CBOR] = [:], car: Car? = nil, charger: ChargerCar? = nil) {
         self.cmdId = cmdId
         self.state = state
         self.observedValue = observedValue
         self.errorCode = errorCode
         self.errorArgs = errorArgs
+        self.car = car
+        self.charger = charger
     }
 
     init(_ c: CBOR) {
@@ -309,6 +316,8 @@ public struct CmdResult: Equatable, Sendable {
         observedValue = c["observed"]?["value"]?.double
         errorCode = c["error"]?["code"]?.string
         errorArgs = c["error"]?["args"]?.textMap ?? [:]
+        car = c["car"].flatMap { Car(cbor: $0) }
+        charger = c["charger"].flatMap { ChargerCar(cbor: $0) }
     }
 }
 

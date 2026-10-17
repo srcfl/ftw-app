@@ -47,6 +47,8 @@ public struct HomeCache: Codable, Equatable, Sendable {
     public var forecast: Stamped<[PlanModel.Forecast]>?
     public var prices: Stamped<PriceEntry>?
     public var chargers: Stamped<LoadpointsModel.Chargers>?
+    /// The owner's cars, from a box that keeps them.
+    public var cars: Stamped<[Car]>?
     /// The nodes Now drew, in its order.
     public var nodes: [EnergyNode]?
 
@@ -63,6 +65,7 @@ public struct HomeCache: Codable, Equatable, Sendable {
         c.forecast = forecast?.cached
         c.prices = prices?.cached
         c.chargers = chargers?.cached
+        c.cars = cars?.cached
         return c
     }
 }

@@ -96,6 +96,20 @@ public final class SimulatedBox {
     /// box of another build.
     public var moreCaps: [String] = []
 
+    /// A Core that keeps cars apart from chargers (`der.car`,
+    /// srcfl/ftw#1650): the cars it keeps. Nil is a box from before cars,
+    /// whose charger is the car.
+    public var cars: [SimulatedCar]?
+    /// The garage charger's plug-in on a box that keeps cars.
+    public var garage: SimulatedSession?
+    /// The ids an owner removed, as `GET /api/cars` lists them.
+    public internal(set) var removed: [String] = []
+    var sessions = 0
+    /// The session's energy when someone last set the plugged-in car's
+    /// level, and when: the energy since makes it an estimate.
+    var levelMarkWh: Double = 0
+    var levelSetAtMs: Double?
+
     public init(scheduler: Scheduler, house: SimulatedHouse = SimulatedHouse(), requireStepUp: Bool = false, uptimeAtStartMs: Double = 3_600_000) {
         self.scheduler = scheduler
         self.house = house
@@ -189,7 +203,7 @@ public final class SimulatedBox {
             ("mode", .text(booting ? "booting" : "full")),
             ("box", .map([("id", .text("demo-box")), ("build", .text("0.131.0-demo")), ("tz", .text(house.timeZone.identifier))])),
             ("clock", .map([("source", .text("ntp")), ("syncedAtMs", .number(scheduler.nowMs - 60_000)), ("uptimeMs", .number(uptimeMs))])),
-            ("caps", .array((Self.caps + moreCaps).map { .text($0) })),
+            ("caps", .array((Self.caps + moreCaps + (cars == nil ? [] : [Contract.capDerCar])).map { .text($0) })),
             ("capsHash", .text("demo")),
             ("modes", .array(Self.modes.map { .map([("key", .text($0.key)), ("label", .text($0.label)), ("tooltip", .text($0.tooltip)), ("tier", .text($0.tier))]) })),
             ("role", .text(Contract.roleOwner)),
@@ -246,7 +260,11 @@ public final class SimulatedBox {
         }
         // Keyed by driver, as Core keys them: a meter, a hybrid inverter with
         // the battery, a second inverter on the garage roof, and the charger.
-        return .map([("sdm630", src("meter", "sdm630")), ("sungrow", src("inverter", "sungrow")), ("fronius", src("inverter", "fronius")), ("easee", src("charger", "easee"))])
+        var all: [(String, CBOR)] = [("sdm630", src("meter", "sdm630")), ("sungrow", src("inverter", "sungrow")), ("fronius", src("inverter", "fronius")), ("easee", src("charger", "easee"))]
+        // A box that keeps cars reads the Tesla's level through Home
+        // Assistant, as Fredrik's does.
+        if cars != nil { all.append(("tesla-ha", src("vehicle", "tesla-ha"))) }
+        return .map(all)
     }
 
     private func sendSnap() {
@@ -419,13 +437,15 @@ public final class SimulatedBox {
             house.surplusOnly = args["surplus_only"]?.bool ?? false
             result(cmdId, "applied", observed: house.surplusOnly ? 1 : 0)
             replan()
+        case Contract.opSessionCarSet, Contract.opCarSocSet, Contract.opCarGoalSet, Contract.opCarAdd, Contract.opCarUpdate, Contract.opCarRemove:
+            actCar(cmdId, op, args)
         default:
             result(cmdId, "rejected", error: ("E_UNKNOWN_OP", []))
         }
     }
 
-    private func result(_ cmdId: String, _ state: String, observed: Double? = nil, error: (String, [(String, CBOR)])? = nil) {
-        var pairs: [(String, CBOR)] = [("cmdId", .text(cmdId)), ("state", .text(state))]
+    func result(_ cmdId: String, _ state: String, observed: Double? = nil, error: (String, [(String, CBOR)])? = nil, extra: [(String, CBOR)] = []) {
+        var pairs: [(String, CBOR)] = [("cmdId", .text(cmdId)), ("state", .text(state))] + extra
         if let observed { pairs.append(("observed", .map([("value", .number(observed)), ("src", .text("core")), ("uptimeMs", .number(uptimeMs))]))) }
         if let error { pairs.append(("error", .map([("code", .text(error.0)), ("args", .map(error.1))]))) }
         sendControl(Envelope(t: "cmd.result", b: .map(pairs)))
@@ -441,6 +461,7 @@ public final class SimulatedBox {
         ("GET", "/api/energy/daily", .read, nil),
         ("GET", "/api/savings/daily", .read, nil),
         ("GET", "/api/loadpoints", .read, nil),
+        ("GET", "/api/cars", .read, nil),
         ("GET", "/api/mpc/plan", .read, nil),
         ("GET", "/api/planner/prefs", .read, nil),
         ("GET", "/api/energy/history", .read, nil),
@@ -583,6 +604,9 @@ public final class SimulatedBox {
             return (200, savingsAnswer(days: days, nowMs: now))
         case ("GET", "/api/loadpoints"):
             return (200, ["enabled": true, "loadpoints": [loadpointJSON()]])
+        case ("GET", "/api/cars"):
+            // A box from before cars has no such route.
+            return cars == nil ? (404, [:]) : (200, carsJSON())
         case ("GET", "/api/planner/prefs"):
             let mapped = house.batteryExport == "allowed" ? "planner_arbitrage" : "planner_passive_arbitrage"
             return (200, [
@@ -727,7 +751,7 @@ public final class SimulatedBox {
         } else {
             lp = lp.setting("plan_windows", [])
         }
-        return lp
+        return chargerCarJSON(lp)
     }
 
     // MARK: Frames out
@@ -845,6 +869,12 @@ extension SimulatedBox {
         if let name = UserDefaults.standard.string(forKey: "FTWDemoCar"), let car = DemoCar(rawValue: name) {
             car.apply(to: box.house, nowMs: scheduler.nowMs)
         }
+        #endif
+        // The demo is a Core that keeps cars, with one car on the charger.
+        // For screenshots: `-FTWDemoCars two`, or `old` for a box from
+        // before cars.
+        (UserDefaults.standard.string(forKey: "FTWDemoCars").flatMap(DemoCars.init) ?? .one).apply(to: box, nowMs: scheduler.nowMs)
+        #if DEBUG
         // For recordings: `-FTWDemoGap YES` holds a tile back for 2 s.
         if UserDefaults.standard.bool(forKey: "FTWDemoGap") { box.holdTileMs = 2_000 }
         // For the grid widget: `-FTWDemoSunny YES` makes today a long
@@ -879,6 +909,7 @@ extension SimulatedBox {
     /// Plug the demo car in or out.
     public func setCarPluggedIn(_ on: Bool) {
         if on { house.plugIn() } else { house.unplug() }
+        carCable(pluggedIn: on)
         replan()
     }
 
@@ -886,7 +917,7 @@ extension SimulatedBox {
     /// sends. A box that keeps no cars names none.
     func planCharger(nowMs: Double) -> PlanCharger {
         let pending = replanning != nil
-        var car = PlanCharger(id: "garage", pluggedIn: house.carPluggedIn, pending: pending, outdated: pending, goalRev: goalRev, windows: [], totalWh: 0)
+        var car = PlanCharger(id: "garage", carId: pluggedCarID, pluggedIn: house.carPluggedIn, pending: pending, outdated: pending, goalRev: goalRev, windows: [], totalWh: 0)
         if let p = house.carPlan(nowMs), p.endMs > p.startMs, p.endMs > nowMs {
             car.windows = [Loadpoint.Window(fromMs: p.startMs.rounded(), toMs: p.endMs.rounded(), peakW: nil, energyWh: p.wh)]
             car.totalWh = p.wh

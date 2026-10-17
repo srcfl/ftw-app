@@ -119,6 +119,9 @@ public final class LoadpointsModel: Activatable {
     /// covers a cable plugged in while nobody looked.
     nonisolated static let readStandsMs: Double = 60_000
 
+    /// The owner's cars, from a box that keeps them. Set by `CarsModel`.
+    @ObservationIgnored public internal(set) weak var cars: CarsModel?
+
     /// The Live Activity for Charge now. A test sets its own; otherwise the
     /// app's, which it installs at launch.
     @ObservationIgnored public var chargeNowHost: (any ChargeNowHost)?
@@ -222,7 +225,17 @@ public final class LoadpointsModel: Activatable {
         if nextShortfall != shortfallWh { shortfallWh = nextShortfall }
         shortfallReadAtMs = site.scheduler.nowMs
         if let stamp, lps != stamp.value { self.stamp = Stamped(lps, asOfMs: stamp.asOfMs, origin: stamp.origin) }
+        cars?.planTaken(chargers)
         ask?.evaluate()
+    }
+
+    /// The charger's car as the box's answer to a tap gave it, before the
+    /// next read: the car view names the car at once.
+    func takeChargerCar(_ id: String, _ held: ChargerCar) {
+        guard var s = stamp, let i = s.value.firstIndex(where: { $0.id == id }), s.value[i].pluggedIn else { return }
+        s.value[i].chargerCar = held
+        stamp = s
+        shareOutside()
     }
 
     /// A charger's plan as the box pushed it.
@@ -397,7 +410,8 @@ public final class LoadpointsModel: Activatable {
             if !loaded { loaded = true }
             readAtMs = now
             if error != nil { error = nil }
-            site.shareCars(points, fresh: true)
+            shareOutside()
+            cars?.chargersRead(points)
             readOutside()
             planAsk?.evaluate()
         } catch {
@@ -499,11 +513,21 @@ public final class LoadpointsModel: Activatable {
         }
     }
 
+    /// Leave the chargers, and the cars on them, for the widgets and the
+    /// watch, as the box last described them.
+    func shareOutside() {
+        site.shareCars(points, fresh: !fromCache && error == nil, cars: cars)
+    }
+
     /// The level to show: the box's account. A tap on its way shows as the
     /// chosen chip and the receipt, never as the level: only the box's
     /// answer moves the number. Between its answer and the next read, the
-    /// level it confirmed is the newest fact.
+    /// level it confirmed is the newest fact. On a box that keeps cars, a
+    /// charger whose car it knows shows that car's own level.
     public func level(_ lp: Loadpoint) -> EVText.Level? {
+        if let cars, cars.keepsCars, let car = cars.car(on: lp) {
+            return cars.level(car).map { $0.asLevel(nowMs: site.nowMs) }
+        }
         let set = levelSet[lp.id]
         guard var level = EVText.level(lp, answeredAtMs: readAtMs ?? site.nowMs, nowMs: site.nowMs, set: set) else { return nil }
         if let set, (readAtMs ?? 0) < set.atMs {

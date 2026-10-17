@@ -15,6 +15,8 @@ public final class HomeModels {
     public let charging: ChargingWatch
     public let savings: SavingsModel
     public let loadpoints: LoadpointsModel
+    /// The owner's cars, from a box that keeps them apart from chargers.
+    public let cars: CarsModel
     /// Live, history, plan and mode for Now's nodes.
     public let nodes: NodeModels
     /// Today over the grid, for the grid widget.
@@ -29,6 +31,7 @@ public final class HomeModels {
         charging = ChargingWatch(site: site)
         savings = SavingsModel(site: site)
         loadpoints = LoadpointsModel(site: site, charging: charging, cache: cache)
+        cars = CarsModel(site: site, loadpoints: loadpoints)
         nodes = NodeModels(site: site, loadpoints: loadpoints, prices: prices, cache: cache)
         gridToday = GridTodayShare(site: site, history: nodes.history, prices: prices)
         // The nodes Now drew, so the next launch draws them in their places

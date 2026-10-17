@@ -1,11 +1,17 @@
 import FTWKit
 import SwiftUI
 
-/// The goal: how full, by when, on which days. One Save, one PUT. The time
-/// is set and shown on the household clock, the one the box keeps.
+/// The goal: how full, by when, on which days. One Save, one command: the
+/// charger's schedule on a box without cars, the car's own goal on one with
+/// them. The time is set and shown on the household clock, the one the box
+/// keeps.
 struct GoalEditor: View {
-    let model: LoadpointsModel
-    let lp: Loadpoint
+    let zone: TimeZone
+    let hasGoal: Bool
+    /// How the last save went, as the model holds it.
+    let state: @MainActor () -> LoadpointsModel.GoalSave?
+    let save: @MainActor (_ socPct: Double, _ clock: Int, _ recurring: Bool, _ days: Int) async -> Void
+    let remove: @MainActor () async -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var socPct: Double
     @State private var time: Date
@@ -50,12 +56,29 @@ struct GoalEditor: View {
         }
     }
 
+    /// A charger's goal, on a box without cars or for a car it cannot name.
     init(model: LoadpointsModel, lp: Loadpoint) {
-        self.model = model
-        self.lp = lp
-        let zone = model.zone
+        self.init(schedule: lp.schedule, zone: model.zone, state: { model.goalSave[lp.id] },
+                  save: { await model.saveGoal(lp, socPct: $0, clock: $1, recurring: $2, days: $3, zone: model.zone) },
+                  remove: { await model.removeGoal(lp) })
+    }
+
+    /// A car's own goal, used wherever it is plugged in.
+    init(cars: CarsModel, car: Car, zone: TimeZone) {
+        self.init(schedule: car.goal.map { CarsModel.schedule($0, nowMs: Date().timeIntervalSince1970 * 1000, zone: zone) }, zone: zone,
+                  state: { cars.goalSave[car.id] },
+                  save: { await cars.saveGoal(car, socPct: $0, clock: $1, recurring: $2, days: $3) },
+                  remove: { await cars.removeGoal(car) })
+    }
+
+    private init(schedule s: Loadpoint.Schedule?, zone: TimeZone, state: @escaping @MainActor () -> LoadpointsModel.GoalSave?,
+                 save: @escaping @MainActor (Double, Int, Bool, Int) async -> Void, remove: @escaping @MainActor () async -> Void) {
+        self.zone = zone
+        hasGoal = s != nil
+        self.state = state
+        self.save = save
+        self.remove = remove
         let now = Date()
-        let s = lp.schedule
         _socPct = State(initialValue: s.map { $0.finishAtVehicleLimit ? 100 : $0.socPct } ?? EVText.suggestedGoal.socPct)
         let clock = s.map { EVText.goalClock($0, at: now, zone: zone) } ?? EVText.suggestedGoal.clock
         _time = State(initialValue: Self.date(clock: clock, zone: zone))
@@ -75,7 +98,7 @@ struct GoalEditor: View {
     }
 
     private var clock: Int {
-        let c = Self.calendar(model.zone).dateComponents([.hour, .minute], from: time)
+        let c = Self.calendar(zone).dateComponents([.hour, .minute], from: time)
         return (c.hour ?? 0) * 60 + (c.minute ?? 0)
     }
 
@@ -86,7 +109,7 @@ struct GoalEditor: View {
     }
 
     private var failure: String? {
-        if case .failed(let help)? = model.goalSave[lp.id], !saving { return help }
+        if case .failed(let help)? = state(), !saving { return help }
         return nil
     }
 
@@ -103,7 +126,7 @@ struct GoalEditor: View {
                     DatePicker(L("Ready by"), selection: $time, displayedComponents: .hourAndMinute)
                         .datePickerStyle(.wheel)
                         .labelsHidden()
-                        .environment(\.timeZone, model.zone)
+                        .environment(\.timeZone, zone)
                         .frame(maxWidth: .infinity)
                 }
                 .listRowBackground(Theme.raised)
@@ -122,14 +145,14 @@ struct GoalEditor: View {
                     }
                 }
                 .listRowBackground(Theme.raised)
-                if lp.schedule != nil {
+                if hasGoal {
                     Section {
                         Button(L("Remove goal"), role: .destructive) {
                             Task {
                                 saving = true
-                                await model.removeGoal(lp)
+                                await remove()
                                 saving = false
-                                if case .removed? = model.goalSave[lp.id] { dismiss() }
+                                if case .removed? = state() { dismiss() }
                             }
                         }
                         .disabled(saving)
@@ -153,9 +176,9 @@ struct GoalEditor: View {
                         Button(L("Save")) {
                             Task {
                                 saving = true
-                                await model.saveGoal(lp, socPct: socPct, clock: clock, recurring: days.recurring, days: days.mask, zone: model.zone)
+                                await save(socPct, clock, days.recurring, days.mask)
                                 saving = false
-                                if case .saved? = model.goalSave[lp.id] { dismiss() }
+                                if case .saved? = state() { dismiss() }
                             }
                         }
                     }
@@ -167,6 +190,6 @@ struct GoalEditor: View {
     /// The goal as it will read on the car view.
     private var preview: String {
         let s = Loadpoint.Schedule(socPct: socPct, timeOfDayMinUTC: 0, clockMin: clock, surplusUnlockPct: 0, recurring: days.recurring, days: days == .everyDay ? 0 : days.mask, finishAtVehicleLimit: false)
-        return EVText.goal(s, at: Date(), zone: model.zone)
+        return EVText.goal(s, at: Date(), zone: zone)
     }
 }

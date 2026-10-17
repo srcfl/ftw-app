@@ -2,10 +2,12 @@ import FTWDemo
 import FTWKit
 import SwiftUI
 
-/// The car, in the node view's material: the power now as the hero, with
-/// the car's level, its meter and where the level comes from beside it;
-/// what the charger does in words; the car's plan for the hours ahead with
-/// the price under it; then the level and the goal. Plan, Charge now and
+/// The car, in the node view's material. On a box that keeps cars, the car
+/// comes first: its name and level in large type with where the level
+/// comes from and how old it is, its limit, then the charger in one line
+/// while the car is on it, the plan, the level and the goal. On a box
+/// without cars, or for a plug-in the box cannot name, the charger's power
+/// is the hero, with the level beside it, as before. Plan, Charge now and
 /// Pause sit in a glass bar at the foot, where the thumb is
 /// and in the same places whatever the car does, with the receipt log
 /// under them: SENT ▸ ACCEPTED ▸ MEASURED ▸ CONFIRMED, each slot lit on
@@ -21,15 +23,67 @@ struct CarView: View {
     @State private var text = PeriodText()
 
     private var model: LoadpointsModel { home.loadpoints }
+    private var cars: CarsModel { home.cars }
 
+    /// On a box that keeps cars, the car this view is about: the one named,
+    /// the one on the charger named, or the first, unless a charger asks
+    /// which car is on it. Nil for a plug-in the box cannot name.
+    private var car: Car? {
+        guard cars.keepsCars else { return nil }
+        if let c = cars.car(id) { return c }
+        if let id, let lp = model.points.first(where: { $0.id == id }) { return cars.car(on: lp) }
+        guard id == nil, cars.asking.isEmpty else { return nil }
+        return cars.ordered.first
+    }
+
+    /// The charger: the car's while it is on one; else the one named or the
+    /// first, as before cars.
     private var lp: Loadpoint? {
-        id.flatMap { want in model.points.first { $0.id == want } } ?? model.points.first
+        if let car { return cars.charger(of: car) }
+        if cars.keepsCars, id == nil, let asking = cars.asking.first { return asking }
+        return id.flatMap { want in model.points.first { $0.id == want } } ?? model.points.first
     }
 
     var body: some View {
+        let car = self.car
+        let lp = self.lp
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                if let lp {
+                if let lp, cars.keepsCars, lp.chargerCar?.asking == true {
+                    WhichCar(lp: lp, cars: cars, canChoose: cars.canControl)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 28)
+                }
+                if let car {
+                    CarHero(car: car, cars: cars, site: home.site, zone: model.zone)
+                        .padding(.horizontal, 20)
+                    ChargerLine(car: car, lp: lp, model: model, cars: cars)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
+                    if let lp {
+                        StatusLines(lp: lp, model: model, site: home.site)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 4)
+                        CarPlan(lp: lp, model: model, home: home, scrub: scrub, text: text)
+                            .padding(.top, 24)
+                    }
+                    CarLevelBlock(car: car, cars: cars, canControl: cars.canControl)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 28)
+                    CarGoalBlock(car: car, lp: lp, cars: cars, model: model, site: home.site, editing: $editingGoal)
+                        .padding(.horizontal, 20)
+                        .padding(.top, 28)
+                    if app.isDemo, let demo = lp ?? model.points.first {
+                        DemoBlock(lp: demo, model: model)
+                            .padding(.horizontal, 20)
+                            .padding(.top, 28)
+                    }
+                } else if let lp {
+                    if cars.keepsCars, cars.unnamed(lp), lp.chargerCar?.asking != true {
+                        VisitorLine()
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 20)
+                    }
                     // The hours ahead are a plan, not a reading: a finger on
                     // the plan leaves the hero on now.
                     NodeHero(site: home.site, node: .car, home: home, trace: trace, scrub: scrub, timebase: .ahead, text: text)
@@ -79,11 +133,16 @@ struct CarView: View {
         }
         .scrollEdgeEffectStyle(.hard, for: .bottom)
         .animation(Theme.spring, value: model.points)
+        .animation(Theme.spring, value: cars.cars)
         .navigationTitle(L("Car"))
         .navigationBarTitleDisplayMode(.inline)
-        .refreshable { try? await model.loadChargers() }
+        .refreshable {
+            try? await model.loadChargers()
+            if cars.keepsCars { try? await cars.load() }
+        }
         .onAppear {
             model.activate()
+            cars.activate()
             model.watchPlan()
             home.prices.activate()
             LaunchClock.mark("first content")
@@ -91,10 +150,15 @@ struct CarView: View {
         .onDisappear {
             model.unwatchPlan()
             model.deactivate()
+            cars.deactivate()
             home.prices.deactivate()
         }
         .sheet(isPresented: $editingGoal) {
-            if let lp { GoalEditor(model: model, lp: lp) }
+            if let car {
+                GoalEditor(cars: cars, car: car, zone: model.zone)
+            } else if let lp {
+                GoalEditor(model: model, lp: lp)
+            }
         }
     }
 }
@@ -103,7 +167,7 @@ struct CarView: View {
 
 /// Under the hero: what the charger does in words, this plug-in's energy,
 /// and when the box last said so once that is old.
-private struct StatusLines: View {
+struct StatusLines: View {
     let lp: Loadpoint
     let model: LoadpointsModel
     let site: SiteModel
@@ -147,7 +211,7 @@ private struct StatusLines: View {
 /// its charging as ghost bars, the price under the same slots in eight
 /// levels, and a finger that reads each slot. Under it, the plan in one
 /// sentence, or the slot under the finger.
-private struct CarPlan: View {
+struct CarPlan: View {
     let lp: Loadpoint
     let model: LoadpointsModel
     let home: HomeModels
@@ -187,7 +251,7 @@ private struct CarPlan: View {
 /// How full the car is, told by tap. The level itself is the hero's; here
 /// is where it comes from, the chips that tell FTW, and the level's
 /// receipt.
-private struct LevelBlock: View {
+struct LevelBlock: View {
     let lp: Loadpoint
     let model: LoadpointsModel
     let canControl: Bool
@@ -399,7 +463,7 @@ struct Readiness: View {
 /// The one the box reports is chosen; the one asked for turns while it
 /// travels; a tap on the chosen one does nothing. Under them the receipt
 /// log has room of its own, reserved, so nothing moves when it arrives.
-private struct ControlBar: View {
+struct ControlBar: View {
     let lp: Loadpoint
     let model: LoadpointsModel
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -579,7 +643,7 @@ private struct ReceiptSpace: View {
 
 // MARK: The demo's own cable
 
-private struct DemoBlock: View {
+struct DemoBlock: View {
     let lp: Loadpoint
     let model: LoadpointsModel
 

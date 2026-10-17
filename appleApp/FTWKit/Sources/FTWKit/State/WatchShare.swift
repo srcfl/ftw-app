@@ -40,15 +40,17 @@ public enum WatchShare {
     /// the wrist sees what the app would. Call the returned closure when the
     /// watch looks away.
     public static func looking(_ home: HomeModels) -> @MainActor () -> Void {
-        let (site, prices, chargers, plan, mode) = (home.site, home.prices, home.loadpoints, home.nodes.plan, home.nodes.mode)
+        let (site, prices, chargers, plan, mode, cars) = (home.site, home.prices, home.loadpoints, home.nodes.plan, home.nodes.mode, home.cars)
         site.beginWatching()
         prices.activate()
         chargers.activate()
+        cars.activate()
         plan.activate(forecast: true)
         mode.activate()
         return {
             prices.deactivate()
             chargers.deactivate()
+            cars.deactivate()
             plan.deactivate(forecast: true)
             mode.deactivate()
             site.endWatching()
@@ -96,18 +98,7 @@ public enum WatchShare {
     static func cars(_ home: HomeModels, key: String, nowMs: Double) -> CacheRecord<CarEntry>? {
         let lps = home.loadpoints
         guard let stamp = lps.stamp else { return nil }
-        let entry = CarEntry(cars: stamp.value.map { lp in
-            CarEntry.Car(
-                loadpointID: lp.id,
-                pluggedIn: lp.pluggedIn,
-                socPct: lps.level(lp)?.pct ?? lp.socPct,
-                socSource: lp.socSource,
-                socReadAtMs: lp.socReadAtMs(answeredAtMs: stamp.asOfMs),
-                powerW: lp.powerW,
-                targetSocPct: lp.targetSocPct,
-                holding: LoadpointsModel.holding(lp)
-            )
-        })
+        let entry = CarShare.entry(stamp.value, answeredAtMs: stamp.asOfMs, level: { lps.level($0)?.pct }, cars: home.cars)
         let answering = !lps.stale && stamp.value.allSatisfy { $0.charger?.available != false }
         return CacheRecord(siteId: key, carrier: carrier(stamp.origin, site: home.site), srcState: answering ? .live : .stale, readAtMs: stamp.asOfMs, value: entry)
     }
@@ -216,6 +207,26 @@ public enum WatchShare {
             }
             return out.kind == .failed ? refused(out.text) : WatchReceipt(commandID: c.id, op: c.op, sent: .done, accepted: .done, confirmed: out.kind == .done ? .done : .waiting, text: out.text, tone: out.kind == .done ? .done : .warning)
 
+        case .chooseCar(let id, let session, let carID):
+            let cars = home.cars
+            guard await streaming(home.site, within: streamWaitMs) else {
+                return refused(AppWords.text("Not connected to FTW right now. Try again when the connection is back."))
+            }
+            guard cars.keepsCars, home.site.canConfigure else { return refused(AppWords.text("Your box cannot do this yet. It may need an update.")) }
+            try? await lps.loadChargers()
+            guard let lp = lps.points.first(where: { $0.id == id }), lp.chargerCar?.session == session else {
+                return refused(CarWords.text("That plug-in has ended."))
+            }
+            let since = Since(cars.choice[id])
+            let follower = Follower(read: {
+                guard let chosen = since.fresh(cars.choice[id]) else { return nil }
+                return receipt(cars.choiceOutcome(chosen), c)
+            }, step: step)
+            defer { follower.stop() }
+            await cars.choose(lp, carID: carID.isEmpty ? nil : carID, cmdId: c.id)
+            guard let done = cars.choice[id] else { return refused(AppWords.text("That did not go through. Try again.")) }
+            return receipt(cars.choiceOutcome(done), c)
+
         case .mode(let key):
             let mode = home.nodes.mode
             guard mode.mayControl else { return refused(WatchWord.cannotChangeMode.text) }
@@ -261,7 +272,7 @@ public enum WatchShare {
         case .chargeNow: return .chargeNow
         case .pause: return .pause
         case .backToPlan: return .resume
-        case .mode: return nil
+        case .mode, .chooseCar: return nil
         }
     }
 

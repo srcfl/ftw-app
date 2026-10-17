@@ -92,6 +92,8 @@ public enum Contract {
     ]
 
     public static let scopeModeWrite = "ftw.mode.write"
+    /// The owner's list of cars: `car.add`, `car.update`, `car.remove`.
+    public static let scopeCarsWrite = "ftw.cars.write"
 
     public static let capabilities = [
         "status.core", "status.phases", "status.drivers",

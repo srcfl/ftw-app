@@ -238,7 +238,7 @@ final class WatchModel {
 
     static func target(_ op: WatchCommand.Op) -> String {
         switch op {
-        case .chargeNow(let id), .pause(let id), .backToPlan(let id): return id
+        case .chargeNow(let id), .pause(let id), .backToPlan(let id), .chooseCar(let id, _, _): return id
         case .mode: return modeTarget
         }
     }

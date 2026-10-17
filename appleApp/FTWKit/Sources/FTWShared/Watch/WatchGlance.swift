@@ -271,7 +271,12 @@ public enum WatchGlance {
         public let next: String?
         /// "AS OF 14:05"
         public let asOf: String
-        public var id: String { loadpointID }
+        /// On a box that keeps cars: the car, its name, and where its level
+        /// comes from and how old it is ("from the car · 1 h ago").
+        public var carID: String? = nil
+        public var name: String? = nil
+        public var origin: String? = nil
+        public var id: String { carID ?? loadpointID }
 
         /// The page's shape, drawn redacted while nothing is known. Never
         /// shown as a car.
@@ -281,35 +286,85 @@ public enum WatchGlance {
     public static func cars(_ record: CacheRecord<CarEntry>?, plan: PlanEntry?, nowMs: Double, zone: TimeZone) -> [Car] {
         guard let record else { return [] }
         let clock = ZoneClock.of(zone)
+        func state(_ c: CarEntry.Car?) -> String {
+            guard let c else { return WatchWord.notPluggedIn.text }
+            if c.holding == true { return WatchWord.chargeNowOn.text }
+            if c.pluggedIn, c.powerW > PlanGlance.idleW { return WatchWord.chargingAt.format(Words.decimal(PowerFormat.text(c.powerW))) }
+            return c.pluggedIn ? WatchWord.pluggedIn.text : WatchWord.notPluggedIn.text
+        }
+        func next(_ loadpointID: String) -> String? {
+            let window = plan?.charges
+                .filter { $0.loadpointID == loadpointID && $0.toMs > nowMs }
+                .min { $0.fromMs < $1.fromMs }
+            return window.map { w in
+                WatchWord.chargesAt.format("\(w.fromMs <= nowMs ? PlanWord.nowLower.text : clock.label(w.fromMs))–\(clock.label(w.toMs))")
+            }
+        }
+        func cells(_ pct: Double?) -> Int? { pct.map { min(10, max(0, Int(($0 / 10).rounded(.down)))) } }
+        let asOf = WatchWord.asOf.format(clock.label(record.readAtMs))
+        // A box that keeps cars: each of the owner's cars, plugged in or not,
+        // with its own level and how old it is.
+        if let owned = record.value.owned {
+            return owned.map { o in
+                let charger = o.loadpointID.flatMap { id in record.value.cars.first { $0.loadpointID == id } }
+                let level = o.socPct.map { PlanGlance.percent($0) }
+                let shown = level.map { o.socEstimate || o.socSource == "assumed" ? WatchWord.estimated.format($0) : $0 }
+                let origin: String?
+                switch o.socSource {
+                case _ where o.socPct == nil: origin = nil
+                case "assumed": origin = WatchWord.assumedAtPlugIn.text
+                default:
+                    let age = o.socReadAtMs.map { PowerFormat.age(max(0, nowMs - $0) < 60_000 ? 0 : (max(0, nowMs - $0) / 60_000).rounded(.down) * 60_000) }
+                    origin = age.map { (o.socSource == "vehicle" ? WatchWord.fromCar : WatchWord.setByHand).format($0) }
+                }
+                var car = Car(
+                    loadpointID: o.loadpointID ?? "",
+                    levelPct: o.socPct,
+                    cells: cells(o.socPct),
+                    levelText: shown,
+                    state: state(charger),
+                    holding: charger?.holding == true,
+                    pluggedIn: charger?.pluggedIn == true,
+                    goal: o.targetSocPct.map { WatchWord.goal.format(PlanGlance.percent($0)) },
+                    next: o.loadpointID.flatMap(next),
+                    asOf: asOf
+                )
+                car.carID = o.id
+                car.name = o.name
+                car.origin = origin
+                return car
+            }
+        }
         return record.value.cars.map { c in
             let assumed = c.socSource == "assumed"
             let level = c.socPct.map { PlanGlance.percent($0) }
-            let state: String
-            if c.holding == true {
-                state = WatchWord.chargeNowOn.text
-            } else if c.pluggedIn, c.powerW > PlanGlance.idleW {
-                state = WatchWord.chargingAt.format(Words.decimal(PowerFormat.text(c.powerW)))
-            } else {
-                state = c.pluggedIn ? WatchWord.pluggedIn.text : WatchWord.notPluggedIn.text
-            }
-            let window = plan?.charges
-                .filter { $0.loadpointID == c.loadpointID && $0.toMs > nowMs }
-                .min { $0.fromMs < $1.fromMs }
-            let next = window.map { w in
-                WatchWord.chargesAt.format("\(w.fromMs <= nowMs ? PlanWord.nowLower.text : clock.label(w.fromMs))–\(clock.label(w.toMs))")
-            }
             return Car(
                 loadpointID: c.loadpointID,
                 levelPct: c.socPct,
-                cells: c.socPct.map { min(10, max(0, Int(($0 / 10).rounded(.down)))) },
+                cells: cells(c.socPct),
                 levelText: level.map { assumed ? WatchWord.levelAssumed.format($0) : $0 },
-                state: state,
+                state: state(c),
                 holding: c.holding == true,
                 pluggedIn: c.pluggedIn,
                 goal: c.targetSocPct.map { WatchWord.goal.format(PlanGlance.percent($0)) },
-                next: next,
-                asOf: WatchWord.asOf.format(clock.label(record.readAtMs))
+                next: next(c.loadpointID),
+                asOf: asOf
             )
+        }
+    }
+
+    /// A charger that asks which car is on it, with the cars one tap may
+    /// pick.
+    public struct Asking: Equatable, Sendable, Identifiable {
+        public let loadpointID: String
+        public let session: String
+        public let choices: [CarEntry.Asking.Choice]
+        public var id: String { loadpointID }
+    }
+
+    public static func asking(_ record: CacheRecord<CarEntry>?) -> [Asking] {
+        (record?.value.asking ?? []).filter { !$0.session.isEmpty && !$0.choices.isEmpty }.map {
+            Asking(loadpointID: $0.loadpointID, session: $0.session, choices: $0.choices)
         }
     }
 

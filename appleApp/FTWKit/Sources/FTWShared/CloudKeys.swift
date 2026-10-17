@@ -21,6 +21,22 @@ public struct CloudHome: Codable, Sendable, Equatable {
     /// Rule U's anchor, so an event from a box without a synced clock can
     /// still be dated. Nil until the phone has learned one over Noise.
     public var offset: Offset?
+    /// The owner's cars, in the order the app lists them, with their
+    /// opaque ids: the buttons of a `car.which`. Nil from a box without
+    /// cars, and in a row an older build wrote.
+    public var cars: [Car]?
+
+    public struct Car: Codable, Sendable, Equatable {
+        public var opaque: String
+        public var id: String
+        public var name: String
+
+        public init(opaque: String, id: String, name: String) {
+            self.opaque = opaque
+            self.id = id
+            self.name = name
+        }
+    }
 
     /// Rule U's anchor: phone time minus box uptime, the smallest the phone
     /// learned over Noise for `boot`, and when it last learned it.
@@ -36,13 +52,14 @@ public struct CloudHome: Codable, Sendable, Equatable {
         }
     }
 
-    public init(home: String, siteId: String, boxKey: Data, loadpoints: [String: String] = [:], sources: [String: String] = [:], offset: Offset? = nil) {
+    public init(home: String, siteId: String, boxKey: Data, loadpoints: [String: String] = [:], sources: [String: String] = [:], offset: Offset? = nil, cars: [Car]? = nil) {
         self.home = home
         self.siteId = siteId
         self.boxKey = boxKey
         self.loadpoints = loadpoints
         self.sources = sources
         self.offset = offset
+        self.cars = cars
     }
 
     /// The charger an event means. An event that names none means the only

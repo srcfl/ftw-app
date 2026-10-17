@@ -7,7 +7,10 @@ import SwiftUI
 /// The box's answers come back as the receipt, which takes the place of
 /// what the car does until the page is left.
 ///
-/// With more than one charger, the one with a car plugged in shows.
+/// With more than one charger, the one with a car plugged in shows. On a
+/// box that keeps cars the car shows plugged in or not, with its name and
+/// how old its level is, and a charger that asks "Which car?" takes the
+/// page until one tap answers it.
 struct CarPage: View {
     let model: WatchModel
     @State private var asking: Ask?
@@ -24,8 +27,11 @@ struct CarPage: View {
             let nowMs = timeline.date.timeIntervalSince1970 * 1000
             let cars = WatchGlance.cars(model.context?.cars, plan: model.context?.plan?.value, nowMs: nowMs, zone: model.zone)
             let car = cars.first(where: \.pluggedIn) ?? cars.first
+            let ask = WatchGlance.asking(model.context?.cars).first
             Group {
-                if let car {
+                if let ask {
+                    OnePage { WhichCarBlock(ask: ask, model: model) }
+                } else if let car {
                     OnePage { CarBlock(car: car, model: model, ask: { asking = $0 }) }
                 } else if model.context?.cars == nil {
                     // Nothing read yet is not "no charger": the shape of the
@@ -49,6 +55,49 @@ struct CarPage: View {
     }
 }
 
+/// "Which car?": one button per car the box offers, and "None of these".
+/// One tap names the car; the box's answer comes back as the receipt.
+private struct WhichCarBlock: View {
+    let ask: WatchGlance.Asking
+    let model: WatchModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(WatchWord.whichCar.text)
+                .font(.headline)
+                .foregroundStyle(Theme.ink)
+            if let r = model.receipt(for: ask.loadpointID) {
+                ReceiptLine(receipt: r)
+            }
+            let off = !model.canSend || model.sending(ask.loadpointID)
+            ForEach(ask.choices, id: \.id) { c in
+                choice(c.name, carID: c.id, off: off)
+            }
+            choice(WatchWord.noneOfThese.text, carID: "", off: off)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private func choice(_ title: String, carID: String, off: Bool) -> some View {
+        Button {
+            model.send(.chooseCar(loadpointID: ask.loadpointID, session: ask.session, carID: carID))
+        } label: {
+            Text(title)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(Theme.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity, minHeight: 30)
+                .background(Theme.raised, in: RoundedRectangle(cornerRadius: 9))
+                .contentShape(RoundedRectangle(cornerRadius: 9))
+        }
+        .buttonStyle(.plain)
+        .disabled(off)
+        .opacity(off ? 0.4 : 1)
+        .accessibilityIdentifier("watch.car.which.\(carID.isEmpty ? "none" : carID)")
+    }
+}
+
 private struct CarBlock: View {
     let car: WatchGlance.Car
     let model: WatchModel
@@ -56,6 +105,12 @@ private struct CarBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
+            if let name = car.name {
+                Text(name)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.ink2)
+                    .lineLimit(1)
+            }
             // The level beside its meter, or the meter under it where the
             // width runs out, as with "20 % antaget".
             ViewThatFits(in: .horizontal) {
@@ -82,7 +137,7 @@ private struct CarBlock: View {
                 }
             }
             Spacer(minLength: 0)
-            let off = !model.canSend || model.sending(car.loadpointID)
+            let off = !model.canSend || model.sending(car.loadpointID) || car.loadpointID.isEmpty
             HStack(spacing: 6) {
                 command("bolt.fill", WatchWord.chargeNow.text, .chargeNow(loadpointID: car.loadpointID), WatchWord.chargeNowAsk.text, off: off, on: car.holding)
                     .accessibilityIdentifier("watch.car.chargeNow")
@@ -112,6 +167,7 @@ private struct CarBlock: View {
     /// window, or why the buttons are off.
     private var state: some View {
         VStack(alignment: .leading, spacing: 2) {
+            if let origin = car.origin { line(origin) }
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(car.state)
                     .font(.footnote.weight(.semibold))
