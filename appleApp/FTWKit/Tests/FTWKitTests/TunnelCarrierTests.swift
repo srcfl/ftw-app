@@ -532,5 +532,8 @@ private func holds(_ hay: Bytes, _ needle: Bytes) -> Bool {
         #expect(world.service.dialled.count == dials)
         #expect(world.relayDials.isEmpty)
         #expect(world.passkeys.assertions.isEmpty)
+        let replacement = world.qr(home: World.home)
+        app.offer(replacement)
+        #expect(app.offeredLink == replacement)
     }
 }

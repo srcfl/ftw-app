@@ -287,7 +287,7 @@ public final class AppModel {
 
     /// A pairing link arrived. It is an offer, never an instruction: anyone
     /// can send a link, so it is shown with the box it names first. A link
-    /// to the box this phone already has is a leftover and is dropped.
+    /// to a current pairing is dropped; an old pairing needs its replacement QR.
     public func offer(_ link: String) {
         // An assistant's consent page, not a box: its own sheet.
         if let access = OfferLink(link) {
@@ -298,7 +298,7 @@ public final class AppModel {
             offeredLink = link
             return
         }
-        if let current = site?.siteId, SiteList.siteID(enrollment.boxStaticPublic) == current, sites.get(current) != nil {
+        if let current = site?.siteId, SiteList.siteID(enrollment.boxStaticPublic) == current, let saved = sites.get(current), saved.cloudHome != nil {
             return
         }
         offeredLink = link
