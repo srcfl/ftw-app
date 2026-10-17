@@ -22,8 +22,8 @@ PRICE WIDGETS
 
 PRIVACY
 • No account and no password. Scan the pairing code your box shows and confirm with a passkey.
-• Your data stays on your box and your phone. The app reaches the box through Sourceful's relay, which carries encrypted traffic it cannot read.
-• No ads, no analytics, no tracking.
+• Your box keeps the record. FTW Cloud connects the app and can hold a readable state copy; Sourceful can access that copy.
+• No ads or advertising tracking. Cloud terms include project statistics; hourly collection waits for privacy approval. Reports stay for 48 hours and public totals need at least 20 homes. Local use can contribute after a separate Yes/No question.
 
 WHAT YOU NEED
 • An FTW box at home with the FTW app turned on in its settings. FTW runs on a Raspberry Pi or another Linux computer. Learn more at ftw.energy.

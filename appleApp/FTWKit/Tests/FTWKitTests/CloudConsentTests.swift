@@ -7,8 +7,8 @@ import Testing
     func defaults() throws -> UserDefaults {
         try #require(UserDefaults(suiteName: "ftw-consent-\(UUID().uuidString)"))
     }
-    static let currentPolicy = #"{"policy":"ftw-project-stats-2026-10-v2","cloud_policy":"ftw-cloud-2026-10-v2","cloud_includes_statistics":true,"available":false}"#
-    static let granted = #"{"state":"on","policy":"ftw-cloud-2026-10-v2","cloudPolicy":"ftw-cloud-2026-10-v2","cloudTermsAccepted":true,"statisticsPolicy":"ftw-project-stats-2026-10-v2","statisticsActive":true,"connected":true}"#
+    static let currentPolicy = #"{"policy":"ftw-project-stats-2026-10-v3","cloud_policy":"ftw-cloud-2026-10-v3","cloud_includes_statistics":true,"available":false}"#
+    static let granted = #"{"state":"on","policy":"ftw-cloud-2026-10-v3","cloudPolicy":"ftw-cloud-2026-10-v3","cloudTermsAccepted":true,"statisticsPolicy":"ftw-project-stats-2026-10-v3","statisticsActive":true,"connected":true}"#
     func home(role: String = Contract.roleOwner, caps: [String] = [Contract.capCloudLink, Contract.capAPIPassthrough], cloud: Bool = false) async throws -> CloudSite {
         let w = try CloudSite()
         w.open()

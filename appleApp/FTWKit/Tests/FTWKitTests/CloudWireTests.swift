@@ -118,7 +118,7 @@ func cloudSign(_ key: P256.Signing.PrivateKey, home: String, t: String, b: Bytes
         let v = try CloudVectors.load()
         let boxPK = Bytes(hex: v.boxKey.pk)
         let servicePK = Bytes(hex: v.serviceKey.pk)
-        #expect(v.messages.count == 27)
+        #expect(v.messages.count == 32)
 
         for m in v.messages {
             let frame = Bytes(hex: m.frame)
