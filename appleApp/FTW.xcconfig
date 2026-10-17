@@ -9,7 +9,7 @@
 FTW_APP_GROUP = group.energy.ftw.app
 
 // An extension's version must match its app's.
-MARKETING_VERSION = 0.4.8
+MARKETING_VERSION = 0.4.9
 CURRENT_PROJECT_VERSION = 1
 
 IPHONEOS_DEPLOYMENT_TARGET = 26.0
