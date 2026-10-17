@@ -144,6 +144,8 @@ public final class OfferFlow {
         }
         guard offer == shown else { return refuse(.malformed) }
         step = .approving(offer)
+        // The box's word on how long it takes, if the page has not read it.
+        if !access.keysKnown { await access.refresh() }
         if let row = await access.approve(offer, grant: grant(offer, boxMs: access.boxLongestMs(offer.role))) {
             step = .done(row)
             onDone?(row)

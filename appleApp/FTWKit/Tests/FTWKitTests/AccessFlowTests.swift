@@ -68,6 +68,43 @@ import FTWDemo
         #expect(added.expiresAtMs > Int64(w.scheduler.nowMs) + year - 86_400_000)
     }
 
+    /// A consent page's link opens the offer with nothing else having read
+    /// the box. The page reads it, so a box that takes a year is offered a
+    /// year, and the grant goes through for a year.
+    @Test func aLinkToABoxThatTakesAYearOffersAYear() async throws {
+        let w = await world(seed: false)
+        let day: Int64 = 86_400_000
+        let link = OfferLink(request: "r1", offer: SimulatedAccess.offer(nowMs: w.scheduler.nowMs).base64url)
+        let flow = OfferFlow(link: link, lookup: OfferLookup(base: URL(string: "https://cloud.test")!) { _ in (Data(), 500) },
+                             keys: SimulatedAccess.offerKeys, wallMs: { [s = w.scheduler] in s.nowMs })
+        await flow.start(home: nil)
+        guard case .review(let offer) = flow.step else { Issue.record("no review: \(flow.step)"); return }
+        #expect(flow.lengths(boxMs: w.access.boxLongestMs(offer.role)).last == 30 * day)
+        // What the offer page does when it appears.
+        await w.during { await w.access.refresh() }
+        #expect(flow.lengths(boxMs: w.access.boxLongestMs(offer.role)).last == 365 * day)
+        flow.lengthMs = 365 * day
+        await w.during { await flow.approve(w.access, home: nil) }
+        guard case .done(let row) = flow.step else { Issue.record("not granted: \(flow.step) \(w.access.help ?? "")"); return }
+        #expect(row.expiresAtMs > Int64(w.scheduler.nowMs) + 364 * day)
+    }
+
+    /// Approving reads the box first when the page has not: a year chosen
+    /// before the list arrived is kept, not cut to 30 days.
+    @Test func approvingReadsTheBoxFirst() async throws {
+        let w = await world(seed: false)
+        let day: Int64 = 86_400_000
+        let link = OfferLink(request: "r1", offer: SimulatedAccess.offer(nowMs: w.scheduler.nowMs).base64url)
+        let flow = OfferFlow(link: link, lookup: OfferLookup(base: URL(string: "https://cloud.test")!) { _ in (Data(), 500) },
+                             keys: SimulatedAccess.offerKeys, wallMs: { [s = w.scheduler] in s.nowMs })
+        await flow.start(home: nil)
+        #expect(!w.access.keysKnown)
+        flow.lengthMs = 365 * day
+        await w.during { await flow.approve(w.access, home: nil) }
+        guard case .done(let row) = flow.step else { Issue.record("not granted: \(flow.step) \(w.access.help ?? "")"); return }
+        #expect(row.expiresAtMs > Int64(w.scheduler.nowMs) + 364 * day)
+    }
+
     /// A box from before longestMs says nothing and takes 30 days. The app
     /// offers it no more, though the offer asks for a year, so the grant goes
     /// through; a year would have been refused.
