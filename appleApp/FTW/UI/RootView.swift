@@ -38,7 +38,7 @@ enum HomeRoute: Hashable {
     case price
     /// What the home saved, from the home's node and the title's menu.
     case savings
-    /// An assistant's consent link: its offer, from the code to Face ID.
+    /// An assistant's consent link: its offer, to Face ID.
     case offer(OfferLink)
 
     /// The name in the bar, the same as the screen's own title.
@@ -120,7 +120,10 @@ struct HomeView: View {
                         case .savings:
                             SavingsView(home: home)
                         case .offer(let link):
+                            // Its own identity, so a newer link in the same
+                            // place gets a new flow, not the old one's state.
                             OfferFlowView(app: app, flow: OfferFlow(link: link, lookup: app.offerLookup, keys: app.offerKeys))
+                                .id(link)
                         }
                     }
                     .homeBar(app: app, home: home, title: route.title)
@@ -136,10 +139,12 @@ struct HomeView: View {
         }
         // A consent page's link opens its offer as a page over the home,
         // in front of anything open, once this phone can grant from here.
+        // The newest link wins: an offer page already open goes.
         .onChange(of: app.accessLink, initial: true) { _, link in
             guard let link, home.access != nil else { return }
             app.accessLink = nil
             sheet = nil
+            path.removeAll { if case .offer = $0 { return true } else { return false } }
             path.append(.offer(link))
         }
         // Now and the car read the chargers from one model, so a screen

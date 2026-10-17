@@ -49,7 +49,17 @@ struct FTWApp: App {
         // the Secure Enclave, behind Face ID; the demo has keys of its own.
         model.approvalKeys = ApprovalKeychain(store: store)
         Biometry.name()
-        model.demoAccess = (SimulatedKeyring(), SimulatedAccess.offerKeys, SimulatedDesk(), SimulatedAccess.lookup)
+        var demoOffers = SimulatedAccess.offerKeys
+        #if DEBUG
+        // For screenshots: `-FTWOfferKeys <kid>:<pub>` pins those keys in the
+        // demo too, beside its own, so a consent link signed elsewhere opens
+        // in the simulator as a tapped one would.
+        if let extra = UserDefaults.standard.string(forKey: "FTWOfferKeys") {
+            let own = "\(OfferKeys.kid(SimulatedAccess.offerKey.publicKey)):\(Base64url.encode(SimulatedAccess.offerKey.publicKey))"
+            demoOffers = OfferKeys(pins: [own] + extra.split(separator: ",").map(String.init))
+        }
+        #endif
+        model.demoAccess = (SimulatedKeyring(), demoOffers, SimulatedDesk(), SimulatedAccess.lookup)
         // A paired phone paints its cached home before anything else runs.
         model.launch()
         #if DEBUG

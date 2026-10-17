@@ -1,8 +1,9 @@
 import AVFoundation
 import SwiftUI
 
-/// Reads a pairing QR through the camera. The first code that looks like an
-/// FTW link is handed over once; the camera stops at that moment.
+/// Reads a pairing QR, or an assistant's consent QR, through the camera.
+/// The first code that looks like an FTW link is handed over once; the
+/// camera stops at that moment.
 struct QRScanner: View {
     var onCode: (String) -> Void
     @State private var allowed: Bool?

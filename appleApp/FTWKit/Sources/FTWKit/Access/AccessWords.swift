@@ -521,6 +521,7 @@ public enum AccessWords {
             "Boxen kontrollerar varje anrop, och du kan ta bort åtkomsten när du vill.",
         "Done": "Klar",
         "Checking the offer": "Kontrollerar erbjudandet",
+        "Code on the page": "Koden på sidan",
         // One grant
         "Save with %@": "Spara med %@",
         "Remove access": "Ta bort åtkomst",

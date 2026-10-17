@@ -1,10 +1,10 @@
 import FTWKit
 import SwiftUI
 
-/// An assistant's offer, from its consent page to Face ID. The code the
-/// page shows first, so a link someone else sent stops here; then who is
-/// asking, the host before the name it gives itself, what it may read,
-/// control as its own switch, off, and for how long.
+/// An assistant's offer, from its consent page to Face ID. A link or the
+/// page's QR code opens it at once; with neither, the owner types the code
+/// first. Then who is asking, the host before the name it gives itself,
+/// what it may read, control as its own switch, off, and for how long.
 /// The steps of one offer, pushed over the home for a link or from Access
 /// for a typed code. A page, never a sheet: FTW Cloud's first screen or
 /// Settings may be up when a link arrives, and a page waits under them.
@@ -124,6 +124,12 @@ struct OfferReview: View {
                     }
                 }
                 .padding(.vertical, 4)
+                if let code = flow.pageCode {
+                    LabeledContent(AccessWords.text("Code on the page")) {
+                        Text(code).font(Theme.mono(.body, weight: .semibold)).foregroundStyle(Theme.ink)
+                    }
+                    .accessibilityIdentifier("offer.pageCode")
+                }
             } footer: {
                 if !offer.verified {
                     Text(AccessWords.text("FTW Cloud doesn't know this client. Check that the address is the one you expect."))
@@ -191,9 +197,9 @@ struct OfferReview: View {
 }
 
 /// The home the grant is for. With several, the owner picks one: that
-/// home opens and the link starts again there, from the code, so nothing
-/// checked at one home is taken to another. An offer that names its home,
-/// or one found by a code, which FTW Cloud gives once, stays where it is.
+/// home opens and the link starts again there, so nothing checked at one
+/// home is taken to another. An offer that names its home, or one found by
+/// a code, which FTW Cloud gives once, stays where it is.
 struct HomePick: View {
     let app: AppModel
     let flow: OfferFlow

@@ -4,19 +4,21 @@ import Observation
 /// One offer from a consent page, from the link or the typed code to Face
 /// ID (docs/agents.md in srcfl/ftw, The grant offer).
 ///
-/// A link someone else sent never reaches Face ID on its own: the owner
-/// types the code the page in front of them shows, and it must be the
-/// offer's. Typed without a link, the code fetches the offer from FTW Cloud,
-/// once. Either way the offer is checked against the pinned offer keys
-/// before anything is shown, and refused when it is unsigned, expired, for
-/// a home this phone does not have, or support from anyone but Sourceful.
-/// Approving checks it again, against the home open at that moment and the
-/// clock then, from the signed bytes rather than what was shown.
+/// A link, tapped or opened by the iPhone Camera from the page's QR code,
+/// goes straight to review: the owner reads who asks, its host, whether FTW
+/// Cloud knows it and what it asks for, and may compare the page's code.
+/// Only with neither link nor QR code does the owner type the code, which
+/// fetches the offer from FTW Cloud, once. Either way the offer is checked
+/// against the pinned offer keys before anything is shown, and refused when
+/// it is unsigned, expired, for a home this phone does not have, or support
+/// from anyone but Sourceful. Approving checks it again, against the home
+/// open at that moment and the clock then, from the signed bytes rather
+/// than what was shown.
 @Observable
 @MainActor
 public final class OfferFlow {
     public enum Step: Equatable {
-        /// Type the code from the page.
+        /// No link: type the code from the page.
         case code
         case checking
         /// The offer, verified, for the owner to choose from.
@@ -27,8 +29,8 @@ public final class OfferFlow {
         case refused(OfferError)
     }
 
-    public private(set) var step: Step = .code
-    /// The code as typed.
+    public private(set) var step: Step
+    /// The code as typed, when there is no link.
     public var typed = ""
     /// Control is a separate switch, off until ticked.
     public var control = false
@@ -43,9 +45,6 @@ public final class OfferFlow {
     @ObservationIgnored let lookup: OfferLookup
     @ObservationIgnored let keys: OfferKeys
     @ObservationIgnored let wallMs: @MainActor () -> Double
-    /// Opened before the code: a link's offer is checked at once, so a bad
-    /// one is refused without asking for anything.
-    @ObservationIgnored private var opened: GrantOffer?
     /// The offer as signed, checked again when the owner approves.
     @ObservationIgnored private var signed: SignedOffer?
     /// Told of the row once the box granted it.
@@ -56,6 +55,7 @@ public final class OfferFlow {
         self.lookup = lookup
         self.keys = keys
         self.wallMs = wallMs
+        step = link == nil ? .code : .checking
     }
 
     var nowMs: Int64 { Int64(wallMs()) }
@@ -68,35 +68,31 @@ public final class OfferFlow {
         }
     }
 
-    /// For a link: check its offer before asking for the code.
+    /// For a link: check its offer and show it, with no code to type.
     public func start(home: String?) async {
-        guard let link, opened == nil, step == .code else { return }
-        guard !keys.isEmpty else { return refuse(.noPinnedKey) }
+        guard let link, step == .checking else { return }
         do {
-            let carried = try SignedOffer(base64url: link.offer)
-            opened = try check(carried, home: home)
-            signed = carried
-        } catch let e as OfferError {
-            refuse(e)
+            present(try SignedOffer(base64url: link.offer), home: home)
         } catch {
             refuse(.malformed)
         }
     }
 
-    /// The owner typed the code: compare it with the link's offer, or fetch
-    /// the offer it names.
+    /// The code on the page, to compare, for an offer that came by link.
+    /// A typed code needs no second look.
+    public var pageCode: String? {
+        guard link != nil, let offer, !offer.code.isEmpty else { return nil }
+        return OfferCode.show(offer.code)
+    }
+
+    /// The owner typed the code: fetch the offer it names, once. A second
+    /// press while the first is out asks nothing: the code works once.
     public func submit(home: String?) async {
+        guard link == nil, step == .code else { return }
         codeHelp = nil
         guard let code = OfferCode.normalize(typed) else {
             codeHelp = AccessWords.offer(.wrongCode)
             return
-        }
-        if let opened {
-            guard OfferCode.matches(code, opened) else {
-                codeHelp = AccessWords.offer(.wrongCode)
-                return
-            }
-            return review(opened)
         }
         guard !keys.isEmpty else { return refuse(.noPinnedKey) }
         step = .checking
@@ -117,7 +113,10 @@ public final class OfferFlow {
     }
 
     /// An offer that came another way, such as Get help: checked like any.
+    /// Only before one is shown, so nothing swaps the signed offer under a
+    /// review or an approval.
     public func present(_ given: SignedOffer, home: String?) {
+        guard step == .code || step == .checking else { return }
         do {
             let offer = try check(given, home: home)
             signed = given

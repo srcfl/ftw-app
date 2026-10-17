@@ -39,7 +39,9 @@ public final class PairModel {
     public var canOpen: Bool { known != nil && app.connectHelp == nil }
 
     /// Scanned with the camera or pasted: a deliberate act, so it pairs.
+    /// An assistant's consent page goes where its link goes.
     public func pair(_ raw: String) async {
+        if OfferLink(raw) != nil { return scannedOffer(raw) }
         stage = .pairing
         message = nil
         do {
@@ -54,6 +56,23 @@ public final class PairModel {
         } catch {
             stage = .intro
             message = NodeWords.text("That didn't work. Try scanning again.")
+        }
+    }
+
+    /// An assistant's consent QR in the pairing scanner, taken as its link:
+    /// the home this phone opens shows the offer, or keeps it until it can
+    /// open. With no home there is nothing to grant from.
+    private func scannedOffer(_ raw: String) {
+        stage = .intro
+        guard app.vault.isEnrolled, let home = app.sites.current() else {
+            message = NodeWords.text("That is an assistant's QR code. Connect your box first, then scan it with the iPhone Camera.")
+            return
+        }
+        app.offer(raw)
+        if app.connectHelp == nil {
+            app.paired(home.siteId)
+        } else {
+            message = NodeWords.text("The assistant's request opens once your home does.")
         }
     }
 
