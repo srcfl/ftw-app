@@ -44,7 +44,7 @@ public final class CloudConsent {
     }
     public func shouldAsk(_ site: SiteModel?) -> Bool {
         guard let site, !site.isDemo, site.siteId != nil else { return false }
-        return !answered || defaults.string(forKey: Keys.asked(site.siteId!)) != Self.policy
+        return !answered || defaults.string(forKey: Keys.asked(site.siteId!)) != Self.policy || defaults.string(forKey: Keys.pending(site.siteId!)) == Self.policy
     }
     public static func audience(_ site: SiteModel) -> Audience {
         guard site.heardFromBox else { return .unknown }
@@ -65,7 +65,10 @@ public final class CloudConsent {
             help = CloudWords.text("Update your box before accepting the new Cloud terms.")
             return false
         }
-        if let id = site.siteId { defaults.set(Self.policy, forKey: Keys.asked(id)) }
+        if let id = site.siteId {
+            defaults.set(Self.policy, forKey: Keys.asked(id))
+            defaults.removeObject(forKey: Keys.pending(id))
+        }
         defaults.set(Self.policy, forKey: Keys.answered)
         answered = true
         return true
@@ -73,6 +76,17 @@ public final class CloudConsent {
     public func review() {
         defaults.removeObject(forKey: Keys.answered)
         answered = false
+    }
+    /// Reading terms never reconnects. Only the explicit accept action saves
+    /// this per-home intent; fresh box policy is checked after reconnecting.
+    public func prepareReconnect(_ id: String) { defaults.set(Self.policy,forKey:Keys.pending(id)) }
+    public func cancelReconnect(_ id: String) { defaults.removeObject(forKey:Keys.pending(id)) }
+    public func finishPendingAcceptance(_ site: SiteModel) async {
+        guard let id=site.siteId, site.heardFromBox, !working,
+              defaults.string(forKey:Keys.pending(id))==Self.policy else { return }
+        working=true
+        defer { working=false }
+        _ = await accept(site)
     }
     public func refresh(_ site: SiteModel) async {
         guard site.canConfigure else { return }
@@ -124,6 +138,7 @@ public final class CloudConsent {
     enum Keys {
         static let answered = "FTWCloudConsent"
         static func asked(_ id: String) -> String { "FTWCloudAsked-\(id)" }
+        static func pending(_ id: String) -> String { "FTWCloudPending-\(id)" }
     }
 }
 
@@ -150,6 +165,8 @@ public enum CloudWords {
         CloudConsent.statisticsWaiting: "Timinsamlingen väntar på integritetsgranskning och aktivering. Ditt val kan sparas nu; ingen timrapport lämnar boxen före godkännandet.",
         CloudConsent.included: "Alla som använder FTW Cloud bidrar till projektstatistik. Det finns inget separat statistikval. Vill du inte bidra använder du FTW lokalt utan Cloud. Lokala användare kan välja att dela statistik utan att slå på fjärråtkomst.",
         "Accept Cloud terms": "Godkänn Cloud-villkoren",
+        "Homes": "Hem",
+        "Pair a home": "Parkoppla ett hem",
         "Use the box locally": "Använd boxen lokalt",
         "Statistics are included with FTW Cloud": "Statistik ingår i FTW Cloud",
         "Update your box before accepting the new Cloud terms.": "Uppdatera boxen innan du godkänner de nya Cloud-villkoren.",

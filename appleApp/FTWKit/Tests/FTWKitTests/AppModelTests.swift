@@ -177,6 +177,20 @@ import FTWDemo
         #expect(again.vault.isEnrolled)
     }
 
+    @Test func pausingOneHomeDoesNotPauseAnotherPairedHome() async throws {
+        let world=World();let app=world.app()
+        let pairing=Task { await PairModel(app:app).pair(world.pairingURL) }
+        await world.run(500);await pairing.value
+        let original=try #require(app.sites.current())
+        var other=original;other.siteId="other-paired-home";other.label="Other"
+        app.sites.put(other)
+        app.pauseCloud()
+        app.open(other.siteId)
+        #expect(!app.cloudPaused)
+        #expect(app.sites.get(original.siteId)?.cloudPaused==true)
+        #expect(app.sites.get(other.siteId)?.cloudPaused != true)
+    }
+
     @Test func pairStreamCloseAndReopenFromCache() async throws {
         let world = World()
         let app = world.app()

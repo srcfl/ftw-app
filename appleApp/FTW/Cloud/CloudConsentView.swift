@@ -6,6 +6,7 @@ import SwiftUI
 struct CloudConsentView: View {
     let app: AppModel
     @Bindable var consent: CloudConsent
+    var onPausedChoice: (() -> Void)? = nil
     @Environment(\.dynamicTypeSize) private var typeSize
 
     private var audience: CloudConsent.Audience {
@@ -64,21 +65,29 @@ struct CloudConsentView: View {
             }
         }
         .task(id: audience) {
-            if let site = app.site, audience == .owner { await consent.refreshStatisticsPolicy(site) }
+            if !app.cloudPaused, let site = app.site, audience == .owner { await consent.refreshStatisticsPolicy(site) }
         }
         .animation(Theme.spring, value: audience)
         .sensoryFeedback(.success, trigger: consent.answered)
-        .interactiveDismissDisabled()
+        .interactiveDismissDisabled(!app.cloudPaused)
     }
 
     private var actions: some View {
         VStack(spacing: 8) {
             Button(CloudWords.text("Accept Cloud terms")) {
-                Task { await consent.accept(app.site) }
+                if app.cloudPaused, let id=app.site?.siteId {
+                    consent.prepareReconnect(id)
+                    onPausedChoice?()
+                    app.resumeCloud()
+                } else { Task { await consent.accept(app.site) } }
             }
             .buttonStyle(FTWButtonStyle(kind: .primary))
-            .disabled(consent.working || audience == .unknown || audience == .ownerLater || (audience == .owner && !consent.policyAvailable))
-            Button(CloudWords.text("Use the box locally")) { app.pauseCloud() }
+            .disabled(consent.working || (!app.cloudPaused && (audience == .unknown || audience == .ownerLater || (audience == .owner && !consent.policyAvailable))))
+            Button(CloudWords.text("Use the box locally")) {
+                if let id=app.site?.siteId { consent.cancelReconnect(id) }
+                app.pauseCloud()
+                onPausedChoice?()
+            }
                 .buttonStyle(FTWButtonStyle(kind: .quiet))
         }
     }

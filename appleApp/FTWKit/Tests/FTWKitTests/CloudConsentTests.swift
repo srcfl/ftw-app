@@ -131,6 +131,31 @@ import Testing
         c.review()
         #expect(!c.answered)
     }
+    @Test func readingTermsCreatesNoReconnectIntentAndNoGrant() async throws {
+        let w=try await home();let c=CloudConsent(defaults:try defaults())
+        c.review()
+        await c.finishPendingAcceptance(w.site)
+        #expect(w.relay.calls.isEmpty)
+    }
+    @Test func onlyExplicitPerHomeReconnectAcceptanceCanFinishAGrant() async throws {
+        let w=try await home();let c=CloudConsent(defaults:try defaults())
+        c.prepareReconnect("another-home")
+        await c.finishPendingAcceptance(w.site)
+        #expect(w.relay.calls.isEmpty)
+        c.prepareReconnect(w.site.siteId!)
+        #expect(w.relay.calls.isEmpty)
+        await c.finishPendingAcceptance(w.site)
+        await c.finishPendingAcceptance(w.site)
+        #expect(w.relay.calls.filter{$0.method=="POST"}.count==1)
+        #expect(c.answered)
+    }
+    @Test func decliningAgainCancelsThePendingReconnectGrant() async throws {
+        let w=try await home();let c=CloudConsent(defaults:try defaults())
+        c.prepareReconnect(w.site.siteId!)
+        c.cancelReconnect(w.site.siteId!)
+        await c.finishPendingAcceptance(w.site)
+        #expect(w.relay.calls.isEmpty)
+    }
     @Test func theWordsAreInBothLanguages() {
         for key in [CloudConsent.included, CloudConsent.statisticsDetails, CloudConsent.statisticsPrivacy, CloudConsent.statisticsWaiting, "Accept Cloud terms", "Use the box locally", "Review Cloud terms"] {
             #expect(CloudWords.sv[key] != nil, "Missing translation: \(key)")
