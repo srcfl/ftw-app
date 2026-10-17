@@ -34,7 +34,13 @@ import Testing
 
     @Test func aBuildThatPinsNoKeyOpensNoOffer() throws {
         #expect(throws: OfferError.noPinnedKey) { try signed.open(keys: OfferKeys(pins: []), nowMs: v.nowMs) }
-        #expect(OfferKeys(pins: OfferKeys.releasePins).isEmpty)
+    }
+
+    @Test func theReleasePinsTheCloudOfferKeyUnderItsKid() throws {
+        let keys = OfferKeys(pins: OfferKeys.releasePins)
+        let pub = try #require(keys.pub("s0xLrCPjFa-AoMMl"))
+        #expect(OfferKeys.kid(pub) == "s0xLrCPjFa-AoMMl")
+        #expect(OfferKeys.releasePins.count == 1)
     }
 
     @Test func anOfferNoPinnedKeySignedIsRefused() throws {

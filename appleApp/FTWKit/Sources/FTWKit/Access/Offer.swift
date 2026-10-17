@@ -201,13 +201,15 @@ public struct SignedOffer: Equatable, Sendable {
 ///
 /// FTW Cloud's keys part makes the key on its host and publishes it at
 /// `https://cloud.ftw.energy/.well-known/ftw-offer-key`; a release pins it
-/// here. None is pinned yet: the keys part is not running. Only a debug
-/// build may pin another, for a local `ftwcloudd`:
+/// here. Only a debug build may pin another, for a local `ftwcloudd`:
 ///
 ///     -FTWOfferKeys <kid>:<base64url pub>[,<kid>:<pub>]
 public struct OfferKeys: Equatable, Sendable {
-    /// Release pins, `kid:pub`. Empty until FTW Cloud's offer key exists.
-    static let releasePins: [String] = []
+    /// Release pins, `kid:pub`. cloud.ftw.energy's key is
+    /// alias/ftw-cloud-offer-key in KMS (eu-north-1), made 17 October 2026.
+    static let releasePins: [String] = [
+        "s0xLrCPjFa-AoMMl:BEUBb8ul2T01OWM_f1rX6h8Z0yFf8BkvEtUxdHsc_FXGtKv8arbcDZcPeeVOoX6nIxdP2SKYpHky9KSw-cqH-8g",
+    ]
 
     let keys: [String: Bytes]
 
