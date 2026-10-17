@@ -2,30 +2,34 @@ import Foundation
 import Testing
 @testable import FTWKit
 
-/// Against a real FTW box, through the production relay.
+/// Against a real FTW box, through FTW Cloud.
 ///
 /// Off unless FTW_LIVE_URL holds a pairing URL the box just minted:
 ///
 ///     curl -s -X POST localhost:8080/api/app-link/pairing -d '{"role":"owner"}'
-///     FTW_LIVE_URL='https://app.ftw.energy/p#v2...' swift test --filter LiveBox
+///     FTW_LIVE_URL='https://app.ftw.energy/p#v3...' swift test --filter LiveBox
 ///
 /// The passkey ceremony cannot run here, so the device key is wrapped under
 /// the local key alone. Everything after that is the shipped path: the real
-/// socket, the rotating handle, Noise IK with the pairing code in message 1,
+/// socket, the Cloud tunnel, Noise IK with the pairing code in message 1,
 /// the session, and the box's own API over it.
 @MainActor
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["FTW_LIVE_URL"] != nil), .serialized)
 struct LiveBoxTests {
-    @Test func pairsStreamsAndCallsTheBoxOverTheRelay() async throws {
+    @Test func pairsStreamsAndCallsTheBoxThroughCloud() async throws {
         let url = try #require(ProcessInfo.processInfo.environment["FTW_LIVE_URL"])
         let enrollment = try Enrollment.parse(scanned: url)
         let vault = Vault(store: MemoryStore())
         let device = try vault.deviceKey(vault.localWrappingKey())
 
         let scheduler = LiveScheduler()
-        let relay = RelayCarrier(secret: enrollment.rendezvousSecret, scheduler: scheduler)
+        let home = try #require(enrollment.home)
+        let cloud = CloudCarrier(endpoint: try #require(CloudEndpoint.current), home: home, deviceKey: device, looking: true,
+                                 pair: CloudWire.pairingHash(home: home, code: enrollment.pairingCode), scheduler: scheduler, makeSocket: URLSessionWebSocket.factory())
+        cloud.start()
+        let tunnel = TunnelCarrier(cloud: cloud, scheduler: scheduler)
         let noise = NoiseCarrier(
-            inner: relay,
+            inner: tunnel,
             staticKey: device,
             remoteStatic: enrollment.boxStaticPublic,
             prologue: NoiseCarrier.prologue(boxStaticKey: enrollment.boxStaticPublic),

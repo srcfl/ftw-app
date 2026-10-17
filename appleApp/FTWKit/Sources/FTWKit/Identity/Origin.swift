@@ -12,9 +12,6 @@ public enum Origin {
     public static let rpID = appHost
     public static let rpName = "FTW"
 
-    /// The relay. One value, no setting.
-    public static let relayURL = URL(string: "wss://relay.ftw.energy")!
-
     /// The repository. A fork changes this line, as LICENSING.md asks: the
     /// links in Source & licenses must lead to the fork's own source.
     /// `BuildSource` pins them to the build's commit.

@@ -31,7 +31,6 @@ struct FTWApp: App {
             passkeys: Passkeys(),
             build: AppInfo.build,
             ua: AppInfo.userAgent,
-            relayURL: Self.relayURL,
             // FTW Cloud over QUIC, with the WebSocket 250 ms behind where
             // UDP does not get through; the winner per network goes first.
             makeCloudSocket: CloudSockets.racing(
@@ -70,17 +69,6 @@ struct FTWApp: App {
         #endif
         _app = State(initialValue: model)
         network = NetworkWatch { [weak model] in model?.networkOnline() }
-    }
-
-    /// The relay, or in a debug build `-FTWRelayURL <wss url>`: pointed
-    /// nowhere, it shows the app reaching its box through FTW Cloud alone.
-    static var relayURL: URL {
-        #if DEBUG
-        if let raw = UserDefaults.standard.string(forKey: "FTWRelayURL"), let url = URL(string: raw), url.scheme == "wss" || url.scheme == "ws" {
-            return url
-        }
-        #endif
-        return Origin.relayURL
     }
 
     var body: some Scene {

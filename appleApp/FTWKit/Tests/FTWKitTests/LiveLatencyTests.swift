@@ -61,7 +61,7 @@ struct LiveLatencyTests {
         let files = SealedFiles(directory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ftw-live-latency-\(UUID().uuidString)"), store: store)
         func model() -> AppModel {
             AppModel(store: store, files: files, passkeys: FakePasskeys(), scheduler: LiveScheduler(),
-                     build: "live-latency-test", ua: "test", relayURL: relayURL, cloudEndpoint: endpoint, makeSocket: sockets)
+                     build: "live-latency-test", ua: "test", cloudEndpoint: endpoint, makeSocket: sockets)
         }
         let app = model()
         await PairModel(app: app).pair(try read("pair.url"))

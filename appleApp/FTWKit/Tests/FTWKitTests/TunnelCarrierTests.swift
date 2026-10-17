@@ -88,38 +88,6 @@ final class FakeTunnelBox {
     }
 }
 
-/// The relay the fallback builds, standing still: it opens when told to.
-@MainActor
-final class StandInRelay: Carrier {
-    let kind: CarrierKind = .relay
-    private(set) var status: CarrierStatus = .connecting
-    private(set) var sent: [Bytes] = []
-    private(set) var closedWith: String?
-    private var onStatus: @MainActor (CarrierStatus) -> Void = { _ in }
-
-    func send(_ frame: Bytes) -> Bool {
-        guard status.isOpen else { return false }
-        sent.append(frame)
-        return true
-    }
-
-    func setHandlers(onFrame: @escaping @MainActor (Bytes) -> Void, onStatus: @escaping @MainActor (CarrierStatus) -> Void) {
-        self.onStatus = onStatus
-    }
-
-    func wake() {}
-
-    func close(reason: String) {
-        closedWith = reason
-        status = .closed(reason: reason, retryable: false)
-    }
-
-    func open() {
-        status = .open(sinceMs: 0)
-        onStatus(status)
-    }
-}
-
 /// A phone's FTW Cloud session with its box session riding it.
 @MainActor
 final class TunnelRig {
@@ -130,7 +98,6 @@ final class TunnelRig {
     static let home = "abcdefghijklmnopqrstuvwx23"
     var home: String { Self.home }
     let cloud: CloudCarrier
-    var relays: [StandInRelay] = []
     var frames: [Bytes] = []
     var statuses: [CarrierStatus] = []
     /// Send one frame the moment the session opens, as `Session` sends its
@@ -148,17 +115,9 @@ final class TunnelRig {
         cloud.setHandlers(onSnapshot: { _, _ in }, onEnvelope: { _, _ in }, onStatus: { _ in })
     }
 
-    /// The box session as the app builds it: Noise to the box, over the
-    /// tunnel, with or without the relay behind it.
-    func session(fallback: Bool = false, code: Bytes = []) -> NoiseCarrier {
-        let tunnel = TunnelCarrier(cloud: cloud, scheduler: scheduler)
-        let inner: Carrier = fallback
-            ? FallbackCarrier(tunnel: tunnel, relay: { [unowned self] in
-                let r = StandInRelay()
-                self.relays.append(r)
-                return r
-            }, scheduler: scheduler)
-            : tunnel
+    /// The same Noise session the app carries through FTW Cloud.
+    func session(code: Bytes = []) -> NoiseCarrier {
+        let inner = TunnelCarrier(cloud: cloud, scheduler: scheduler)
         let noise = NoiseCarrier(inner: inner, staticKey: device, remoteStatic: box.staticKey.publicKey,
                                  prologue: box.prologue, handshakePayload: code, scheduler: scheduler)
         noise.setHandlers(
@@ -415,164 +374,6 @@ private func holds(_ hay: Bytes, _ needle: Bytes) -> Bool {
     return (0...(hay.count - needle.count)).contains { Array(hay[$0..<($0 + needle.count)]) == needle }
 }
 
-@MainActor
-@Suite struct FallbackCarrierTests {
-    /// While the tunnel carries, the relay is never dialled: a socket held
-    /// in reserve would take one of the relay's streams for the home.
-    @Test func theRelayStaysUndialledWhileTheTunnelCarries() async throws {
-        let rig = TunnelRig()
-        rig.cloud.start()
-        let noise = rig.session(fallback: true)
-        await rig.run(40)
-        #expect(noise.status.isOpen)
-        #expect(noise.kind == .tunnel)
-        for _ in 0..<5 {
-            #expect(noise.send([7]))
-            await rig.run(2_000, step: 50)
-        }
-        #expect(rig.relays.isEmpty)
-        #expect(rig.frames.count == 5)
-    }
-
-    /// The box answered the handshake and ended the session at the phone's
-    /// first transport frame: the tunnel never carried, so the relay at
-    /// once. The box takes the slot only on that frame, so its handshake
-    /// answer alone proves nothing.
-    @Test func aHandshakeAnswerAloneIsNotCarrying() async throws {
-        let rig = TunnelRig()
-        rig.sayHello = true
-        rig.box.endsOnFirstFrame = true
-        rig.cloud.start()
-        let noise = rig.session(fallback: true)
-        await rig.run(60)
-        #expect(rig.message1Sids.count == 1)
-        #expect(rig.relays.count == 1)
-        #expect(noise.kind == .relay)
-    }
-
-    /// No session for this phone at FTW Cloud: the relay at once.
-    @Test func aRefusedAppSessionMovesToTheRelay() async throws {
-        let rig = TunnelRig()
-        rig.service.roster = []
-        rig.cloud.start()
-        let noise = rig.session(fallback: true)
-        await rig.run(40)
-        #expect(rig.relays.count == 1)
-        #expect(noise.kind == .relay)
-        rig.relays[0].open()
-        await rig.run(5)
-        // The handshake goes again, over the relay.
-        #expect(rig.relays[0].sent.count == 1)
-    }
-
-    /// FTW Cloud unreachable: the relay at once.
-    @Test func anUnreachableServiceMovesToTheRelay() async throws {
-        let rig = TunnelRig()
-        rig.cloud.start()
-        let noise = rig.session(fallback: true)
-        rig.service.close(code: 1006)
-        await rig.run(5)
-        #expect(rig.relays.count == 1)
-        #expect(noise.kind == .relay)
-    }
-
-    /// The service has no box to give the session to, as with a box that is
-    /// offline or does not take `tun`: the relay at once.
-    @Test func aSessionEndedBeforeAnyAnswerMovesToTheRelay() async throws {
-        let rig = TunnelRig()
-        rig.service.tunBox = nil
-        rig.cloud.start()
-        let noise = rig.session(fallback: true)
-        await rig.run(40)
-        #expect(rig.relays.count == 1)
-        #expect(noise.kind == .relay)
-    }
-
-    /// An older box lists the phone without `tun`, and the service passes
-    /// nothing on and says nothing. The tunnel's wait ends it.
-    @Test func silenceMovesToTheRelayAfterTheWait() async throws {
-        let rig = TunnelRig()
-        rig.service.silentTun = true
-        rig.cloud.start()
-        let noise = rig.session(fallback: true)
-        await rig.run(FallbackCarrier.tunnelWaitMs - 100, step: 50)
-        #expect(rig.relays.isEmpty)
-        await rig.run(200, step: 50)
-        #expect(rig.relays.count == 1)
-        #expect(noise.kind == .relay)
-    }
-
-    /// A tunnel that carried and drops for a moment, as when FTW Cloud
-    /// restarts, comes back on its own.
-    @Test func aCarryingTunnelThatDropsBrieflyStays() async throws {
-        let rig = TunnelRig()
-        rig.cloud.start()
-        let noise = rig.session(fallback: true)
-        await rig.run(40)
-        #expect(noise.send([1]))
-        await rig.run(30)
-        rig.service.close(code: 1006)
-        await rig.run(1_000, step: 10)
-        #expect(noise.status.isOpen)
-        #expect(noise.kind == .tunnel)
-        #expect(rig.relays.isEmpty)
-        #expect(rig.service.dialled.count == 2)
-    }
-
-    /// A tunnel that carried and does not come back within the wait moves
-    /// to the relay.
-    @Test func aCarryingTunnelThatStaysDownMovesToTheRelay() async throws {
-        let rig = TunnelRig()
-        rig.cloud.start()
-        let noise = rig.session(fallback: true)
-        await rig.run(40)
-        #expect(noise.send([1]))
-        await rig.run(30)
-        rig.service.silentTun = true
-        rig.service.close(code: 1006)
-        await rig.run(FallbackCarrier.tunnelWaitMs + 200, step: 50)
-        #expect(rig.relays.count == 1)
-        #expect(noise.kind == .relay)
-    }
-
-    /// A wake dials the tunnel afresh, so it has to carry again within the
-    /// wait: a new dial that hangs moves to the relay, not after a socket
-    /// timeout.
-    @Test func aWakeGivesTheTunnelTheWaitAgain() async throws {
-        let rig = TunnelRig()
-        rig.cloud.start()
-        let noise = rig.session(fallback: true)
-        await rig.run(40)
-        #expect(noise.send([1]))
-        await rig.run(30)
-        rig.service.silentTun = true
-        noise.wake()
-        await rig.run(FallbackCarrier.tunnelWaitMs - 200, step: 50)
-        #expect(rig.relays.isEmpty)
-        await rig.run(400, step: 50)
-        #expect(rig.relays.count == 1)
-        #expect(noise.kind == .relay)
-    }
-
-    /// Without a relay to fall back on, the tunnel manages alone.
-    @Test func withoutARelayTheTunnelKeepsTrying() async throws {
-        let rig = TunnelRig()
-        rig.service.tunBox = nil
-        rig.cloud.start()
-        let tunnel = TunnelCarrier(cloud: rig.cloud, scheduler: rig.scheduler)
-        let fallback = FallbackCarrier(tunnel: tunnel, relay: nil, scheduler: rig.scheduler)
-        let noise = NoiseCarrier(inner: fallback, staticKey: rig.device, remoteStatic: rig.box.staticKey.publicKey,
-                                 prologue: rig.box.prologue, scheduler: rig.scheduler)
-        await rig.run(FallbackCarrier.tunnelWaitMs + 2_000, step: 50)
-        #expect(!fallback.onRelay)
-        #expect(fallback.kind == .tunnel)
-        #expect(rig.service.tunsFromPhone.count >= 2)
-        rig.service.tunBox = rig.box
-        await rig.run(NoiseCarrier.handshakeDeadlineMs + 4_000, step: 50)
-        #expect(noise.status.isOpen)
-    }
-}
-
 /// The whole app against a simulated box behind FTW Cloud: pairing from a
 /// v3 code, the stream and the carrier the band names, with the relay
 /// unreachable or with FTW Cloud unreachable.
@@ -588,34 +389,21 @@ private func holds(_ hay: Bytes, _ needle: Bytes) -> Bool {
         let service: FakeCloudService
         /// The box behind FTW Cloud, when the tunnel world has one.
         let tunnelBox: FakeTunnelBox?
-        /// The box behind the relay, when the relay world has one.
-        let relay: FakeRelay?
         let boxKey: Bytes
         private(set) var relayDials: [URL] = []
         let code = randomBytes(16)
         static let home = "fjzyr67buzpyncqmjliwgezvde"
 
-        /// `throughCloud`: the box sits behind FTW Cloud and the relay is
-        /// unreachable. Otherwise the box sits behind the relay and FTW
-        /// Cloud refuses every session.
-        init(throughCloud: Bool) {
+        init() {
             files = SealedFiles(directory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ftw-test-\(UUID().uuidString)"), store: store)
             simulated = SimulatedBox(scheduler: scheduler)
             service = FakeCloudService(scheduler: scheduler)
-            if throughCloud {
-                let box = FakeTunnelBox(simulated: simulated)
-                box.code = code
-                tunnelBox = box
-                relay = nil
-                boxKey = box.staticKey.publicKey
-                service.tunBox = box
-                service.pending = [CloudWire.pairingHash(home: Self.home, code: code)]
-            } else {
-                let endpoint = NoiseBoxEndpoint(box: simulated)
-                relay = FakeRelay(scheduler: scheduler, endpoint: endpoint)
-                tunnelBox = nil
-                boxKey = endpoint.staticKey.publicKey
-            }
+            let box = FakeTunnelBox(simulated: simulated)
+            box.code = code
+            tunnelBox = box
+            boxKey = box.staticKey.publicKey
+            service.tunBox = box
+            service.pending = [CloudWire.pairingHash(home: Self.home, code: code)]
         }
 
         var cloudEndpoint: CloudEndpoint {
@@ -626,7 +414,6 @@ private func holds(_ hay: Bytes, _ needle: Bytes) -> Bool {
             { [unowned self] url, events in
                 if url.host == "cloud.test" { return self.service.factory(url, events) }
                 self.relayDials.append(url)
-                if let relay = self.relay { return relay.factory(url, events) }
                 // Nothing answers at the relay's address.
                 let socket = DeadSocket()
                 _ = self.scheduler.after(10) { events.onClose(1006, "") }
@@ -636,7 +423,7 @@ private func holds(_ hay: Bytes, _ needle: Bytes) -> Bool {
 
         func app() -> AppModel {
             AppModel(store: store, files: files, passkeys: passkeys, scheduler: scheduler, build: "test", ua: "test",
-                     relayURL: URL(string: "wss://relay.test")!, cloudEndpoint: cloudEndpoint, makeSocket: sockets)
+                     cloudEndpoint: cloudEndpoint, makeSocket: sockets)
         }
 
         func qr(home: String?) -> String {
@@ -664,7 +451,7 @@ private func holds(_ hay: Bytes, _ needle: Bytes) -> Bool {
     /// FTW Cloud: the service admits the new phone by its proof, the box
     /// pairs it inside the session, and the band says the tunnel carries.
     @Test func aV3CodePairsAndStreamsThroughFTWCloudWithTheRelayUnreachable() async throws {
-        let world = World(throughCloud: true)
+        let world = World()
         world.simulated.moreCaps = [Contract.capCloudTun]
         let app = world.app()
         let pair = PairModel(app: app)
@@ -697,43 +484,53 @@ private func holds(_ hay: Bytes, _ needle: Bytes) -> Bool {
         #expect(world.service.pending.isEmpty)
     }
 
-    /// A box whose hello does not say `cloud.tun` is reached through the
-    /// relay, though the phone knows the home: no wait on a tunnel it
-    /// cannot have.
-    @Test func aBoxWithoutTunIsReachedThroughTheRelay() async throws {
-        let world = World(throughCloud: false)
+    @Test func aV2CodeNeedsANewQRBeforeAPasskeyPrompt() async {
+        let world = World()
         let app = world.app()
         let pair = PairModel(app: app)
-        let task = Task { await pair.pair(world.qr(home: nil)) }
-        await world.run(500)
-        await task.value
-        let site = try #require(app.site)
-        #expect(site.session.phase == .streaming)
-        #expect(site.carrier == .relay)
-        // No home id from a v2 code and none from this box: no FTW Cloud.
+        await pair.pair(world.qr(home: nil))
+        #expect(app.home == nil)
+        #expect(world.passkeys.registrations == 0)
         #expect(world.service.dialled.isEmpty)
-
-        app.sites.update(try #require(site.siteId)) { $0.cloudHome = World.home }
-        app.suspend()
-        app.setVisible(true)
-        await world.run(500)
-        #expect(site.session.phase == .streaming)
-        #expect(site.carrier == .relay)
-        #expect(world.service.tunsFromPhone.isEmpty)
+        #expect(world.relayDials.isEmpty)
     }
 
-    /// FTW Cloud refuses the session: the relay carries, at once.
-    @Test func aRefusingCloudFallsBackToTheRelay() async throws {
-        let world = World(throughCloud: false)
+    @Test func aRefusingCloudNeverDialsTheRelay() async throws {
+        let world = World()
+        world.simulated.moreCaps = [Contract.capCloudTun]
         let app = world.app()
         let pair = PairModel(app: app)
         let task = Task { await pair.pair(world.qr(home: World.home)) }
         await world.run(500)
         await task.value
         let site = try #require(app.site)
-        #expect(world.service.dialled.count >= 1)
         #expect(site.session.phase == .streaming)
-        #expect(site.carrier == .relay)
-        #expect(world.relayDials.count == 1)
+        world.service.refuseKey = world.service.staticKey.publicKey
+        app.suspend()
+        app.setVisible(true)
+        await world.run(15_000, step: 100)
+        #expect(site.session.phase != .streaming)
+        #expect(!site.isLive)
+        #expect(site.session.fields[Contract.FID.gridW] != nil)
+        #expect(world.relayDials.isEmpty)
+        #expect(world.service.dialled.count >= 2)
+    }
+
+    @Test func aSavedHomeWithoutCloudIDAsksToPairAgainBeforeDialling() async throws {
+        let world = World()
+        let app = world.app()
+        let task = Task { await PairModel(app: app).pair(world.qr(home: World.home)) }
+        await world.run(500)
+        await task.value
+        let siteID = try #require(app.site?.siteId)
+        app.suspend()
+        app.sites.update(siteID) { $0.cloudHome = nil }
+        let dials = world.service.dialled.count
+        app.setVisible(true)
+        await world.run(500)
+        #expect(app.connectHelp != nil)
+        #expect(world.service.dialled.count == dials)
+        #expect(world.relayDials.isEmpty)
+        #expect(world.passkeys.assertions.isEmpty)
     }
 }

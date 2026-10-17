@@ -3,8 +3,8 @@ import Security
 import Testing
 @testable import FTWKit
 
-/// Against a real FTW box and a real `ftwcloudd`, through the production
-/// relay. Off unless the environment names them:
+/// Against a real FTW box and a real `ftwcloudd`, through its Cloud
+/// tunnel. Off unless the environment names them:
 ///
 ///     FTW_LIVE_BOX=http://127.0.0.1:18080          the box's API, on loopback
 ///     FTW_LIVE_CLOUD_URL=wss://127.0.0.1:18443/v1/app
@@ -13,7 +13,7 @@ import Testing
 ///     FTW_LIVE_CLOUD_STOP='kill …'  FTW_LIVE_CLOUD_START='…'   optional
 ///
 /// It pairs two phones, turns FTW Cloud on as the consent screen does, and
-/// times the three layers of a cold start against the relay's path, five
+/// times the three layers of a cold start against the box-session path, five
 /// times each. It then replays a snapshot an hour late, revokes a phone with
 /// its stream open, and closes the cloud under a running home.
 @MainActor
@@ -54,10 +54,14 @@ struct LiveCloudTests {
         return Phone(enrollment: try Enrollment.parse(scanned: url), key: try vault.deviceKey(vault.localWrappingKey()))
     }
 
-    func relay(_ phone: Phone) -> NoiseCarrier {
+    func boxSession(_ phone: Phone, _ site: SiteModel) throws -> NoiseCarrier {
         let e = phone.enrollment
+        let home: String = try #require(e.home)
+        site.connectCloud(deviceKey: phone.key, makeSocket: cloudSockets, endpoint: endpoint,
+                          home: home, pairingCode: e.pairingCode)
+        let cloud = try #require(site.tunnelCloud())
         return NoiseCarrier(
-            inner: RelayCarrier(secret: e.rendezvousSecret, scheduler: scheduler),
+            inner: TunnelCarrier(cloud: cloud, scheduler: scheduler),
             staticKey: phone.key, remoteStatic: e.boxStaticPublic,
             prologue: NoiseCarrier.prologue(boxStaticKey: e.boxStaticPublic),
             handshakePayload: e.pairingCode, scheduler: scheduler
@@ -113,7 +117,7 @@ struct LiveCloudTests {
         let owner = try await pair(Contract.roleOwner)
         let setupFiles = files()
         var home = site(setupFiles)
-        home.connect(relay(owner))
+        home.connect(try boxSession(owner, home))
         _ = try await until { home.session.phase == .streaming }
         #expect(home.session.caps.contains(Contract.capCloudLink))
         let consent = CloudConsent(defaults: UserDefaults(suiteName: "live-\(UUID().uuidString)")!)
@@ -125,8 +129,7 @@ struct LiveCloudTests {
         // The next hello names the box's key; the cache keeps it.
         try await Task.sleep(nanoseconds: 2_000_000_000)
         home = site(setupFiles)
-        home.connectCloud(deviceKey: owner.key, makeSocket: cloudSockets, endpoint: endpoint)
-        home.connect(relay(owner))
+        home.connect(try boxSession(owner, home))
         _ = try await until { home.cloudOn && home.carrier == .cloud }
         let identity = try #require(home.cloudIdentity)
         print("live-cloud: home \(identity.home), sources \(identity.sources.values.sorted())")
@@ -138,7 +141,7 @@ struct LiveCloudTests {
             try await Task.sleep(nanoseconds: 1_000_000_000)
             let r = site(files())
             let t0 = Date()
-            r.connect(relay(owner))
+            r.connect(try boxSession(owner, r))
             _ = try await until { r.session.phase == .streaming && r.lastFrameAtMs != nil }
             relayFirst.append(Date().timeIntervalSince(t0) * 1000)
             r.destroy()
@@ -201,7 +204,7 @@ struct LiveCloudTests {
         // Revoke a phone with its stream open: closed within a second.
         let viewer = try await pair(Contract.roleViewer)
         let v = site(files())
-        v.connect(relay(viewer))
+        v.connect(try boxSession(viewer, v))
         _ = try await until { v.session.phase == .streaming }
         v.destroy()
         try await Task.sleep(nanoseconds: 1_500_000_000)
@@ -219,17 +222,15 @@ struct LiveCloudTests {
         #expect(Date().timeIntervalSince(t0) < 1)
         vc.close()
 
-        // The cloud goes away under a running home: the relay takes over
-        // under its own name, and the cloud takes back over when it returns.
+        // Cloud loss leaves dated readings until the same route returns.
         guard env["FTW_LIVE_CLOUD_STOP"] != nil else { return }
         let f = files()
         f.writeJSON("cloud-live", CloudCache(identity: identity, offset: nil))
         let both = site(f)
-        both.connectCloud(deviceKey: owner.key, makeSocket: cloudSockets, endpoint: endpoint)
-        both.connect(relay(owner))
+        both.connect(try boxSession(owner, both))
         _ = try await until { both.carrier == .cloud && both.session.phase == .streaming }
         try shell(env["FTW_LIVE_CLOUD_STOP"])
-        let down = try await until { both.carrier == .relay }
+        let down = try await until { !both.isLive && both.session.phase != .streaming }
         print("live-cloud: cloud stopped: carrier \(both.carrier.rawValue) after \(Int(down)) ms, band \"\(both.freshness(noCarrier: false).message)\"")
         try shell(env["FTW_LIVE_CLOUD_START"])
         both.networkOnline()

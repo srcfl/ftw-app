@@ -98,9 +98,7 @@ public final class AppModel {
     @ObservationIgnored let scheduler: Scheduler
     @ObservationIgnored let build: String
     @ObservationIgnored let ua: String
-    @ObservationIgnored let relayURL: URL
     @ObservationIgnored let cloudEndpoint: CloudEndpoint?
-    @ObservationIgnored let makeSocket: WebSocketFactory
     /// FTW Cloud's socket: the app races QUIC against the WebSocket
     /// (`CloudSockets.racing`). Tests leave it nil and get `makeSocket`.
     @ObservationIgnored let makeCloudSocket: WebSocketFactory
@@ -117,7 +115,6 @@ public final class AppModel {
         scheduler: Scheduler = LiveScheduler.shared,
         build: String,
         ua: String,
-        relayURL: URL = Origin.relayURL,
         cloudEndpoint: CloudEndpoint? = CloudEndpoint.current,
         makeSocket: @escaping WebSocketFactory = URLSessionWebSocket.factory(),
         makeCloudSocket: WebSocketFactory? = nil,
@@ -132,9 +129,7 @@ public final class AppModel {
         self.scheduler = scheduler
         self.build = build
         self.ua = ua
-        self.relayURL = relayURL
         self.cloudEndpoint = cloudEndpoint
-        self.makeSocket = makeSocket
         self.makeCloudSocket = makeCloudSocket ?? makeSocket
         vault = Vault(store: store)
         sites = SiteList(store: store)
@@ -194,13 +189,8 @@ public final class AppModel {
             guard vault.isEnrolled else {
                 throw ConnectError(kind: .notEnrolled, help: AppWords.text("This device has no key for that home."))
             }
-            // The rendezvous secret is read from the QR, never derived: a
-            // handle derived from the box key would be one household
-            // identifier good for years. A home id reaches the box through
-            // FTW Cloud instead.
-            let secret = stored.rendezvousSecret?.byteArray
-            guard secret != nil || stored.cloudHome != nil else {
-                throw ConnectError(kind: .stalePairing, help: AppWords.text("This home was paired before this app could reach it privately."))
+            guard let cloudHomeID = stored.cloudHome, CloudWire.validHome(cloudHomeID) else {
+                throw ConnectError(kind: .stalePairing, help: AppWords.text("Pair this home again with a new QR from Settings → FTW app on your box."))
             }
             var wrapping = try vault.silentWrappingKey()
             if wrapping == nil {
@@ -213,23 +203,11 @@ public final class AppModel {
 
             let box = stored.boxStaticKey.byteArray
             let code = stored.pairingCode?.byteArray
-            // FTW Cloud first: the box session rides it when the box takes
-            // the tunnel.
-            site.connectCloud(deviceKey: device, makeSocket: makeCloudSocket, endpoint: cloudEndpoint, home: stored.cloudHome, pairingCode: code)
-            var relay: (@MainActor () -> Carrier)?
-            if let secret {
-                relay = { [relayURL, scheduler, makeSocket] in
-                    RelayCarrier(url: relayURL, secret: secret, scheduler: scheduler, makeSocket: makeSocket)
-                }
+            site.connectCloud(deviceKey: device, makeSocket: makeCloudSocket, endpoint: cloudEndpoint, home: cloudHomeID, pairingCode: code)
+            guard let cloud = site.tunnelCloud() else {
+                throw ConnectError(kind: .stalePairing, help: AppWords.text("Pair this home again with a new QR from Settings → FTW app on your box."))
             }
-            let inner: Carrier
-            if let cloud = site.tunnelCloud() {
-                inner = FallbackCarrier(tunnel: TunnelCarrier(cloud: cloud, scheduler: scheduler), relay: relay, scheduler: scheduler)
-            } else if let relay {
-                inner = relay()
-            } else {
-                throw ConnectError(kind: .stalePairing, help: AppWords.text("This home was paired before this app could reach it privately."))
-            }
+            let inner = TunnelCarrier(cloud: cloud, scheduler: scheduler)
             let noise = NoiseCarrier(
                 inner: inner,
                 staticKey: device,

@@ -1,1 +1,1 @@
-Den första FTW-appen för iPhone. Parkoppla med din box, se hemmets energi just nu, styr bilens laddning och lägg elpriset på hemskärmen och låsskärmen.
+FTW når nu boxen via FTW Cloud. Om en äldre parkoppling behöver göras om öppnar du Settings → FTW app på den uppdaterade boxen och skannar en ny QR-kod. Värden visar sin ålder medan anslutningen återhämtar sig.

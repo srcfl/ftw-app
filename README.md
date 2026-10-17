@@ -37,14 +37,21 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
      └──────────────────┬──────────────────────┘
                         ▼
    iPhone: wss://cloud.ftw.energy/v1/app, the box session inside as tun
-   Android, and the iPhone's fallback for one release: wss://relay.ftw.energy
-   Both carry the same Noise session, end to end to the box
+   The iPhone has no relay fallback. Android remains an unreleased prototype.
+   The session stays encrypted end to end to the box
                         │
                         ▼
                      FTW box
 ```
 
 Two taps: scan the QR on the box, Face ID / biometrics, the house.
+
+The iPhone requires the Cloud home id from a v3 pairing QR or an earlier
+box session. A saved home without it needs a new QR from an updated box.
+Cloud loss leaves dated cached readings and retries the same Cloud route.
+The relay carrier remains only in test fixtures; it is absent from FTWKit's
+shipped sources. The Android prototype needs its own Cloud work before a
+first release.
 
 ## Status: iPhone (2026-10-12)
 
@@ -223,7 +230,7 @@ wrapping copy so Now paints without a passkey prompt.
 
 | Path | What |
 |---|---|
-| `appleApp/FTWKit/Sources/FTWKit` | Swift: identity, crypto, protocol, relay, session, screen state. The app alone links it. |
+| `appleApp/FTWKit/Sources/FTWKit` | Swift: identity, crypto, protocol, Cloud tunnel, session, screen state. The app alone links it. |
 | `appleApp/FTWKit/Sources/FTWShared` | `Sendable` values for the app and its extensions: the App Group cache and the price and freshness formatters |
 | `appleApp/FTWKit/Sources/FTWDemo` | The simulated box, for the demo, App Review and previews |
 | `appleApp/FTW/` | SwiftUI for iPhone, Keychain, passkeys, camera |

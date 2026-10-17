@@ -89,8 +89,10 @@ import FTWDemo
         let store = MemoryStore()
         let files: SealedFiles
         let box: SimulatedBox
-        let endpoint: NoiseBoxEndpoint
-        let relay: FakeRelay
+        let endpoint: FakeTunnelBox
+        let cloud: FakeCloudService
+        let code = randomBytes(16)
+        static let home = "abcdefghijklmnopqrstuvwx23"
         let passkeys = FakePasskeys()
         let shared = AppGroupFiles(directory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ftw-shared-\(UUID().uuidString)"))
         let widgetWakes = Counter()
@@ -98,16 +100,27 @@ import FTWDemo
         init() {
             files = SealedFiles(directory: URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("ftw-test-\(UUID().uuidString)"), store: store)
             box = SimulatedBox(scheduler: scheduler)
-            endpoint = NoiseBoxEndpoint(box: box)
-            relay = FakeRelay(scheduler: scheduler, endpoint: endpoint)
+            box.moreCaps = [Contract.capCloudTun]
+            endpoint = FakeTunnelBox(simulated: box)
+            endpoint.code = code
+            cloud = FakeCloudService(scheduler: scheduler)
+            cloud.tunBox = endpoint
+            cloud.pending = [CloudWire.pairingHash(home: Self.home, code: code)]
         }
 
         func app() -> AppModel {
-            AppModel(store: store, files: files, shared: shared, sharedWritten: { [widgetWakes] in widgetWakes.count += 1 }, passkeys: passkeys, scheduler: scheduler, build: "test", ua: "test", relayURL: URL(string: "wss://relay.test")!, makeSocket: relay.factory)
+            AppModel(store: store, files: files, shared: shared, sharedWritten: { [widgetWakes] in widgetWakes.count += 1 }, passkeys: passkeys, scheduler: scheduler, build: "test", ua: "test", cloudEndpoint: cloud.endpoint, makeSocket: sockets)
+        }
+
+        var sockets: WebSocketFactory {
+            { [self] url, events in
+                cloud.roster.formUnion(endpoint.paired)
+                return cloud.factory(url, events)
+            }
         }
 
         var pairingURL: String {
-            Enrollment(boxStaticPublic: endpoint.staticKey.publicKey, pairingCode: randomBytes(16), lanHint: "", rendezvousSecret: randomBytes(32)).url()
+            Enrollment(boxStaticPublic: endpoint.staticKey.publicKey, pairingCode: code, lanHint: "", rendezvousSecret: randomBytes(32), home: Self.home).url()
         }
 
         func run(_ ms: Double, step: Double = 20) async {
@@ -133,7 +146,7 @@ import FTWDemo
         await task.value
         let site = try #require(app.site)
         #expect(site.session.phase == .streaming)
-        #expect(site.carrier == .relay)
+        #expect(site.carrier == .tunnel)
         #expect(world.passkeys.registrations == 1)
 
         // Long enough for the snapshot to be written.
@@ -151,7 +164,7 @@ import FTWDemo
         #expect(cold.ageMs != nil)
         await world.run(500)
         #expect(cold.session.phase == .streaming)
-        #expect(cold.carrier == .relay)
+        #expect(cold.carrier == .tunnel)
         #expect(world.passkeys.assertions.isEmpty)
     }
 
@@ -273,7 +286,7 @@ import FTWDemo
         app.suspend()
         await world.run(100)
         #expect(!site.core.hasCarrier)
-        #expect(world.relay.current == nil)
+        #expect(world.cloud.current == nil)
         #expect(site.carrier == .none)
         // What was on screen stays, dated.
         #expect(site.session.fields[Contract.FID.gridW] != nil)
@@ -283,7 +296,7 @@ import FTWDemo
         await world.run(1_000)
         #expect(site.session.phase == .streaming)
         #expect(site.isLive || site.srcState == .live)
-        #expect(world.relay.dialled.count == 2)
+        #expect(world.cloud.dialled.count == 2)
         #expect(world.passkeys.assertions.isEmpty)
     }
 
@@ -304,7 +317,7 @@ import FTWDemo
         await world.run(100)
         #expect(site.documentVisible)
         #expect(site.core.hasCarrier)
-        #expect(world.relay.dialled.count == 1)
+        #expect(world.cloud.dialled.count == 1)
 
         app.setVisible(false)
         app.suspend()
@@ -314,12 +327,12 @@ import FTWDemo
         // Inactive on the way back: the new carrier dials now.
         app.glance()
         await world.run(1_000)
-        #expect(world.relay.dialled.count == 2)
+        #expect(world.cloud.dialled.count == 2)
         #expect(site.session.phase == .streaming)
         #expect(site.documentVisible)
         app.setVisible(true)
         await world.run(100)
-        #expect(world.relay.dialled.count == 2)
+        #expect(world.cloud.dialled.count == 2)
     }
 
     /// Widgets read what the app leaves in the App Group, never the relay.
@@ -342,7 +355,7 @@ import FTWDemo
         #expect(prices.value.prices.currency == "SEK")
         #expect(!prices.value.prices.slots.isEmpty)
         // It arrived over the relay, and reads back as the cache.
-        #expect(prices.record.carrier == .relay)
+        #expect(prices.record.carrier == .tunnel)
         #expect(prices.carrier == .cache)
         let car = try #require(reader.read(CarEntry.self, siteId: siteId)?.value.cars.first)
         #expect(car.loadpointID == "garage")
