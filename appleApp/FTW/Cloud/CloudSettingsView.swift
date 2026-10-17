@@ -39,7 +39,7 @@ struct CloudSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog(CloudWords.text("Turn FTW Cloud off?"), isPresented: $stopping, titleVisibility: .visible) {
             Button(CloudWords.text("Turn off"), role: .destructive) {
-                Task { if let site = app.site { _ = await consent.turnOff(site) }; app.pauseCloud() }
+                Task { if let site = app.site, await consent.turnOff(site) { app.pauseCloud() } }
             }
             Button(CloudWords.text("Cancel"), role: .cancel) { }
         } message: {
