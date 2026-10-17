@@ -85,20 +85,30 @@ public struct Grant: Equatable, Sendable {
         self.expiresAtMs = expiresAtMs
     }
 
-    /// The lengths an owner may pick, longest last, within the role's.
-    public static func lengths(role: String, offeredS: UInt64? = nil) -> [Int64] {
+    /// The lengths an owner may pick, longest last: within the role's, the
+    /// offer's and the box's. `boxMs` is what the box's `agent.list` says
+    /// for the role; nil is a box that says nothing, which takes 30 days
+    /// for an assistant.
+    public static func lengths(role: String, offeredS: UInt64? = nil, boxMs: Int64? = nil) -> [Int64] {
         let day: Int64 = 86_400_000
-        var most = AccessWire.longestMs(role)
+        var most = min(AccessWire.longestMs(role), boxMs ?? AccessWire.unstatedLongestMs(role))
         if let offeredS, offeredS > 0 { most = min(most, Int64(offeredS) * 1000) }
-        let picks = role == AccessWire.roleSupport ? [day, 3 * day, 7 * day, 14 * day] : [day, 7 * day, 30 * day]
+        let picks = role == AccessWire.roleSupport ? [day, 3 * day, 7 * day, 14 * day] : [day, 7 * day, 30 * day, 90 * day, 365 * day]
         let fit = picks.filter { $0 <= most }
         return fit.isEmpty ? [most] : fit
+    }
+
+    /// The length an offer starts at: 30 days for an assistant and a week
+    /// for Sourceful, or the longest pick below that.
+    public static func startLength(role: String, in picks: [Int64]) -> Int64 {
+        let start: Int64 = (role == AccessWire.roleSupport ? 7 : 30) * 86_400_000
+        return picks.last(where: { $0 <= start }) ?? picks.first ?? start
     }
 
     /// What the owner grants from an offer: what it reads, and control only
     /// when ticked. Never more than it asks, and never past the box's own
     /// limits.
-    public static func from(_ offer: GrantOffer, control: Bool, lengthMs: Int64) -> Grant {
+    public static func from(_ offer: GrantOffer, control: Bool, lengthMs: Int64, boxMs: Int64? = nil) -> Grant {
         let allowed = Set(Contract.agentRoleScopes[offer.role] ?? [])
         let asked = Set(offer.scopes).intersection(allowed)
         let scopes = control ? asked : asked.subtracting(AccessWire.controlScopes)
@@ -108,7 +118,7 @@ public struct Grant: Equatable, Sendable {
             caps.holdS = min(offer.caps.holdS, AccessWire.holdSRange.upperBound)
             caps.maxW = min(offer.caps.maxW, AccessWire.maxWRange.upperBound)
         }
-        let longest = lengths(role: offer.role, offeredS: offer.ttlS).last ?? lengthMs
+        let longest = lengths(role: offer.role, offeredS: offer.ttlS, boxMs: boxMs).last ?? lengthMs
         return Grant(scopes: Array(scopes), ops: ops, caps: caps, lengthMs: min(lengthMs, longest))
     }
 
@@ -242,6 +252,12 @@ public final class AccessModel {
     /// The home the approval key is kept under. The simulated home has no
     /// id of its own.
     var keyHome: String? { site.siteId ?? (site.isDemo ? "demo" : nil) }
+
+    /// The longest grant the box says it takes for a role, once it has
+    /// answered `agent.list` this visit. Nil means it said nothing.
+    public func boxLongestMs(_ role: String) -> Int64? {
+        keysKnown ? list?.longestMs[role] : nil
+    }
 
     // MARK: Reading
 

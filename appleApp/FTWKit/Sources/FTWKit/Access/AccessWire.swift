@@ -26,6 +26,17 @@ public enum AccessWire {
         switch role {
         case roleSupport: return 14 * 86_400_000
         case roleRelease: return 90 * 86_400_000
+        default: return 365 * 86_400_000
+        }
+    }
+
+    /// The longest grant a box takes when its `agent.list` names none.
+    /// Boxes before `longestMs` took 30 days for an assistant and refuse
+    /// more, so the app offers them no more (docs/agents.md in srcfl/ftw,
+    /// Mixed versions).
+    public static func unstatedLongestMs(_ role: String) -> Int64 {
+        switch role {
+        case roleSupport, roleRelease: return longestMs(role)
         default: return 30 * 86_400_000
         }
     }
@@ -253,17 +264,26 @@ public struct AgentList: Equatable, Sendable {
     public var agents: [AgentRow]
     public var requests: [AgentRequest]
     public var keys: [ApprovalKeyInfo]
+    /// The longest grant the box takes for each role, in ms. Empty from a
+    /// box before `longestMs`.
+    public var longestMs: [String: Int64]
 
-    public init(agents: [AgentRow] = [], requests: [AgentRequest] = [], keys: [ApprovalKeyInfo] = []) {
+    public init(agents: [AgentRow] = [], requests: [AgentRequest] = [], keys: [ApprovalKeyInfo] = [], longestMs: [String: Int64] = [:]) {
         self.agents = agents
         self.requests = requests
         self.keys = keys
+        self.longestMs = longestMs
     }
 
     init(_ c: CBOR) {
         agents = (c["agents"]?.array ?? []).compactMap(AgentRow.init)
         requests = (c["requests"]?.array ?? []).compactMap(AgentRequest.init)
         keys = (c["keys"]?.array ?? []).compactMap(ApprovalKeyInfo.init)
+        var longest: [String: Int64] = [:]
+        for e in c["longestMs"]?.entries ?? [] {
+            if let role = e.key.string, let ms = e.value.int64, ms > 0 { longest[role] = ms }
+        }
+        longestMs = longest
     }
 }
 

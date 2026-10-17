@@ -249,9 +249,10 @@ public enum AccessWords {
 
     // MARK: Time
 
-    /// "1 day", "7 days", "30 days".
+    /// "1 day", "7 days", "30 days", "1 year".
     public static func length(_ ms: Int64) -> String {
         let days = Int((Double(ms) / 86_400_000).rounded())
+        if days == 365 { return text("1 year") }
         return days == 1 ? text("1 day") : format("%@ days", String(days))
     }
 
@@ -259,14 +260,20 @@ public enum AccessWords {
     public static func until(_ ms: Int64, nowMs: Double, zone: TimeZone = .current) -> String {
         if Double(ms) <= nowMs { return text("Ended") }
         if Double(ms) - nowMs < 86_400_000 { return format("Ends %@", AppWords.day(Double(ms), nowMs: nowMs, zone: zone)) }
-        return format("Until %@", dayOnly(ms, zone: zone))
+        return format("Until %@", dayOnly(ms, nowMs: nowMs, zone: zone))
     }
 
-    static func dayOnly(_ ms: Int64, zone: TimeZone) -> String {
+    /// "15 Nov", or "17 Oct 2027" when the end is in another year or more
+    /// than about five months off, so a year-long grant never reads as today.
+    static func dayOnly(_ ms: Int64, nowMs: Double, zone: TimeZone) -> String {
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = zone
-        let c = cal.dateComponents([.day, .month], from: Date(timeIntervalSince1970: Double(ms) / 1000))
-        return "\(c.day ?? 1) \(AppWords.text(AppWords.monthLabels[((c.month ?? 1) + 11) % 12]))"
+        let c = cal.dateComponents([.day, .month, .year], from: Date(timeIntervalSince1970: Double(ms) / 1000))
+        let day = "\(c.day ?? 1) \(AppWords.text(AppWords.monthLabels[((c.month ?? 1) + 11) % 12]))"
+        let thisYear = cal.component(.year, from: Date(timeIntervalSince1970: nowMs / 1000))
+        let far = Double(ms) - nowMs > 150 * 86_400_000
+        guard let year = c.year, far || year != thisYear else { return day }
+        return "\(day) \(year)"
     }
 
     /// "Never used" or "Last used today 14:03".
@@ -278,7 +285,7 @@ public enum AccessWords {
     public static func ends(_ ms: Int64, nowMs: Double, zone: TimeZone = .current) -> String {
         if Double(ms) <= nowMs { return text("Ended") }
         if Double(ms) - nowMs < 86_400_000 { return AppWords.day(Double(ms), nowMs: nowMs, zone: zone) }
-        return dayOnly(ms, zone: zone)
+        return dayOnly(ms, nowMs: nowMs, zone: zone)
     }
 
     /// The last call as a value under "Last used": "today 08:12" or "Never".
@@ -496,6 +503,7 @@ public enum AccessWords {
         "Off: it reads and changes nothing.": "Av: den läser och ändrar ingenting.",
         "For": "Hur länge",
         "1 day": "1 dag",
+        "1 year": "1 år",
         "%@ days": "%@ dagar",
         "Until %@": "Till %@",
         "Ends %@": "Slutar %@",

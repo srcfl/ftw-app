@@ -35,7 +35,7 @@ struct GrantView: View {
     private func form(_ row: AgentRow) -> some View {
         let now = Date().timeIntervalSince1970 * 1000
         let reads = (Contract.agentRoleScopes[row.role] ?? []).filter { !AccessWire.controlScopes.contains($0) }
-        let lengths = Grant.lengths(role: row.role)
+        let lengths = Grant.lengths(role: row.role, boxMs: access.boxLongestMs(row.role))
         return List {
             Section {
                 VStack(alignment: .leading, spacing: 6) {
