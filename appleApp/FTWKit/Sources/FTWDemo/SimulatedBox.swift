@@ -92,7 +92,7 @@ public final class SimulatedBox {
     /// offers. Registry names only; `ContractTests` checks.
     public nonisolated static let caps = [
         "status.core", "status.drivers", "history.5m", "history.1h", "history.etag", "cmd.lease",
-        "cmd.readback", "der.battery", "der.ev", "plan.dispatch", "price.spot", "api.passthrough", "access.agents",
+        "cmd.readback", "der.battery", "der.ev", "plan.dispatch", "price.spot", "api.passthrough", "access.agents", "access.invites",
     ]
 
     /// Capabilities this box offers beyond `caps`, for a test that needs a
@@ -196,7 +196,7 @@ public final class SimulatedBox {
             sendBulk(Envelope(t: "plan", id: env.id, b: sessionPlan().wire))
         case "api.req": onAPI(env.id, body)
         case "cmd": onCommand(body)
-        case AccessWire.msgList, AccessWire.msgAudit, AccessWire.msgKeySet, AccessWire.msgAdd, AccessWire.msgWiden,
+        case InvitationWire.create,InvitationWire.list,InvitationWire.cancel,AccessWire.msgList, AccessWire.msgAudit, AccessWire.msgKeySet, AccessWire.msgAdd, AccessWire.msgWiden,
              AccessWire.msgRevoke, AccessWire.msgConfirm:
             access.receive(env) { [weak self] reply in
                 guard let self else { return }

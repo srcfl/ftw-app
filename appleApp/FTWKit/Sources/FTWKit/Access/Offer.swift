@@ -345,6 +345,20 @@ public struct OfferLookup: Sendable {
         return try await get(c.url!)
     }
 
+    public func publishInvitation(_ invitation: String) async throws -> InvitationAlias {
+        var request = URLRequest(url: base.appendingPathComponent("oauth/invitations"), timeoutInterval: 15)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["invitation": invitation])
+        let (data, status) = try await fetch(request)
+        guard status == 200 else { throw OfferError.unreachable }
+        let alias = try JSONDecoder().decode(InvitationAlias.self, from: data)
+        guard alias.code.range(of: "^[A-HJ-NP-Z2-9]{3}-[A-HJ-NP-Z2-9]{3}$", options: .regularExpression) != nil else {
+            throw OfferError.malformed
+        }
+        return alias
+    }
+
     private func get(_ url: URL) async throws -> SignedOffer {
         var req = URLRequest(url: url, timeoutInterval: 15)
         req.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -364,4 +378,9 @@ public struct OfferLookup: Sendable {
         if let status = json["status"] as? String, status != "pending" { throw OfferError.used }
         return try SignedOffer(base64url: offer)
     }
+}
+
+public struct InvitationAlias: Decodable, Sendable {
+    public let code: String
+    public let expiresAtMs: Int64
 }

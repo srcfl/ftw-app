@@ -21,7 +21,7 @@ import FTWDemo
             if seed { box.access.seed() }
             site = SiteModel(siteId: "home1", build: "t", ua: "t", scheduler: scheduler, files: nil)
             let s = scheduler
-            access = AccessModel(site: site, signedFor: AccessModel.demoFor, keyring: keyring, wallMs: { s.nowMs + phoneClockOffMs })
+            access = AccessModel(site: site, signedFor: AccessModel.demoFor, keyring: keyring, wallMs: { s.nowMs + phoneClockOffMs }, invitationLookup: SimulatedAccess.lookup)
             site.start()
             site.connect(LoopbackCarrier(box: box, scheduler: scheduler, latencyMs: 20))
         }
