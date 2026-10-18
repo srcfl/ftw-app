@@ -26,13 +26,13 @@ public struct NodeReading: Equatable, Sendable, Identifiable {
 }
 
 public enum NowFlow {
-    /// The nodes Now draws, in its order. The grid is always there, because
-    /// a home that cannot see its own meter should see that gap; any other
-    /// node the box sends no field for is left out rather than drawn at zero,
+    /// The nodes Now draws, in its order. Grid and home stay visible so
+    /// a missing meter or qualified load reads as unknown. Any other node
+    /// the box sends no field for is left out rather than drawn at zero,
     /// unless the home is `known` to have it.
     public static func nodes(fields: [Int: Double], hasCar: Bool, known: [EnergyNode] = []) -> [EnergyNode] {
         EnergyNode.allCases.filter { node in
-            node == .grid || fields[node.fid] != nil || (node == .car && hasCar) || known.contains(node)
+            node == .grid || node == .home || fields[node.fid] != nil || (node == .car && hasCar) || known.contains(node)
         }
     }
 
@@ -115,9 +115,8 @@ extension NowFlow {
         let chargeW = Flow.loadpointChargeW(points)
         var fields = site.session.fields
         let wire = fields[Contract.FID.evW]
-        // The car comes off the house only when both are as old: a fresh
-        // read beside the stream, or both from the cache. An old read never
-        // changes a live figure.
+        // The charger can supply its own display reading when fresh, or
+        // alongside a cached stream. It never changes Core's house load.
         if !loadpoints.stale || site.lastFrameAtMs == nil {
             fields = Flow.withLoadpointEV(fields, evW: chargeW)
         }

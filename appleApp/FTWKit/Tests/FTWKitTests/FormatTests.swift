@@ -84,7 +84,7 @@ import Testing
         #expect(!r.nodes.contains { $0.role == .ev })
         let overlaid = Flow.withLoadpointEV([F.loadW: 9000, F.evW: 0], evW: 7400)
         #expect(overlaid[F.evW] == 7400)
-        #expect(overlaid[F.loadW] == 1600)
+        #expect(overlaid[F.loadW] == 9000)
     }
 
 }
