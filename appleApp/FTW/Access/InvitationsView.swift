@@ -78,7 +78,7 @@ struct NewInvitationView: View {
         })
     @State private var setup = false
     @State private var control = false
-    @State private var days: Int64 = 7
+    @State private var lengthMs: Int64 = 7 * 86_400_000
     @State private var power: Double = 11_000
     @State private var hold: Double = 900
     @Environment(\.scenePhase) private var scenePhase
@@ -156,9 +156,9 @@ struct NewInvitationView: View {
                                 .multilineTextAlignment(.trailing)
                         }
                     }
-                    Picker(AccessWords.text("Access lasts"), selection: $days) {
-                        ForEach([Int64(1), 7, 30, 365], id: \.self) { d in
-                            Text(AccessWords.format("%@ days", String(d))).tag(d)
+                    Picker(AccessWords.text("Access lasts"), selection: $lengthMs) {
+                        ForEach(access.invitationLengths, id: \.self) { length in
+                            Text(AccessWords.length(length)).tag(length)
                         }
                     }
                     Text(
@@ -207,8 +207,19 @@ struct NewInvitationView: View {
             }
         }
         .navigationTitle(AccessWords.text("New invitation"))
-        .task { await checkStatus() }
+        .task {
+            await access.refresh()
+            keepLengthValid()
+            await checkStatus()
+        }
+        .onChange(of: access.invitationLengths) { _, _ in keepLengthValid() }
         .onChange(of: scenePhase) { _, phase in if phase == .active { Task { await checkStatus() } } }
+    }
+
+    private func keepLengthValid() {
+        guard draft.request == nil, !access.invitationLengths.contains(lengthMs) else { return }
+        lengthMs = access.invitationLengths.last(where: { $0 <= 7 * 86_400_000 })
+            ?? access.invitationLengths.first ?? 7 * 86_400_000
     }
 
     private func checkStatus() async {
@@ -228,10 +239,11 @@ struct NewInvitationView: View {
         let ops = Approval.sorted(
             Contract.agentOps.keys.filter { allowed.contains(Contract.agentOps[$0] ?? "") })
         let caps = Caps(holdS: control ? UInt64(hold) : 0, maxW: control ? UInt64(power) : 0, perMin: 6)
-        let grant = Grant(scopes: Array(allowed), ops: ops, caps: caps, lengthMs: days * 86_400_000)
+        let grant = Grant(scopes: Array(allowed), ops: ops, caps: caps, lengthMs: lengthMs)
         var name = label.trimmingCharacters(in: .whitespacesAndNewlines)
         while name.utf8.count > 128 { name.removeLast() }
         _ = await access.createInvitation(
             draft, home: home, label: name, grant: grant, claimSeconds: 600)
+        keepLengthValid()
     }
 }

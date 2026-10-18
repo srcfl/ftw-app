@@ -130,7 +130,7 @@ public final class SimulatedAccess {
             guard m.claimUntilMs > now, m.claimUntilMs <= now + 86_400_000, m.claimUntilMs <= m.expiresAtMs else {
                 return refuse("E_BAD_SIGNATURE", [("field", .text("claimUntilMs"))])
             }
-            guard m.expiresAtMs > now, m.expiresAtMs <= now + AccessWire.longestMs(AccessWire.roleAgent) else {
+            guard m.expiresAtMs > now, m.expiresAtMs <= now + longest(AccessWire.roleAgent) else {
                 return refuse("E_CAP_EXCEEDED", [("cap", .text("expiresAtMs"))])
             }
             if let code = check(pub, msg, m.sig, atMs: m.atMs, now: now) { return refuse(code.0, code.1) }

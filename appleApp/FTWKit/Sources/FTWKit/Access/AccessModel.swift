@@ -273,6 +273,15 @@ public final class AccessModel {
         keysKnown ? list?.longestMs[role] : nil
     }
 
+    public var invitationLengths: [Int64] {
+        Grant.lengths(role: Contract.roleAgent, boxMs: boxLongestMs(Contract.roleAgent))
+    }
+
+    private func invitationLengthAllowed(_ length: Int64) -> Bool {
+        length > 0 && length <= min(AccessWire.longestMs(Contract.roleAgent),
+                                   boxLongestMs(Contract.roleAgent) ?? AccessWire.unstatedLongestMs(Contract.roleAgent))
+    }
+
     // MARK: Reading
 
     public func refresh() async {
@@ -326,6 +335,17 @@ public final class AccessModel {
     public func createInvitation(_ draft: InvitationDraft, home: String, label: String, grant: Grant, claimSeconds: Int64) async
         -> AgentInvitation?
     {
+        guard working == nil else { return nil }
+        working = "invitation"
+        defer { working = nil }
+        if draft.request == nil {
+            await refresh()
+            guard keysKnown else { return nil }
+            guard invitationLengthAllowed(grant.lengthMs) else {
+                help = AccessWords.text("Choose a shorter access time that your box allows.")
+                return nil
+            }
+        }
         let result: AgentInvitation? = await signed(
             AccessWords.text("Create an invitation to this home"), target: "invitation", retrySkew: false,
             onSpare: { signer in
@@ -335,6 +355,10 @@ public final class AccessModel {
             }
         ) { signer in
             if draft.request == nil {
+                await self.refresh()
+                guard self.invitationLengthAllowed(grant.lengthMs) else {
+                    throw BoxRefusal(detail: ErrorMsg(code: "E_CAP_EXCEEDED", retryable: false, args: ["cap": .text("expiresAtMs")]))
+                }
                 let clock = try await self.site.ask(InvitationWire.list, .emptyMap)
                 guard clock["clockReady"]?.bool == true, let boxMs = clock["nowMs"]?.int64, boxMs > 0 else {
                     throw BoxRefusal(detail: ErrorMsg(code: "E_UNAVAILABLE", retryable: true, args: ["subsystem": .text("clock")]))
@@ -347,8 +371,16 @@ public final class AccessModel {
                 m.sig = try signer.sign(try m.signedBytes(self.signedFor)); draft.request = m
             }
             guard let m = draft.request else { return nil }
-            let answer = try await self.site.ask(InvitationWire.create, m.cbor)
-            return answer["invitation"].flatMap(AgentInvitation.init)
+            do {
+                let answer = try await self.site.ask(InvitationWire.create, m.cbor)
+                return answer["invitation"].flatMap(AgentInvitation.init)
+            } catch let refusal as BoxRefusal where refusal.detail.code == "E_CAP_EXCEEDED"
+                || (refusal.detail.code == "E_BAD_SIGNATURE" && refusal.detail.args["field"]?.string == "claimUntilMs") {
+                // An accepted exact retry returns its receipt before these
+                // checks. A timeout keeps the signed request for recovery.
+                if draft.receipt == nil { draft.request = nil }
+                throw refusal
+            }
         }
         if let result { draft.receipt = result }
         await refreshInvitations()

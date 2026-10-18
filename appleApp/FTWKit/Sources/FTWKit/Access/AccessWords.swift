@@ -500,6 +500,7 @@ public enum AccessWords {
         "The label does not check the recipient's identity. Technical backups can contain saved credentials. The code appears only while this page stays open.": "Namnet kontrollerar inte mottagarens identitet. Tekniska säkerhetskopior kan innehålla sparade inloggningsuppgifter. Koden visas bara medan den här sidan är öppen.",
         "Creation is not confirmed. Retry sends the exact same invitation. The Shared access list can show whether it already exists.": "Skapandet är inte bekräftat. Ett nytt försök skickar exakt samma inbjudan. Listan Delad åtkomst kan visa om den redan finns.",
         "Wait for the box to connect to FTW Cloud before sharing access.": "Vänta tills boxen har anslutit till FTW Cloud innan du delar åtkomst.",
+        "Choose a shorter access time that your box allows.": "Välj en kortare åtkomsttid som boxen tillåter.",
         // Who
         "Sourceful support": "Sourceful support",
         "Assistant %@": "Assistent %@",

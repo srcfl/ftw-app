@@ -29,6 +29,60 @@ import Testing
 }
 
 extension AccessFlowTests {
+    @Test func invitationLengthsFollowTheBoxBeforeBiometry() async throws {
+        let day: Int64 = 86_400_000
+        for limit in [Int64?.none, 2 * day, 365 * day] {
+            let w = await world(seed: false)
+            w.box.access.longestMs = limit.map { [Contract.roleAgent: $0] }
+            await w.during { await w.access.refresh() }
+            let expected: [Int64] = limit == nil ? [day, 7 * day, 30 * day]
+                : limit == 2 * day ? [day] : [day, 7 * day, 30 * day, 90 * day, 365 * day]
+            #expect(w.access.invitationLengths == expected)
+            let unlocks = w.keyring.unlocks
+            let draft = InvitationDraft()
+            let invalid = Grant(scopes: ["ftw.live.read"], ops: [], caps: Caps(), lengthMs: (limit ?? 30 * day) + day)
+            let row = await w.during {
+                await w.access.createInvitation(draft, home: "abcdefghijklmnopqrstuvwx23", label: "Too long", grant: invalid, claimSeconds: 600)
+            }
+            #expect(row == nil && draft.request == nil)
+            #expect(w.keyring.unlocks == unlocks)
+            let valid = Grant(scopes: invalid.scopes, ops: [], caps: Caps(), lengthMs: try #require(expected.last))
+            let accepted = await w.during {
+                await w.access.createInvitation(draft, home: "abcdefghijklmnopqrstuvwx23", label: "Fits", grant: valid, claimSeconds: 600)
+            }
+            #expect(accepted?.state == "pending", "\(w.access.help ?? "")")
+        }
+    }
+
+    @Test(arguments: ["cap", "claimUntilMs"])
+    func definiteInvitationRefusalUnlocksTheFormForANewApproval(reason: String) async throws {
+        let w = await world(seed: false)
+        let home = "abcdefghijklmnopqrstuvwx23"
+        let day: Int64 = 86_400_000
+        let valid = Grant(scopes: ["ftw.live.read"], ops: [], caps: Caps(), lengthMs: day)
+        _ = await w.during { await w.access.createInvitation(InvitationDraft(), home: home, label: "Register", grant: valid, claimSeconds: 600) }
+        let draft = InvitationDraft()
+        let tooLong = Grant(scopes: valid.scopes, ops: [], caps: Caps(), lengthMs: 365 * day)
+        let at = Int64(w.scheduler.nowMs)
+        var old = InvitationCreate(id: draft.id, home: home, label: "Old request", hash: InvitationWire.hash(home: home, secret: draft.secret),
+                                   grant: tooLong, claimUntilMs: at + 600_000, expiresAtMs: at + tooLong.lengthMs, atMs: at)
+        if reason == "claimUntilMs" {
+            old.atMs = at - 601_000
+            old.claimUntilMs = at - 1_000
+            old.expiresAtMs = at + day
+        }
+        old.sig = try #require(try w.keyring.existing()).sign(try old.signedBytes(AccessModel.demoFor))
+        draft.request = old
+        w.box.access.longestMs = nil
+        let refused = await w.during { await w.access.createInvitation(draft, home: home, label: "Ignored", grant: tooLong, claimSeconds: 600) }
+        #expect(refused == nil && draft.receipt == nil && draft.request == nil)
+        let unlocks = w.keyring.unlocks
+        let accepted = await w.during { await w.access.createInvitation(draft, home: home, label: "Shorter", grant: valid, claimSeconds: 600) }
+        #expect(accepted?.state == "pending")
+        #expect(draft.request?.label == "Shorter" && draft.request != old)
+        #expect(w.keyring.unlocks == unlocks + 1)
+    }
+
     @Test func invitationIsSignedAndAnExactRetryKeepsItsReceipt() async throws {
         let w = await world(seed: false)
         let draft = InvitationDraft()
