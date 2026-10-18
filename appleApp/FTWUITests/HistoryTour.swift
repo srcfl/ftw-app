@@ -1,66 +1,71 @@
 import XCTest
 
-/// A node from Live to Today: a finger on the live trace, then the same
-/// finger on Today, the chart small, a second series added by its chip,
-/// then the chart grown to the whole screen and scrubbed there. For
-/// screenshots and recordings. Skipped unless asked for:
-///
-///     TEST_RUNNER_FTW_HISTORY=1 xcodebuild test … -only-testing:FTWUITests/HistoryTour
+/// The continuous timeline on the actual simulator: history is present
+/// before a five-minute ring fills, a pan holds while readings arrive,
+/// pinch changes the window, and the same window opens on the whole screen.
 final class HistoryTour: XCTestCase {
     @MainActor
-    func testCompactThenEnlarged() throws {
+    func testContinuousHistoryPanPinchAndEnlarge() throws {
         let env = ProcessInfo.processInfo.environment
-        try XCTSkipUnless(env["FTW_HISTORY"] == "1", "Set TEST_RUNNER_FTW_HISTORY=1 to drive the history.")
+        try XCTSkipUnless(env["FTW_HISTORY"] == "1", "Set TEST_RUNNER_FTW_HISTORY=1 to drive the timeline.")
         let app = XCUIApplication()
-        app.launchArguments = ["-FTWDemo", "YES", "-FTWNode", env["FTW_NODE"] ?? "battery", "-FTWPeriod", "live", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launchArguments = ["-FTWDemo", "YES", "-FTWNode", "home", "-FTWTimelineHours", "1", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
         app.launch()
-        // Live first, with a finger on it, then Today in the same material.
-        let live = app.descendants(matching: .any)["node.live.chart"].firstMatch
-        XCTAssertTrue(live.waitForExistence(timeout: 15))
-        Thread.sleep(forTimeInterval: 8)
-        shoot(app, "live")
-        drag(live)
-        app.segmentedControls["node.period"].buttons["Today"].tap()
-        let chart = app.descendants(matching: .any)["node.period.chart"].firstMatch
+        let chart = app.descendants(matching: .any)["node.timeline.chart"].firstMatch
         XCTAssertTrue(chart.waitForExistence(timeout: 15))
-        Thread.sleep(forTimeInterval: 2)
-        shoot(app, "compact")
-        drag(chart)
-        // A second series, then a third, by their chips.
-        let solar = app.buttons["chart.series.solar"]
-        XCTAssertTrue(solar.waitForExistence(timeout: 5))
-        solar.tap()
-        Thread.sleep(forTimeInterval: 1.2)
-        shoot(app, "compact-two")
-        app.buttons["chart.series.grid"].tap()
-        Thread.sleep(forTimeInterval: 1.2)
-        // A finger across the small chart.
-        drag(chart)
-        // Grown to the whole screen out of the small one.
+        XCTAssertFalse(app.segmentedControls["node.period"].exists)
+        Thread.sleep(forTimeInterval: 3)
+        shoot(app, "timeline-history-on-open")
+        let initial = chart.value as? String
+        chart.coordinate(withNormalizedOffset: .init(dx: 0.2, dy: 0.5)).press(forDuration: 0.02,
+            thenDragTo: chart.coordinate(withNormalizedOffset: .init(dx: 0.8, dy: 0.5)), withVelocity: .slow, thenHoldForDuration: 0)
+        let now = app.buttons["timeline.now"]
+        XCTAssertTrue(now.waitForExistence(timeout: 3))
+        XCTAssertTrue(now.isEnabled)
+        let panned = chart.value as? String
+        XCTAssertNotEqual(initial, panned)
+        Thread.sleep(forTimeInterval: 4)
+        XCTAssertEqual(panned, chart.value as? String, "new live readings moved a panned window")
+        shoot(app, "timeline-panned-held")
+        chart.pinch(withScale: 0.5, velocity: -1)
+        XCTAssertNotEqual(panned, chart.value as? String, "pinch did not change the window")
+        shoot(app, "timeline-pinched")
+        // A hold reads an interval mean rather than a manufactured live value.
+        chart.coordinate(withNormalizedOffset: .init(dx: 0.2, dy: 0.5)).press(forDuration: 0.4,
+            thenDragTo: chart.coordinate(withNormalizedOffset: .init(dx: 0.5, dy: 0.5)), withVelocity: .slow, thenHoldForDuration: 0.7)
+        now.tap()
+        XCTAssertFalse(now.isEnabled)
         app.buttons["node.chart.enlarge"].tap()
         let close = app.buttons["node.chart.close"]
-        XCTAssertTrue(close.waitForExistence(timeout: 5))
-        Thread.sleep(forTimeInterval: 1.5)
-        shoot(app, "enlarged")
-        drag(app.descendants(matching: .any)["node.period.chart"].firstMatch)
-        app.segmentedControls["node.chart.period"].buttons["48 h"].tap()
-        Thread.sleep(forTimeInterval: 1.5)
-        shoot(app, "enlarged-48h")
-        // Back to one series, then shut.
-        app.buttons["chart.series.grid"].firstMatch.tap()
-        app.buttons["chart.series.solar"].firstMatch.tap()
-        Thread.sleep(forTimeInterval: 1)
+        XCTAssertTrue(close.waitForExistence(timeout: 4))
+        XCTAssertFalse(app.segmentedControls["node.chart.period"].exists)
+        shoot(app, "timeline-full-screen")
         close.tap()
-        Thread.sleep(forTimeInterval: 1.5)
-        shoot(app, "compact-again")
+        XCTAssertTrue(close.waitForNonExistence(timeout: 3))
     }
 
     @MainActor
-    private func drag(_ element: XCUIElement) {
-        let from = element.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5))
-        let to = element.coordinate(withNormalizedOffset: CGVector(dx: 0.8, dy: 0.5))
-        from.press(forDuration: 0.2, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 1)
-        Thread.sleep(forTimeInterval: 0.8)
+    func testMissingWaitingAndUnavailableHistoryStayDistinct() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["FTW_HISTORY"] == "1", "Set TEST_RUNNER_FTW_HISTORY=1 to drive the timeline.")
+        for (state, message) in [
+            ("empty", "No recorded history in this window."),
+            ("unavailable", "Your box can't send its history right now. Still trying."),
+            ("waiting", "Fetching history…"),
+        ] {
+            let app = XCUIApplication()
+            // The held tile is the previous epoch-aligned 12-hour tile.
+            // Keep this window inside it at any wall-clock time.
+            let back = state == "waiting" ? (Date().timeIntervalSince1970 / 3_600).truncatingRemainder(dividingBy: 12) + 3 : 7
+            app.launchArguments = ["-FTWDemo", "YES", "-FTWNode", "home", "-FTWTimelineHours", "1", "-FTWTimelineBackHours", String(back), "-FTWDemoHistory", state, "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+            app.launch()
+            let chart = app.descendants(matching: .any)["node.timeline.chart"].firstMatch
+            XCTAssertTrue(chart.waitForExistence(timeout: 15))
+            let hasState = NSPredicate(format: "value CONTAINS %@", message)
+            expectation(for: hasState, evaluatedWith: chart)
+            waitForExpectations(timeout: 8)
+            shoot(app, "timeline-" + state)
+            app.terminate()
+        }
     }
 
     @MainActor

@@ -1,7 +1,7 @@
 import XCTest
 
 /// The finger on the charts (UX pass 3, U4). A tap on a node chart opens
-/// it on the whole screen and a drag only scrubs; a swipe up that starts
+/// it on the whole screen and a quick drag pans; a swipe up that starts
 /// on the plan dial's ring scrolls the plan, and once the ring scrubs, the
 /// page holds still.
 ///
@@ -26,14 +26,14 @@ final class ChartFingerTests: XCTestCase {
     }
 
     @MainActor
-    func testATapOnEachChartEnlargesItAndADragOnlyScrubs() throws {
-        for period in ["live", "today", "ahead"] {
-            let app = launch(["-FTWNode", "battery", "-FTWPeriod", period])
-            let chart = app.descendants(matching: .any)[period == "live" ? "node.live.chart" : "node.period.chart"]
+    func testATapEnlargesTheTimelineAndADragOnlyPans() throws {
+        for period in ["1", "24", "48"] {
+            let app = launch(["-FTWNode", "battery", "-FTWTimelineHours", period])
+            let chart = app.descendants(matching: .any)["node.timeline.chart"]
             XCTAssertTrue(chart.waitForExistence(timeout: 15), "no \(period) chart")
             Thread.sleep(forTimeInterval: 2)
             let close = app.buttons["node.chart.close"]
-            // A drag across the chart scrubs and opens nothing.
+            // A drag across the chart pans and opens nothing.
             chart.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.55))
                 .press(forDuration: 0.05, thenDragTo: chart.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.55)), withVelocity: .default, thenHoldForDuration: 0.2)
             XCTAssertFalse(close.waitForExistence(timeout: 1.5), "a drag on \(period) opened the chart")

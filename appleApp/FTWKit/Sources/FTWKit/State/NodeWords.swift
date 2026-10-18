@@ -24,6 +24,28 @@ public enum NodeWords {
     }
 
     static let sv: [String: String] = [
+        "History and live readings": "Historik och livevärden",
+        "Swipe up or down to move through time. Actions change the zoom.": "Svep uppåt eller nedåt för att flytta tiden. Åtgärder ändrar zoom.",
+        "Zoom in": "Zooma in",
+        "Zoom out": "Zooma ut",
+        "Back to now": "Tillbaka till nu",
+        "Drag through time · pinch to zoom · hold to read": "Dra genom tiden · nyp för att zooma · håll för att läsa",
+        "History: closed 5-minute means · live: source readings · dashed: forecast": "Historik: avslutade 5-minutersmedel · live: källvärden · streckat: prognos",
+        "History: closed hourly means · live: source readings · future bars: plan": "Historik: avslutade timmedel · live: källvärden · framtida staplar: plan",
+        "History: closed 5-minute means · live: source readings · future bars: plan": "Historik: avslutade 5-minutersmedel · live: källvärden · framtida staplar: plan",
+        "source reading": "källvärde",
+        "saved reading": "sparat värde",
+        "interval mean": "intervallmedel",
+        "forecast": "prognos",
+        "planned": "planerat",
+        "No plan or forecast for this time.": "Ingen plan eller prognos för den här tiden.",
+        "Fetching history…": "Hämtar historik…",
+        "No recorded history in this window.": "Ingen sparad historik i det här tidsfönstret.",
+        "No recorded energy in this window.": "Ingen sparad energi i det här tidsfönstret.",
+        "Plan and forecast · not measured energy": "Plan och prognos · inte uppmätt energi",
+        "Recorded in view": "Sparat i perioden",
+        "Waiting for history": "Väntar på historik",
+        "last interval filling": "senaste intervallet pågår",
         // Modes, by the registry's keys
         "Plan": "Plan",
         "Plan, selling too": "Plan, säljer också",

@@ -845,7 +845,7 @@ import FTWShared
             "appleApp/FTW/UI/PlanStrip.swift", "appleApp/FTW/UI/PlanView.swift", "appleApp/FTWKit/Sources/FTWKit/State/PlanShare.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/EnergyNode.swift", "appleApp/FTWKit/Sources/FTWKit/State/NowFlow.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/ModeModel.swift", "appleApp/FTWKit/Sources/FTWKit/State/PlanModel.swift",
-            "appleApp/FTWKit/Sources/FTWKit/State/HistoryModel.swift", "appleApp/FTW/UI/PairView.swift",
+            "appleApp/FTWKit/Sources/FTWKit/State/HistoryModel.swift", "appleApp/FTW/UI/PairView.swift", "appleApp/FTW/UI/NodeTimeline.swift",
             "appleApp/FTW/UI/RootView.swift", "appleApp/FTWKit/Sources/FTWKit/State/PairModel.swift",
             "appleApp/FTW/Car/CarView.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/ChartWords.swift", "appleApp/FTW/UI/PriceView.swift",

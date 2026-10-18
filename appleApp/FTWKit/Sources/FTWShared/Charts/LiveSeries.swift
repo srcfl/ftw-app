@@ -113,6 +113,15 @@ public struct LiveSeries: Equatable, Sendable {
     /// Every reading, oldest first, for one binary search under a finger.
     public var readings: [LiveSample] { runs.flatMap { $0 } }
 
+    /// Where an observed curve can cover a stored mean. A lone reading
+    /// is a point, not a stretch, and a source silence covers nothing.
+    public var observedRanges: [ClosedRange<Double>] {
+        runs.compactMap { run in
+            guard run.count > 1, let first = run.first, let last = run.last, last.t > first.t else { return nil }
+            return first.t...last.t
+        }
+    }
+
     /// The whole line, seen or not, for tests and the calm metrics.
     public var wholeLine: ChartPath {
         var p = ChartPath()

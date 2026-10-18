@@ -160,9 +160,10 @@ public struct ChartSeries: Equatable, Sendable {
         clock: ZoneClock,
         landmarksMs: [Double] = [],
         domain forced: YDomain? = nil,
+        displayStepMs: Double? = nil,
         words: ReadoutWords
     ) -> ChartSeries {
-        let stepMs = DisplayBucket.stepMs(spanMs: toMs - fromMs, width: size.width)
+        let stepMs = displayStepMs ?? max(sampleMs, DisplayBucket.stepMs(spanMs: toMs - fromMs, width: size.width))
         let buckets = DisplayBucket.buckets(samples, sampleMs: sampleMs, stepMs: stepMs, fromMs: fromMs, toMs: toMs, clock: clock)
         let grid = SlotGrid(firstMs: buckets.first?.startMs ?? fromMs, stepMs: stepMs, count: buckets.count, fromMs: fromMs, toMs: toMs)
 

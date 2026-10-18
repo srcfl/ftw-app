@@ -129,11 +129,23 @@ public struct AheadPicture: Equatable, Sendable {
     /// the window's start also gives it a point there, so the line starts
     /// at the left edge. One subpath per run: where the slots stop touching,
     /// the line breaks.
-    public static func forecastLine(_ marks: [Mark], fromMs: Double, toMs: Double, domain: YDomain, size: CGSize) -> ChartPath {
+    public static func forecastLine(_ marks: [Mark], fromMs: Double, toMs: Double, domain: YDomain, size: CGSize, intervalMeans: Bool = false, notBeforeMs: Double? = nil) -> ChartPath {
         guard toMs > fromMs else { return ChartPath() }
         let map = YMap(domain: domain, height: size.height)
         func x(_ ms: Double) -> CGFloat { CGFloat((ms - fromMs) / (toMs - fromMs)) * size.width }
         var line = ChartPath()
+        if intervalMeans {
+            // A zoomed window can fit inside a single forecast interval.
+            // Draw that interval's own value, clipped at now, rather than
+            // losing it because its midpoint lies outside the viewport.
+            for m in marks.sorted(by: { $0.startMs < $1.startMs }) {
+                let a = max(m.startMs, fromMs, notBeforeMs ?? fromMs)
+                let b = min(m.endMs, toMs)
+                guard b > a, m.watts.isFinite else { continue }
+                line.elements += [.move(CGPoint(x: x(a), y: map.y(m.watts))), .line(CGPoint(x: x(b), y: map.y(m.watts)))]
+            }
+            return line
+        }
         var run: [CGPoint] = []
         var end = -Double.infinity
         for m in marks.sorted(by: { $0.startMs < $1.startMs }) where m.endMs > fromMs && m.startMs < toMs {

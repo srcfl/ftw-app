@@ -15,7 +15,7 @@ final class SecondOpenTour: XCTestCase {
         let lang = env["FTW_LANG"] ?? "sv"
         let base = ["-FTWDemo", "YES", "-FTWDemoCache", "YES", "-AppleLanguages", "(\(lang))", "-AppleLocale", lang == "sv" ? "sv_SE" : "en_US"]
         let app = XCUIApplication()
-        app.launchArguments = base + ["-FTWPeriod", "today"]
+        app.launchArguments = base + ["-FTWTimelineHours", "24"]
         app.launch()
         let battery = app.descendants(matching: .any)["now.node.battery"].firstMatch
         XCTAssertTrue(battery.waitForExistence(timeout: 15))
@@ -24,7 +24,7 @@ final class SecondOpenTour: XCTestCase {
         // First open, back, second open.
         for open in ["first", "second"] {
             battery.tap()
-            let chart = app.descendants(matching: .any)["node.period.chart"].firstMatch
+            let chart = app.descendants(matching: .any)["node.timeline.chart"].firstMatch
             XCTAssertTrue(chart.waitForExistence(timeout: 5))
             shoot(app, "\(open)-open")
             Thread.sleep(forTimeInterval: 3)
@@ -38,12 +38,11 @@ final class SecondOpenTour: XCTestCase {
         Thread.sleep(forTimeInterval: 3)
         app.terminate()
         Thread.sleep(forTimeInterval: 2)
-        app.launchArguments = base + ["-FTWNode", "battery", "-FTWPeriod", "live"]
+        app.launchArguments = base + ["-FTWNode", "battery", "-FTWTimelineHours", "1"]
         app.launch()
-        XCTAssertTrue(app.descendants(matching: .any)["node.live.chart"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.descendants(matching: .any)["node.timeline.chart"].firstMatch.waitForExistence(timeout: 5))
         shoot(app, "after-kill")
         Thread.sleep(forTimeInterval: 4)
-        app.segmentedControls["node.period"].buttons.element(boundBy: 1).tap()
         shoot(app, "after-kill-today")
         Thread.sleep(forTimeInterval: 3)
     }

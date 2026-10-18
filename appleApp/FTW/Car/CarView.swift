@@ -19,7 +19,6 @@ struct CarView: View {
     let id: String?
     @State private var editingGoal = false
     @State private var scrub = ScrubModel()
-    @State private var trace = NodeTraceModel()
     @State private var text = PeriodText()
 
     private var model: LoadpointsModel { home.loadpoints }
@@ -86,7 +85,7 @@ struct CarView: View {
                     }
                     // The hours ahead are a plan, not a reading: a finger on
                     // the plan leaves the hero on now.
-                    NodeHero(site: home.site, node: .car, home: home, trace: trace, scrub: scrub, timebase: .ahead, text: text)
+                    NodeHero(site: home.site, node: .car, home: home, scrub: scrub, text: text, followsChart: false)
                         .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                         .padding(.horizontal, 20)
                     // The status line under the title is the only one.
