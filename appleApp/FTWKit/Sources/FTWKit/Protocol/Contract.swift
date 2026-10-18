@@ -83,7 +83,7 @@ public enum Contract {
         "ftw.members.write": "Invite and revoke",
         "ftw.logs.read": "Log excerpts the box redacts",
         "ftw.config.read": "Configuration the box redacts",
-        "ftw.diag.run": "Checks that change nothing",
+        "ftw.diag.run": "Full technical diagnostics and read API",
         "ftw.dispatch.hold": "Hold energy assets for a capped time",
         "ftw.goals.request": "Ask an owner to change a durable goal",
         "ftw.update.request": "Ask an owner to install a version",
