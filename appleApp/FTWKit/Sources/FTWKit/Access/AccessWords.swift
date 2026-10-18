@@ -106,12 +106,21 @@ public enum AccessWords {
         return scopes.sorted { (order.firstIndex(of: $0) ?? 99) < (order.firstIndex(of: $1) ?? 99) }
     }
 
-    /// One line for a grant: "Reads" or "Reads and controls".
+    /// One line for the rights this grant actually holds.
     public static func summary(_ scopes: [String]) -> String {
-        if scopes.contains(AccessWire.scopeSetup) {
-            return text(AccessWire.controlScopes.isDisjoint(with: scopes) ? "Reads and setup" : "Reads, setup and control")
+        let setup = scopes.contains(AccessWire.scopeSetup)
+        let control = !AccessWire.controlScopes.isDisjoint(with: scopes)
+        let reads = scopes.contains { $0 != AccessWire.scopeSetup && !AccessWire.controlScopes.contains($0) }
+        switch (reads, setup, control) {
+        case (true, true, true): return text("Reads, setup and control")
+        case (true, true, false): return text("Reads and setup")
+        case (true, false, true): return text("Reads and controls")
+        case (true, false, false): return text("Reads")
+        case (false, true, true): return text("Configures and controls")
+        case (false, true, false): return text("Configures")
+        case (false, false, true): return text("Controls")
+        case (false, false, false): return text("No access")
         }
-        return AccessWire.controlScopes.isDisjoint(with: scopes) ? text("Reads") : text("Reads and controls")
     }
 
     /// What control means for these caps: how long and how hard it may
@@ -490,6 +499,10 @@ public enum AccessWords {
         "May": "Får",
         "Reads": "Läser",
         "Reads and controls": "Läser och styr",
+        "Configures and controls": "Konfigurerar och styr",
+        "Configures": "Konfigurerar",
+        "Controls": "Styr",
+        "No access": "Ingen åtkomst",
         "Reads and setup": "Läser och konfigurerar",
         "Reads, setup and control": "Läser, konfigurerar och styr",
         "Read full diagnostics, source, logs and backups, which can contain saved credentials": "Läsa full diagnostik, källkod, loggar och säkerhetskopior som kan innehålla sparade inloggningsuppgifter",
