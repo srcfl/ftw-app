@@ -247,7 +247,7 @@ public final class SimulatedAccess {
             o.clientId = AccessWire.supportClientID
             o.clientHost = "cloud.ftw.energy"
             o.verified = true
-            o.scopes = ["ftw.config.read", "ftw.diag.run", "ftw.dispatch.hold", "ftw.events.read", "ftw.goals.request", "ftw.health.read", "ftw.history.read", "ftw.live.read", "ftw.logs.read", "ftw.plan.read"]
+            o.scopes = [AccessWire.scopeSetup, "ftw.config.read", "ftw.diag.run", "ftw.dispatch.hold", "ftw.events.read", "ftw.goals.request", "ftw.health.read", "ftw.history.read", "ftw.live.read", "ftw.logs.read", "ftw.plan.read"]
             o.ticket = ticket
             o.ttlS = UInt64(AccessWire.longestMs(Contract.roleSupport) / 1000)
         } else {
@@ -256,7 +256,7 @@ public final class SimulatedAccess {
             o.clientId = "https://claude.ai/oauth/mcp-oauth-client-metadata"
             o.clientHost = "claude.ai"
             o.verified = true
-            o.scopes = ["ftw.dispatch.hold", "ftw.events.read", "ftw.goals.request", "ftw.health.read", "ftw.history.read", "ftw.live.read", "ftw.plan.read"]
+            o.scopes = [AccessWire.scopeSetup, "ftw.config.read", "ftw.diag.run", "ftw.dispatch.hold", "ftw.events.read", "ftw.goals.request", "ftw.health.read", "ftw.history.read", "ftw.live.read", "ftw.plan.read"]
             o.ttlS = UInt64(AccessWire.longestMs(Contract.roleAgent) / 1000)
         }
         o.ops = ["car.goal.set", "loadpoint.hold", "planner.prefs.set", "site.mode.set"]

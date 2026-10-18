@@ -93,7 +93,8 @@ public enum AccessWords {
         "ftw.events.read": "See events",
         "ftw.logs.read": "Read the box's log, with names taken out",
         "ftw.config.read": "Read the settings, with names and secrets taken out",
-        "ftw.diag.run": "Run checks that change nothing",
+        "ftw.diag.run": "Read full diagnostics, source, logs and backups, which can contain saved credentials",
+        "ftw.setup.write": "Save confirmed setup and restart to apply it when you confirm",
         "ftw.dispatch.hold": "Charge the car for a short while",
         "ftw.goals.request": "Ask you for lasting changes",
     ]
@@ -107,7 +108,10 @@ public enum AccessWords {
 
     /// One line for a grant: "Reads" or "Reads and controls".
     public static func summary(_ scopes: [String]) -> String {
-        AccessWire.controlScopes.isDisjoint(with: scopes) ? text("Reads") : text("Reads and controls")
+        if scopes.contains(AccessWire.scopeSetup) {
+            return text(AccessWire.controlScopes.isDisjoint(with: scopes) ? "Reads and setup" : "Reads, setup and control")
+        }
+        return AccessWire.controlScopes.isDisjoint(with: scopes) ? text("Reads") : text("Reads and controls")
     }
 
     /// What control means for these caps: how long and how hard it may
@@ -486,6 +490,14 @@ public enum AccessWords {
         "May": "Får",
         "Reads": "Läser",
         "Reads and controls": "Läser och styr",
+        "Reads and setup": "Läser och konfigurerar",
+        "Reads, setup and control": "Läser, konfigurerar och styr",
+        "Read full diagnostics, source, logs and backups, which can contain saved credentials": "Läsa full diagnostik, källkod, loggar och säkerhetskopior som kan innehålla sparade inloggningsuppgifter",
+        "Save confirmed setup and restart to apply it when you confirm": "Spara bekräftad konfiguration och starta om när du godkänner det",
+        "Allow setup": "Tillåt konfigurering",
+        "Off until you choose it. This includes equipment names and connection settings. Review and confirm the exact draft before it saves, and confirm any restart separately. Equipment settings can affect operation; the box keeps its safety checks.": "Av tills du väljer det. Det omfattar utrustningens namn och anslutningsinställningar. Granska och bekräfta det exakta utkastet före sparning och godkänn varje omstart för sig. Utrustningens inställningar kan påverka driften; boxens säkerhetskontroller gäller.",
+        "Short control actions are off.": "Tillfälliga styråtgärder är avstängda.",
+
         "Control": "Styra",
         "Also let it control": "Låt den också styra",
         "See live readings": "Se mätvärden just nu",

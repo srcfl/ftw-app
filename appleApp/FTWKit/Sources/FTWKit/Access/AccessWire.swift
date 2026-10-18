@@ -42,6 +42,7 @@ public enum AccessWire {
     }
 
     /// The scopes an owner ticks "control" to add.
+    public static let scopeSetup = "ftw.setup.write"
     public static let scopeHold = "ftw.dispatch.hold"
     public static let scopeRequest = "ftw.goals.request"
     public static let controlScopes: Set<String> = [scopeHold, scopeRequest]

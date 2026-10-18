@@ -10,6 +10,7 @@ struct GrantView: View {
     let id: String
     @State private var scopes: Set<String> = []
     @State private var control = false
+    @State private var setup = false
     @State private var lengthMs: Int64 = 0
     @State private var loaded = false
     @Environment(\.dismiss) private var dismiss
@@ -26,15 +27,16 @@ struct GrantView: View {
     }
 
     private func load(_ row: AgentRow) {
-        scopes = Set(row.scopes).subtracting(AccessWire.controlScopes)
+        scopes = Set(row.scopes).subtracting(AccessWire.controlScopes).subtracting([AccessWire.scopeSetup])
         control = row.hasControl
+        setup = row.scopes.contains(AccessWire.scopeSetup)
         lengthMs = 0
         loaded = true
     }
 
     private func form(_ row: AgentRow) -> some View {
         let now = Date().timeIntervalSince1970 * 1000
-        let reads = (Contract.agentRoleScopes[row.role] ?? []).filter { !AccessWire.controlScopes.contains($0) }
+        let reads = (Contract.agentRoleScopes[row.role] ?? []).filter { !AccessWire.controlScopes.contains($0) && $0 != AccessWire.scopeSetup }
         let lengths = Grant.lengths(role: row.role, boxMs: access.boxLongestMs(row.role))
         return List {
             Section {
@@ -74,6 +76,16 @@ struct GrantView: View {
             }
 
             if row.role != Contract.roleRelease {
+                Section {
+                    Toggle(AccessWords.text("Allow setup"), isOn: $setup)
+                        .tint(Theme.live)
+                        .accessibilityIdentifier("grant.setup")
+                } footer: {
+                    Text(AccessWords.text("Off until you choose it. This includes equipment names and connection settings. Review and confirm the exact draft before it saves, and confirm any restart separately. Equipment settings can affect operation; the box keeps its safety checks."))
+                }
+            }
+
+            if row.role != Contract.roleRelease {
                 let canTurnOn = row.hasControl || !(access.asked(row)?.askedOps.isEmpty ?? true)
                 Section {
                     Toggle(AccessWords.text("Control"), isOn: $control)
@@ -84,7 +96,7 @@ struct GrantView: View {
                     if !canTurnOn {
                         Text(AccessWords.text("Add it again from its page to let it control."))
                     } else {
-                        Text(control ? AccessWords.control(g.caps, scopes: g.scopes) : AccessWords.text("Off: it reads and changes nothing."))
+                        Text(control ? AccessWords.control(g.caps, scopes: g.scopes) : AccessWords.text(setup ? "Short control actions are off." : "Off: it reads and changes nothing."))
                     }
                 }
                 if control {
@@ -132,7 +144,7 @@ struct GrantView: View {
                     }
                 }
                 .buttonStyle(FTWButtonStyle(kind: .primary))
-                .disabled(scopes.isEmpty || access.working != nil)
+                .disabled(grant(row).scopes.isEmpty || access.working != nil)
                 .padding(16)
                 .background(Theme.surface)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -147,6 +159,7 @@ struct GrantView: View {
     /// phone approved it, never more; control off drops both.
     private func grant(_ row: AgentRow) -> Grant {
         var all = scopes
+        if setup { all.insert(AccessWire.scopeSetup) }
         var ops = row.ops
         var caps = row.caps
         if control, row.hasControl {
@@ -169,6 +182,6 @@ struct GrantView: View {
     }
 
     private func changed(_ row: AgentRow) -> Bool {
-        scopes != Set(row.scopes).subtracting(AccessWire.controlScopes) || control != row.hasControl || lengthMs != 0
+        scopes != Set(row.scopes).subtracting(AccessWire.controlScopes).subtracting([AccessWire.scopeSetup]) || setup != row.scopes.contains(AccessWire.scopeSetup) || control != row.hasControl || lengthMs != 0
     }
 }

@@ -34,6 +34,8 @@ public final class OfferFlow {
     public var typed = ""
     /// Control is a separate switch, off until ticked.
     public var control = false
+    /// Setup needs its own explicit choice, even when control is on.
+    public var setup = false
     /// FTW Cloud does not know this client: the owner says they started
     /// this and trust its address before Face ID.
     public var trustsUnknown = false
@@ -156,7 +158,7 @@ public final class OfferFlow {
 
     /// What the owner has chosen so far, within what the box takes.
     public func grant(_ offer: GrantOffer, boxMs: Int64? = nil) -> Grant {
-        Grant.from(offer, control: control, lengthMs: lengthMs, boxMs: boxMs)
+        Grant.from(offer, control: control, lengthMs: lengthMs, boxMs: boxMs, setup: setup)
     }
 
     /// The lengths to pick from, within the offer and what the box takes.
@@ -176,6 +178,7 @@ public final class OfferFlow {
     private func review(_ offer: GrantOffer) {
         lengthMs = Grant.startLength(role: offer.role, in: Grant.lengths(role: offer.role, offeredS: offer.ttlS))
         control = false
+        setup = false
         trustsUnknown = false
         step = .review(offer)
     }
