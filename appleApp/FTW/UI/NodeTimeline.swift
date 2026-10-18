@@ -99,6 +99,32 @@ struct TimelineChartArea: View {
         let looks = Dictionary(uniqueKeysWithValues: data.map { ($0.node.rawValue, NodeChartLook.look($0.node)) })
         let live = Set(data.filter { site.freshness($0.node).live }.map { $0.node.rawValue })
         let empty = emptyMessage(data)
+        chart(data, picture: picture, traces: traces, frame: frame, looks: looks, live: live, empty: empty)
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
+        .onChange(of: picture.domain) { shown = picture.domain }
+        .onChange(of: home.nodes.live.revision, initial: true) { followIfFree() }
+        .onChange(of: site.minuteMs) { followIfFree() }
+        .onChange(of: interacting) { followIfFree() }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(node.title + ". " + L("History and live readings"))
+        .accessibilityValue(TimelineWords.window(window) + (empty.map { ". " + $0 } ?? ""))
+        .accessibilityHint(L("Swipe up or down to move through time. Actions change the zoom."))
+        .accessibilityAdjustableAction { direction in
+            let destination = direction == .increment ? -0.25 : 0.25
+            window = window.transformed(anchor: 0, destination: destination, magnification: 1, nowMs: site.nowMs)
+        }
+        .accessibilityAction(named: L("Zoom in")) { window = window.transformed(anchor: 0.5, destination: 0.5, magnification: 2, nowMs: site.nowMs) }
+        .accessibilityAction(named: L("Zoom out")) { window = window.transformed(anchor: 0.5, destination: 0.5, magnification: 0.5, nowMs: site.nowMs) }
+        .accessibilityAction(named: L("Back to now")) { window.returnToNow(nowMs: site.nowMs) }
+        .accessibilityChartDescriptor(TimelineDescriptor(node: node, history: picture, observations: traces[node.rawValue]?.readings ?? []))
+        .accessibilityIdentifier("node.timeline.chart")
+    }
+
+    private func followIfFree() {
+        if !interacting { window.follow(nowMs: site.nowMs) }
+    }
+
+    private func chart(_ data: [Input], picture: HistoryPicture, traces: [String: LiveSeries], frame: ChartFrame, looks: [String: TraceLook], live: Set<String>, empty: String?) -> some View {
         ZStack {
             ChartSurface(drawing: TimelineDrawing(history: picture, traces: traces, looks: looks, frame: frame, liveKeys: live, axis: axis, words: ChartLabels(fetching: L("Waiting for history"), now: L("NOW"))))
                 .equatable()
@@ -113,28 +139,6 @@ struct TimelineChartArea: View {
                     .allowsHitTesting(false)
             }
         }
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
-        .onChange(of: picture.domain) { _, value in shown = value }
-        .onChange(of: home.nodes.live.revision, initial: true) { _, _ in
-            if !interacting { window.follow(nowMs: site.nowMs) }
-        }
-        .onChange(of: site.minuteMs) { _, _ in
-            if !interacting { window.follow(nowMs: site.nowMs) }
-        }
-        .onChange(of: interacting) { _, down in if !down { window.follow(nowMs: site.nowMs) } }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(node.title + ". " + L("History and live readings"))
-        .accessibilityValue(TimelineWords.window(window) + (empty.map { ". " + $0 } ?? ""))
-        .accessibilityHint(L("Swipe up or down to move through time. Actions change the zoom."))
-        .accessibilityAdjustableAction { direction in
-            let destination = direction == .increment ? -0.25 : 0.25
-            window = window.transformed(anchor: 0, destination: destination, magnification: 1, nowMs: site.nowMs)
-        }
-        .accessibilityAction(named: L("Zoom in")) { window = window.transformed(anchor: 0.5, destination: 0.5, magnification: 2, nowMs: site.nowMs) }
-        .accessibilityAction(named: L("Zoom out")) { window = window.transformed(anchor: 0.5, destination: 0.5, magnification: 0.5, nowMs: site.nowMs) }
-        .accessibilityAction(named: L("Back to now")) { window.returnToNow(nowMs: site.nowMs) }
-        .accessibilityChartDescriptor(TimelineDescriptor(node: node, history: picture, observations: traces[node.rawValue]?.readings ?? []))
-        .accessibilityIdentifier("node.timeline.chart")
     }
 
     private func emptyMessage(_ inputs: [Input]) -> String? {
@@ -269,6 +273,7 @@ struct TimelineControls: View {
     @Binding var window: TimelineWindow
     let scrub: ScrubModel
     let text: PeriodText
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
@@ -282,14 +287,19 @@ struct TimelineControls: View {
                     .accessibilityHidden(window.followsNow)
                     .accessibilityIdentifier("timeline.now")
             }
-            Text(text.text(scrub) ?? summary)
-                .font(.subheadline).foregroundStyle(Theme.ink2)
-                .lineLimit(2, reservesSpace: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .accessibilityIdentifier("chart.readout")
+            Group {
+                if typeSize.isAccessibilitySize { readout.fixedSize(horizontal: false, vertical: true) }
+                else { readout.lineLimit(2, reservesSpace: true) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("chart.readout")
             Text(TimelineWords.material(node) + "\n" + L("Drag through time · pinch to zoom · hold to read"))
                 .font(.caption2).foregroundStyle(Theme.ink3)
         }
+    }
+
+    private var readout: some View {
+        Text(text.text(scrub) ?? summary).font(.subheadline).foregroundStyle(Theme.ink2)
     }
 
     private var summary: String {
