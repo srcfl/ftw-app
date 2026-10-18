@@ -24,6 +24,7 @@ public enum Contract {
         "ftw.logs.read",
         "ftw.config.read",
         "ftw.diag.run",
+        "ftw.setup.write",
         "ftw.dispatch.hold",
         "ftw.goals.request",
         "ftw.update.request",
@@ -65,7 +66,7 @@ public enum Contract {
     ]
     static let agentScopes = [
         "ftw.live.read", "ftw.history.read", "ftw.plan.read", "ftw.health.read", "ftw.events.read",
-        "ftw.logs.read", "ftw.config.read", "ftw.diag.run", "ftw.dispatch.hold", "ftw.goals.request",
+        "ftw.logs.read", "ftw.config.read", "ftw.diag.run", "ftw.setup.write", "ftw.dispatch.hold", "ftw.goals.request",
     ]
 
     /// Each scope's description, from the registry. Words for an owner come
@@ -84,6 +85,7 @@ public enum Contract {
         "ftw.logs.read": "Log excerpts the box redacts",
         "ftw.config.read": "Configuration the box redacts",
         "ftw.diag.run": "Full technical diagnostics and read API",
+        "ftw.setup.write": "Save confirmed system setup and restart to apply it after user confirmation",
         "ftw.dispatch.hold": "Hold energy assets for a capped time",
         "ftw.goals.request": "Ask an owner to change a durable goal",
         "ftw.update.request": "Ask an owner to install a version",

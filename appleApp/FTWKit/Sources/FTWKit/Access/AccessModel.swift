@@ -108,10 +108,11 @@ public struct Grant: Equatable, Sendable {
     /// What the owner grants from an offer: what it reads, and control only
     /// when ticked. Never more than it asks, and never past the box's own
     /// limits.
-    public static func from(_ offer: GrantOffer, control: Bool, lengthMs: Int64, boxMs: Int64? = nil) -> Grant {
+    public static func from(_ offer: GrantOffer, control: Bool, lengthMs: Int64, boxMs: Int64? = nil, setup: Bool = false) -> Grant {
         let allowed = Set(Contract.agentRoleScopes[offer.role] ?? [])
         let asked = Set(offer.scopes).intersection(allowed)
-        let scopes = control ? asked : asked.subtracting(AccessWire.controlScopes)
+        var scopes = (control ? asked : asked.subtracting(AccessWire.controlScopes)).subtracting([AccessWire.scopeSetup])
+        if setup, asked.contains(AccessWire.scopeSetup) { scopes.insert(AccessWire.scopeSetup) }
         let ops = offer.ops.filter { op in Contract.agentOps[op].map(scopes.contains) ?? false }
         var caps = Caps(perMin: min(offer.caps.perMin, 60))
         if scopes.contains(AccessWire.scopeHold) {

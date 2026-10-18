@@ -93,7 +93,8 @@ public enum AccessWords {
         "ftw.events.read": "See events",
         "ftw.logs.read": "Read the box's log, with names taken out",
         "ftw.config.read": "Read the settings, with names and secrets taken out",
-        "ftw.diag.run": "Run checks that change nothing",
+        "ftw.diag.run": "Read full diagnostics, source, logs and backups, which can contain saved credentials",
+        "ftw.setup.write": "Save confirmed setup and restart to apply it when you confirm",
         "ftw.dispatch.hold": "Charge the car for a short while",
         "ftw.goals.request": "Ask you for lasting changes",
     ]
@@ -105,9 +106,21 @@ public enum AccessWords {
         return scopes.sorted { (order.firstIndex(of: $0) ?? 99) < (order.firstIndex(of: $1) ?? 99) }
     }
 
-    /// One line for a grant: "Reads" or "Reads and controls".
+    /// One line for the rights this grant actually holds.
     public static func summary(_ scopes: [String]) -> String {
-        AccessWire.controlScopes.isDisjoint(with: scopes) ? text("Reads") : text("Reads and controls")
+        let setup = scopes.contains(AccessWire.scopeSetup)
+        let control = !AccessWire.controlScopes.isDisjoint(with: scopes)
+        let reads = scopes.contains { $0 != AccessWire.scopeSetup && !AccessWire.controlScopes.contains($0) }
+        switch (reads, setup, control) {
+        case (true, true, true): return text("Reads, setup and control")
+        case (true, true, false): return text("Reads and setup")
+        case (true, false, true): return text("Reads and controls")
+        case (true, false, false): return text("Reads")
+        case (false, true, true): return text("Configures and controls")
+        case (false, true, false): return text("Configures")
+        case (false, false, true): return text("Controls")
+        case (false, false, false): return text("No access")
+        }
     }
 
     /// What control means for these caps: how long and how hard it may
@@ -486,6 +499,18 @@ public enum AccessWords {
         "May": "Får",
         "Reads": "Läser",
         "Reads and controls": "Läser och styr",
+        "Configures and controls": "Konfigurerar och styr",
+        "Configures": "Konfigurerar",
+        "Controls": "Styr",
+        "No access": "Ingen åtkomst",
+        "Reads and setup": "Läser och konfigurerar",
+        "Reads, setup and control": "Läser, konfigurerar och styr",
+        "Read full diagnostics, source, logs and backups, which can contain saved credentials": "Läsa full diagnostik, källkod, loggar och säkerhetskopior som kan innehålla sparade inloggningsuppgifter",
+        "Save confirmed setup and restart to apply it when you confirm": "Spara bekräftad konfiguration och starta om när du godkänner det",
+        "Allow setup": "Tillåt konfigurering",
+        "Off until you choose it. This includes equipment names and connection settings. Review and confirm the exact draft before it saves, and confirm any restart separately. Equipment settings can affect operation; the box keeps its safety checks.": "Av tills du väljer det. Det omfattar utrustningens namn och anslutningsinställningar. Granska och bekräfta det exakta utkastet före sparning och godkänn varje omstart för sig. Utrustningens inställningar kan påverka driften; boxens säkerhetskontroller gäller.",
+        "Short control actions are off.": "Tillfälliga styråtgärder är avstängda.",
+
         "Control": "Styra",
         "Also let it control": "Låt den också styra",
         "See live readings": "Se mätvärden just nu",
