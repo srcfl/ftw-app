@@ -103,7 +103,7 @@ public enum Contract {
         "cmd.lease", "cmd.precondition", "cmd.readback",
         "der.battery", "der.ev", "der.v2x",
         "plan.dispatch", "net.webrtc", "price.spot", "api.passthrough",
-        "cloud.link", "cloud.tun", "cmd.exchange", "access.agents", "der.car",
+        "cloud.link", "cloud.tun", "cmd.exchange", "access.agents", "access.invites", "der.car",
     ]
 
     public static let capHistory5m = "history.5m"
@@ -122,6 +122,7 @@ public enum Contract {
     /// The box takes agents and answers the agent messages. Absent, the app
     /// offers no Access list.
     public static let capAccessAgents = "access.agents"
+    public static let capAccessInvites = "access.invites"
 
     /// The scopes an FTW Cloud grant may name, and what its data may be
     /// used for: the registry's `cloud_scopes` and `cloud_purposes`.

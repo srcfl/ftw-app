@@ -144,6 +144,7 @@ public struct Grant: Equatable, Sendable {
 public final class AccessModel {
     /// Nil until the box has answered once.
     public private(set) var list: AgentList?
+    public private(set) var invitations: [AgentInvitation] = []
     public private(set) var audit: [AuditRow] = []
     public private(set) var auditMore = false
     /// What the owner wrote for each support ticket, on this phone only.
@@ -175,6 +176,7 @@ public final class AccessModel {
     public let signedFor: SignedFor
     @ObservationIgnored let keyring: ApprovalKeyring?
     @ObservationIgnored let wallMs: @MainActor () -> Double
+    @ObservationIgnored let invitationLookup: OfferLookup
     /// Box wall clock minus this phone's, once the box has said
     /// `E_CLOCK_SKEW`.
     @ObservationIgnored private var boxOffsetMs: Double = 0
@@ -183,11 +185,12 @@ public final class AccessModel {
     /// knows too.
     public static let demoFor = SignedFor(boxKey: Bytes(repeating: 0x5a, count: 32), deviceID: "demoPh01")
 
-    public init(site: SiteModel, signedFor: SignedFor, keyring: ApprovalKeyring?, wallMs: @escaping @MainActor () -> Double = { Date().timeIntervalSince1970 * 1000 }) {
+    public init(site: SiteModel, signedFor: SignedFor, keyring: ApprovalKeyring?, wallMs: @escaping @MainActor () -> Double = { Date().timeIntervalSince1970 * 1000 }, invitationLookup: OfferLookup = .current()) {
         self.site = site
         self.signedFor = signedFor
         self.keyring = keyring
         self.wallMs = wallMs
+        self.invitationLookup = invitationLookup
         // The rows the last visit saw, so the list opens on them; the box's
         // answer replaces them within a round trip.
         if let rows = site.keptFile([AgentRow].self, "access") { list = AgentList(agents: rows) }
@@ -270,6 +273,15 @@ public final class AccessModel {
         keysKnown ? list?.longestMs[role] : nil
     }
 
+    public var invitationLengths: [Int64] {
+        Grant.lengths(role: Contract.roleAgent, boxMs: boxLongestMs(Contract.roleAgent))
+    }
+
+    private func invitationLengthAllowed(_ length: Int64) -> Bool {
+        length > 0 && length <= min(AccessWire.longestMs(Contract.roleAgent),
+                                   boxLongestMs(Contract.roleAgent) ?? AccessWire.unstatedLongestMs(Contract.roleAgent))
+    }
+
     // MARK: Reading
 
     public func refresh() async {
@@ -294,6 +306,101 @@ public final class AccessModel {
             auditMore = page.more
         } catch {
             help = words(error)
+        }
+    }
+
+    public var invitationsAvailable: Bool { available && site.session.caps.contains(Contract.capAccessInvites) }
+
+    public func refreshInvitations() async {
+        guard invitationsAvailable else { return }
+        do {
+            let rows = (try await site.ask(InvitationWire.list, .emptyMap))["invitations"]?.array?.compactMap(AgentInvitation.init) ?? []
+            let newlyClaimed = rows.contains { row in
+                row.state == "claimed" && !invitations.contains(where: { $0.id == row.id && $0.state == "claimed" })
+            }
+            invitations = rows
+            if newlyClaimed { await refresh() }
+        } catch { help = words(error) }
+    }
+
+    public func cancelInvitation(_ invitation: AgentInvitation) async -> AgentInvitation? {
+        do {
+            let answer = try await site.ask(InvitationWire.cancel, .map([("id", .text(invitation.id))]))
+            let row = answer["invitation"].flatMap(AgentInvitation.init)
+            await refreshInvitations(); await refresh(); return row
+        } catch { help = words(error); return nil }
+    }
+
+    @discardableResult
+    public func createInvitation(_ draft: InvitationDraft, home: String, label: String, grant: Grant, claimSeconds: Int64) async
+        -> AgentInvitation?
+    {
+        guard working == nil else { return nil }
+        working = "invitation"
+        defer { working = nil }
+        if draft.request == nil {
+            await refresh()
+            guard keysKnown else { return nil }
+            guard invitationLengthAllowed(grant.lengthMs) else {
+                help = AccessWords.text("Choose a shorter access time that your box allows.")
+                return nil
+            }
+        }
+        let result: AgentInvitation? = await signed(
+            AccessWords.text("Create an invitation to this home"), target: "invitation", retrySkew: false,
+            onSpare: { signer in
+                guard var request = draft.request else { return }
+                request.sig = try signer.sign(try request.signedBytes(self.signedFor))
+                draft.request = request
+            }
+        ) { signer in
+            if draft.request == nil {
+                await self.refresh()
+                guard self.invitationLengthAllowed(grant.lengthMs) else {
+                    throw BoxRefusal(detail: ErrorMsg(code: "E_CAP_EXCEEDED", retryable: false, args: ["cap": .text("expiresAtMs")]))
+                }
+                let clock = try await self.site.ask(InvitationWire.list, .emptyMap)
+                guard clock["clockReady"]?.bool == true, let boxMs = clock["nowMs"]?.int64, boxMs > 0 else {
+                    throw BoxRefusal(detail: ErrorMsg(code: "E_UNAVAILABLE", retryable: true, args: ["subsystem": .text("clock")]))
+                }
+                self.boxOffsetMs = Double(boxMs) - self.wallMs()
+                let at = self.nowMs, end = self.expiry(grant.lengthMs)
+                var m = InvitationCreate(
+                    id: draft.id, home: home, label: label, hash: InvitationWire.hash(home: home, secret: draft.secret), grant: grant,
+                    claimUntilMs: min(at + claimSeconds * 1000, end), expiresAtMs: end, atMs: at)
+                m.sig = try signer.sign(try m.signedBytes(self.signedFor)); draft.request = m
+            }
+            guard let m = draft.request else { return nil }
+            do {
+                let answer = try await self.site.ask(InvitationWire.create, m.cbor)
+                return answer["invitation"].flatMap(AgentInvitation.init)
+            } catch let refusal as BoxRefusal where refusal.detail.code == "E_CAP_EXCEEDED"
+                || (refusal.detail.code == "E_BAD_SIGNATURE" && refusal.detail.args["field"]?.string == "claimUntilMs") {
+                // An accepted exact retry returns its receipt before these
+                // checks. A timeout keeps the signed request for recovery.
+                if draft.receipt == nil { draft.request = nil }
+                throw refusal
+            }
+        }
+        if let result { draft.receipt = result }
+        await refreshInvitations()
+        if result == nil, let row = invitations.first(where: { $0.id == draft.id }) { draft.receipt = row }
+        if draft.receipt?.state == "pending" { await publishInvitation(draft) }
+        return draft.receipt
+    }
+
+    public func invitationCode(_ draft: InvitationDraft) -> String? {
+        guard let alias = draft.alias, nowMs < alias.expiresAtMs else { return nil }
+        return draft.code
+    }
+
+    public func publishInvitation(_ draft: InvitationDraft) async {
+        guard let receipt = draft.receipt, receipt.state == "pending" else { return }
+        working = "invitationCode"
+        defer { working = nil }
+        let proof = InvitationWire.code(home: receipt.home, box: receipt.box, secret: draft.secret)
+        do { draft.alias = try await invitationLookup.publishInvitation(proof); help = nil } catch {
+            help = AccessWords.text("Waiting for the box to publish the code. Keep this page open and retry the same invitation.")
         }
     }
 
@@ -491,7 +598,10 @@ public final class AccessModel {
     /// phone, then `work` with the key; again once with the box's time if
     /// the box says this phone's clock is off. The box's own list of keys
     /// decides whether this phone registers one: never a cached list.
-    private func signed<T>(_ reason: String, target: String, _ work: @escaping @MainActor (ApprovalSigner) async throws -> T?) async -> T? {
+    private func signed<T>(
+        _ reason: String, target: String, retrySkew: Bool = true, onSpare: (@MainActor (ApprovalSigner) throws -> Void)? = nil,
+        _ work: @escaping @MainActor (ApprovalSigner) async throws -> T?
+    ) async -> T? {
         guard let keyring, let home = keyHome else {
             help = AccessWords.text("This phone can't approve on its own. Use your box's page.")
             return nil
@@ -513,12 +623,13 @@ public final class AccessModel {
             let keys = try await registered(unlock)
             let out: T?
             do {
-                out = try await retryingSkew { try await work(keys.signer) }
+                if retrySkew { out = try await retryingSkew { try await work(keys.signer) } } else { out = try await work(keys.signer) }
                 if keys.isPending { try? unlock.promote() }
             } catch let r as BoxRefusal where r.detail.code == "E_BAD_SIGNATURE" && r.detail.args["field"] == nil && keys.spare != nil {
                 // A replacement the box took though its answer never came
                 // back: the spare is the key the box holds.
-                out = try await retryingSkew { try await work(keys.spare!) }
+                try onSpare?(keys.spare!)
+                if retrySkew { out = try await retryingSkew { try await work(keys.spare!) } } else { out = try await work(keys.spare!) }
                 try? unlock.promote()
             }
             help = nil

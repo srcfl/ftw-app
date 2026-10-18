@@ -369,7 +369,7 @@ public final class AppModel {
         site.ceilingW = 11_000
         let models = HomeModels(site: site, cache: shares ? shared.map { CacheReader(sources: [$0]) } : nil)
         if let demoAccess {
-            models.access = AccessModel(site: site, signedFor: AccessModel.demoFor, keyring: demoAccess.keys, wallMs: { [scheduler] in scheduler.nowMs })
+            models.access = AccessModel(site: site, signedFor: AccessModel.demoFor, keyring: demoAccess.keys, wallMs: { [scheduler] in scheduler.nowMs }, invitationLookup: demoAccess.lookup)
         }
         home = models
         isDemo = true

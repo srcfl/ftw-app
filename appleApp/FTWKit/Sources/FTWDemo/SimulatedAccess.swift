@@ -22,6 +22,9 @@ public final class SimulatedAccess {
     /// 30 days for an assistant.
     public var longestMs: [String: Int64]? = Dictionary(uniqueKeysWithValues:
         [Contract.roleAgent, Contract.roleSupport, Contract.roleRelease].map { ($0, AccessWire.longestMs($0)) })
+    private var invitations: [String:CBOR] = [:]
+    private var invitationRequests: [String:CBOR] = [:]
+    public var loseNextInvitationAnswer = false
     private var seen = Set<Bytes>()
     private var seq: UInt64 = 0
     let nowMs: @MainActor () -> Double
@@ -99,6 +102,10 @@ public final class SimulatedAccess {
             loseNextAnswer = false
             reply = { _ in }
         }
+        if env.t == InvitationWire.create && loseNextInvitationAnswer {
+            loseNextInvitationAnswer = false
+            reply = { _ in }
+        }
         let body = env.b ?? .emptyMap
         let ok = { (b: CBOR) in reply(Envelope(t: AccessWire.msgOK, id: env.id, b: b)) }
         let refuse = { (code: String, args: [(String, CBOR)]) in
@@ -106,6 +113,29 @@ public final class SimulatedAccess {
         }
         let now = Int64(nowMs())
         switch env.t {
+        case InvitationWire.list:
+            ok(.map([("invitations", .array(Array(invitations.values))), ("nowMs", .int(now)), ("clockReady", .bool(true))]))
+        case InvitationWire.cancel:
+            guard let id = body["id"]?.string, let row = invitations[id], let m = InvitationCreate(invitationRequests[id] ?? .emptyMap)
+            else { return refuse("E_NOT_FOUND", []) }
+            let updated = row["state"]?.string == "pending" ? Self.invitation(m, signedFor.boxKey, state: "cancelled") : row
+            invitations[id] = updated; ok(.map([("invitation", updated)]))
+        case InvitationWire.create:
+            guard let m = InvitationCreate(body), let pub = keys[signedFor.deviceID], let msg = try? m.signedBytes(signedFor) else {
+                return refuse("E_BAD_SIGNATURE", [])
+            }
+            if let old = invitationRequests[m.id], let row = invitations[m.id] {
+                guard old == body else { return refuse("E_CONFLICT", []) }; ok(.map([("invitation", row)])); return
+            }
+            guard m.claimUntilMs > now, m.claimUntilMs <= now + 86_400_000, m.claimUntilMs <= m.expiresAtMs else {
+                return refuse("E_BAD_SIGNATURE", [("field", .text("claimUntilMs"))])
+            }
+            guard m.expiresAtMs > now, m.expiresAtMs <= now + longest(AccessWire.roleAgent) else {
+                return refuse("E_CAP_EXCEEDED", [("cap", .text("expiresAtMs"))])
+            }
+            if let code = check(pub, msg, m.sig, atMs: m.atMs, now: now) { return refuse(code.0, code.1) }
+            let row = Self.invitation(m, signedFor.boxKey, state: "pending"); invitations[m.id] = row; invitationRequests[m.id] = body
+            ok(.map([("invitation", row)]))
         case AccessWire.msgList:
             lists += 1
             var list: [(String, CBOR)] = [
@@ -210,6 +240,10 @@ public final class SimulatedAccess {
 
     /// The box's checks on a signature: fresh, never seen, and over these
     /// bytes.
+    private static func invitation(_ m:InvitationCreate,_ box:Bytes,state:String)->CBOR {
+        .map([("id",.text(m.id)),("home",.text(m.home)),("box",.bytes(box)),("label",.text(m.label)),("state",.text(state)),("scopes",.array(m.grant.scopes.map { .text($0) })),("ops",.array(m.grant.ops.map { .text($0) })),("claimUntilMs",.int(m.claimUntilMs)),("expiresAtMs",.int(m.expiresAtMs))])
+    }
+
     private func check(_ pub: Bytes, _ msg: Bytes, _ sig: Bytes, atMs: Int64, now: Int64) -> (String, [(String, CBOR)])? {
         guard abs(atMs - now) <= Approval.skewMs else { return ("E_CLOCK_SKEW", [("boxMs", .int(now))]) }
         guard Approval.verify(pub: pub, message: msg, sig: sig) else { return ("E_BAD_SIGNATURE", []) }
@@ -270,6 +304,9 @@ public final class SimulatedAccess {
     /// The simulated consent page's code lookup: the demo's code finds a
     /// fresh offer, any other none.
     public static let lookup = OfferLookup(base: URL(string: "https://demo.invalid")!) { req in
+        if req.url?.path == "/oauth/invitations", req.httpMethod == "POST" {
+            return (try JSONSerialization.data(withJSONObject:["code":"K7M-4PX","expiresAtMs":Int64(Date().timeIntervalSince1970*1000)+600_000]),200)
+        }
         let code = URLComponents(url: req.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "code" }?.value
         guard code == "K7QF2MXD" else { return (Data(), 404) }
         let signed: String = await MainActor.run { () -> String in
