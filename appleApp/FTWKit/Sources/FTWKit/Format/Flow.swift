@@ -37,7 +37,8 @@ public enum Flow {
     }
 
     public struct Readings: Equatable, Sendable {
-        public var loadKw: Double
+        /// Core's qualified load, or nil when no load was sent.
+        public var loadKw: Double?
         public var nodes: [Node]
         public var selfPoweredPctToday: Double?
     }
@@ -82,7 +83,7 @@ public enum Flow {
         if let e = fields[Contract.FID.evW] {
             nodes.append(Node(id: "ev", role: .ev, corner: .bottomRight, title: "EV CHARGER", kw: e / 1000, toHub: false, tone: tone(.ev, e), sub: idle(e) ? "idle" : "charging", dailyParts: [], tappable: true))
         }
-        return Readings(loadKw: (fields[Contract.FID.loadW] ?? 0) / 1000, nodes: nodes, selfPoweredPctToday: nil)
+        return Readings(loadKw: fields[Contract.FID.loadW].map { $0 / 1000 }, nodes: nodes, selfPoweredPctToday: nil)
     }
 
     /// Nodes from GET /api/status: per-driver bubbles and energy today, the
@@ -117,7 +118,7 @@ public enum Flow {
             }
         }
         let selfPowered: Double? = loadTotal > 0.001 ? max(0, min(100, (1 - imp / loadTotal) * 100)) : nil
-        return Readings(loadKw: (status["load_w"]?.number ?? 0) / 1000, nodes: nodes, selfPoweredPctToday: selfPowered)
+        return Readings(loadKw: status["load_w"]?.number.map { $0 / 1000 }, nodes: nodes, selfPoweredPctToday: selfPowered)
     }
 
     /// Charger watts the box's HTTP API knows, summed.
@@ -125,14 +126,13 @@ public enum Flow {
         points.reduce(0) { $0 + ($1.powerW > idleW ? $1.powerW : 0) }
     }
 
-    /// Put the car on its own node when the 1 Hz stream folded it into the
-    /// house. A box that already sends field 10 is left alone.
+    /// Add the charger's reading when the stream has no active EV field.
+    /// Core owns the house load: keep it unchanged, including nil and zero.
     public static func withLoadpointEV(_ fields: [Int: Double], evW: Double) -> [Int: Double] {
         guard evW > idleW else { return fields }
         if let wire = fields[Contract.FID.evW], abs(wire) > idleW { return fields }
         var out = fields
         out[Contract.FID.evW] = evW.rounded()
-        out[Contract.FID.loadW] = max(0, (fields[Contract.FID.loadW] ?? 0) - evW)
         return out
     }
 
