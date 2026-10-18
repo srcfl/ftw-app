@@ -105,19 +105,9 @@ struct TimelineChartArea: View {
         .onChange(of: home.nodes.live.revision, initial: true) { followIfFree() }
         .onChange(of: site.minuteMs) { followIfFree() }
         .onChange(of: interacting) { followIfFree() }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(node.title + ". " + L("History and live readings"))
-        .accessibilityValue(TimelineWords.window(window) + (empty.map { ". " + $0 } ?? ""))
-        .accessibilityHint(L("Swipe up or down to move through time. Actions change the zoom."))
-        .accessibilityAdjustableAction { direction in
-            let destination = direction == .increment ? -0.25 : 0.25
-            window = window.transformed(anchor: 0, destination: destination, magnification: 1, nowMs: site.nowMs)
-        }
-        .accessibilityAction(named: L("Zoom in")) { window = window.transformed(anchor: 0.5, destination: 0.5, magnification: 2, nowMs: site.nowMs) }
-        .accessibilityAction(named: L("Zoom out")) { window = window.transformed(anchor: 0.5, destination: 0.5, magnification: 0.5, nowMs: site.nowMs) }
-        .accessibilityAction(named: L("Back to now")) { window.returnToNow(nowMs: site.nowMs) }
-        .accessibilityChartDescriptor(TimelineDescriptor(node: node, history: picture, observations: traces[node.rawValue]?.readings ?? []))
-        .accessibilityIdentifier("node.timeline.chart")
+        .modifier(TimelineAccessibility(node: node, window: $window, nowMs: site.nowMs,
+            empty: empty, history: picture, observations: traces[node.rawValue]?.readings ?? [],
+            sampleMs: data.first(where: { $0.node == node })?.stepMs ?? 300_000))
     }
 
     private func followIfFree() {
@@ -156,6 +146,44 @@ struct TimelineChartArea: View {
         if !loaded { return L("Fetching history…") }
         if own.history.contains(where: { $0.fetching && $0.startMs < end && $0.startMs + own.stepMs > window.fromMs }) { return L("Waiting for history") }
         return L("No recorded history in this window.")
+    }
+}
+
+private struct TimelineAccessibility: ViewModifier {
+    let node: EnergyNode
+    @Binding var window: TimelineWindow
+    let nowMs: Double
+    let empty: String?
+    let history: HistoryPicture
+    let observations: [LiveSample]
+    let sampleMs: Double
+
+    func body(content: Content) -> some View {
+        content
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(node.title + ". " + L("History and live readings"))
+            .accessibilityValue(TimelineWords.window(window) + (empty.map { ". " + $0 } ?? ""))
+            .accessibilityHint(L("Swipe up or down to move through time. Actions change the zoom."))
+            .accessibilityAdjustableAction(adjust)
+            .accessibilityAction(named: Text(L("Zoom in"))) { zoom(2) }
+            .accessibilityAction(named: Text(L("Zoom out"))) { zoom(0.5) }
+            .accessibilityAction(named: Text(L("Back to now"))) { window.returnToNow(nowMs: nowMs) }
+            .accessibilityChartDescriptor(TimelineDescriptor(node: node, history: history, observations: observations, sampleMs: sampleMs))
+            .accessibilityIdentifier("node.timeline.chart")
+    }
+
+    private func adjust(_ direction: AccessibilityAdjustmentDirection) {
+        let destination: Double
+        switch direction {
+        case .increment: destination = -0.25
+        case .decrement: destination = 0.25
+        @unknown default: return
+        }
+        window = window.transformed(anchor: 0, destination: destination, magnification: 1, nowMs: nowMs)
+    }
+
+    private func zoom(_ factor: Double) {
+        window = window.transformed(anchor: 0.5, destination: 0.5, magnification: factor, nowMs: nowMs)
     }
 }
 
@@ -293,13 +321,17 @@ struct TimelineControls: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("chart.readout")
-            Text(TimelineWords.material(node) + "\n" + L("Drag through time · pinch to zoom · hold to read"))
+            Text(TimelineWords.material(node, sampleMs: sampleMs) + "\n" + L("Drag through time · pinch to zoom · hold to read"))
                 .font(.caption2).foregroundStyle(Theme.ink3)
         }
     }
 
     private var readout: some View {
         Text(text.text(scrub) ?? summary).font(.subheadline).foregroundStyle(Theme.ink2)
+    }
+
+    private var sampleMs: Double {
+        node == .car ? 3_600_000 : (home.nodes.history.frame?.stepMs ?? 300_000)
     }
 
     private var summary: String {
@@ -358,11 +390,10 @@ struct TimelineFullScreen: View {
 }
 
 private enum TimelineWords {
-    static func material(_ node: EnergyNode) -> String {
+    static func material(_ node: EnergyNode, sampleMs: Double) -> String {
         switch node {
-        case .car: L("History: closed hourly means · live: source readings · future bars: plan")
-        case .battery, .grid: L("History: closed 5-minute means · live: source readings · future bars: plan")
-        case .home, .solar: L("History: closed 5-minute means · live: source readings · dashed: forecast")
+        case .car, .battery, .grid: NodeWords.timelineMaterial(sampleMs: sampleMs, planned: true)
+        case .home, .solar: NodeWords.timelineMaterial(sampleMs: sampleMs, planned: false)
         }
     }
 
@@ -394,6 +425,7 @@ private struct TimelineDescriptor: AXChartDescriptorRepresentable {
     let node: EnergyNode
     let history: HistoryPicture
     let observations: [LiveSample]
+    let sampleMs: Double
 
     func makeChartDescriptor() -> AXChartDescriptor {
         let grid = history.grid
@@ -412,6 +444,6 @@ private struct TimelineDescriptor: AXChartDescriptorRepresentable {
             }
             series.append(AXDataSeriesDescriptor(name: kind, isContinuous: false, dataPoints: points))
         }
-        return AXChartDescriptor(title: node.title, summary: TimelineWords.material(node), xAxis: x, yAxis: y, additionalAxes: [], series: series)
+        return AXChartDescriptor(title: node.title, summary: TimelineWords.material(node, sampleMs: sampleMs), xAxis: x, yAxis: y, additionalAxes: [], series: series)
     }
 }

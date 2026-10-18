@@ -23,6 +23,15 @@ public enum NodeWords {
         return out
     }
 
+    public static func timelineMaterial(sampleMs: Double, planned: Bool) -> String {
+        let minutes = max(1, Int((sampleMs / 60_000).rounded()))
+        let history = minutes.isMultiple(of: 60)
+            ? format("History: closed %@-hour means", "\(minutes / 60)")
+            : format("History: closed %@-minute means", "\(minutes)")
+        return history + " · " + text("live: source readings") + " · "
+            + text(planned ? "future bars: plan" : "dashed: forecast")
+    }
+
     static let sv: [String: String] = [
         "History and live readings": "Historik och livevärden",
         "Swipe up or down to move through time. Actions change the zoom.": "Svep uppåt eller nedåt för att flytta tiden. Åtgärder ändrar zoom.",
@@ -30,9 +39,11 @@ public enum NodeWords {
         "Zoom out": "Zooma ut",
         "Back to now": "Tillbaka till nu",
         "Drag through time · pinch to zoom · hold to read": "Dra genom tiden · nyp för att zooma · håll för att läsa",
-        "History: closed 5-minute means · live: source readings · dashed: forecast": "Historik: avslutade 5-minutersmedel · live: källvärden · streckat: prognos",
-        "History: closed hourly means · live: source readings · future bars: plan": "Historik: avslutade timmedel · live: källvärden · framtida staplar: plan",
-        "History: closed 5-minute means · live: source readings · future bars: plan": "Historik: avslutade 5-minutersmedel · live: källvärden · framtida staplar: plan",
+        "History: closed %@-minute means": "Historik: avslutade %@-minutersmedel",
+        "History: closed %@-hour means": "Historik: avslutade %@-timmarsmedel",
+        "live: source readings": "live: källvärden",
+        "future bars: plan": "framtida staplar: plan",
+        "dashed: forecast": "streckat: prognos",
         "source reading": "källvärde",
         "saved reading": "sparat värde",
         "interval mean": "intervallmedel",

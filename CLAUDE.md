@@ -156,8 +156,8 @@ native, and smooth enough to impress.
   Ahead picker. Drag to move through time, pinch around the fingers to
   zoom, and hold to read. A panned window stays put while new data lands;
   Back to now follows the readings again. Compact and enlarged share it.
-- **Keep the evidence distinct.** Closed five-minute history means stay
-  means; the car's ledger means stay hourly. An unfinished bucket is not
+- **Keep the evidence distinct.** Closed history means keep the interval
+  the box returned; the car's ledger means stay hourly. An unfinished bucket is not
   instantaneous power: wait for it to close, with actual source readings
   drawn beside the stored past. A lone live point hides no history, source
   silences and confirmed history holes stay open, and fetched means never
