@@ -63,8 +63,11 @@ iOS 26 is the minimum. iPhone only.
 
 - Pair: camera QR, a link from outside shown before it is trusted (also a
   pairing QR scanned with the iOS camera, as a universal link), and the live
-  demo against a simulated box. In the simulator, which has no camera, a
-  picture of the QR from Photos takes the same path.
+  demo against a simulated box. A QR picture from Photos works on an iPhone
+  too. Enter pairing code accepts a full pairing link, or a short code and
+  the box's local address. The short-code path needs
+  [Core #1721](https://github.com/srcfl/ftw/pull/1721) and the home Wi-Fi;
+  it asks for the house password when the box requires it.
 - Now: one sentence, the energy flow, the price card with the cheapest two
   hours, today's totals and the fuse. The freshness band above it keeps
   carrier and source state apart.
