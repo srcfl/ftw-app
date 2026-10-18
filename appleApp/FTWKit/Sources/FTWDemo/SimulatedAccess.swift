@@ -67,11 +67,31 @@ public final class SimulatedAccess {
         }
     }
 
+    /// The tester's home on 17 October 2026: Grok took four tries, so three
+    /// grants never called and one did. On top of `seed()`.
+    public func seedGrokTries() {
+        let now = Int64(nowMs())
+        let day: Int64 = 86_400_000
+        for i in 0..<4 {
+            let key = Bytes(repeating: UInt8(0x31 + i), count: 32)
+            rows.append(AgentRow(id: String(Base64url.encode(key).prefix(8)), key: key, role: Contract.roleAgent,
+                                 scopes: ["ftw.health.read", "ftw.live.read", "ftw.plan.read"], ops: [],
+                                 caps: Caps(perMin: 6), expiresAtMs: now + 30 * day - Int64(i) * 60_000,
+                                 principal: Principal(client: "Grok", clientId: "https://grok.com/oauth/mcp-client"),
+                                 approvedBy: "app:\(signedFor.deviceID)", addedAtMs: now - Int64(4 - i) * 6 * 60_000,
+                                 lastSeenMs: i == 3 ? now - 2 * 60_000 : 0, epoch: 1))
+        }
+    }
+
     // MARK: Messages
 
     /// For a test: act on the next message but lose its answer, as a
     /// dropped connection would.
     public var loseNextAnswer = false
+    /// For a test: rows whose removal the box refuses, as a busy box does.
+    public var refuseRemoving: Set<String> = []
+    /// How many times the phone read the list.
+    public private(set) var lists = 0
 
     func receive(_ env: Envelope, reply given: @escaping (Envelope) -> Void) {
         var reply = given
@@ -87,6 +107,7 @@ public final class SimulatedAccess {
         let now = Int64(nowMs())
         switch env.t {
         case AccessWire.msgList:
+            lists += 1
             var list: [(String, CBOR)] = [
                 ("agents", .array(rows.map(Self.cbor))),
                 ("requests", .array(requests.map(Self.cbor))),
@@ -163,6 +184,7 @@ public final class SimulatedAccess {
             ok(.map([("agent", Self.cbor(rows[i]))]))
         case AccessWire.msgRevoke:
             guard let id = body["id"]?.string, rows.contains(where: { $0.id == id }) else { return refuse("E_NOT_FOUND", []) }
+            if refuseRemoving.contains(id) { return refuse("E_UNAVAILABLE", []) }
             rows.removeAll { $0.id == id }
             requests.removeAll { $0.agent == id }
             log("app:\(signedFor.deviceID)", what: AccessWire.msgRevoke, target: id, result: "ok")

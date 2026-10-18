@@ -73,10 +73,11 @@ struct AccessView: View {
     }
 
     /// Removing is one tap: no Face ID and no question, since it is always
-    /// safe.
+    /// safe. The row leaves in the swipe's own change; the box hears of it
+    /// after, and the row comes back if the box refuses.
     private func remove(_ row: AgentRow) -> some View {
         Button(role: .destructive) {
-            Task { await access.revoke(row) }
+            withAnimation(Theme.spring) { access.remove(row) }
         } label: {
             Label(AccessWords.text("Remove access"), systemImage: "xmark.circle")
         }

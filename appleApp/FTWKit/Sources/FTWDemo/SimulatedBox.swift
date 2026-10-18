@@ -74,6 +74,9 @@ public final class SimulatedBox {
     public private(set) var stepUpsSeen = 0
     /// Its assistants, support grants, requests and audit log.
     public private(set) lazy var access = SimulatedAccess { [scheduler] in scheduler.nowMs }
+    /// How long an answer about agents waits to leave: a box behind FTW
+    /// Cloud, far from the phone.
+    public var accessDelayMs: Double = 0
 
     public nonisolated static let modes: [ModeInfo] = [
         ModeInfo(key: "planner_passive_arbitrage", label: "Passive arbitrage", tooltip: "Charge from the cheapest available source (PV when sunny, grid during cheap hours). Never exports from battery.", tier: "primary"),
@@ -195,7 +198,14 @@ public final class SimulatedBox {
         case "cmd": onCommand(body)
         case AccessWire.msgList, AccessWire.msgAudit, AccessWire.msgKeySet, AccessWire.msgAdd, AccessWire.msgWiden,
              AccessWire.msgRevoke, AccessWire.msgConfirm:
-            access.receive(env) { [weak self] in self?.sendBulk($0) }
+            access.receive(env) { [weak self] reply in
+                guard let self else { return }
+                if self.accessDelayMs > 0 {
+                    self.scheduler.after(self.accessDelayMs) { [weak self] in self?.sendBulk(reply) }
+                } else {
+                    self.sendBulk(reply)
+                }
+            }
         default: break
         }
     }
@@ -920,6 +930,11 @@ extension SimulatedBox {
         // For UI tests that look while a command waits: `-FTWDemoResultDelayMs
         // 2500` answers later than XCTest's wait for the app to settle.
         if UserDefaults.standard.object(forKey: "FTWDemoResultDelayMs") != nil { box.resultDelayMs = UserDefaults.standard.double(forKey: "FTWDemoResultDelayMs") }
+        // For the removal test: `-FTWDemoAccess grok` adds the four Grok
+        // grants a tester was left with, and `-FTWDemoAccessDelayMs 600`
+        // answers about agents as late as a box behind FTW Cloud.
+        if UserDefaults.standard.string(forKey: "FTWDemoAccess") == "grok" { box.access.seedGrokTries() }
+        if UserDefaults.standard.object(forKey: "FTWDemoAccessDelayMs") != nil { box.accessDelayMs = UserDefaults.standard.double(forKey: "FTWDemoAccessDelayMs") }
         // For screenshots: `-FTWDemoCar unplugged` and the like.
         if let name = UserDefaults.standard.string(forKey: "FTWDemoCar"), let car = DemoCar(rawValue: name) {
             car.apply(to: box.house, nowMs: scheduler.nowMs)
