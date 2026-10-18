@@ -1,0 +1,21 @@
+Repro on main 9ca87ec, demo box, iPhone 18 Pro simulator, iOS 27.0, 17 Oct 2026 23:22.
+AccessRemoveTests.testFullSwipesInARow, -FTWDemoAccessDelayMs 600, third swipe.
+
+*** Terminating app due to uncaught exception 'NSInternalInconsistencyException', reason: 'Invalid update: invalid number of items in section 1. The number of items contained in an existing section after the update (5) must be equal to the number of items contained in that section before the update (4), plus or minus the number of items inserted or deleted from that section (0 inserted, 0 deleted) and plus or minus the number of items moved into or out of that section (0 moved in, 0 moved out).'
+
+Exception: EXC_CRASH SIGABRT
+Last exception backtrace:
+ 0  CoreFoundation __exceptionPreprocess
+ 1  libobjc.A.dylib objc_exception_throw
+ 2  Foundation     _userInfoForFileAndLine
+ 3  UIKitCore      -[UICollectionView _Bug_Detected_In_Client_Of_UICollectionView_Invalid_Number_Of_Items_In_Section:]
+ 4  UIKitCore      -[UICollectionView _endItemAnimationsWithInvalidationContext:tentativelyForReordering:animator:collectionViewAnimator:]
+ 5  UIKitCore      -[UICollectionView _endUpdatesWithInvalidationContext:tentativelyForReordering:animator:collectionViewAnimator:]
+ 6  UIKitCore      -[UICollectionView _performBatchUpdates:completion:invalidationContext:tentativelyForReordering:animator:animationHandler:]
+ 7  SwiftUI        UpdateCoalescingCollectionView.performBatchUpdates(_:completion:)
+ 8  SwiftUI        @objc UpdateCoalescingCollectionView.performBatchUpdates(_:completion:)
+ 9  SwiftUI        <deduplicated_symbol>
+10  SwiftUI        thunk for @escaping @callee_guaranteed () -> ()
+11  UIKitCore      +[UIView(Animation) performWithoutAnimation:]
+12  SwiftUI        UpdateCoalescingCollectionView.layoutSubviews()
+13  SwiftUI        @objc UpdateCoalescingCollectionView.layoutSubviews()
