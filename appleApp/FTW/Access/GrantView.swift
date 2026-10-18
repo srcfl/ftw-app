@@ -107,9 +107,10 @@ struct GrantView: View {
 
             Section {
                 Button(role: .destructive) {
-                    Task {
-                        if await access.revoke(row) { dismiss() }
-                    }
+                    // Gone from the list at once; back there with the
+                    // box's reason if it refuses.
+                    access.remove(row)
+                    dismiss()
                 } label: {
                     Label(AccessWords.text("Remove access"), systemImage: "xmark.circle")
                 }

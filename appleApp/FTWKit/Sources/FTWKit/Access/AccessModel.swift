@@ -157,6 +157,16 @@ public final class AccessModel {
     public private(set) var keysKnown = false
     /// The row or request a change is on its way for.
     public private(set) var working: String?
+    /// Rows the owner removed whose answer has not come back. They leave
+    /// the lists at once, and come back only if the box refuses.
+    public private(set) var removing: Set<String> = []
+    /// Rows the box has said are gone. An answer to `agent.list` sent
+    /// before the box removed one still holds it, and must not bring it
+    /// back.
+    @ObservationIgnored private var removed: Set<String> = []
+    /// Why each failed removal failed, kept until the read after the last
+    /// removal so that read does not wipe it.
+    @ObservationIgnored private var refused: [String: String] = [:]
     /// What went wrong, in words that say what happens now.
     public private(set) var help: String?
 
@@ -238,9 +248,9 @@ public final class AccessModel {
         site.heardFromBox && site.canConfigure && site.session.caps.contains(Contract.capAccessAgents)
     }
 
-    public var assistants: [AgentRow] { (list?.agents ?? []).filter { !$0.isSupport } }
-    public var support: [AgentRow] { (list?.agents ?? []).filter(\.isSupport) }
-    public var pending: [AgentRequest] { (list?.requests ?? []).filter(\.pending) }
+    public var assistants: [AgentRow] { (list?.agents ?? []).filter { !$0.isSupport && !removing.contains($0.id) } }
+    public var support: [AgentRow] { (list?.agents ?? []).filter { $0.isSupport && !removing.contains($0.id) } }
+    public var pending: [AgentRequest] { (list?.requests ?? []).filter { $0.pending && !removing.contains($0.agent) } }
 
     /// The box holds an approval key for this phone.
     public var boxHasKey: Bool { list?.keys.contains { $0.deviceId == signedFor.deviceID } ?? false }
@@ -264,7 +274,7 @@ public final class AccessModel {
     public func refresh() async {
         guard available else { return }
         do {
-            list = AgentList(try await site.ask(AccessWire.msgList, .emptyMap))
+            list = withoutRemoved(AgentList(try await site.ask(AccessWire.msgList, .emptyMap)))
             keysKnown = true
             help = nil
         } catch {
@@ -335,29 +345,59 @@ public final class AccessModel {
         return changed != nil
     }
 
-    /// Remove access at once. No Face ID: removing is always safe.
+    /// Remove access at once: the row and its requests leave the lists in
+    /// this change, the one the owner's swipe animates, and the box hears
+    /// of it after. No Face ID: removing is always safe.
+    public func remove(_ row: AgentRow) {
+        guard removing.insert(row.id).inserted else { return }
+        Task { await sendRevoke(row) }
+    }
+
+    /// `remove`, waiting for the box. True when the row is gone; false when
+    /// the box refused and the row is back, or another removal of it is on
+    /// its way.
     @discardableResult
     public func revoke(_ row: AgentRow) async -> Bool {
-        working = row.id
-        defer { working = nil }
+        guard removing.insert(row.id).inserted else { return false }
+        return await sendRevoke(row)
+    }
+
+    /// Each removal goes to the box at once and on its own. Its answer
+    /// changes nothing the owner sees unless the box refused. The box is
+    /// read once, after the last answer, rather than once per removal.
+    private func sendRevoke(_ row: AgentRow) async -> Bool {
+        var gone = true
         do {
             _ = try await site.ask(AccessWire.msgRevoke, .map([("id", .text(row.id))]))
-            if var l = list {
-                l.agents.removeAll { $0.id == row.id }
-                l.requests.removeAll { $0.agent == row.id }
-                list = l
-            }
-            help = nil
-            await refresh()
-            return true
         } catch let r as BoxRefusal where r.detail.code == "E_NOT_FOUND" {
             // Already gone, whoever removed it.
-            await refresh()
-            return true
         } catch {
-            help = words(error)
-            return false
+            gone = false
+            refused[row.id] = words(error)
+            help = refused[row.id]
         }
+        if gone {
+            removed.insert(row.id)
+            list = list.map(withoutRemoved)
+        }
+        removing.remove(row.id)
+        guard removing.isEmpty else { return gone }
+        await refresh()
+        // A failure stands while its row does. A removal whose answer was
+        // lost may still have gone through, and then the read says so.
+        if let why = refused.first(where: { id, _ in self.row(id) != nil })?.value { help = why }
+        refused = [:]
+        return gone
+    }
+
+    /// The box's list without the rows it has already said are gone, and
+    /// without their requests.
+    private func withoutRemoved(_ l: AgentList) -> AgentList {
+        guard !removed.isEmpty else { return l }
+        var l = l
+        l.agents.removeAll { removed.contains($0.id) }
+        l.requests.removeAll { removed.contains($0.agent) }
+        return l
     }
 
     // MARK: Requests

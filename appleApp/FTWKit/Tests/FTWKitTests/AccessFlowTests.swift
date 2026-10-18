@@ -224,6 +224,122 @@ import FTWDemo
         #expect(w.access.pending.isEmpty)
     }
 
+    /// What the owner sees in Access: the assistants and the requests.
+    struct Seen: Equatable {
+        var assistants: [String]
+        var pending: [String]
+    }
+
+    /// The home a tester was left with on 17 October 2026: Claude with a
+    /// request, and four Grok grants from four tries.
+    func grokWorld() async -> World {
+        let w = await world()
+        w.box.access.seedGrokTries()
+        await w.during { await w.access.refresh() }
+        return w
+    }
+
+    /// Run the clock and note each change the owner would see.
+    func watch(_ w: World, _ ms: Double = 2_000) async -> [Seen] {
+        var seen: [Seen] = []
+        var left = ms
+        while left > 0 {
+            for _ in 0..<20 { await Task.yield() }
+            let now = Seen(assistants: w.access.assistants.map(\.id), pending: w.access.pending.map(\.reqId))
+            if seen.last != now { seen.append(now) }
+            w.scheduler.advance(10)
+            left -= 10
+        }
+        return seen
+    }
+
+    /// Five swipes before the box has answered one: each row and its
+    /// request leave at once, nothing comes back while the answers arrive,
+    /// and the box is read once, after the last.
+    @Test func severalRemovalsLeaveOneConsistentList() async throws {
+        let w = await grokWorld()
+        let rows = w.access.assistants
+        #expect(rows.count == 5)
+        #expect(w.access.pending.count == 1)
+        let reads = w.box.access.lists
+        for row in rows { w.access.remove(row) }
+        let gone = Seen(assistants: [], pending: [])
+        #expect(Seen(assistants: w.access.assistants.map(\.id), pending: w.access.pending.map(\.reqId)) == gone)
+        let seen = await watch(w)
+        #expect(seen == [gone])
+        #expect(w.access.removing.isEmpty)
+        #expect(w.access.list?.agents.contains { !$0.isSupport } == false)
+        #expect(w.access.list?.requests.isEmpty == true)
+        #expect(w.box.access.rows.allSatisfy { $0.isSupport })
+        #expect(w.box.access.lists == reads + 1)
+        #expect(w.keyring.unlocks == 0)
+    }
+
+    /// The same through `revoke`, all at once: each says it is gone.
+    @Test func concurrentRevokesAllSucceed() async throws {
+        let w = await grokWorld()
+        let rows = w.access.assistants
+        let results = await w.during {
+            let tasks = rows.map { row in Task { @MainActor in await w.access.revoke(row) } }
+            var out: [Bool] = []
+            for task in tasks { out.append(await task.value) }
+            return out
+        }
+        #expect(results == Array(repeating: true, count: rows.count))
+        #expect(w.access.assistants.isEmpty)
+        #expect(w.access.pending.isEmpty)
+        #expect(w.box.access.rows.allSatisfy { $0.isSupport })
+        // A second removal of a row on its way says nothing went.
+        let w2 = await grokWorld()
+        let one = try #require(w2.access.assistants.last)
+        w2.access.remove(one)
+        #expect(await w2.access.revoke(one) == false)
+    }
+
+    /// The box refuses one of several: that row comes back once, with the
+    /// box's reason, and the others stay gone.
+    @Test func aRefusedRemovalComesBackWithTheReason() async throws {
+        let w = await grokWorld()
+        let grok = w.access.assistants.filter { $0.principal.client == "Grok" }
+        #expect(grok.count == 4)
+        let kept = grok[1]
+        w.box.access.refuseRemoving = [kept.id]
+        for row in grok { w.access.remove(row) }
+        let seen = await watch(w)
+        let claude = "q7Xn2vKd"
+        #expect(seen.map(\.assistants) == [[claude], [claude, kept.id]])
+        #expect(w.access.help == AccessWords.text("Your box is busy. Try again in a moment."))
+        #expect(w.box.access.rows.contains { $0.id == kept.id })
+        #expect(w.access.pending.count == 1)
+    }
+
+    /// The box removes a row but its answer is lost: the row comes back
+    /// when the wait runs out, then goes with the read after it, and no
+    /// failure is left on screen for a removal that went through.
+    @Test func aLostAnswerEndsWithTheBoxsWord() async throws {
+        let w = await grokWorld()
+        let row = try #require(w.access.assistants.last)
+        w.box.access.loseNextAnswer = true
+        let task = Task { await w.access.revoke(row) }
+        await w.run(10_000)
+        #expect(await task.value == false)
+        #expect(!w.box.access.rows.contains { $0.id == row.id })
+        #expect(!w.access.assistants.contains { $0.id == row.id })
+        #expect(w.access.help == nil)
+    }
+
+    /// A row the box no longer has, as a page left open shows it, is as
+    /// good as removed.
+    @Test func removingWhatIsAlreadyGoneIsDone() async throws {
+        let w = await grokWorld()
+        let row = try #require(w.access.assistants.last)
+        await w.during { _ = await w.access.revoke(row) }
+        let again = await w.during { await w.access.revoke(row) }
+        #expect(again)
+        #expect(w.access.help == nil)
+        #expect(!w.access.assistants.contains { $0.id == row.id })
+    }
+
     /// Approving signs the request, the agent, the op and the hash of the
     /// args exactly as received; declining is one tap.
     @Test func aRequestIsApprovedOverWhatWasShown() async throws {
