@@ -11,7 +11,8 @@ import Foundation
 /// service"). Both are read.
 ///
 /// Everything after `#` is a fragment and never sent in a request, so the
-/// trust anchor reaches the phone optically and reaches no server on the way.
+/// trust anchor reaches the phone from the box: a QR, a link, a paste, or a
+/// local code exchange. It reaches no cloud server on the way.
 public struct Enrollment: Equatable, Sendable {
     /// The box's Noise static public key. The trust anchor.
     public var boxStaticPublic: Bytes

@@ -1,9 +1,8 @@
 import CoreImage
 import Foundation
 
-/// A pairing link read off a picture of the QR. The simulator has no camera,
-/// so this is how pairing is tried there. The link then takes the same path
-/// as one the camera read.
+/// A pairing link read from a picture or screenshot of the QR. It takes the
+/// same path as a camera scan, including on a phone with no second screen.
 public enum PairingImage {
     /// The first QR in the picture that `Enrollment` accepts, or nil.
     public static func link(in imageData: Data) -> String? {

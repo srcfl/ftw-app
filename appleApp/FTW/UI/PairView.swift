@@ -1,8 +1,6 @@
 import FTWKit
 import SwiftUI
-#if targetEnvironment(simulator)
 import PhotosUI
-#endif
 
 /// Pairing, the first thing anyone sees. Scan, then Face ID. Everything that
 /// can fail does so before the passkey prompt.
@@ -13,9 +11,7 @@ import PhotosUI
 struct PairView: View {
     let app: AppModel
     @State private var model: PairModel
-    #if targetEnvironment(simulator)
     @State private var picture: PhotosPickerItem?
-    #endif
 
     init(app: AppModel) {
         self.app = app
@@ -55,6 +51,7 @@ struct PairView: View {
     private var title: String {
         switch model.stage {
         case .scanning: return L("Scan the pairing QR")
+        case .enteringCode: return L("Enter pairing code")
         case .pairing: return L("Securing this phone")
         case .demoing: return L("Starting the demo")
         case .intro:
@@ -73,6 +70,41 @@ struct PairView: View {
                 .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
                 .overlay(RoundedRectangle(cornerRadius: 24).strokeBorder(Theme.accentFill, lineWidth: 3).padding(60))
             Hint(L("In your box's local dashboard, open Settings → FTW app. Hold the pairing QR inside the frame."))
+
+        case .enteringCode:
+            Text(L("Stay on your home Wi-Fi.")).font(.callout)
+            Text(L("Box address")).font(.caption).foregroundStyle(Theme.ink2)
+            TextField(L("Box address"), text: $model.boxAddress)
+                .textFieldStyle(.roundedBorder)
+                .textContentType(.URL)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .keyboardType(.URL)
+                .accessibilityIdentifier("pair.address")
+            Text(L("Pairing code")).font(.caption).foregroundStyle(Theme.ink2)
+            TextField(L("Pairing code"), text: $model.code)
+                .textFieldStyle(.roundedBorder)
+                .textInputAutocapitalization(.characters)
+                .autocorrectionDisabled()
+                .accessibilityIdentifier("pair.code")
+            PasteButton(payloadType: String.self) { values in
+                if let value = values.first { model.code = value }
+            }
+            if model.needsPassword {
+                SecureField(L("House password"), text: $model.password)
+                    .textContentType(.password)
+                    .accessibilityIdentifier("pair.password")
+            }
+            if let message = model.message { Problem(message) }
+            if model.codeBusy { ProgressView(L("Connecting to your box")) }
+            DisclosureGroup(L("How?")) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(L("On this iPhone, open your box in Safari. In Settings → FTW app, choose Use a pairing code. Return here and enter it while on your home Wi-Fi."))
+                    Hint(L("Copying the code in Safari includes the box address. You can also paste a full pairing link here."))
+                }
+                .font(.callout)
+                .padding(.top, 6)
+            }
 
         case .pairing:
             Text(L("Confirm with Face ID or Touch ID if your phone asks."))
@@ -95,6 +127,10 @@ struct PairView: View {
     /// quiet way out.
     @ViewBuilder private var actions: some View {
         switch model.stage {
+        case .enteringCode:
+            prominent(L("Connect")) { Task { await model.connectCode() } }
+                .disabled(model.codeBusy || model.code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            Button(L("Cancel")) { model.cancel() }.buttonStyle(.quiet)
         case .scanning, .pairing:
             Button(L("Cancel")) { model.cancel() }
                 .buttonStyle(.glass)
@@ -110,8 +146,12 @@ struct PairView: View {
             } else if model.canOpen, let known = model.known {
                 prominent(NodeWords.format("Open %@", known.label)) { model.openKnown() }
                 Button(L("Scan a new pairing QR")) { model.stage = .scanning }.buttonStyle(.quiet)
+                Button(L("Enter pairing code")) { model.enterCode() }.buttonStyle(.quiet)
             } else {
                 prominent(L("Scan the pairing QR")) { model.stage = .scanning }
+                Button(L("Enter pairing code")) { model.enterCode() }
+                    .buttonStyle(.quiet)
+                    .accessibilityIdentifier("pair.enterCode")
                 if canDismiss {
                     Button(L("Not now")) { model.dismiss() }.buttonStyle(.quiet)
                 }
@@ -189,7 +229,7 @@ struct PairView: View {
     private var setup: some View {
         Card {
             Text(L("Connect your own box")).font(.title3.weight(.semibold))
-            Text(L("At home, open your box's FTW dashboard, then Settings → FTW app → Show pairing code."))
+            Text(L("Have only this iPhone? Open the box in Safari, then Settings → FTW app. Open the pairing link in FTW or use a pairing code."))
                 .font(.callout)
             DisclosureGroup(L("How?")) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -198,25 +238,21 @@ struct PairView: View {
                     Text(L("3. Choose Show pairing code, then scan the QR here."))
                     Hint(L("The QR code is inside FTW Settings. It is not printed on the Raspberry Pi or its case."))
                     Hint(L("Next, your phone asks for Face ID or Touch ID to protect your FTW key. There is no FTW account or password. If this phone loses its key, a new Settings QR is the way back."))
-                    Hint(L("Can't see Show pairing code? Turn on Let the FTW app connect to this box, save, and restart the box first."))
+                    Hint(L("Can't see Show pairing code? Turn on Let the FTW app connect to this box, then choose Save and restart FTW in the dashboard."))
                 }
                 .font(.callout)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 6)
             }
             .font(.footnote.weight(.medium))
-            #if targetEnvironment(simulator)
-            // The simulator has no camera. A screenshot of the QR in Photos
-            // takes the same path as a scan.
             PhotosPicker(L("Choose a picture of the QR"), selection: $picture, matching: .images)
                 .buttonStyle(.quiet)
+                .accessibilityIdentifier("pair.picture")
                 .onChange(of: picture) { _, item in read(item) }
-            #endif
         }
     }
 }
 
-#if targetEnvironment(simulator)
 extension PairView {
     private func read(_ item: PhotosPickerItem?) {
         guard let item else { return }
@@ -231,7 +267,6 @@ extension PairView {
         }
     }
 }
-#endif
 
 struct Title: View {
     let text: String

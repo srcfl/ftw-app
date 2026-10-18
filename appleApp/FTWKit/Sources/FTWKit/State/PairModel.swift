@@ -7,7 +7,7 @@ import Observation
 @MainActor
 public final class PairModel {
     public enum Stage: Equatable, Sendable {
-        case intro, scanning, pairing, demoing
+        case intro, scanning, enteringCode, pairing, demoing
     }
 
     public var stage: Stage = .intro
@@ -19,8 +19,14 @@ public final class PairModel {
     /// This phone already holds a key and a home: something local went
     /// missing, not a stranger arriving.
     public private(set) var known: StoredSite?
+    public var boxAddress = "ftw.local:8080"
+    public var code = ""
+    public var password = ""
+    public private(set) var needsPassword = false
+    public private(set) var codeBusy = false
 
     @ObservationIgnored private unowned let app: AppModel
+    @ObservationIgnored private var codeAttempt = 0
 
     public init(app: AppModel) {
         self.app = app
@@ -82,6 +88,43 @@ public final class PairModel {
         await pair(link)
     }
 
+    public func enterCode() {
+        message = nil
+        stage = .enteringCode
+    }
+
+    public func connectCode(using local: LocalPairing = LocalPairing()) async {
+        guard !codeBusy else { return }
+        codeAttempt += 1
+        let attempt = codeAttempt
+        codeBusy = true
+        defer {
+            if attempt == codeAttempt {
+                codeBusy = false
+                password = ""
+            }
+        }
+        message = nil
+        do {
+            let link: String
+            if (try? Enrollment.parse(scanned: code)) != nil {
+                link = code
+            } else {
+                link = try await local.redeem(address: boxAddress, code: code, password: password)
+            }
+            guard attempt == codeAttempt, !Task.isCancelled else { return }
+            codeBusy = false
+            password = ""
+            await pair(link)
+        } catch {
+            guard attempt == codeAttempt, !Task.isCancelled else { return }
+            codeBusy = false
+            password = ""
+            needsPassword = (error as? LocalPairingError) == .password
+            message = (error as? HelpfulError)?.help ?? LocalPairingError.unreachable.help
+        }
+    }
+
     public func declineOffer() {
         app.offeredLink = nil
         offeredFingerprint = nil
@@ -104,6 +147,9 @@ public final class PairModel {
     }
 
     public func cancel() {
+        codeAttempt += 1
+        codeBusy = false
+        password = ""
         stage = .intro
         message = nil
     }
