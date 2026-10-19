@@ -128,117 +128,11 @@ final class PeriodText {
     }
 }
 
-// MARK: - Today and two days
+// MARK: - The stored past and the box's plan
 
-/// Today on its fixed day, or the last two days, on the engine, in the live
-/// trace's material: each chosen series with its band, the node's own with
-/// its body, holes as they are, and the finger reading one slot at a time,
-/// up to the last slot with data. Under the finger the hero and the line
-/// below speak as on Live. The rest of today is the ghost of what the box
-/// plans or forecasts for each series, so the whole day reads as one
-/// picture. A tap opens the chart on the whole screen.
-struct HistoryChartArea: View {
-    let site: SiteModel
-    let node: EnergyNode
-    let home: HomeModels
-    let scrub: ScrubModel
-    let period: NodeView.Timebase
-    let series: [EnergyNode]
-    let text: PeriodText
-    var onTap: (() -> Void)?
-    @State private var size: CGSize = .zero
-    @State private var shown: YDomain?
-    @ScaledMetric(relativeTo: .caption2) private var axis: CGFloat = 10
-    @ScaledMetric(relativeTo: .caption) private var tag: CGFloat = 11
-
-    /// The frame for a scale: the right gutter holds its widest label.
-    private func frame(_ domain: YDomain?) -> ChartFrame {
-        ChartFrame(top: tag * 1.35 + 8, bottom: axis * 1.4 + 4, trailing: ChartAxes.gutter(domain, axis: axis))
-    }
-
-    /// The picture and its frame: built for the scale on screen, and again
-    /// in the rare case the new scale's labels need another gutter.
-    private func made() -> (frame: ChartFrame, picture: HistoryPicture?) {
-        let first = frame(shown)
-        let picture = build(first.plot(in: size).size)
-        guard let domain = picture?.domain, frame(domain) != first else { return (first, picture) }
-        let fitted = frame(domain)
-        return (fitted, build(fitted.plot(in: size).size))
-    }
-
-    var body: some View {
-        let (frame, picture) = made()
-        let own = picture?.layers.first
-        ZStack {
-            Color.clear
-            if let picture, let own {
-                let looks = Dictionary(uniqueKeysWithValues: picture.layers.compactMap { l in EnergyNode(rawValue: l.key).map { (l.key, NodeChartLook.look($0)) } })
-                let labels = ChartLabels(fetching: L("FETCHING…"), asOf: picture.asOfMs.map { NodeWords.format("AS OF %@", AppWords.clock($0, zone: .current)) }, now: NodeWords.text("NOW"))
-                let live = site.freshness(node).live
-                SlidingSurface(picture: picture) { from, slide, spring in
-                    HistoryDrawing(picture: picture, looks: looks, frame: frame, words: labels, axis: axis, live: live, from: from, slide: slide, spring: spring)
-                }
-                ScrubOverlay(
-                    track: ScrubTrack(
-                        grid: picture.grid,
-                        domain: picture.domain,
-                        values: own.series.buckets.map(\.mean),
-                        atMs: own.series.buckets.map(\.atMs),
-                        tags: own.series.readouts.when.indices.map { own.series.readouts.when[$0] + "  " + (own.series.readouts.what[$0].components(separatedBy: " · ").first ?? "") },
-                        landmarks: own.series.readouts.landmarks.union([0, max(0, picture.limit ?? 0)]),
-                        color: NodeChartLook.look(node).up,
-                        downColor: NodeChartLook.look(node).down,
-                        limit: picture.limit
-                    ),
-                    frame: frame,
-                    model: scrub,
-                    tagSize: tag,
-                    // As on the live trace: "07:30–14:30  avg 522 W".
-                    spanTag: { r in
-                        let readouts = own.series.readouts
-                        let when = (readouts.when[r.lowerBound].components(separatedBy: "–").first ?? "") + "–" + (readouts.when[r.upperBound].components(separatedBy: "–").last ?? "")
-                        let means = own.series.buckets[r].compactMap(\.mean)
-                        return means.isEmpty ? when : when + "  " + NodeWords.format("avg %@", AppWords.power(abs(means.reduce(0, +) / Double(means.count))))
-                    },
-                    onTap: onTap
-                )
-            } else if let problem = home.nodes.history.problem {
-                Text(problem).font(.footnote).foregroundStyle(Theme.ink3).multilineTextAlignment(.center)
-            }
-        }
-        .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
-        .onChange(of: picture?.domain) { _, now in shown = now }
-        .onChange(of: picture, initial: true) { _, now in words(now) }
-        .accessibilityElement()
-        .accessibilityLabel(node.title)
-        .accessibilityChartDescriptor(PictureDescriptor(node: node, picture: picture))
-    }
-
-    /// The picture for the chosen series, the node's own first.
-    private func build(_ plot: CGSize) -> HistoryPicture? {
-        guard plot.width > 0, plot.height > 0 else { return nil }
-        let clock = ZoneClock.of(.current)
-        let now = site.minuteMs + 60_000
-        let window = period == .today ? HistoryPicture.day(now, clock: clock) : HistoryPicture.twoDays(now)
-        var inputs: [(key: String, samples: [ChartSample])] = []
-        var ahead: [String: (kind: AheadPicture.Kind, slots: [AheadPicture.Mark])] = [:]
-        for n in series {
-            let samples = Self.samples(n, home: home, fromMs: window.fromMs)
-            if !samples.isEmpty || n == node { inputs.append((n.rawValue, samples)) }
-            // Today runs to midnight: the rest of it as the box sees it.
-            if period == .today, let plan = Self.ahead(n, home: home, nowMs: site.minuteMs) { ahead[n.rawValue] = plan }
-        }
-        let words = ReadoutWords(value: { AppWords.power(abs($0)) }, range: { "\(AppWords.decimal(PowerFormat.fixed(abs($0) / 1000, 1)))–\(AppWords.decimal(PowerFormat.fixed(abs($1) / 1000, 1)))" }, none: NodeWords.text("no data"))
-        let weekday: @Sendable (Double) -> String = { ms in
-            Date(timeIntervalSince1970: ms / 1000).formatted(.dateTime.weekday(.abbreviated).locale(Locale(identifier: AppWords.language == .sv ? "sv_SE" : "en_US"))).uppercased().replacingOccurrences(of: ".", with: "")
-        }
-        return HistoryPicture.build(inputs, ahead: ahead, fromMs: window.fromMs, toMs: window.toMs, nowMs: now, size: plot, previous: shown, floor: node.scaleFloorW(), clock: clock, everyHours: period == .today ? 6 : 12, weekday: period == .today ? nil : weekday, words: words)
-    }
-
-    /// What the box plans or forecasts for a node from now on, as Ahead
-    /// draws it: the battery's and the grid's plan, the car's windows, the
-    /// sun's and the home's forecast. Nil where it has none.
+/// Shared inputs for the continuous node timeline.
+@MainActor
+enum NodeHistory {
     static func ahead(_ node: EnergyNode, home: HomeModels, nowMs: Double) -> (kind: AheadPicture.Kind, slots: [AheadPicture.Mark])? {
         let plan = home.nodes.plan
         let marks: [AheadPicture.Mark]
@@ -259,77 +153,18 @@ struct HistoryChartArea: View {
         return marks.isEmpty ? nil : (kind, marks)
     }
 
-    /// One node's five-minute means as the chart reads them. The box keeps
-    /// no car tiles, so the car's hours stand in, each hour's mean power
-    /// over its twelve five-minute steps.
+    /// The box's power means at their stored step. The car's ledger is
+    /// hourly; those means stay hourly, including while zoomed in.
     static func samples(_ node: EnergyNode, home: HomeModels, fromMs: Double) -> [ChartSample] {
         if node == .car {
             guard home.nodes.carEnergy.loaded else { return [] }
-            return home.nodes.carEnergy.hours.filter { $0.startMs + $0.lenMs > fromMs }.flatMap { h -> [ChartSample] in
-                let watts = h.wh * 3_600_000 / max(1, h.lenMs)
-                return stride(from: h.startMs, to: h.startMs + h.lenMs, by: 300_000).map { ChartSample(startMs: $0, value: watts) }
+            return home.nodes.carEnergy.hours.filter { $0.startMs + $0.lenMs > fromMs }.map { h in
+                ChartSample(startMs: h.startMs, value: h.wh * 3_600_000 / max(1, h.lenMs))
             }
         }
         return home.nodes.history.samples(node, fromMs: fromMs).map { ChartSample(startMs: $0.startMs, value: $0.watts, fetching: $0.fetching) }
     }
 
-    /// What a finger says, per slot, in the live trace's words. The hero:
-    /// the node's own mean and "14:30–15:00 · charging". The line under the
-    /// chart: the energy so far, then each other series' mean. Two fingers:
-    /// their mean in the hero, the energy between under the chart. A
-    /// hidden series changes nothing the others say.
-    private func words(_ picture: HistoryPicture?) {
-        guard let picture, let own = picture.layers.first else { return text.set([], spans: { _ in "" }) }
-        let node = node
-        let others = picture.layers.dropFirst().compactMap { l in EnergyNode(rawValue: l.key).map { ($0, l.series) } }
-        let readouts = own.series.readouts
-        let buckets = own.series.buckets
-        let slots = readouts.when.indices.map { i -> String in
-            var parts = [NodeLive.soFar(node, readouts.soFar(i))]
-            for (n, s) in others where s.readouts.what.indices.contains(i) {
-                parts.append(n.title + " " + (s.readouts.what[i].components(separatedBy: " · ").first ?? ""))
-            }
-            return parts.joined(separator: " · ")
-        }
-        let heroes = buckets.indices.map { i -> PeriodText.Hero in
-            let when = readouts.when[i]
-            guard let m = buckets[i].mean else {
-                return PeriodText.Hero(watts: nil, signed: 0, word: when + " · " + (buckets[i].fetching ? L("FETCHING…").lowercased() : NodeWords.text("no data")))
-            }
-            return PeriodText.Hero(watts: abs(m), signed: m, word: when + " · " + Readouts.word(node, m))
-        }
-        func span(_ r: ClosedRange<Int>) -> String {
-            (readouts.when[r.lowerBound].components(separatedBy: "–").first ?? "") + "–" + (readouts.when[r.upperBound].components(separatedBy: "–").last ?? "")
-        }
-        text.set(slots, spans: { r in NodeLive.between(node, readouts.between(r.lowerBound, r.upperBound)) }, heroes: heroes, heroSpans: { r in
-            let means = buckets[r].compactMap(\.mean)
-            guard !means.isEmpty else { return PeriodText.Hero(watts: nil, signed: 0, word: span(r) + " · " + NodeWords.text("no data")) }
-            let mean = means.reduce(0, +) / Double(means.count)
-            // Short words, so the hero keeps one size on one line.
-            return PeriodText.Hero(watts: abs(mean), signed: mean, word: span(r) + " · " + NodeWords.format("avg %@", AppWords.power(abs(mean))))
-        })
-    }
-}
-
-/// A history as VoiceOver reads it: the chart's own slot means, in the
-/// slot's length.
-private struct PictureDescriptor: AXChartDescriptorRepresentable {
-    let node: EnergyNode
-    let picture: HistoryPicture?
-
-    func makeChartDescriptor() -> AXChartDescriptor {
-        let buckets = picture?.layers.first?.series.buckets ?? []
-        let start = buckets.first?.startMs ?? 0, end = max(start + 1, buckets.last?.endMs ?? 1)
-        let values = buckets.compactMap(\.mean)
-        let lo = min(0, values.min() ?? 0), hi = max(lo + 1, values.max() ?? 1)
-        let x = AXNumericDataAxisDescriptor(title: L("Time"), range: start...end, gridlinePositions: []) { Readouts.clock($0) }
-        let y = AXNumericDataAxisDescriptor(title: L("Power"), range: lo...hi, gridlinePositions: []) { AppWords.power(abs($0)) }
-        let series = AXDataSeriesDescriptor(name: node.title, isContinuous: true, dataPoints: buckets.compactMap { b in
-            b.mean.map { AXDataPoint(x: b.startMs, y: $0, additionalValues: [], label: Readouts.word(node, $0)) }
-        })
-        let minutes = Int(((picture?.stepMs ?? 1_800_000) / 60_000).rounded())
-        return AXChartDescriptor(title: node.title, summary: NodeWords.format("%@-minute means", String(minutes)), xAxis: x, yAxis: y, additionalAxes: [], series: [series])
-    }
 }
 
 // MARK: - Ahead

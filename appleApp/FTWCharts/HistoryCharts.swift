@@ -37,6 +37,10 @@ struct HistoryDrawing: ChartDrawing {
     var from: HistoryPicture?
     var slide: Double = 1
     var spring: Double = 1
+    /// Source runs can cover the stored means without changing them.
+    /// A lone point hides no history, and a silence hides no later mean.
+    var observationRuns: [String: [ClosedRange<Double>]] = [:]
+    var showsFetchingEstimate = true
 
     func draw(in g: inout GraphicsContext, size: CGSize) {
         let plot = frame.plot(in: size)
@@ -111,6 +115,18 @@ struct HistoryDrawing: ChartDrawing {
                 band = band.applying(toShown)
             }
             var p = p
+            if let runs = observationRuns[layer.key], !runs.isEmpty {
+                var visible = Path()
+                var cursor: CGFloat = 0
+                for run in runs {
+                    let a = min(max(series.grid.x(atMs: run.lowerBound, width: plot.width), 0), plot.width)
+                    let b = min(max(series.grid.x(atMs: run.upperBound, width: plot.width), 0), plot.width)
+                    if a > cursor { visible.addRect(CGRect(x: cursor, y: -40, width: a - cursor, height: plot.height + 80)) }
+                    cursor = max(cursor, b)
+                }
+                if cursor < plot.width { visible.addRect(CGRect(x: cursor, y: -40, width: plot.width - cursor, height: plot.height + 80)) }
+                p.clip(to: visible)
+            }
             // A series just added fades in.
             if from != nil, before == nil, k < 1 { p.opacity = k }
             TraceInk.band(band, look: look, above: above, below: below, in: p)
@@ -122,14 +138,18 @@ struct HistoryDrawing: ChartDrawing {
             if own {
                 for r in series.fetching {
                     let x0 = series.grid.x(atMs: series.grid.startMs(r.lowerBound), width: plot.width)
-                    let x1 = series.grid.x(atMs: series.grid.endMs(r.upperBound), width: plot.width)
+                    let end = min(series.grid.endMs(r.upperBound), picture.nowMs ?? series.grid.toMs)
+                    let x1 = series.grid.x(atMs: end, width: plot.width)
+                    guard x1 > x0 else { continue }
                     let rect = CGRect(x: x0, y: 0, width: max(px, x1 - x0), height: plot.height)
                     var hatch = p
                     hatch.clip(to: Path(rect))
                     hatch.fill(Path(rect), with: .color(Theme.ink.opacity(0.04)))
                     hatch.stroke(Self.hatch(rect), with: .color(Theme.ink.opacity(0.10)), style: StrokeStyle(lineWidth: px, lineCap: .butt, lineJoin: .round))
-                    let text = p.resolve(ChartText.label(words.fetching, size: axis))
-                    p.draw(text, at: CGPoint(x: rect.midX, y: 4), anchor: .top)
+                    let text = g.resolve(ChartText.label(words.fetching, size: axis))
+                    let width = text.measure(in: size).width
+                    let x = min(max(0, rect.midX - width / 2), max(0, plot.width - width))
+                    g.draw(text, at: CGPoint(x: plot.minX + x, y: plot.minY + 4), anchor: .topLeading)
                 }
                 var dotted = Path()
                 for r in series.missing {
@@ -138,7 +158,9 @@ struct HistoryDrawing: ChartDrawing {
                 }
                 TraceInk.dotted(dotted, px: px, in: p)
             }
-            p.stroke(Path(series.estimate.cgPath).applying(toShown), with: .color(look.up.opacity(0.6)), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round, dash: [3, 4]))
+            if showsFetchingEstimate {
+                p.stroke(Path(series.estimate.cgPath).applying(toShown), with: .color(look.up.opacity(0.6)), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round, dash: [3, 4]))
+            }
             TraceInk.line(line, look: look, width: own ? TraceInk.line : TraceInk.otherLine, opacity: own ? 1 : 0.85, glows: own && filling != nil, glowClip: filling, above: above, below: below, in: p)
         }
 

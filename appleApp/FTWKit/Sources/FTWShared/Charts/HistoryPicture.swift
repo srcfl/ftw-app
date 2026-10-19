@@ -55,6 +55,11 @@ public struct HistoryPicture: Equatable, Sendable {
     public struct Tick: Equatable, Sendable {
         public var ms: Double
         public var label: String
+
+        public init(ms: Double, label: String) {
+            self.ms = ms
+            self.label = label
+        }
     }
 
     /// In the order given; the first is the chart's own series.
@@ -89,27 +94,33 @@ public struct HistoryPicture: Equatable, Sendable {
         clock: ZoneClock,
         everyHours: Int = 6,
         weekday: (@Sendable (Double) -> String)? = nil,
+        observationExtent: ClosedRange<Double>? = nil,
+        sampleSteps: [String: Double] = [:],
         words: ReadoutWords
     ) -> HistoryPicture {
         // One scale for every series: the union of their bands.
-        let stepMs = DisplayBucket.stepMs(spanMs: toMs - fromMs, width: size.width)
+        let stepMs = max(sampleSteps.values.max() ?? 300_000, DisplayBucket.stepMs(spanMs: toMs - fromMs, width: size.width))
         var low = 0.0, high = 0.0
         for input in inputs {
-            let e = DisplayBucket.extent(DisplayBucket.buckets(input.samples, stepMs: stepMs, fromMs: fromMs, toMs: toMs, clock: clock))
+            let e = DisplayBucket.extent(DisplayBucket.buckets(input.samples, sampleMs: sampleSteps[input.key] ?? 300_000, stepMs: stepMs, fromMs: fromMs, toMs: toMs, clock: clock))
             low = min(low, e.low)
             high = max(high, e.high)
             if let nowMs, let plan = ahead[input.key] {
-                for m in plan.slots where m.endMs > nowMs && m.startMs < toMs {
+                for m in plan.slots where m.endMs > max(nowMs, fromMs) && m.startMs < toMs {
                     low = min(low, m.watts)
                     high = max(high, m.watts)
                 }
             }
         }
+        if let observationExtent {
+            low = min(low, observationExtent.lowerBound)
+            high = max(high, observationExtent.upperBound)
+        }
         let domain = YDomain.stable(low: low, high: high, previous: previous, floor: floor)
         let layers = inputs.map { input in
             Layer(
                 key: input.key,
-                series: ChartSeries.history(input.samples, fromMs: fromMs, toMs: toMs, nowMs: nowMs, size: size, clock: clock, domain: domain, words: words),
+                series: ChartSeries.history(input.samples, sampleMs: sampleSteps[input.key] ?? 300_000, fromMs: fromMs, toMs: toMs, nowMs: nowMs, size: size, clock: clock, domain: domain, displayStepMs: stepMs, words: words),
                 ghost: nowMs.flatMap { now in ahead[input.key].flatMap { Ghost.build($0.kind, slots: $0.slots, fromMs: fromMs, toMs: toMs, nowMs: now, domain: domain, size: size) } }
             )
         }
@@ -123,7 +134,7 @@ public struct HistoryPicture: Equatable, Sendable {
             let newest = layers.compactMap { layer -> Double? in
                 guard let i = layer.series.lastData else { return nil }
                 let b = layer.series.buckets[i]
-                return min(b.endMs, b.startMs + Double(b.count) * 300_000)
+                return min(b.endMs, b.startMs + Double(b.count) * (sampleSteps[layer.key] ?? 300_000))
             }.max() ?? grid.endMs(limit)
             if nowMs - newest > stepMs { asOf = newest }
         }

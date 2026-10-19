@@ -14,27 +14,18 @@ final class ChartTour: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = [
             // 48 h: the held tile lies inside it, with data either side.
-            "-FTWDemo", "YES", "-FTWDemoGap", "YES", "-FTWNode", env["FTW_NODE"] ?? "battery", "-FTWPeriod", "twoDays",
+            "-FTWDemo", "YES", "-FTWDemoGap", "YES", "-FTWNode", env["FTW_NODE"] ?? "battery", "-FTWTimelineHours", "48", "-FTWTimelineBackHours", "7",
             "-AppleLanguages", "(\(lang))", "-AppleLocale", lang == "sv" ? "sv_SE" : "en_US",
         ]
         app.launch()
-        let period = app.descendants(matching: .any)["node.period.chart"].firstMatch
+        let period = app.descendants(matching: .any)["node.timeline.chart"].firstMatch
         XCTAssertTrue(period.waitForExistence(timeout: 15))
-        // The held tile is a dashed estimate for two seconds, then grows in.
-        shoot(app, "gap-estimate")
+        // The held tile stays hatched until measured data arrives.
+        shoot(app, "gap-fetching")
         Thread.sleep(forTimeInterval: 2.5)
         shoot(app, "gap-filled")
         // A slow finger across today, held at the end.
         drag(period)
-        // The same across the hours ahead.
-        let ahead = app.segmentedControls["node.period"].buttons.element(boundBy: 2)
-        if ahead.exists {
-            ahead.tap()
-            Thread.sleep(forTimeInterval: 1.5)
-            drag(app.descendants(matching: .any)["node.period.chart"].firstMatch)
-        }
-        let live = app.descendants(matching: .any)["node.live.chart"].firstMatch
-        if live.exists { drag(live) }
         Thread.sleep(forTimeInterval: 1)
     }
 

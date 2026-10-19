@@ -835,6 +835,17 @@ import FTWShared
 // MARK: Words
 
 @Suite struct NodeWordsTests {
+    @Test func timelineNamesTheReturnedHistoryResolution() {
+        AppWords.$language.withValue(.en) {
+            #expect(NodeWords.timelineMaterial(sampleMs: 300_000, planned: false) == "History: closed 5-minute means · live: source readings · dashed: forecast")
+            #expect(NodeWords.timelineMaterial(sampleMs: 3_600_000, planned: true) == "History: closed 1-hour means · live: source readings · future bars: plan")
+            #expect(NodeWords.timelineMaterial(sampleMs: 7_200_000, planned: false) == "History: closed 2-hour means · live: source readings · dashed: forecast")
+        }
+        AppWords.$language.withValue(.sv) {
+            #expect(NodeWords.timelineMaterial(sampleMs: 1_800_000, planned: false) == "Historik: avslutade 30-minutersmedel · live: källvärden · streckat: prognos")
+        }
+    }
+
     /// Every sentence Now and the nodes' views hand to `L`, `NodeWords` or
     /// `AppWords` has a Swedish entry. Read from the source, so a new
     /// sentence cannot slip through.
@@ -845,7 +856,7 @@ import FTWShared
             "appleApp/FTW/UI/PlanStrip.swift", "appleApp/FTW/UI/PlanView.swift", "appleApp/FTWKit/Sources/FTWKit/State/PlanShare.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/EnergyNode.swift", "appleApp/FTWKit/Sources/FTWKit/State/NowFlow.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/ModeModel.swift", "appleApp/FTWKit/Sources/FTWKit/State/PlanModel.swift",
-            "appleApp/FTWKit/Sources/FTWKit/State/HistoryModel.swift", "appleApp/FTW/UI/PairView.swift",
+            "appleApp/FTWKit/Sources/FTWKit/State/HistoryModel.swift", "appleApp/FTW/UI/PairView.swift", "appleApp/FTW/UI/NodeTimeline.swift",
             "appleApp/FTW/UI/RootView.swift", "appleApp/FTWKit/Sources/FTWKit/State/PairModel.swift",
             "appleApp/FTW/Car/CarView.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/ChartWords.swift", "appleApp/FTW/UI/PriceView.swift",

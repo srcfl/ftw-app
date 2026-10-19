@@ -23,7 +23,40 @@ public enum NodeWords {
         return out
     }
 
+    public static func timelineMaterial(sampleMs: Double, planned: Bool) -> String {
+        let minutes = max(1, Int((sampleMs / 60_000).rounded()))
+        let history = minutes.isMultiple(of: 60)
+            ? format("History: closed %@-hour means", "\(minutes / 60)")
+            : format("History: closed %@-minute means", "\(minutes)")
+        return history + " · " + text("live: source readings") + " · "
+            + text(planned ? "future bars: plan" : "dashed: forecast")
+    }
+
     static let sv: [String: String] = [
+        "History and live readings": "Historik och livevärden",
+        "Swipe up or down to move through time. Actions change the zoom.": "Svep uppåt eller nedåt för att flytta tiden. Åtgärder ändrar zoom.",
+        "Zoom in": "Zooma in",
+        "Zoom out": "Zooma ut",
+        "Back to now": "Tillbaka till nu",
+        "Drag through time · pinch to zoom · hold to read": "Dra genom tiden · nyp för att zooma · håll för att läsa",
+        "History: closed %@-minute means": "Historik: avslutade %@-minutersmedel",
+        "History: closed %@-hour means": "Historik: avslutade %@-timmarsmedel",
+        "live: source readings": "live: källvärden",
+        "future bars: plan": "framtida staplar: plan",
+        "dashed: forecast": "streckat: prognos",
+        "source reading": "källvärde",
+        "saved reading": "sparat värde",
+        "interval mean": "intervallmedel",
+        "forecast": "prognos",
+        "planned": "planerat",
+        "No plan or forecast for this time.": "Ingen plan eller prognos för den här tiden.",
+        "Fetching history…": "Hämtar historik…",
+        "No recorded history in this window.": "Ingen sparad historik i det här tidsfönstret.",
+        "No recorded energy in this window.": "Ingen sparad energi i det här tidsfönstret.",
+        "Plan and forecast · not measured energy": "Plan och prognos · inte uppmätt energi",
+        "Recorded in view": "Sparat i perioden",
+        "Waiting for history": "Väntar på historik",
+        "last interval filling": "senaste intervallet pågår",
         // Modes, by the registry's keys
         "Plan": "Plan",
         "Plan, selling too": "Plan, säljer också",
