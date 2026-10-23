@@ -12,6 +12,8 @@ final class FakeCloudService {
     let staticKey = Primitives.generateKeyPair()
     var roster: Set<Bytes> = []
     var held: [CloudWire.Envelope] = []
+    /// The box's tiles the service holds, as it answers `tiles.get`.
+    var tiles: [CloudWire.Envelope] = []
     var online = true
     var latencyMs: Double = 10
     /// Refuse every handshake made with this key, as a service that has
@@ -78,6 +80,7 @@ final class FakeCloudService {
             }
             received.append(env)
             if env.t == CloudWire.msgTun, let tun = try? CloudWire.Tun(body: env.b) { phoneTun(tun, on: socket) }
+            if env.t == CloudWire.msgTilesGet { answerTiles(env, on: socket) }
             return
         }
         let home = URLComponents(url: socket.url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "home" }?.value ?? ""
@@ -105,6 +108,23 @@ final class FakeCloudService {
         socket.device = keys.remoteStatic
         socket.deliver(msg2)
         if let t = body["tun"], let tun = try? CloudWire.Tun(body: encodeCBOR(t)) { phoneTun(tun, on: socket) }
+    }
+
+    /// `tiles.get`: each tile held that the phone lacks, then `tiles.end`.
+    private func answerTiles(_ ask: CloudWire.Envelope, on socket: FakeCloudSocket) {
+        var have = [String: String]()
+        for e in (try? decodeCBOR(ask.b))?["have"]?.entries ?? [] {
+            if let k = e.key.string, let v = e.value.string { have[k] = v }
+        }
+        var n = 0
+        for env in tiles {
+            if let t = try? CloudWire.Tiles(body: env.b), !t.partial, have[t.tileId] == t.etag { continue }
+            socket.push(env)
+            n += 1
+        }
+        if let end = try? CloudWire.Envelope.decode(CloudWire.encodeUnsigned(t: CloudWire.msgTilesEnd, body: .map([("n", .int(n))]))) {
+            socket.push(end)
+        }
     }
 
     /// One `tun` from a phone: to the box, or ended at once when there is

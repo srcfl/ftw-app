@@ -150,6 +150,15 @@ public final class CloudCarrier {
         ]))
     }
 
+    /// Ask for the box's history tiles this phone lacks: `have` names the
+    /// closed tiles it holds, by id and etag. The box's tiles come back as
+    /// envelopes, then `tiles.end`. False when the session is not open and
+    /// nothing went out.
+    @discardableResult
+    public func tilesGet(have: [String: String]) -> Bool {
+        send(CloudWire.msgTilesGet, CloudWire.tilesGet(have: have))
+    }
+
     /// The app came to the front or the network changed: dial now if the
     /// session is not open, after a refusal too.
     public func wake() {
