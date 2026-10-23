@@ -4,6 +4,10 @@
 <dict>
 	<key>FTWAppGroup</key>
 	<string>$(FTW_APP_GROUP)</string>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>energy.ftw.cloud-read</string>
+	</array>
 	<key>CFBundleLocalizations</key>
 	<array>
 		<string>en</string>
