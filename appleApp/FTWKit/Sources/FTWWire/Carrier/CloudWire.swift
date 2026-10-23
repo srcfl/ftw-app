@@ -100,6 +100,11 @@ public enum CloudWire {
     public struct WireError: Error, Equatable {
         public let code: String
         public let message: String
+
+        package init(code: String, message: String) {
+            self.code = code
+            self.message = message
+        }
     }
 
     // MARK: - Frames
@@ -573,7 +578,7 @@ public enum CloudWire {
 extension CloudWire.Header {
     public init(body: Bytes) throws { try self.init(CloudWire.Fields(body: body)) }
 
-    init(_ f: CloudWire.Fields) throws {
+    package init(_ f: CloudWire.Fields) throws {
         self.init(seq: try f.uint("seq"), boot: try f.bytes("boot"), uptimeMs: try f.int("uptimeMs"), wallMs: try f.optionalInt("wallMs"))
     }
 }
@@ -736,11 +741,12 @@ extension CloudWire.HB {
 
 extension CloudWire {
     /// A body's text keys. Absent and null both read as the zero value, as
-    /// Go leaves a field it was not given.
-    struct Fields {
+    /// Go leaves a field it was not given. Open to the package, for a class
+    /// read beside the app's own models (FTWKit's tiles).
+    package struct Fields {
         private let map: [String: CBOR]
 
-        init(body: Bytes) throws {
+        package init(body: Bytes) throws {
             guard !body.isEmpty else { throw WireError(code: "E_CLOUD_BODY", message: "empty body") }
             let value: CBOR
             do {
@@ -766,14 +772,14 @@ extension CloudWire {
             self.map = map
         }
 
-        subscript(key: String) -> CBOR { map[key] ?? .null }
+        package subscript(key: String) -> CBOR { map[key] ?? .null }
 
-        func uint(_ key: String) throws -> UInt64 { try CloudWire.uint(self[key], key) }
-        func int(_ key: String) throws -> Int64 { try CloudWire.int(self[key], key) }
-        func text(_ key: String) throws -> String { try CloudWire.text(self[key], key) }
-        func bool(_ key: String) throws -> Bool { try CloudWire.bool(self[key], key) }
+        package func uint(_ key: String) throws -> UInt64 { try CloudWire.uint(self[key], key) }
+        package func int(_ key: String) throws -> Int64 { try CloudWire.int(self[key], key) }
+        package func text(_ key: String) throws -> String { try CloudWire.text(self[key], key) }
+        package func bool(_ key: String) throws -> Bool { try CloudWire.bool(self[key], key) }
 
-        func bytes(_ key: String) throws -> Bytes {
+        package func bytes(_ key: String) throws -> Bytes {
             switch self[key] {
             case .bytes(let b): return b
             case .null, .undefined: return []
@@ -847,7 +853,7 @@ extension CloudWire {
         }
     }
 
-    static func texts(_ v: CBOR, _ key: String) throws -> [String] {
+    package static func texts(_ v: CBOR, _ key: String) throws -> [String] {
         switch v {
         case .array(let items): return try items.map { try text($0, key) }
         case .null, .undefined: return []
