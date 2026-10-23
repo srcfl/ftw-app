@@ -17,14 +17,14 @@ extension CloudWire {
     /// Service to phone, `{n}`: the answer to `tiles.get` is complete.
     public static let msgTilesEnd = "tiles.end"
 
-    /// The columns the box sends, in this order: what the history asks the
-    /// box for, so a closed tile is the same bytes either way.
+    /// The columns the box sends, in this order, and the only ones a tile
+    /// may carry: what the history asks the box for, so a closed tile is the
+    /// same bytes either way.
     public static let tileSeries = ["grid_w", "pv_w", "battery_w", "load_w"]
     /// How far back the service keeps tiles, and the phone holds them.
     public static let tileKeepMs: Int64 = 48 * 3_600_000
     /// How many pieces of the trailing tile a holder keeps.
     static let tilePiecesMax = 16
-    static let tileSeriesMax = 16
     static let tileStepMs: Int64 = 300_000
     static let tileSpanMs: Int64 = 43_200_000
     static let tilePoints = 144
@@ -60,8 +60,7 @@ extension CloudWire {
             guard tileId == HistoryGeometry.tileID(.fiveMinutes, stride: 1, startMs: Double(tileStart)) else {
                 throw bad("tile id does not name the tile its start is in")
             }
-            guard !series.isEmpty, series.count <= CloudWire.tileSeriesMax else { throw bad("series count") }
-            guard Set(series).count == series.count, series.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 64 }) else { throw bad("series names") }
+            guard series == CloudWire.tileSeries else { throw bad("series are not tileSeries") }
             let n = points
             guard n >= 1, data.count == n * 4 * series.count else { throw bad("data is not whole columns") }
             guard Int((startMs - tileStart) / stepMs) + n <= CloudWire.tilePoints else { throw bad("data runs past the tile") }
@@ -155,8 +154,8 @@ struct CloudTileStore: Equatable, Sendable {
     private static func sent(_ t: CloudWire.Tiles) -> (Int64, UInt64) { (t.header.wallMs ?? 0, t.header.seq) }
 
     /// Keeps one checked body. A closed tile replaces every piece of its
-    /// tile, and an earlier closed one; a whole piece every piece the box
-    /// sent before it. A body held
+    /// tile, and a closed one the box sent before it, never one it sent
+    /// after; a whole piece every piece the box sent before it. A body held
     /// already (a forwarded append that came again in an answer) changes
     /// nothing.
     mutating func take(_ t: CloudWire.Tiles, nowMs: Int64) {
@@ -165,6 +164,7 @@ struct CloudTileStore: Equatable, Sendable {
         if bodies.contains(where: { $0.header.boot == t.header.boot && $0.header.seq == t.header.seq }) { return }
         if t.partial, bodies.contains(where: { $0.tileId == t.tileId && !$0.partial }) { return }
         if !t.partial {
+            if let held = bodies.first(where: { $0.tileId == t.tileId && !$0.partial }), Self.sent(t) < Self.sent(held) { return }
             bodies.removeAll { $0.tileId == t.tileId }
         } else if t.whole {
             bodies.removeAll { $0.tileId == t.tileId && Self.sent($0) < Self.sent(t) }

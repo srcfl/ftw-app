@@ -116,6 +116,53 @@ import Testing
         #expect(EnergyToday.sum(today, fromMs: Double(start)).missingMs == 0)
     }
 
+    /// The box answered, then went away again: a closed tile from the copy
+    /// with other values does not replace the box's own.
+    @Test func theBoxsOwnClosedTileWinsOverTheCopys() async throws {
+        let (w, history, start) = try Self.awayBox()
+        await w.run(100)
+        w.relay.history = [Self.boxTile(start: start - Self.span, filled: 144, closed: true, base: 500),
+                           Self.boxTile(start: start, filled: 37, closed: false, base: 500)]
+        w.site.connect(w.relay)
+        w.relay.open(w.scheduler.nowMs)
+        w.relay.helloOk(uptimeMs: w.uptime, cloud: w.identity, caps: [Contract.capCloudLink, Contract.capAPIPassthrough, Contract.capHistory5m])
+        w.relay.snap(uptimeMs: w.uptime, gridW: 900)
+        await w.run(200)
+        #expect(history.samples(.grid, fromMs: Double(start - Self.span)).first?.watts == 500)
+
+        w.relay.drop()
+        await w.run(50)
+        w.service.push(try Self.tile(w, start: start - Self.span, closed: true, base: 700))
+        await w.run(50)
+        #expect(history.samples(.grid, fromMs: Double(start - Self.span)).first?.watts == 500)
+    }
+
+    /// A launch whose file holds the box's own history, further than the
+    /// copy reaches: the box away, the copy's answer adds nothing, and what
+    /// is shown is not labelled as the copy.
+    @Test func theBoxsCachedHistoryIsNotLabelledTheCopy() async throws {
+        let (w, history, start) = try Self.awayBox()
+        await w.run(100)
+        w.relay.history = [Self.boxTile(start: start - Self.span, filled: 144, closed: true, base: 500),
+                           Self.boxTile(start: start, filled: 37, closed: false, base: 500)]
+        w.site.connect(w.relay)
+        w.relay.open(w.scheduler.nowMs)
+        w.relay.helloOk(uptimeMs: w.uptime, cloud: w.identity, caps: [Contract.capCloudLink, Contract.capAPIPassthrough, Contract.capHistory5m])
+        w.relay.snap(uptimeMs: w.uptime, gridW: 900)
+        await w.run(200)
+        #expect(!history.fromCloud)
+        w.site.persistNow(wait: true)
+        w.site.destroy()
+
+        w.open()
+        let again = HistoryModel(site: w.site)
+        w.connectCloud()
+        await w.run(100)
+        #expect(!again.fromCloud)
+        #expect(again.cloudNote(nowMs: w.scheduler.nowMs, zone: Self.utc) == nil)
+        #expect(again.samples(.grid, fromMs: Double(start))[36].watts == 536)
+    }
+
     @Test func theBoxsAnswerReplacesTheCopy() async throws {
         let (w, history, start) = try Self.awayBox()
         await w.run(100)

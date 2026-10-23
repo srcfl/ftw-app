@@ -125,6 +125,7 @@ struct CloudTileVectors: Decodable {
             "stride 2": { $0.tileId = HistoryGeometry.tileID(.fiveMinutes, stride: 2, startMs: Double($0.tileStart)) },
             "no series": { $0.series = [] },
             "twice a series": { $0.series = ["grid_w", "grid_w", "pv_w", "load_w"] },
+            "another series": { $0.series = ["grid_w", "pv_w", "battery_w", "ev_w"] },
             "closed but a piece": { $0.partial = false },
             "half a column": { t in
                 t.data.removeLast(2)
@@ -194,5 +195,15 @@ struct CloudTileVectors: Decodable {
         let now = closed.tileEnd + 3_600_000
         for t in [closed, fixed, piece] { s.take(t, nowMs: now) }
         #expect(s.bodies == [fixed])
+
+        // The first version, late: it replaces nothing.
+        s.take(closed, nowMs: now)
+        #expect(s.bodies == [fixed])
+    }
+
+    /// The history asks the box for the series a tile carries, so a closed
+    /// tile from the copy and one from the box are the same bytes.
+    @Test func theHistoryAsksForTheTilesSeries() {
+        #expect(HistoryModel.series == CloudWire.tileSeries)
     }
 }

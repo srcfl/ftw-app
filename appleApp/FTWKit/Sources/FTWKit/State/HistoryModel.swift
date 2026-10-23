@@ -63,6 +63,9 @@ public final class HistoryModel {
     @ObservationIgnored private var running: Task<Void, Error>?
     /// The FTW Cloud session last asked for tiles, by when it opened, and
     /// whether its answer is complete.
+    /// The closed tiles shown that came from FTW Cloud's copy, not from the
+    /// box. The box's own tiles win; a copy's tile replaces only a copy's.
+    @ObservationIgnored private var fromCopy = Set<String>()
     @ObservationIgnored private var cloudAsked: Double?
     @ObservationIgnored private var cloudAsking = false
     @ObservationIgnored private var cloudAnswered = false
@@ -165,6 +168,7 @@ public final class HistoryModel {
                 self.open = chunk
             } else {
                 self.tiles[chunk.tileId] = chunk
+                self.fromCopy.remove(chunk.tileId)
                 if self.open?.tileId == chunk.tileId { self.open = nil }
             }
             // Drawn as the tiles arrive, a display frame at a time: a tile
@@ -217,18 +221,27 @@ public final class HistoryModel {
                 guard tiles[c.tileId] == nil, Self.reach(c) > open.map(Self.reach) ?? -.infinity else { continue }
                 open = c
             } else {
-                guard tiles[c.tileId]?.etag != c.etag else { continue }
+                if let held = tiles[c.tileId] {
+                    // The box's own tile wins over the copy's.
+                    guard held.etag != c.etag, fromCopy.contains(c.tileId) else { continue }
+                }
                 tiles[c.tileId] = c
+                fromCopy.insert(c.tileId)
                 if open?.tileId == c.tileId { open = nil }
             }
             took = true
         }
+        if took { fromCloud = true }
+        show(plan, from, to)
         // Nothing new, as after a launch with the box still away and the
         // copy's tiles already in the file: what is shown is FTW Cloud's
-        // copy all the same until the box answers, and is dated as one.
-        let confirms = !loaded && cloudAnswered && site.cloudTiles.laid.contains { c in plan.tiles.contains { $0.tileId == c.tileId } }
-        if took || confirms { fromCloud = true }
-        show(plan, from, to)
+        // copy all the same until the box answers, and is dated as one;
+        // unless the file reaches further than the copy, which then is the
+        // box's.
+        if !fromCloud, !loaded, cloudAnswered, let end = frame.flatMap(Self.dataEndMs) {
+            let reach = site.cloudTiles.laid.filter { c in plan.tiles.contains { $0.tileId == c.tileId } }.map(Self.reach).max()
+            if let reach, reach >= end { fromCloud = true }
+        }
         cloudUpToMs = fromCloud ? frame.flatMap(Self.dataEndMs) : nil
     }
 
