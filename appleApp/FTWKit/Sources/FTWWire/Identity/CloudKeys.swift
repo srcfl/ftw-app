@@ -50,7 +50,7 @@ public struct CloudEndpoint: Equatable, Sendable {
     }
 
     /// The address for one home's session.
-    func url(home: String) -> URL {
+    package func url(home: String) -> URL {
         var c = URLComponents(url: url, resolvingAgainstBaseURL: false)!
         c.queryItems = [URLQueryItem(name: "home", value: home)]
         return c.url!
@@ -102,12 +102,12 @@ public struct CloudIdentity: Codable, Equatable, Sendable {
     }
 
     /// The same box and home, whatever its boot or names.
-    func sameHome(_ other: CloudIdentity?) -> Bool {
+    package func sameHome(_ other: CloudIdentity?) -> Bool {
         other?.pk == pk
     }
 
     /// Whether the owner has the readable copy on. The tables are cut with
     /// the grant's key, so they are empty while it is off
     /// (docs/protocol-cloud.md, Session information).
-    var copyOn: Bool { !sources.isEmpty || !loadpoints.isEmpty }
+    package var copyOn: Bool { !sources.isEmpty || !loadpoints.isEmpty }
 }

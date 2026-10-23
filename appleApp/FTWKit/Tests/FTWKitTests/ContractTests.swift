@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import FTWKit
+@testable import FTWWire
 import FTWDemo
 
 /// The registry is one file shared with the box and the web app. Every name

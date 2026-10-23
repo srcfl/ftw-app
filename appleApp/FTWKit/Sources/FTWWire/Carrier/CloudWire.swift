@@ -75,7 +75,7 @@ public enum CloudWire {
     /// reach this phone. The service binds it to the phone's roster entry.
     public static let msgPushRegister = "push.register"
     /// The only kind of push registration so far.
-    static let pushKindAlert = "alert"
+    package static let pushKindAlert = "alert"
     /// Both ways, `{sid, d}`: one message of the phone's own session with
     /// its box, which the service carries and cannot read (`Tun`).
     public static let msgTun = "tun"
@@ -335,7 +335,7 @@ public enum CloudWire {
 
         public var ended: Bool { d.isEmpty }
 
-        var body: CBOR { .map([("sid", .unsigned(UInt64(sid))), ("d", .bytes(d))]) }
+        package var body: CBOR { .map([("sid", .unsigned(UInt64(sid))), ("d", .bytes(d))]) }
 
         public init(body: Bytes) throws {
             let f = try Fields(body: body)
