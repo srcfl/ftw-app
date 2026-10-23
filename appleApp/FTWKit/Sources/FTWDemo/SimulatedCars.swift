@@ -104,9 +104,11 @@ extension SimulatedBox {
     /// its boot, and each car under an opaque id. The key is a fixed point,
     /// which the demo never signs with.
     func cloudSession() -> CBOR {
-        let pk: Bytes = [0x04] + Bytes(repeating: 0x2a, count: 64)
+        let pk: Bytes = cloudKey ?? [0x04] + Bytes(repeating: 0x2a, count: 64)
         let table = (cars ?? []).map { (Self.opaque($0.id), CBOR.text($0.id)) }
-        return .map([("pk", .bytes(pk)), ("boot", .bytes(Bytes(repeating: 0x0b, count: 16))), ("sources", .map([(String, CBOR)]())),
+        // A demo FTW Cloud holds a copy, so the box names its meter.
+        let sources: [(String, CBOR)] = cloudKey == nil ? [] : [("o-sdm630", .text("sdm630"))]
+        return .map([("pk", .bytes(pk)), ("boot", .bytes(Bytes(repeating: 0x0b, count: 16))), ("sources", .map(sources)),
                      ("loadpoints", .map([("o-garage", .text("garage"))])), ("cars", .map(table))])
     }
 

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import FTWKit
+@testable import FTWDemo
 
 /// The history while the box cannot answer: FTW Cloud's tiles, signed by the
 /// box and dated, and the box's own answer the moment it comes back.
@@ -150,6 +151,46 @@ import Testing
         await w.run(100)
         #expect(!w.service.received.contains { $0.t == CloudWire.msgTilesGet })
         #expect(!history.fromCloud)
+    }
+
+    /// The demo's picture of a box that goes away (`-FTWDemoBoxAway`) runs
+    /// the same path: the box names its key in hello and goes, and FTW
+    /// Cloud's signed tiles draw, dated.
+    @Test func theDemosAwayBoxDrawsFromTheCopy() async throws {
+        final class Parts {
+            var cloud: SimulatedCloud?
+            var carrier: LoopbackCarrier?
+        }
+        let parts = Parts()
+        let scheduler = ManualScheduler(nowMs: GridTodayShareTests.evening)
+        let app = AppModel(store: MemoryStore(), files: nil, shared: nil, passkeys: nil, scheduler: scheduler, build: "test", ua: "test", demo: { s in
+            let box = SimulatedBox(scheduler: s)
+            DemoCars.one.apply(to: box, nowMs: s.nowMs)
+            let cloud = SimulatedCloud(box: box, scheduler: s)
+            box.linkedToCloud = true
+            box.cloudKey = cloud.pk
+            box.answersHistory = false
+            parts.cloud = cloud
+            let carrier = LoopbackCarrier(box: box, scheduler: s)
+            parts.carrier = carrier
+            return carrier
+        })
+        app.startDemo()
+        let cloud = try #require(parts.cloud)
+        let site = try #require(app.site)
+        site.connectDemoCloud(endpoint: cloud.endpoint, makeSocket: cloud.factory)
+        let history = try #require(app.home?.nodes.history)
+        await GridTodayShareTests().run(scheduler, 3_000)
+        #expect(site.cloudCopyOpenSinceMs != nil)
+        #expect(!history.fromCloud, "the box still streams")
+
+        cloud.awayAtMs = scheduler.nowMs
+        parts.carrier?.drop()
+        await GridTodayShareTests().run(scheduler, 1_000)
+        #expect(history.fromCloud)
+        let upTo = try #require(history.cloudUpToMs)
+        #expect(upTo <= cloud.awayAtMs! - 30_000 && upTo > cloud.awayAtMs! - 10 * 60_000)
+        #expect(history.samples(.solar, fromMs: GridTodayShareTests.evening - 24 * 3_600_000).contains { $0.watts != nil })
     }
 
     /// A copy that ends on another day says which.

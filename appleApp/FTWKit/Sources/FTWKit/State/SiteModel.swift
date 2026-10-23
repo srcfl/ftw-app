@@ -1098,6 +1098,19 @@ extension SiteModel {
         startCloud()
     }
 
+    #if DEBUG
+    /// The demo's FTW Cloud (`SimulatedCloud`), for pictures of a box that
+    /// goes away. It asks the person nothing: no alerts.
+    public func connectDemoCloud(endpoint: CloudEndpoint, makeSocket: @escaping WebSocketFactory) {
+        guard isDemo, !destroyed else { return }
+        pushTokens = PushTokenSource(install: { _ in }, uninstall: {})
+        cloudDevice = Primitives.generateKeyPair()
+        cloudSocket = makeSocket
+        cloudEndpoint = endpoint
+        startCloud()
+    }
+    #endif
+
     /// The box has not spoken to this phone, now or at an earlier launch.
     var neverHeard: Bool { !core.state.heardFromBox && kept?.hello == nil }
 
