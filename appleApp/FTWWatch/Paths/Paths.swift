@@ -50,3 +50,14 @@ extension ReadPath {
 protocol CommandPath: AnyObject {
     func send(_ command: WatchCommand)
 }
+
+/// Milliseconds on a monotonic clock that runs on while the watch sleeps:
+/// for a command's life and every wait, which the wall clock must not move.
+enum WatchClock {
+    private static let origin = ContinuousClock.now
+
+    static func ms() -> Double {
+        let d = origin.duration(to: .now).components
+        return Double(d.seconds) * 1000 + Double(d.attoseconds) / 1e15
+    }
+}

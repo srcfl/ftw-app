@@ -60,11 +60,21 @@ import Testing
         #expect(WatchReceipt.box(c, .refused(.other)).text == "Your box did not do that. Nothing changed.")
     }
 
-    /// No answer may still have run: a warning, not a failure. Something
-    /// only the phone may send is not sent at all.
+    /// No answer once the command left may still have run: a warning, not
+    /// a failure, and the box's ack stays. A box not reached and a watch
+    /// FTW Cloud does not list sent nothing. Something only the phone may
+    /// send is not sent at all.
     @Test func noAnswerWarnsAndThePhonesOwnFail() {
-        let none = WatchReceipt.box(c, .noAnswer)
-        #expect(none.tone == .warning && none.sent == .waiting && none.settled)
+        let none = WatchReceipt.box(c, .noAnswer(acked: false))
+        #expect(none.tone == .warning && none.sent == .done && none.accepted == .waiting && none.settled)
+        let acked = WatchReceipt.box(c, .noAnswer(acked: true))
+        #expect(acked.accepted == .done && acked.tone == .warning)
+        let unread = WatchReceipt.box(c, .unread)
+        #expect(unread.sent == .done && unread.accepted == .active && !unread.settled)
+        let notReached = WatchReceipt.box(c, .notReached)
+        #expect(notReached.sent == .failed && notReached.tone == .failed && notReached.text == "Your box can't be reached now. Nothing was sent.")
+        let notListed = WatchReceipt.box(c, .notListed)
+        #expect(notListed.sent == .failed && notListed.text == "Add this watch again from your iPhone. Nothing was sent.")
         let phone = WatchReceipt.box(c, .needsPhone)
         #expect(phone.tone == .failed && phone.sent == .failed)
     }
@@ -79,5 +89,92 @@ import Testing
         #expect(WatchReceipt.box(c, .pending).taking(phoneFailed) == nil)
         // Before the box took it, the other path's word still counts.
         #expect(WatchReceipt.box(c, .sending).taking(phoneFailed) == phoneFailed)
+    }
+}
+
+/// Which way each command goes, and when FTW Cloud is read.
+@Suite struct WatchRouteTests {
+    private let c = WatchCommand(op: .chargeNow(loadpointID: "garage"), home: "site", sentAtMs: 0)
+
+    private func receipt(sent: WatchReceipt.Mark, accepted: WatchReceipt.Mark = .waiting, confirmed: WatchReceipt.Mark = .waiting,
+                         tone: WatchReceipt.Tone = .working) -> WatchReceipt {
+        WatchReceipt(commandID: c.id, op: c.op, sent: sent, accepted: accepted, confirmed: confirmed, text: "", tone: tone)
+    }
+
+    /// The phone failing a command FTW Cloud can carry hands it over under
+    /// the same cmdId, and its failure does not reach the screen.
+    @Test func thePhoneFailingHandsTheCommandToTheCloud() {
+        var route = WatchRoute()
+        #expect(route.send(c, phone: true, cloud: true, nowMs: 1_000) == .phone)
+        let failed = receipt(sent: .failed, tone: .failed)
+        let carry = route.phoneSaid(failed, cloud: true, nowMs: 2_000)
+        #expect(carry == WatchRoute.Carry(command: c, leftMs: WatchCommand.lifeMs - 1_000))
+        #expect(!route.shows(failed))
+        // Handed over once.
+        #expect(route.phoneSlow(c.id, cloud: true, nowMs: 4_000) == nil)
+    }
+
+    /// Any receipt short of the box's ack keeps the command the phone's
+    /// only until `phoneTakesMs`, then FTW Cloud carries it too.
+    @Test func aCommandStaysThePhonesOnlyOnceTheBoxAckedIt() {
+        var route = WatchRoute()
+        _ = route.send(c, phone: true, cloud: true, nowMs: 0)
+        #expect(route.phoneSaid(receipt(sent: .done, accepted: .active), cloud: true, nowMs: 500) == nil)
+        #expect(route.phoneSlow(c.id, cloud: true, nowMs: WatchRoute.phoneTakesMs)?.command == c)
+
+        var acked = WatchRoute()
+        _ = acked.send(c, phone: true, cloud: true, nowMs: 0)
+        #expect(acked.phoneSaid(receipt(sent: .done, accepted: .done, confirmed: .active), cloud: true, nowMs: 500) == nil)
+        #expect(acked.phoneSlow(c.id, cloud: true, nowMs: WatchRoute.phoneTakesMs) == nil)
+    }
+
+    /// Without FTW Cloud the phone's failure is the end, and is shown.
+    @Test func withoutTheCloudThePhonesFailureStands() {
+        var route = WatchRoute()
+        _ = route.send(c, phone: true, cloud: false, nowMs: 0)
+        let failed = receipt(sent: .failed, tone: .failed)
+        #expect(route.phoneSaid(failed, cloud: false, nowMs: 100) == nil)
+        #expect(route.shows(failed))
+    }
+
+    /// The phone out of reach: FTW Cloud carries the charger's commands,
+    /// and the phone's late word that it could not is not shown. The mode
+    /// goes nowhere.
+    @Test func withoutThePhoneTheCloudCarriesTheChargersCommands() {
+        var route = WatchRoute()
+        #expect(route.send(c, phone: false, cloud: true, nowMs: 0) == .cloud(.init(command: c, leftMs: WatchCommand.lifeMs)))
+        let late = route.phoneNotSent(c.id, cloud: true, nowMs: 100)
+        #expect(late.carry == nil && !late.tell)
+        let mode = WatchCommand(op: .mode("charge"), home: "site", sentAtMs: 0)
+        #expect(route.send(mode, phone: false, cloud: true, nowMs: 0) == .nowhere)
+        #expect(route.phoneNotSent(mode.id, cloud: true, nowMs: 100).tell)
+    }
+
+    /// The phone could not be reached for a command it was sent: FTW Cloud
+    /// carries it, while it has life left.
+    @Test func aCommandThePhoneNeverGotGoesByTheCloudWhileItLives() {
+        var route = WatchRoute()
+        _ = route.send(c, phone: true, cloud: true, nowMs: 0)
+        let late = route.phoneNotSent(c.id, cloud: true, nowMs: 1_000)
+        #expect(late.carry?.leftMs == WatchCommand.lifeMs - 1_000 && !late.tell)
+
+        var old = WatchRoute()
+        _ = old.send(c, phone: true, cloud: true, nowMs: 0)
+        #expect(old.phoneSlow(c.id, cloud: true, nowMs: WatchCommand.lifeMs + 1) == nil)
+    }
+
+    /// FTW Cloud is read once per appearance: at once without the phone,
+    /// after a wait with it, and not when the phone answered meanwhile.
+    @Test func theCloudIsReadOncePerLookUnlessThePhoneAnswers() {
+        var route = WatchRoute()
+        #expect(route.look(phone: true, nowMs: 1_000) == WatchRoute.phoneWaitMs)
+        #expect(route.look(phone: true, nowMs: 1_500) == nil)
+        route.heardPhone(nowMs: 2_000)
+        #expect(!route.readsCloud)
+        route.away()
+        #expect(route.look(phone: false, nowMs: 9_000) == 0)
+        #expect(route.readsCloud)
+        route.away()
+        #expect(!route.readsCloud)
     }
 }

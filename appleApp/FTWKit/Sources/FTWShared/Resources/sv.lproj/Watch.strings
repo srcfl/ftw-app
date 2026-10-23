@@ -31,6 +31,8 @@
 "Something changed on your box. Try again." = "Något ändrades i boxen. Försök igen.";
 "No answer from your box yet. Check FTW on your iPhone." = "Inget svar från boxen än. Titta i FTW på din iPhone.";
 "This needs your iPhone nearby. Nothing was sent." = "Det här kräver din iPhone i närheten. Inget skickades.";
+"Your box can't be reached now. Nothing was sent." = "Boxen nås inte just nu. Inget skickades.";
+"Add this watch again from your iPhone. Nothing was sent." = "Lägg till klockan igen från din iPhone. Inget skickades.";
 
 "iPhone not reachable" = "iPhone nås inte";
 "Open FTW on your iPhone" = "Öppna FTW på din iPhone";

@@ -148,7 +148,7 @@ private func key(_ secretHex: String) throws -> Primitives.KeyPair {
         try session.opened(Bytes(hex: v.step("x1.answer").body))
         let c = WatchCommand(op: .chargeNow(loadpointID: "garage"), home: "site", sentAtMs: 1_000)
         let opened = try #require(session.opened)
-        let cmd = try #require(ExchangeSession.cmd(c, link: link, opened: opened, openedAtMs: 1_000, nowMs: 1_200))
+        let cmd = try #require(ExchangeSession.cmd(c, link: link, opened: opened, leftMs: 29_800))
         #expect(try session.request(cmd).count == ExchangeSession.requestBytes)
         #expect(try session.request(Envelope(t: "now", b: .map([(String, CBOR)]()))).count == ExchangeSession.requestBytes)
     }
@@ -160,11 +160,11 @@ private func key(_ secretHex: String) throws -> Primitives.KeyPair {
 
     /// The watch sends what the phone's car view sends, under the watch's
     /// own cmdId, and expires in box uptime. The mode and which car stay
-    /// with the phone, and a tap that waited past its life is not sent.
+    /// with the phone, and a tap past its life is not sent.
     @Test func theCommandIsThePhones() throws {
         let opened = ExchangeSession.Opened(uptimeMs: 500_000, rev: 9, role: "watch", scopes: [])
         let c = WatchCommand(op: .chargeNow(loadpointID: "garage"), home: "site", sentAtMs: 10_000)
-        let env = try #require(ExchangeSession.cmd(c, link: link, opened: opened, openedAtMs: 12_000, nowMs: 12_500))
+        let env = try #require(ExchangeSession.cmd(c, link: link, opened: opened, leftMs: 27_500))
         let b = try #require(env.b)
         #expect(env.t == "cmd")
         #expect(b["cmdId"]?.string == c.id)
@@ -173,18 +173,17 @@ private func key(_ secretHex: String) throws -> Primitives.KeyPair {
         #expect(b["args"]?["phase_mode"]?.string == "3p")
         #expect(b["args"]?["hold_s"]?.int == 0)
         #expect(b["expect"]?["rev"]?.int == 9)
-        // 500 s of uptime at hello_ok, 0.5 s since, and 27.5 s of the tap's
-        // 30 s left.
-        #expect(b["notValidAfterMs"]?.int == 528_000)
+        // 500 s of uptime at hello_ok, and 27.5 s of the tap's 30 s left.
+        #expect(b["notValidAfterMs"]?.int == 527_500)
 
-        let pause = try #require(ExchangeSession.cmd(WatchCommand(op: .pause(loadpointID: "garage"), home: "site", sentAtMs: 10_000), link: link, opened: opened, openedAtMs: 12_000, nowMs: 12_500))
+        let pause = try #require(ExchangeSession.cmd(WatchCommand(op: .pause(loadpointID: "garage"), home: "site", sentAtMs: 10_000), link: link, opened: opened, leftMs: 27_500))
         #expect(pause.b?["args"]?["power_w"]?.int == 0)
-        let back = try #require(ExchangeSession.cmd(WatchCommand(op: .backToPlan(loadpointID: "garage"), home: "site", sentAtMs: 10_000), link: link, opened: opened, openedAtMs: 12_000, nowMs: 12_500))
+        let back = try #require(ExchangeSession.cmd(WatchCommand(op: .backToPlan(loadpointID: "garage"), home: "site", sentAtMs: 10_000), link: link, opened: opened, leftMs: 27_500))
         #expect(back.b?["args"]?["clear"]?.bool == true)
 
-        #expect(ExchangeSession.cmd(WatchCommand(op: .mode("charge"), home: "site", sentAtMs: 10_000), link: link, opened: opened, openedAtMs: 12_000, nowMs: 12_500) == nil)
-        #expect(ExchangeSession.cmd(WatchCommand(op: .chargeNow(loadpointID: "other"), home: "site", sentAtMs: 10_000), link: link, opened: opened, openedAtMs: 12_000, nowMs: 12_500) == nil)
-        #expect(ExchangeSession.cmd(c, link: link, opened: opened, openedAtMs: 12_000, nowMs: 41_000) == nil)
+        #expect(ExchangeSession.cmd(WatchCommand(op: .mode("charge"), home: "site", sentAtMs: 10_000), link: link, opened: opened, leftMs: 27_500) == nil)
+        #expect(ExchangeSession.cmd(WatchCommand(op: .chargeNow(loadpointID: "other"), home: "site", sentAtMs: 10_000), link: link, opened: opened, leftMs: 27_500) == nil)
+        #expect(ExchangeSession.cmd(c, link: link, opened: opened, leftMs: 0) == nil)
     }
 
     /// What one answer says, frame by frame.

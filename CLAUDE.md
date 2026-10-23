@@ -54,7 +54,9 @@ own key and its own `cmdId`, and reads and sends through two seams,
 `ReadPath` and `CommandPath`. `PathChooser` puts `PhonePath` and
 `CloudPath` behind them: with the phone away the watch reads FTW Cloud's
 copy and sends charger commands through the box's exchange, each one
-HTTPS request (srcfl/ftw ADR 0009, "Through FTW Cloud"). An owner's phone
+HTTPS request (srcfl/ftw ADR 0009, "Through FTW Cloud"). Their rules
+live in the package with tests: `WatchRoute` (FTWShared) picks the path,
+and `WatchCommander` (FTWWire) runs a command through FTW Cloud. An owner's phone
 adds the watch to the box by its key first (`WatchAccess`). FTW Cloud
 carries the exchange and reads none of it; the box decides. The mode and
 "Which car?" go through the phone alone. An unlocked watch on the wrist

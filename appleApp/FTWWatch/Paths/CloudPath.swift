@@ -14,7 +14,7 @@ import os
 ///   carried as `x`. The box answers itself; FTW Cloud reads neither.
 ///
 /// It reads when asked and never on a timer. One request at a time, as the
-/// service allows a device.
+/// service allows a device; a tapped command does not wait behind a read.
 @MainActor
 final class CloudPath {
     nonisolated static let log = Logger(subsystem: "energy.ftw.app.watchkitapp", category: "cloud")
@@ -24,13 +24,13 @@ final class CloudPath {
     private(set) var link: WatchLink?
     /// The last request in the queue; the next waits for it.
     private var tail: Task<Void, Never>?
+    /// The read under way, which a command cancels.
+    private var reading: Task<Void, Never>?
     /// The instance that holds the home, once the service named it.
     private var shard: String?
-    /// A read refused (the copy is off, or the watch is not listed) waits
-    /// this long before the next, so a wrist raised again and again does
-    /// not ask again and again.
+    /// Reads refused in a row, and when the next may go, on `WatchClock`.
+    private var refusals = 0
     private var readsAfterMs: Double = 0
-    private static let refusedWaitMs: Double = 15 * 60_000
     private let endpoint = CloudEndpoint.current
     private let http: URLSession
 
@@ -62,12 +62,20 @@ final class CloudPath {
 
     // MARK: Reading
 
-    /// One read of the home, unless one is under way or the last was
-    /// refused a moment ago.
+    /// One read of the home, unless the last was refused a moment ago. A
+    /// command cancels it.
     func read(looking: Bool, kept: @escaping @MainActor () -> WatchContext?) async {
-        guard ready, let link, link.cloudKey != nil, nowMs >= readsAfterMs else { return }
+        guard ready, let link, link.cloudKey != nil, WatchClock.ms() >= readsAfterMs else { return }
+        let task = Task { await self.readOnce(link, looking: looking, kept: kept) }
+        reading = task
+        await task.value
+        if reading == task { reading = nil }
+    }
+
+    private func readOnce(_ link: WatchLink, looking: Bool, kept: @MainActor () -> WatchContext?) async {
         do {
             let (payload, following) = try await request(CloudOnce.read(looking: looking))
+            refusals = 0
             let snap = try CloudOnce.snapshot(payload: payload, following: following)
             guard var read = WatchCloud.read(snap, link: link, kept: kept(), arrivalMs: nowMs) else { return }
             // A live Now arrives as a frame, so it glows for as long as the
@@ -80,9 +88,10 @@ final class CloudPath {
                 sink?(.context(read.context))
             }
             Self.log.info("cloud read: \(snap.envelopes.count, privacy: .public) envelopes, live \(read.liveForMs != nil, privacy: .public)")
-        } catch CloudError.refused {
-            readsAfterMs = nowMs + Self.refusedWaitMs
-            Self.log.notice("cloud read refused; the copy may be off")
+        } catch WatchCommander.Refused.notListed {
+            refusals += 1
+            readsAfterMs = WatchClock.ms() + WatchCloud.readWaitMs(refusals: refusals)
+            Self.log.notice("cloud read refused; the copy may be off, or the roster not there yet")
         } catch {
             Self.log.notice("cloud read failed: \(error.localizedDescription, privacy: .public)")
         }
@@ -90,56 +99,31 @@ final class CloudPath {
 
     // MARK: Commands
 
-    /// Run one command through the box's exchange. Every mark after
-    /// sending is the box's own answer; a command that got none is asked
-    /// again under its `cmdId`, which the box answers with what it did.
-    /// True when the box applied it.
+    /// Run one command through the box's exchange (`WatchCommander`), with
+    /// `leftMs` of its life left. True when the box applied it.
     @discardableResult
-    func send(_ c: WatchCommand) async -> Bool {
+    func send(_ c: WatchCommand, leftMs: Double) async -> Bool {
         // A command for a home other than the one the phone linked goes
         // through the phone or not at all.
         guard ready, let link, c.home == link.site, let key = Self.key() else {
             say(.box(c, .needsPhone))
             return false
         }
-        say(.box(c, .sending))
-        var step = WatchReceipt.BoxStep.noAnswer
-        sessions: for _ in 0..<2 {
-            do {
-                let session = try ExchangeSession(boxKey: Bytes(link.boxKey), staticKey: key)
-                let hello = try await exchange(session.open(build: Self.build))
-                guard !hello.isEmpty else { continue }
-                let opened = try session.opened(hello)
-                let openedAt = nowMs
-                guard let cmd = ExchangeSession.cmd(c, link: link, opened: opened, openedAtMs: openedAt, nowMs: nowMs) else {
-                    step = c.notValidAfterMs <= nowMs ? .refused(.tooLate) : .needsPhone
-                    break sessions
-                }
-                for ask in 0..<3 {
-                    let reply = try await exchange(session.request(cmd))
-                    // Silence: the session is gone, or the box away. A new
-                    // session asks again.
-                    guard !reply.isEmpty else { continue sessions }
-                    switch ExchangeSession.outcome(try session.answer(reply), cmdId: c.id) {
-                    case .applied:
-                        step = .applied
-                        break sessions
-                    case .refused(let why):
-                        step = .refused(why)
-                        break sessions
-                    case .pending, .unread:
-                        step = .pending
-                        say(.box(c, .pending))
-                        if ask < 2 { try await Task.sleep(for: .milliseconds(1_500)) }
-                    }
-                }
-                break sessions
-            } catch {
-                Self.log.notice("command through FTW Cloud failed: \(error.localizedDescription, privacy: .public)")
-            }
+        // The service takes one request at a time: a read stuck on the way
+        // must not hold up a tap.
+        reading?.cancel()
+        let commander = WatchCommander(
+            link: link, key: key, build: Self.build, clock: WatchClock.ms,
+            carry: { [weak self] d in
+                guard let self else { throw CancellationError() }
+                return try await self.exchange(d)
+            },
+            pause: { try await Task.sleep(for: .milliseconds(Int($0))) })
+        let end = await commander.run(c, leftMs: leftMs) { [weak self] step in
+            await self?.say(.box(c, step))
         }
-        say(.box(c, step == .pending ? .noAnswer : step))
-        return step == .applied
+        say(.box(c, end))
+        return end == .applied
     }
 
     private func say(_ r: WatchReceipt) {
@@ -156,29 +140,34 @@ final class CloudPath {
     // MARK: The request
 
     enum CloudError: Error {
-        /// 403: not admitted, or another service key. Says nothing more.
-        case refused
         case status(Int)
         case notReady
     }
 
     /// One request in the queue: the service takes one at a time per
-    /// device.
+    /// device. Cancelling the caller cancels its request.
     private func request(_ payload: Bytes) async throws -> (payload: Bytes, following: [Bytes]) {
         let before = tail
         let mine = Task<(Bytes, [Bytes]), Error> { @MainActor in
             await before?.value
+            try Task.checkCancellation()
             return try await self.post(payload)
         }
         tail = Task { _ = try? await mine.value }
-        return try await mine.value
+        return try await withTaskCancellationHandler {
+            try await mine.value
+        } onCancel: {
+            mine.cancel()
+        }
     }
 
     /// The POST, with the app's other service key once on a refusal, as the
-    /// app session does, and the shard the service names once.
+    /// app session does, and the shard the service names once. 403 is
+    /// `notListed` (not admitted, or another service key: it says nothing
+    /// more), 429 `busy`.
     private func post(_ payload: Bytes) async throws -> (Bytes, [Bytes]) {
         guard let endpoint, let link, let key = Self.key() else { throw CloudError.notReady }
-        var lastError: Error = CloudError.refused
+        var lastError: Error = WatchCommander.Refused.notListed
         for serviceKey in endpoint.serviceKeys {
             for _ in 0..<2 {
                 let req = try CloudOnce.Request(home: link.cloudHome, serviceKey: serviceKey, staticKey: key, payload: payload)
@@ -198,7 +187,9 @@ final class CloudPath {
                     shard = host
                     continue
                 case 403:
-                    lastError = CloudError.refused
+                    lastError = WatchCommander.Refused.notListed
+                case 429:
+                    throw WatchCommander.Refused.busy
                 default:
                     throw CloudError.status(status)
                 }

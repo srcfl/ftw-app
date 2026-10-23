@@ -90,31 +90,37 @@ public final class ExchangeSession {
 
 extension ExchangeSession {
     /// The box's `cmd` for a command from the watch, as the phone's car view
-    /// sends it, or nil for one the watch may only send through its phone:
-    /// the mode and which car is on a charger need what only an owner's
-    /// session holds. Its expiry is in box uptime, counted from `hello_ok`.
-    public static func cmd(_ c: WatchCommand, link: WatchLink, opened: Opened, openedAtMs: Double, nowMs: Double) -> Envelope? {
-        let args: [(String, CBOR)]
-        switch c.op {
-        case .chargeNow(let id):
-            guard let charge = link.chargeNow[id] else { return nil }
-            args = [("id", .text(id)), ("power_w", .number(charge.powerW)), ("hold_s", .int(0)), ("phase_mode", .text(charge.phaseMode))]
-        case .pause(let id):
-            args = [("id", .text(id)), ("power_w", .int(0)), ("hold_s", .int(0))]
-        case .backToPlan(let id):
-            args = [("id", .text(id)), ("clear", .bool(true))]
-        case .mode, .chooseCar:
-            return nil
-        }
-        let left = c.notValidAfterMs - nowMs
-        guard left > 0 else { return nil }
+    /// sends it, or nil for one the watch may only send through its phone.
+    /// Its expiry is in box uptime: `leftMs` of the tap's life, on the
+    /// watch's monotonic clock, counted from `hello_ok`, so the box's
+    /// deadline falls before the watch's, never after.
+    public static func cmd(_ c: WatchCommand, link: WatchLink, opened: Opened, leftMs: Double) -> Envelope? {
+        guard leftMs > 0, let args = args(c, link: link) else { return nil }
         return Envelope(t: "cmd", b: .map([
             ("cmdId", .text(c.id)),
             ("op", .text(Contract.opLoadpointHold)),
             ("args", .map(args)),
-            ("notValidAfterMs", .ms(opened.uptimeMs + max(0, nowMs - openedAtMs) + left)),
+            ("notValidAfterMs", .ms(opened.uptimeMs + leftMs)),
             ("expect", .map([("rev", .unsigned(opened.rev)), ("guards", .array([]))])),
         ]))
+    }
+
+    /// The hold's arguments, or nil when the watch may only send `c`
+    /// through its phone: the mode and which car is on a charger need what
+    /// only an owner's session holds, and Charge now needs the phone's
+    /// power for that charger.
+    public static func args(_ c: WatchCommand, link: WatchLink) -> [(String, CBOR)]? {
+        switch c.op {
+        case .chargeNow(let id):
+            guard let charge = link.chargeNow[id] else { return nil }
+            return [("id", .text(id)), ("power_w", .number(charge.powerW)), ("hold_s", .int(0)), ("phase_mode", .text(charge.phaseMode))]
+        case .pause(let id):
+            return [("id", .text(id)), ("power_w", .int(0)), ("hold_s", .int(0))]
+        case .backToPlan(let id):
+            return [("id", .text(id)), ("clear", .bool(true))]
+        case .mode, .chooseCar:
+            return nil
+        }
     }
 
     /// What one answer to a `cmd` says.

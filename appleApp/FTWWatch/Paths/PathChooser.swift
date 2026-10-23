@@ -3,7 +3,8 @@ import FTWShared
 import os
 
 /// The phone when it answers, FTW Cloud when it does not, behind one face,
-/// so no screen knows which carried what.
+/// so no screen knows which carried what. The rules are `WatchRoute`'s;
+/// this holds the paths and the waits.
 ///
 /// - Reads: the phone is asked whenever the watch looks. FTW Cloud is read
 ///   once each time the app comes on screen, at once when the phone cannot
@@ -11,11 +12,11 @@ import os
 ///   simulator says it is reachable even when it is off). Records from both
 ///   meet in `WatchContext.merging`, where the newer wins, so nothing steps
 ///   back. No timer reads again while the watch stays on screen.
-/// - Commands: through the phone when it is reachable; through FTW Cloud
-///   when it is not, when the phone could not take the command, or when it
-///   has not said it has it within `phoneTakesMs` (a phone simulator says it
-///   is reachable when it is off, and a real phone can be slow to wake).
-///   Both carry the watch's own `cmdId`, and the box acts on it once.
+/// - Commands: through the phone when it is reachable, until the box's ack
+///   comes back through it. FTW Cloud carries one too when the phone cannot
+///   be reached, says it could not send it, or has not passed on the ack
+///   within `WatchRoute.phoneTakesMs`. Both carry the watch's own `cmdId`,
+///   and the box acts on it once.
 /// - Whether commands can leave is the phone's reach or FTW Cloud's,
 ///   whichever holds, and changes only when that answer does, so the
 ///   buttons never blink while the paths change places.
@@ -28,26 +29,8 @@ final class PathChooser: ReadPath, CommandPath {
     var kept: @MainActor () -> WatchContext? = { nil }
 
     private var reach = WatchReach()
-    private var phoneReachable: Bool { reach.phone }
-    private var looking = false
-    /// When the phone last answered: a frame or a receipt. The context it
-    /// left before this app started is not an answer.
-    private var phoneHeardAtMs: Double = 0
+    private var route = WatchRoute()
     private var pendingRead: Task<Void, Never>?
-    /// Commands sent through the phone, until it answers, so one it could
-    /// not take goes through FTW Cloud instead.
-    private var viaPhone: [String: WatchCommand] = [:]
-    /// Commands FTW Cloud carries: the phone's word that it could not take
-    /// one of these says nothing about it.
-    private var viaCloud = Set<String>()
-
-    /// How long the phone has to answer a look before FTW Cloud is read.
-    static let phoneWaitMs: Double = 2_500
-    /// How long the phone has to say it has a command before FTW Cloud
-    /// carries it too.
-    static let phoneTakesMs: Double = 3_000
-
-    private var nowMs: Double { Date.now.timeIntervalSince1970 * 1000 }
 
     init(phone: PhonePath = PhonePath(), cloud: CloudPath = CloudPath()) {
         self.phone = phone
@@ -72,24 +55,20 @@ final class PathChooser: ReadPath, CommandPath {
     }
 
     func look() {
-        let appeared = !looking
-        looking = true
         phone.look()
-        guard appeared else { return }
+        guard let wait = route.look(phone: reach.phone, nowMs: WatchClock.ms()) else { return }
         pendingRead?.cancel()
-        let asked = nowMs
-        let wait = phoneReachable ? Self.phoneWaitMs : 0
         pendingRead = Task { [weak self] in
             if wait > 0 { try? await Task.sleep(for: .milliseconds(Int(wait))) }
-            guard let self, !Task.isCancelled, self.looking else { return }
-            // The phone answered the look: its stream is the fresher path.
-            if self.phoneHeardAtMs >= asked { return }
+            // Gone from the screen, or the phone answered the look: its
+            // stream is the fresher path.
+            guard let self, !Task.isCancelled, self.route.readsCloud else { return }
             await self.cloud.read(looking: true, kept: self.kept)
         }
     }
 
     func away() {
-        looking = false
+        route.away()
         pendingRead?.cancel()
         phone.away()
     }
@@ -100,26 +79,26 @@ final class PathChooser: ReadPath, CommandPath {
     }
 
     func send(_ command: WatchCommand) {
-        guard phoneReachable else {
-            viaCloud.insert(command.id)
-            Task { await viaTheCloud(command) }
-            return
-        }
-        viaPhone[command.id] = command
-        phone.send(command)
-        guard cloud.ready else { return }
-        Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(Int(Self.phoneTakesMs)))
-            guard let self, let c = self.viaPhone.removeValue(forKey: command.id) else { return }
-            self.viaCloud.insert(c.id)
-            await self.viaTheCloud(c)
+        switch route.send(command, phone: reach.phone, cloud: cloud.ready, nowMs: WatchClock.ms()) {
+        case .phone:
+            phone.send(command)
+            guard cloud.ready else { return }
+            Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(Int(WatchRoute.phoneTakesMs)))
+                guard let self, let carry = self.route.phoneSlow(command.id, cloud: self.cloud.ready, nowMs: WatchClock.ms()) else { return }
+                await self.viaTheCloud(carry)
+            }
+        case .cloud(let carry):
+            Task { await viaTheCloud(carry) }
+        case .nowhere:
+            sink?(.news(.receipt(.box(command, .needsPhone))))
         }
     }
 
     /// A command through FTW Cloud, and one read after the box applied it,
     /// so the car on screen shows what it does now.
-    private func viaTheCloud(_ c: WatchCommand) async {
-        guard await cloud.send(c), looking else { return }
+    private func viaTheCloud(_ carry: WatchRoute.Carry) async {
+        guard await cloud.send(carry.command, leftMs: carry.leftMs), route.looking else { return }
         try? await Task.sleep(for: .milliseconds(Int(Self.afterCommandMs)))
         await cloud.read(looking: true, kept: kept)
     }
@@ -136,10 +115,10 @@ final class PathChooser: ReadPath, CommandPath {
         case .notSent(let id):
             // The phone could not take it: FTW Cloud carries the same
             // command, under the same cmdId.
-            if let c = viaPhone.removeValue(forKey: id), cloud.ready {
-                viaCloud.insert(c.id)
-                Task { await viaTheCloud(c) }
-            } else if !viaCloud.contains(id) {
+            let r = route.phoneNotSent(id, cloud: cloud.ready, nowMs: WatchClock.ms())
+            if let carry = r.carry {
+                Task { await viaTheCloud(carry) }
+            } else if r.tell {
                 sink?(event)
             }
         case .context(let ctx):
@@ -147,9 +126,15 @@ final class PathChooser: ReadPath, CommandPath {
             sink?(event)
             publish()
         case .news(let news):
-            phoneHeardAtMs = nowMs
-            // The phone has the command: it carries it alone.
-            if case .receipt(let r) = news { viaPhone[r.commandID] = nil }
+            route.heardPhone(nowMs: WatchClock.ms())
+            if case .receipt(let r) = news {
+                // The phone could not send it: FTW Cloud carries it, and the
+                // phone's word does not reach the screen.
+                if let carry = route.phoneSaid(r, cloud: cloud.ready, nowMs: WatchClock.ms()) {
+                    Task { await viaTheCloud(carry) }
+                }
+                guard route.shows(r) else { return }
+            }
             sink?(event)
         case .phoneReachable:
             sink?(event)

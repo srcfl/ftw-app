@@ -136,3 +136,14 @@ public enum WatchCloud {
         }
     }
 }
+
+extension WatchCloud {
+    /// How long the watch waits to read again after FTW Cloud refused
+    /// `refusals` reads in a row. The first may be a read that beat the
+    /// roster to the service just after the phone added this watch, so it
+    /// waits half a minute; after that a wrist raised again and again does
+    /// not ask again and again.
+    public static func readWaitMs(refusals: Int) -> Double {
+        refusals <= 1 ? 30_000 : 15 * 60_000
+    }
+}

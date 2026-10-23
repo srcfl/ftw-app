@@ -551,11 +551,22 @@ public struct WatchReceipt: Codable, Sendable, Equatable {
         case sending
         /// The box acked it and has not settled it yet.
         case pending
+        /// The command left, and what came back was no ack this build can
+        /// read.
+        case unread
         case applied
         /// The box said no.
         case refused(Refusal)
-        /// No answer came, after asking again. It may still have run.
-        case noAnswer
+        /// No answer came, after asking again, once the command had left.
+        /// It may still have run. `acked` keeps the box's ack, when it gave
+        /// one.
+        case noAnswer(acked: Bool)
+        /// The box could not be reached before the command left: nothing
+        /// was sent.
+        case notReached
+        /// FTW Cloud does not know this watch for this home any more, so
+        /// nothing was sent: its phone adds it again.
+        case notListed
         /// Only the phone can send this.
         case needsPhone
     }
@@ -578,6 +589,7 @@ public struct WatchReceipt: Codable, Sendable, Equatable {
         switch step {
         case .sending: return r(.active, .waiting, .waiting, .sendingToBox, .working)
         case .pending: return r(.done, .done, .active, .boxWorking, .working)
+        case .unread: return r(.done, .active, .waiting, .boxWorking, .working)
         case .applied:
             let word: WatchWord
             switch c.op {
@@ -595,7 +607,9 @@ public struct WatchReceipt: Codable, Sendable, Equatable {
             case .other: word = .boxSaidNo
             }
             return r(.done, .done, .failed, word, .failed)
-        case .noAnswer: return r(.waiting, .waiting, .waiting, .noAnswerFromBox, .warning)
+        case .noAnswer(let acked): return r(.done, acked ? .done : .waiting, .waiting, .noAnswerFromBox, .warning)
+        case .notReached: return r(.failed, .waiting, .waiting, .boxNotReached, .failed)
+        case .notListed: return r(.failed, .waiting, .waiting, .addAgainFromPhone, .failed)
         case .needsPhone: return r(.failed, .waiting, .waiting, .needsPhone, .failed)
         }
     }
