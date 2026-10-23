@@ -368,8 +368,9 @@ On iPhone, one Swift package in `appleApp/FTWKit` holds four modules:
   vault wrap/unwrap and the state each screen reads. The app alone links
   it. It writes the App Group cache, and re-exports `FTWWire`.
 - `FTWWire` is the wire the phone and the watch both speak: Noise IK,
-  frames, CBOR, the app protocol's messages, FTW Cloud's envelopes and
-  freshness rules (`CloudView`), the one-shot request and the box's
+  frames, CBOR, the app protocol's messages and history chunks, FTW
+  Cloud's envelopes, tiles and freshness rules (`CloudView`), the
+  one-shot request and the box's
   exchange, and what one read of FTW Cloud becomes on the wrist
   (`WatchCloud`). No state, no main actor.
 - `FTWShared` holds plain `Sendable` values for the app's extensions: the
