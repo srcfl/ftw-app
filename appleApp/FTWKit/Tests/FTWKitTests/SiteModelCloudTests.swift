@@ -16,12 +16,20 @@ final class ScriptedBox: Carrier {
     /// status and JSON out.
     var api: ((String, String, String) -> (Int, String))?
     private(set) var calls: [(method: String, path: String, body: String)] = []
+    /// The box's history: each `hist.query` gets these tiles, then
+    /// `hist.end`. Nil answers nothing.
+    var history: [HistChunk]?
 
     @discardableResult
     func send(_ frame: Bytes) -> Bool {
         guard status.isOpen else { return false }
         guard let f = try? Frame.decode(frame) else { return true }
         sent.append(f.envelope.t)
+        if f.envelope.t == "hist.query", let id = f.envelope.id, let history {
+            for c in history { reply("hist.chunk", id, c.cbor) }
+            reply("hist.end", id, .map([("resActual", .text("5m")), ("gaps", .array([]))]))
+            return true
+        }
         guard f.envelope.t == "api.req", let id = f.envelope.id, let b = f.envelope.b else { return true }
         let method = b["method"]?.string ?? "", path = b["path"]?.string ?? ""
         let body = b["body"]?.byteString.map { String(decoding: $0, as: UTF8.self) } ?? ""

@@ -70,6 +70,9 @@ struct FTWApp: App {
         model.demoSharesWidgets = UserDefaults.standard.bool(forKey: "FTWDemoWidgets")
         model.demoKeepsCache = UserDefaults.standard.bool(forKey: "FTWDemoCache")
         if UserDefaults.standard.bool(forKey: "FTWDemo") { model.startDemo() }
+        // `-FTWDemoBoxAway YES`: the box goes away three seconds in, and
+        // its history comes from FTW Cloud's copy, through the real session.
+        if let cloud = SimulatedCloud.current { model.site?.connectDemoCloud(endpoint: cloud.endpoint, makeSocket: cloud.factory) }
         // For end-to-end tests: `-FTWPairLink <url>` offers a pairing link
         // as a scanned QR would, where the simulator has no camera.
         if let link = UserDefaults.standard.string(forKey: "FTWPairLink") { model.offer(link) }
