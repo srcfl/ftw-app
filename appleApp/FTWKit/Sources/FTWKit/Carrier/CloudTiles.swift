@@ -82,8 +82,9 @@ extension CloudWire {
 
     /// Puts tiles back together in the order the box sent them: a closed tile
     /// as it is; the trailing tile from its newest whole piece, with each
-    /// later append laid over it. A piece of a tile already closed changes
-    /// nothing, and neither does a body that fails `check`. One chunk per
+    /// later append laid over it; a later closed tile replaces an earlier
+    /// one. A piece of a tile already closed changes nothing, and neither
+    /// does a body that fails `check`. One chunk per
     /// tile, oldest first; a trailing tile stays partial, its etag that of
     /// the data as laid, never one to offer as held.
     public static func lay(_ bodies: [Tiles]) -> [HistChunk] {
@@ -91,7 +92,9 @@ extension CloudWire {
         for t in bodies {
             guard (try? t.check()) != nil else { continue }
             var held = byID[t.tileId]
-            if let h = held, !h.partial { continue }
+            // A piece of a tile already closed. A closed tile sent again,
+            // after the box's ledger changed under it, replaces the first.
+            if let h = held, !h.partial, t.partial { continue }
             guard t.partial else {
                 byID[t.tileId] = t.chunk
                 continue
@@ -152,14 +155,15 @@ struct CloudTileStore: Equatable, Sendable {
     private static func sent(_ t: CloudWire.Tiles) -> (Int64, UInt64) { (t.header.wallMs ?? 0, t.header.seq) }
 
     /// Keeps one checked body. A closed tile replaces every piece of its
-    /// tile; a whole piece every piece the box sent before it. A body held
+    /// tile, and an earlier closed one; a whole piece every piece the box
+    /// sent before it. A body held
     /// already (a forwarded append that came again in an answer) changes
     /// nothing.
     mutating func take(_ t: CloudWire.Tiles, nowMs: Int64) {
         bodies.removeAll { $0.tileEnd <= nowMs - CloudWire.tileKeepMs }
         guard t.tileEnd > nowMs - CloudWire.tileKeepMs else { return }
         if bodies.contains(where: { $0.header.boot == t.header.boot && $0.header.seq == t.header.seq }) { return }
-        if bodies.contains(where: { $0.tileId == t.tileId && !$0.partial }) { return }
+        if t.partial, bodies.contains(where: { $0.tileId == t.tileId && !$0.partial }) { return }
         if !t.partial {
             bodies.removeAll { $0.tileId == t.tileId }
         } else if t.whole {

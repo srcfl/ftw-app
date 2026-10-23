@@ -223,7 +223,11 @@ public final class HistoryModel {
             }
             took = true
         }
-        if took { fromCloud = true }
+        // Nothing new, as after a launch with the box still away and the
+        // copy's tiles already in the file: what is shown is FTW Cloud's
+        // copy all the same until the box answers, and is dated as one.
+        let confirms = !loaded && cloudAnswered && site.cloudTiles.laid.contains { c in plan.tiles.contains { $0.tileId == c.tileId } }
+        if took || confirms { fromCloud = true }
         show(plan, from, to)
         cloudUpToMs = fromCloud ? frame.flatMap(Self.dataEndMs) : nil
     }

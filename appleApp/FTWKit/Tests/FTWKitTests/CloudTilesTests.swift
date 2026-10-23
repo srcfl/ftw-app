@@ -171,4 +171,28 @@ struct CloudTileVectors: Decodable {
         s.take(later, nowMs: whole.tileEnd + CloudWire.tileKeepMs)
         #expect(s.isEmpty)
     }
+
+    /// The box sends a closed tile again when its ledger changed under it.
+    /// The later one replaces the first; a piece of a closed tile still
+    /// changes nothing.
+    @Test func aLaterClosedTileReplacesTheFirst() throws {
+        let v = try CloudTileVectors.load()
+        let closed = try v.body("closed")
+        var fixed = closed
+        fixed.data[0] ^= 1
+        fixed.etag = HistoryGeometry.etag(fixed.data)
+        fixed.header.seq += 10
+        fixed.header.wallMs = (closed.header.wallMs ?? 0) + 3_600_000
+        var piece = try v.body("whole")
+        piece.tileId = closed.tileId
+        piece.startMs = closed.startMs
+        piece.header.wallMs = (fixed.header.wallMs ?? 0) + 1
+
+        #expect(CloudWire.lay([closed, fixed, piece]).map(\.etag) == [fixed.etag])
+
+        var s = CloudTileStore()
+        let now = closed.tileEnd + 3_600_000
+        for t in [closed, fixed, piece] { s.take(t, nowMs: now) }
+        #expect(s.bodies == [fixed])
+    }
 }

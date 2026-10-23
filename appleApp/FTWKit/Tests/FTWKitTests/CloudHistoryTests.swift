@@ -94,6 +94,28 @@ import Testing
         #expect(history.samples(.grid, fromMs: Double(start))[36].watts == 136)
     }
 
+    /// A launch after one that drew FTW Cloud's copy, with the box still
+    /// away: the file draws it at once, the copy's answer brings nothing
+    /// new, and what is shown stays dated as the copy.
+    @Test func aRelaunchWithTheBoxStillAwayStaysDated() async throws {
+        let (w, history, start) = try Self.awayBox()
+        await w.run(100)
+        #expect(history.fromCloud)
+        w.site.persistNow(wait: true)
+        w.site.destroy()
+
+        w.open()
+        let again = HistoryModel(site: w.site)
+        #expect(again.frame != nil, "the file draws before the copy answers")
+        w.connectCloud()
+        await w.run(100)
+        #expect(again.fromCloud)
+        #expect(again.cloudUpToMs == Double(start + 36 * Self.step))
+        #expect(again.cloudNote(nowMs: w.scheduler.nowMs, zone: Self.utc) != nil)
+        let today = again.samples(.grid, fromMs: Double(start))
+        #expect(EnergyToday.sum(today, fromMs: Double(start)).missingMs == 0)
+    }
+
     @Test func theBoxsAnswerReplacesTheCopy() async throws {
         let (w, history, start) = try Self.awayBox()
         await w.run(100)
