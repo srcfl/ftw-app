@@ -293,7 +293,7 @@ public final class HistoryModel {
     /// with a hole where the box recorded nothing.
     public func samples(_ node: EnergyNode, fromMs: Double) -> [HistorySample] {
         guard let frame else { return [] }
-        return Self.samples(frame, node: node, fromMs: fromMs, fetching: pending)
+        return Self.samples(frame, node: node, fromMs: fromMs, untilMs: cloudUpToMs, fetching: pending)
     }
 
     /// A tile not here yet is on its way: while the box or FTW Cloud is
@@ -301,14 +301,16 @@ public final class HistoryModel {
     var pending: Bool { loading || cloudAsking || (!loaded && problem == nil && !cloudAnswered) }
 
     /// `fetching`: a hole whose tile has not arrived is on its way, not
-    /// known to be empty.
-    nonisolated static func samples(_ frame: HistoryGeometry.Frame, node: EnergyNode, fromMs: Double, fetching: Bool = false) -> [HistorySample] {
+    /// known to be empty. `untilMs`: where FTW Cloud's copy ends. What
+    /// follows is not in the copy, which says nothing about whether the box
+    /// recorded it, so it is left out rather than counted as a hole.
+    nonisolated static func samples(_ frame: HistoryGeometry.Frame, node: EnergyNode, fromMs: Double, untilMs: Double? = nil, fetching: Bool = false) -> [HistorySample] {
         guard frame.names.contains(node.series) else { return [] }
         var out = [HistorySample]()
         out.reserveCapacity(frame.points)
         for i in 0..<frame.points {
             let t = frame.time(at: i)
-            guard t + frame.stepMs > fromMs else { continue }
+            guard t + frame.stepMs > fromMs, t < untilMs ?? .infinity else { continue }
             let watts = frame.value(node.series, at: i).map { node.shown(Double($0)) }
             out.append(HistorySample(startMs: t, stepMs: frame.stepMs, watts: watts, fetching: watts == nil && fetching && !frame.hasArrived(i)))
         }
@@ -323,7 +325,7 @@ public final class HistoryModel {
     /// Energy since midnight, from the same tiles the chart draws.
     public func today(_ node: EnergyNode) -> EnergyToday? {
         guard let frame, frame.names.contains(node.series) else { return nil }
-        return EnergyToday.sum(Self.samples(frame, node: node, fromMs: midnightMs), fromMs: midnightMs)
+        return EnergyToday.sum(Self.samples(frame, node: node, fromMs: midnightMs, untilMs: cloudUpToMs), fromMs: midnightMs)
     }
 }
 

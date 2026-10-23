@@ -68,9 +68,12 @@ import Testing
         #expect(grid.first?.watts == 100)
         let today = grid.filter { $0.startMs >= Double(start) }
         #expect(today[35].watts == 135)
-        #expect(today[36].watts == nil)
-        // FTW Cloud has answered: what it lacks is not on its way.
+        // FTW Cloud has answered: what it lacks is not on its way. Nor is
+        // the time after the copy ends a hole the box confirmed: it is left
+        // out, so the sum counts nothing as not recorded.
         #expect(!grid.contains { $0.fetching })
+        #expect(today.count == 36)
+        #expect(EnergyToday.sum(today, fromMs: Double(start)).missingMs == 0)
 
         // Dated where the copy ends, never as now.
         let upTo = Double(start + 36 * Self.step)
