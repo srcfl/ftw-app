@@ -172,4 +172,42 @@ final class WatchTour: XCTestCase {
         XCTAssertTrue(app.otherElements["watch.plan.dial"].waitForExistence(timeout: 5), "a swipe up from the trace did not turn the page")
         shoot("drag-up-pages")
     }
+
+    /// The watch on its own: no phone, a local FTW Cloud and box, and Charge
+    /// now through the box's exchange. Runs only against that rig, which
+    /// names its launch arguments in `FTW_RIG_ARGS` (`TEST_RUNNER_FTW_RIG_ARGS`
+    /// for xcodebuild): `-FTWCloudURL`, `-FTWCloudKey`, `-FTWWatchKey` and
+    /// `-FTWWatchLink`.
+    static let rigPhoneOffS: UInt32 = 12
+
+    func testChargeNowThroughFTWCloud() throws {
+        guard let rig = ProcessInfo.processInfo.environment["FTW_RIG_ARGS"], !rig.isEmpty else {
+            throw XCTSkip("needs a local FTW Cloud and box; see FTW_RIG_ARGS")
+        }
+        let app = launch("car", rig.split(separator: " ").map(String.init))
+        let button = app.buttons["watch.car.chargeNow"]
+        XCTAssertTrue(button.waitForExistence(timeout: 20))
+        // Time for the rig to shut the paired phone down, which xcodebuild
+        // boots with the watch.
+        sleep(Self.rigPhoneOffS)
+        shoot("cloud-car")
+        XCTAssertTrue(button.isEnabled, "Charge now is off with the phone away")
+        button.tap()
+        let yes = app.buttons["watch.confirm"]
+        XCTAssertTrue(yes.waitForExistence(timeout: 5))
+        yes.tap()
+        sleep(1)
+        shoot("cloud-charge-now-sending")
+        // The marks are always on the line; the sentence says what the box
+        // did, and only its confirmation says Charge now is on.
+        let receipt = app.descendants(matching: .any)["watch.receipt"]
+        let on = NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", "Charge now on", "Ladda nu på")
+        let done = XCTNSPredicateExpectation(predicate: on, object: receipt)
+        XCTAssertEqual(XCTWaiter().wait(for: [done], timeout: 15), .completed, "the box's result did not come back through FTW Cloud")
+        sleep(1)
+        shoot("cloud-charge-now-confirmed")
+        // One read after the box applied it: the car shows what it does now.
+        sleep(5)
+        shoot("cloud-car-after")
+    }
 }

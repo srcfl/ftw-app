@@ -30,6 +30,18 @@ public enum WatchWord: String, CaseIterable, Sendable {
     case tooLate = "That came too late, so it was not sent. Try again."
     case otherHome = "That was for another home. Nothing was sent."
     case cannotChangeMode = "This phone may not change how the home is run."
+    case sendingNow = "Sending…"
+    case sendingToBox = "Sending to your box…"
+    case boxWorking = "Your box is working on it…"
+    case chargingPaused = "Charging paused"
+    case followsPlanAgain = "FTW charges by the plan again"
+    case boxSaidNo = "Your box did not do that. Nothing changed."
+    case watchMayNot = "This watch may not do that. Use your iPhone."
+    case changedTryAgain = "Something changed on your box. Try again."
+    case noAnswerFromBox = "No answer from your box yet. Check FTW on your iPhone."
+    case needsPhone = "This needs your iPhone nearby. Nothing was sent."
+    case boxNotReached = "Your box can't be reached now. Nothing was sent."
+    case addAgainFromPhone = "Add this watch again from your iPhone. Nothing was sent."
 
     // Where the watch stands.
     case phoneUnreachable = "iPhone not reachable"

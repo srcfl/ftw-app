@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import FTWKit
+@testable import FTWWire
 import FTWDemo
 import FTWShared
 

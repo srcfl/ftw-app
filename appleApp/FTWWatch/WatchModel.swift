@@ -25,6 +25,8 @@ final class WatchModel {
     private(set) var lit = false
     /// Commands can leave now.
     private(set) var canSend = false
+    /// The phone can be reached: the mode and which car need it.
+    private(set) var phoneReachable = false
     /// The receipt of the last command for each target: a charger's id, or
     /// `modeTarget`.
     private(set) var receipts: [String: WatchReceipt] = [:] {
@@ -74,10 +76,13 @@ final class WatchModel {
         self.cache = cache
     }
 
-    /// The paths this build uses. Today the phone carries both.
+    /// The paths this build uses: the phone, and FTW Cloud when the phone
+    /// does not answer.
     static func make() -> WatchModel {
-        let phone = PhonePath()
-        return WatchModel(read: phone, command: phone, cache: .shared())
+        let paths = PathChooser()
+        let model = WatchModel(read: paths, command: paths, cache: .shared())
+        paths.kept = { [weak model] in model?.context }
+        return model
     }
 
     /// Open on the last truth, then listen.
@@ -102,6 +107,13 @@ final class WatchModel {
         looking = true
         askedAtMs = nowMs
         read.look()
+    }
+
+    /// A complication's refresh in the background: one read, kept before
+    /// watchOS ends the wake.
+    func refresh() async {
+        await read.refresh()
+        if let ctx = context, ctx.hasHome { await cache?.save(ctx) }
     }
 
     /// Off screen: keep the newest frame and the trace's last minutes as
@@ -137,6 +149,7 @@ final class WatchModel {
             // Kept at once, so an open after a kill has these minutes too.
             keep(ctx)
         case .canSend(let ok): canSend = ok
+        case .phoneReachable(let ok): phoneReachable = ok
         case .notSent(let id):
             guard let hit = receipts.first(where: { $0.value.commandID == id }), hit.value.sent == .active else { return }
             receipts[hit.key] = .unreachable(WatchCommand(id: id, op: hit.value.op, home: context?.home ?? "", sentAtMs: nowMs))
@@ -197,6 +210,8 @@ final class WatchModel {
 
     private func frame(_ record: CacheRecord<WatchNow>) {
         guard context == nil || record.siteId == context?.home else { return }
+        // Two paths may bring Now: an older reading never replaces a newer.
+        guard record.readAtMs >= (now?.readAtMs ?? 0) else { return }
         glow.frame(readAtMs: record.readAtMs, standsMs: record.value.standsMs)
         now = record
         nowArrivedAtMs = nowMs

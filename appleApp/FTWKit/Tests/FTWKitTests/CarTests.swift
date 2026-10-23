@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import FTWKit
+@testable import FTWWire
 import FTWDemo
 
 /// The car view's rules: where a level comes from and how old it is, the

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import FTWKit
+@testable import FTWWire
 
 /// FTW Cloud's app endpoint, as `ftwcloudd` answers it, behind fake sockets:
 /// Noise IK as responder, a phone admitted only by a key in its roster, the

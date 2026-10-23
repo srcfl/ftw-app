@@ -103,7 +103,7 @@ public struct HelloOk: Equatable, Sendable {
     /// The box's FTW Cloud key, home and names, while the grant is on.
     public var cloud: CloudIdentity?
 
-    init(_ c: CBOR) {
+    package init(_ c: CBOR) {
         proto = c["proto"]?.int ?? Proto.max
         cloud = CloudIdentity(c["cloud"])
         mode = c["mode"]?.string.flatMap(BoxMode.init(rawValue:)) ?? .full
@@ -174,7 +174,7 @@ public struct Snap: Sendable {
     public var sources: [String: Source]
     public var dispatchBlockedBy: [String]
 
-    init(_ c: CBOR) {
+    package init(_ c: CBOR) {
         uptimeMs = c["uptimeMs"]?.double ?? 0
         controlRev = UInt64(max(0, c["controlRev"]?.int64 ?? 0))
         dict = decodeDict(c["dict"])
@@ -191,7 +191,7 @@ public struct Delta: Sendable {
     public var sources: [String: Source]?
     public var dispatchBlockedBy: [String]?
 
-    init(_ c: CBOR) {
+    package init(_ c: CBOR) {
         seq = UInt64(max(0, c["seq"]?.int64 ?? 0))
         uptimeMs = c["uptimeMs"]?.double ?? 0
         fields = decodeFields(c["fields"])
@@ -203,7 +203,7 @@ public struct Delta: Sendable {
 // MARK: - Prices
 
 extension Prices {
-    init(_ c: CBOR) {
+    package init(_ c: CBOR) {
         self.init(
             zone: c["zone"]?.string ?? "",
             currency: c["currency"]?.string ?? "SEK",
@@ -234,6 +234,9 @@ public enum APIMethod: String, Sendable {
 /// authenticated it, so no byte this app sends becomes a claim about who is
 /// asking. The query is parsed, never a raw string.
 public struct APIRequest: Sendable {
+    /// The most an answer may carry. `Session.apiMaxBytes` reads it.
+    public static let maxBytes = 8 * 1024 * 1024
+
     public var method: APIMethod
     public var path: String
     public var query: [String: String]
@@ -248,9 +251,9 @@ public struct APIRequest: Sendable {
         self.stepUp = stepUp
     }
 
-    var cbor: CBOR {
+    package var cbor: CBOR {
         var pairs: [(String, CBOR)] = [
-            ("maxBytes", .int(Session.apiMaxBytes)),
+            ("maxBytes", .int(Self.maxBytes)),
             ("method", .text(method.rawValue)),
             ("path", .text(path)),
         ]
@@ -267,6 +270,12 @@ public struct APIResponse: Sendable {
     public var status: Int
     public var headers: [String: String]
     public var body: Bytes
+
+    package init(status: Int, headers: [String: String], body: Bytes) {
+        self.status = status
+        self.headers = headers
+        self.body = body
+    }
 }
 
 // MARK: - Commands
@@ -310,7 +319,7 @@ public struct CmdResult: Equatable, Sendable {
         self.charger = charger
     }
 
-    init(_ c: CBOR) {
+    package init(_ c: CBOR) {
         cmdId = c["cmdId"]?.string ?? ""
         state = c["state"]?.string.flatMap(State.init(rawValue:)) ?? .rejected
         observedValue = c["observed"]?["value"]?.double
@@ -335,7 +344,7 @@ public struct ErrorMsg: Equatable, Sendable {
         self.args = args
     }
 
-    init(_ c: CBOR) {
+    package init(_ c: CBOR) {
         code = c["code"]?.string ?? "E_UNKNOWN"
         retryable = c["retryable"]?.bool ?? Contract.isRetryable(code)
         retryAfterMs = c["retryAfterMs"]?.double

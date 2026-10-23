@@ -47,13 +47,20 @@ in M1 may depend on it.
 2026-10-14: Now, the plan dial (the Crown steps it by quarter hour), the car
 and the price, Charge now, Pause, Back to the plan and the mode, and
 complications. watchOS 26 is the minimum. watchOS gives an ordinary app no
-WebSocket (TN3135), so in W1 the watch reads and commands through the iPhone
-(`WatchBridge`, WatchConnectivity); FTW Cloud never controls. The app is
-built to stand alone (`WKRunsIndependentlyOfCompanionApp`): it opens on its
-own cache, makes its own key and its own `cmdId`, and reads and sends
-through two seams, `ReadPath` and `CommandPath`. `PhonePath` is the only
-path now; FTW Cloud reads and the relay's exchange (ADR 0009) come later.
-An unlocked watch on the wrist counts as unlocked for commands.
+WebSocket (TN3135), so the watch reads and commands through the iPhone
+(`WatchBridge`, WatchConnectivity) when it can. The app stands alone
+(`WKRunsIndependentlyOfCompanionApp`): it opens on its own cache, makes its
+own key and its own `cmdId`, and reads and sends through two seams,
+`ReadPath` and `CommandPath`. `PathChooser` puts `PhonePath` and
+`CloudPath` behind them: with the phone away the watch reads FTW Cloud's
+copy and sends charger commands through the box's exchange, each one
+HTTPS request (srcfl/ftw ADR 0009, "Through FTW Cloud"). Their rules
+live in the package with tests: `WatchRoute` (FTWShared) picks the path,
+and `WatchCommander` (FTWWire) runs a command through FTW Cloud. An owner's phone
+adds the watch to the box by its key first (`WatchAccess`). FTW Cloud
+carries the exchange and reads none of it; the box decides. The mode and
+"Which car?" go through the phone alone. An unlocked watch on the wrist
+counts as unlocked for commands.
 
 **Android (`androidApp/`, `shared/`).** Pair + Now, shipped on `main` as of
 2026-08-22. Do not add Energy / History / Plan / EV, commands, escrow, LAN,
@@ -354,12 +361,18 @@ strip, with gold for the battery giving power.
 
 ## Shared vs UI
 
-On iPhone, one Swift package in `appleApp/FTWKit` holds three modules:
+On iPhone, one Swift package in `appleApp/FTWKit` holds four modules:
 
 - `FTWKit` owns everything that is not a pixel: enrollment parse,
-  rendezvous handles, Noise IK, frames, the tunnel, relay and Noise carriers, the
-  session, vault wrap/unwrap and the state each screen reads. The app alone
-  links it. It writes the App Group cache.
+  rendezvous handles, the tunnel, relay and Noise carriers, the session,
+  vault wrap/unwrap and the state each screen reads. The app alone links
+  it. It writes the App Group cache, and re-exports `FTWWire`.
+- `FTWWire` is the wire the phone and the watch both speak: Noise IK,
+  frames, CBOR, the app protocol's messages and history chunks, FTW
+  Cloud's envelopes, tiles and freshness rules (`CloudView`), the
+  one-shot request and the box's
+  exchange, and what one read of FTW Cloud becomes on the wrist
+  (`WatchCloud`). No state, no main actor.
 - `FTWShared` holds plain `Sendable` values for the app's extensions: the
   App Group cache (`prices-<site>`, `car-<site>`), the price and freshness
   formatters, and their Swedish and English words. Nothing on the main
@@ -371,8 +384,8 @@ On iPhone, one Swift package in `appleApp/FTWKit` holds three modules:
 `appleApp/FTW` owns the camera, the passkey ceremony, the Keychain and every
 pixel. `appleApp/FTWWidgets` owns the widgets. `appleApp/FTWWatch` is the
 watch app, `FTWWatchWidgets` its complications and `FTWWatchShared` what
-both draw (the dial). The watch links `FTWShared` and `FTWCharts`, never
-FTWKit. What the phone and the watch say to each other lives in
+both draw (the dial). The watch links `FTWShared`, `FTWWire` and
+`FTWCharts`, never FTWKit. What the phone and the watch say to each other lives in
 `FTWShared/Watch/`, and the phone's side of it in `FTWKit`'s `WatchShare`. Keep logic out of views: if a
 sentence or a rule can be tested, it belongs in a package module with a
 test. The App Group name is written once, in `appleApp/FTW.xcconfig`; the
@@ -387,7 +400,7 @@ commonMain. Android uses EncryptedSharedPreferences + a Keystore master key.
 Noise_IK_25519_ChaChaPoly_SHA256, Cacophony-tested, must stay byte-identical
 to the TypeScript client and the Go box. Do not swap the primitives for a
 library that has not passed `NoiseTest` (Kotlin) or `NoiseTests` (Swift).
-FTWKit uses CryptoKit.
+FTWWire uses CryptoKit.
 
 ## RP ID
 

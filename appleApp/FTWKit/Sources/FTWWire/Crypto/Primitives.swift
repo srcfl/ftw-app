@@ -13,6 +13,10 @@ import Crypto
 public enum Primitives {
     public struct CryptoFailure: Error, Equatable {
         public let message: String
+
+        package init(message: String) {
+            self.message = message
+        }
     }
 
     // MARK: SHA-256 and HMAC

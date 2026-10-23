@@ -21,6 +21,18 @@
 "That came too late, so it was not sent. Try again." = "Det kom för sent och skickades inte. Försök igen.";
 "That was for another home. Nothing was sent." = "Det gällde ett annat hem. Inget skickades.";
 "This phone may not change how the home is run." = "Den här telefonen får inte ändra hur hemmet körs.";
+"Sending…" = "Skickar …";
+"Sending to your box…" = "Skickar till boxen …";
+"Your box is working on it…" = "Boxen arbetar med det …";
+"Charging paused" = "Laddningen pausad";
+"FTW charges by the plan again" = "FTW laddar efter planen igen";
+"Your box did not do that. Nothing changed." = "Boxen gjorde inte det. Inget ändrades.";
+"This watch may not do that. Use your iPhone." = "Klockan får inte göra det. Använd din iPhone.";
+"Something changed on your box. Try again." = "Något ändrades i boxen. Försök igen.";
+"No answer from your box yet. Check FTW on your iPhone." = "Inget svar från boxen än. Titta i FTW på din iPhone.";
+"This needs your iPhone nearby. Nothing was sent." = "Det här kräver din iPhone i närheten. Inget skickades.";
+"Your box can't be reached now. Nothing was sent." = "Boxen nås inte just nu. Inget skickades.";
+"Add this watch again from your iPhone. Nothing was sent." = "Lägg till klockan igen från din iPhone. Inget skickades.";
 
 "iPhone not reachable" = "iPhone nås inte";
 "Open FTW on your iPhone" = "Öppna FTW på din iPhone";

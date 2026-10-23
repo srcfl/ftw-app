@@ -15,9 +15,17 @@ extension SiteModel {
     /// It runs the step-up: a write refused with E_NEEDS_STEP_UP is asked
     /// again once, after the passkey ceremony, and never with the flag
     /// before one has run. The box prices each route; this app carries no
-    /// list of them.
-    public func callBox(_ method: APIMethod, _ path: String, query: [String: String] = [:], body: JSON? = nil) async throws -> JSON? {
-        let res = try await sendBox(method, path, query: query, body: body, stepUp: false)
+    /// list of them. `freshStepUp` runs the ceremony first, for a route that
+    /// asks for it on the request itself whatever window a settings screen
+    /// opened, such as adding a watch.
+    public func callBox(_ method: APIMethod, _ path: String, query: [String: String] = [:], body: JSON? = nil, freshStepUp: Bool = false) async throws -> JSON? {
+        if freshStepUp {
+            let outcome = await self.stepUp?() ?? .unavailable
+            guard outcome == .done else {
+                throw BoxAPIError(code: "E_NEEDS_STEP_UP", help: outcome.help ?? "", status: nil)
+            }
+        }
+        let res = try await sendBox(method, path, query: query, body: body, stepUp: freshStepUp)
         guard (200..<300).contains(res.status) else {
             let code = Self.codeFromBody(res.body)
             throw BoxAPIError(code: code ?? "HTTP_\(res.status)", help: Self.statusHelp(res.status, code), status: res.status)

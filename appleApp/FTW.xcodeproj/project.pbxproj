@@ -20,6 +20,7 @@
 		F7A000000000000000000252 /* FTWWatchWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F7A000000000000000000201 /* FTWWatchWidgets.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		F7A000000000000000000253 /* FTWShared in Frameworks */ = {isa = PBXBuildFile; productRef = F7A000000000000000000254 /* FTWShared */; };
 		F7A000000000000000000255 /* FTWShared in Frameworks */ = {isa = PBXBuildFile; productRef = F7A000000000000000000256 /* FTWShared */; };
+		F7A000000000000000000257 /* FTWWire in Frameworks */ = {isa = PBXBuildFile; productRef = F7A000000000000000000258 /* FTWWire */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -227,6 +228,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				F7A000000000000000000253 /* FTWShared in Frameworks */,
+				F7A000000000000000000257 /* FTWWire in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -425,6 +427,7 @@
 			name = FTWWatch;
 			packageProductDependencies = (
 				F7A000000000000000000254 /* FTWShared */,
+				F7A000000000000000000258 /* FTWWire */,
 			);
 			productName = FTWWatch;
 			productReference = F7A000000000000000000200 /* FTWWatch.app */;
@@ -1187,6 +1190,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = F7A000000000000000000015 /* XCLocalSwiftPackageReference "FTWKit" */;
 			productName = FTWShared;
+		};
+		F7A000000000000000000258 /* FTWWire */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F7A000000000000000000015 /* XCLocalSwiftPackageReference "FTWKit" */;
+			productName = FTWWire;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
