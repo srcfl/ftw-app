@@ -55,6 +55,9 @@ struct ModeSheet: View {
                 if let app, let access = app.home?.access {
                     AccessSettingsSection(app: app, access: access)
                 }
+                if let app, let home = app.home, app.watch.canAdd(home) {
+                    WatchSettingsSection(app: app, home: home)
+                }
                 phoneSection
             }
             .listStyle(.insetGrouped)

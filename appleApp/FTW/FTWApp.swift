@@ -70,6 +70,9 @@ struct FTWApp: App {
         model.demoSharesWidgets = UserDefaults.standard.bool(forKey: "FTWDemoWidgets")
         model.demoKeepsCache = UserDefaults.standard.bool(forKey: "FTWDemoCache")
         if UserDefaults.standard.bool(forKey: "FTWDemo") { model.startDemo() }
+        // `-FTWWatchKeyOffered YES`: a paired watch has offered its key, for
+        // pictures of the Apple Watch row where no watch runs beside.
+        if UserDefaults.standard.bool(forKey: "FTWWatchKeyOffered") { model.watch.watchKey = Data(repeating: 0x2a, count: 32) }
         // For end-to-end tests: `-FTWPairLink <url>` offers a pairing link
         // as a scanned QR would, where the simulator has no camera.
         if let link = UserDefaults.standard.string(forKey: "FTWPairLink") { model.offer(link) }

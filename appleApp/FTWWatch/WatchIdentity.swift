@@ -1,12 +1,12 @@
 import CryptoKit
 import Foundation
+import FTWWire
 import Security
 
 /// The watch's own key: an X25519 static key for Noise IK, made once on
-/// this watch and kept in its Keychain. It never leaves the watch. In W1
-/// nothing uses it yet; when the relay's exchange exists (ADR 0009), the
-/// phone adds this watch to the home's roster by its public half, and the
-/// watch reaches the box with it, phone or not.
+/// this watch and kept in its Keychain. It never leaves the watch. The
+/// phone adds this watch to its box by the public half, and the watch
+/// reaches the box and FTW Cloud with it, phone or not (ADR 0009).
 ///
 /// The Keychain opens it only while the watch has a passcode, so a key
 /// that works means a watch unlocked on a wrist, and taking the passcode
@@ -24,6 +24,13 @@ enum WatchIdentity {
         let key = Curve25519.KeyAgreement.PrivateKey()
         guard store(key.rawRepresentation) else { return nil }
         return key.publicKey.rawRepresentation
+    }
+
+    /// The key for a Noise handshake. Nil without a passcode, or before
+    /// the key was made.
+    static func keyPair() -> Primitives.KeyPair? {
+        guard let raw = read() else { return nil }
+        return try? Primitives.keyPair(fromSecret: Bytes(raw))
     }
 
     private static var query: [String: Any] {

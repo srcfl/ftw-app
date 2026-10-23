@@ -95,12 +95,14 @@ struct ModeList: View {
                             }
                         }
                     }
-                    .disabled(!modes.mayControl || !model.canSend || model.sending(WatchModel.modeTarget) || m.key == modes.shown)
+                    .disabled(!modes.mayControl || !model.phoneReachable || model.sending(WatchModel.modeTarget) || m.key == modes.shown)
                     .accessibilityIdentifier("watch.mode.\(m.key)")
                 }
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    if !model.canSend {
+                    // The mode goes through the phone alone: a watch on its
+                    // own may charge, never change how the home is run.
+                    if !model.phoneReachable {
                         Text(WatchWord.phoneUnreachable.text).foregroundStyle(Theme.ink2)
                     } else if !modes.mayControl {
                         Text(WatchWord.cannotChangeMode.text).foregroundStyle(Theme.ink2)

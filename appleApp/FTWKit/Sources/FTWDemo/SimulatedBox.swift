@@ -93,6 +93,7 @@ public final class SimulatedBox {
     public nonisolated static let caps = [
         "status.core", "status.drivers", "history.5m", "history.1h", "history.etag", "cmd.lease",
         "cmd.readback", "der.battery", "der.ev", "plan.dispatch", "price.spot", "api.passthrough", "access.agents", "access.invites",
+        "cmd.exchange",
     ]
 
     /// Capabilities this box offers beyond `caps`, for a test that needs a

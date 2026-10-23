@@ -168,6 +168,9 @@ public struct WatchContext: Codable, Sendable, Equatable {
     /// with no home that does not say so comes from a phone still opening
     /// its home, and changes nothing on the watch.
     public var signedOut: Bool?
+    /// What the watch needs to reach the box through FTW Cloud on its own,
+    /// once its phone added it. Nil until then.
+    public var link: WatchLink?
     /// Phone clock when the phone sent this.
     public var sentAtMs: Double
 
@@ -218,6 +221,7 @@ public struct WatchContext: Codable, Sendable, Equatable {
         out.now = newer(kept.now, next.now)
         out.modes = next.modes ?? kept.modes
         out.receipt = next.receipt ?? kept.receipt
+        out.link = next.link ?? kept.link
         if (kept.recent?.newestMs ?? 0) > (next.recent?.newestMs ?? 0) { out.recent = kept.recent }
         if out.plan != nil, out.plan?.value.daylight == nil { out.plan?.value.daylight = kept.plan?.value.daylight }
         return out
@@ -251,6 +255,59 @@ public struct WatchContext: Codable, Sendable, Equatable {
               let ctx = try? JSONDecoder().decode(WatchContext.self, from: json),
               ctx.version == version else { return nil }
         return ctx
+    }
+}
+
+/// What a watch needs to reach its box without the phone, through FTW
+/// Cloud (srcfl/ftw ADR 0009, "Through FTW Cloud"), from the phone that
+/// added it with a passkey step-up. Nothing here is secret: the keys are
+/// public halves, and the tables name the box's anonymous ids.
+public struct WatchLink: Codable, Sendable, Equatable {
+    /// The key in the application context the watch gives its phone: the
+    /// public half of the watch's own Noise key.
+    public static let watchKeyKey = "watchKey"
+
+    /// The phone's name for the home, as every record and command names it.
+    public var site: String
+    /// FTW Cloud's id for the home.
+    public var cloudHome: String
+    /// The box's Noise static key, which the watch's exchange opens to.
+    public var boxKey: Data
+    /// The box's P-256 key, which signs what FTW Cloud holds. Nil while the
+    /// readable copy is off: the watch then commands but does not read.
+    public var cloudKey: Data?
+    /// FTW Cloud's anonymous source and loadpoint ids, to the box's own.
+    public var sources: [String: String]
+    public var loadpoints: [String: String]
+    /// The watch key the box lists. A watch that made a new key is not
+    /// this one, and needs its phone again.
+    public var watchKey: Data
+    /// What Charge now asks of each charger, as the phone would ask it.
+    public var chargeNow: [String: ChargeNow]
+    /// The household's time zone, as the box names it.
+    public var timeZone: String?
+
+    public struct ChargeNow: Codable, Sendable, Equatable {
+        public var powerW: Double
+        /// "1p" or "3p".
+        public var phaseMode: String
+
+        public init(powerW: Double, phaseMode: String) {
+            self.powerW = powerW
+            self.phaseMode = phaseMode
+        }
+    }
+
+    public init(site: String, cloudHome: String, boxKey: Data, cloudKey: Data?, sources: [String: String], loadpoints: [String: String], watchKey: Data, chargeNow: [String: ChargeNow], timeZone: String?) {
+        self.site = site
+        self.cloudHome = cloudHome
+        self.boxKey = boxKey
+        self.cloudKey = cloudKey
+        self.sources = sources
+        self.loadpoints = loadpoints
+        self.watchKey = watchKey
+        self.chargeNow = chargeNow
+        self.timeZone = timeZone
     }
 }
 
@@ -482,9 +539,65 @@ public struct WatchReceipt: Codable, Sendable, Equatable {
     /// wake and connect.
     public static let answerMs: Double = 45_000
 
-    /// At the tap: on its way to the phone.
+    /// At the tap: on its way, by whichever path takes it.
     public static func tapped(_ c: WatchCommand) -> WatchReceipt {
-        WatchReceipt(commandID: c.id, op: c.op, sent: .active, accepted: .waiting, confirmed: .waiting, text: WatchWord.sendingToPhone.text, tone: .working)
+        WatchReceipt(commandID: c.id, op: c.op, sent: .active, accepted: .waiting, confirmed: .waiting, text: WatchWord.sendingNow.text, tone: .working)
+    }
+
+    /// A step of a command the watch sent its box itself, through FTW
+    /// Cloud. Every mark after sending is the box's own answer.
+    public enum BoxStep: Equatable, Sendable {
+        /// The session is open and the command on its way.
+        case sending
+        /// The box acked it and has not settled it yet.
+        case pending
+        case applied
+        /// The box said no.
+        case refused(Refusal)
+        /// No answer came, after asking again. It may still have run.
+        case noAnswer
+        /// Only the phone can send this.
+        case needsPhone
+    }
+
+    /// Why the box said no, in the few words a wrist needs.
+    public enum Refusal: Equatable, Sendable {
+        /// The watch's role does not reach this.
+        case mayNot
+        /// The box's state moved under the command.
+        case changed
+        /// The command outlived its time.
+        case tooLate
+        case other
+    }
+
+    public static func box(_ c: WatchCommand, _ step: BoxStep) -> WatchReceipt {
+        func r(_ sent: Mark, _ accepted: Mark, _ confirmed: Mark, _ text: WatchWord, _ tone: Tone) -> WatchReceipt {
+            WatchReceipt(commandID: c.id, op: c.op, sent: sent, accepted: accepted, confirmed: confirmed, text: text.text, tone: tone)
+        }
+        switch step {
+        case .sending: return r(.active, .waiting, .waiting, .sendingToBox, .working)
+        case .pending: return r(.done, .done, .active, .boxWorking, .working)
+        case .applied:
+            let word: WatchWord
+            switch c.op {
+            case .chargeNow: word = .chargeNowOn
+            case .pause: word = .chargingPaused
+            default: word = .followsPlanAgain
+            }
+            return r(.done, .done, .done, word, .done)
+        case .refused(let why):
+            let word: WatchWord
+            switch why {
+            case .mayNot: word = .watchMayNot
+            case .changed: word = .changedTryAgain
+            case .tooLate: word = .tooLate
+            case .other: word = .boxSaidNo
+            }
+            return r(.done, .done, .failed, word, .failed)
+        case .noAnswer: return r(.waiting, .waiting, .waiting, .noAnswerFromBox, .warning)
+        case .needsPhone: return r(.failed, .waiting, .waiting, .needsPhone, .failed)
+        }
     }
 
     /// The phone has the command and is sending it to the box.
@@ -509,10 +622,14 @@ public struct WatchReceipt: Codable, Sendable, Equatable {
     }
 
     /// What to show once `next` arrives. Another command's receipt is not
-    /// this one's, and a settled receipt keeps its end.
+    /// this one's, and a settled receipt keeps its end. A command may go by
+    /// both paths: once the box confirmed it, or took it, a path that could
+    /// not carry it says nothing about it.
     public func taking(_ next: WatchReceipt) -> WatchReceipt? {
         guard next.commandID == commandID else { return nil }
         if settled, next.tone == .working { return nil }
+        if confirmed == .done, next.confirmed != .done { return nil }
+        if accepted == .done, next.sent == .failed { return nil }
         return next
     }
 }

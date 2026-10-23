@@ -80,7 +80,8 @@ private struct WhichCarBlock: View {
             if let r = model.receipt(for: ask.loadpointID) {
                 ReceiptLine(receipt: r)
             }
-            let off = !model.canSend || model.sending(ask.loadpointID)
+            // Which car is on a charger goes through the phone alone.
+            let off = !model.phoneReachable || model.sending(ask.loadpointID)
             ForEach(ask.choices, id: \.id) { c in
                 choice(c.name, carID: c.id, off: off)
             }

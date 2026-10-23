@@ -5,8 +5,9 @@ import WatchConnectivity
 /// Both paths through the iPhone, over WatchConnectivity. The phone hands
 /// over its records after each write of its cache, sends Now's frames
 /// while the watch looks, and runs each command over its own session with
-/// the box. watchOS gives an ordinary app no WebSocket (TN3135), so this is
-/// the only way to the box until the relay's exchange exists.
+/// the box. The watch gives the phone its public key, so the phone can add
+/// it to the box and the watch can also go through FTW Cloud on its own
+/// (`CloudPath`).
 @MainActor
 final class PhonePath: NSObject, ReadPath, CommandPath {
     nonisolated static let log = Logger(subsystem: "energy.ftw.app.watchkitapp", category: "phone")
@@ -59,6 +60,18 @@ final class PhonePath: NSObject, ReadPath, CommandPath {
     private func deliver(_ event: PathEvent) {
         sink?(event)
     }
+
+    /// The watch's public key, for the phone to add this watch to its box.
+    /// WatchConnectivity keeps the newest and hands it over when the phone
+    /// next wakes.
+    private func offerKey() {
+        guard let session, session.activationState == .activated, let key = WatchIdentity.publicKey() else { return }
+        do {
+            try session.updateApplicationContext([WatchLink.watchKeyKey: key])
+        } catch {
+            PhonePath.log.notice("key not offered: \(error.localizedDescription, privacy: .public)")
+        }
+    }
 }
 
 extension PhonePath: WCSessionDelegate {
@@ -71,6 +84,7 @@ extension PhonePath: WCSessionDelegate {
             self.deliver(.canSend(reachable))
             if let data, let ctx = WatchContext.unpacked(data) { self.deliver(.context(ctx)) }
             if self.looking { self.ask(.look) }
+            self.offerKey()
         }
     }
 

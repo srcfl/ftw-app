@@ -17,10 +17,10 @@ public enum WatchShare {
     /// `signedOut` says why there is no home: the phone signed out or was
     /// never paired, so the watch forgets; else the phone is still opening
     /// its home and the watch keeps what it has.
-    public static func context(_ home: HomeModels?, isDemo: Bool, signedOut: Bool = false, receipt: WatchReceipt? = nil, nowMs: Double) -> WatchContext {
+    public static func context(_ home: HomeModels?, isDemo: Bool, signedOut: Bool = false, receipt: WatchReceipt? = nil, link: WatchLink? = nil, nowMs: Double) -> WatchContext {
         guard let home else { return signedOut ? .signOut(sentAtMs: nowMs) : .opening(sentAtMs: nowMs) }
         let key = homeKey(home)
-        return WatchContext(
+        var ctx = WatchContext(
             home: key,
             isDemo: isDemo,
             prices: prices(home, key: key),
@@ -31,6 +31,8 @@ public enum WatchShare {
             receipt: receipt,
             sentAtMs: nowMs
         )
+        ctx.link = link
+        return ctx
     }
 
     /// The models the watch's pages show, read as if a screen showing them

@@ -338,6 +338,13 @@ public enum AppWords {
     static let monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
 
     static let sv: [String: String] = [
+        "Apple Watch": "Apple Watch",
+        "Let the watch work without your iPhone": "Låt klockan fungera utan din iPhone",
+        "Works without your iPhone": "Fungerar utan din iPhone",
+        "The watch charges the car and reads your home through FTW Cloud when this iPhone is away. Your box checks every command.":
+            "Klockan laddar bilen och läser hemmet genom FTW Cloud när den här iPhonen är borta. Boxen kontrollerar varje kommando.",
+        "Confirm with your passkey. The watch can then charge the car from anywhere, never more than this phone may.":
+            "Bekräfta med din passkey. Klockan kan sedan ladda bilen var som helst, aldrig mer än den här telefonen får.",
         // Connecting, and the device key (AppModel.connect, Vault)
         "This phone has no record of that home.": "Telefonen har inga uppgifter om det hemmet.",
         "This device has no key for that home.": "Den här enheten har ingen nyckel till det hemmet.",
