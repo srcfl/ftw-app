@@ -15,6 +15,12 @@ import Observation
 /// The window is primed once after the first live frame, newest tile
 /// first, and asked for again when the five minutes turn while a node's
 /// view is open.
+///
+/// While the box cannot answer, FTW Cloud's copy can: it keeps the box's
+/// signed tiles of the last 48 hours. They are asked for once per cloud
+/// session and laid over what the phone holds, closed tiles being the same
+/// bytes either way. They are dated, never live: `cloudUpToMs` says where
+/// they end, and the box's own answer replaces them the moment it comes.
 @Observable
 @MainActor
 public final class HistoryModel {
@@ -32,6 +38,12 @@ public final class HistoryModel {
     public private(set) var loading = false
     /// A sentence about the wire, never about the home.
     public private(set) var problem: String?
+    /// What is shown came partly from FTW Cloud's copy, since the box last
+    /// answered.
+    public private(set) var fromCloud = false
+    /// Where FTW Cloud's copy ends: the end of the newest five minutes with
+    /// a value. Nil unless what is shown came from it.
+    public private(set) var cloudUpToMs: Double?
 
     @ObservationIgnored private unowned let site: SiteModel
     @ObservationIgnored private var ask: LiveAsk?
@@ -49,6 +61,11 @@ public final class HistoryModel {
     /// The load on the wire. A second caller waits for it rather than
     /// asking again.
     @ObservationIgnored private var running: Task<Void, Error>?
+    /// The FTW Cloud session last asked for tiles, by when it opened, and
+    /// whether its answer is complete.
+    @ObservationIgnored private var cloudAsked: Double?
+    @ObservationIgnored private var cloudAsking = false
+    @ObservationIgnored private var cloudAnswered = false
     @ObservationIgnored let calendar: Calendar
 
     public init(site: SiteModel, calendar: Calendar = .current) {
@@ -68,6 +85,8 @@ public final class HistoryModel {
             // in the name; otherwise the right edge says "now" all day.
             return "history \(Int(self.site.nowMs / Self.stepMs))"
         }, ask: { [weak self] in try await self?.load() })
+        site.observeCloudTiles { [weak self] end in self?.cloudTiles(end: end) }
+        site.observe { [weak self] in self?.askCloud() }
     }
 
     /// Whether this box keeps history at all. Unknown until its hello.
@@ -78,6 +97,7 @@ public final class HistoryModel {
     public func activate() {
         active += 1
         ask?.evaluate()
+        askCloud()
     }
 
     public func deactivate() {
@@ -128,6 +148,9 @@ public final class HistoryModel {
             loaded = true
             primed = true
             problem = nil
+            // The box's own answer: FTW Cloud's copy has nothing to add.
+            fromCloud = false
+            cloudUpToMs = nil
         } catch {
             guard mine == token else { return }
             problem = Self.failure(error, hadSome: frame != nil)
@@ -153,6 +176,81 @@ public final class HistoryModel {
                 self.show(plan, from, to)
             }
         }
+    }
+
+    // MARK: FTW Cloud's copy
+
+    /// The box streams: it answers for itself.
+    private var boxAnswers: Bool { site.session.phase == .streaming }
+
+    /// While the box cannot answer, ask FTW Cloud once per session for the
+    /// tiles this phone lacks: the closed tiles held go as `have`.
+    private func askCloud() {
+        guard !boxAnswers, available, site.documentVisible, let since = site.cloudCopyOpenSinceMs, cloudAsked != since else { return }
+        cloudAsked = since
+        cloudAnswered = false
+        let (plan, _, _) = window()
+        var have = [String: String]()
+        for p in plan.tiles { if let t = tiles[p.tileId] { have[t.tileId] = t.etag } }
+        cloudAsking = site.askCloudTiles(have: have)
+        takeCloud()
+    }
+
+    private func cloudTiles(end: Bool) {
+        if end, cloudAsking {
+            cloudAsking = false
+            cloudAnswered = true
+        }
+        takeCloud()
+    }
+
+    /// FTW Cloud's tiles onto what is shown, unless the box answered while
+    /// it streams. A closed tile is the box's bytes and fills in; the tile
+    /// still filling is taken only when it reaches further than the one
+    /// shown.
+    private func takeCloud() {
+        guard !(boxAnswers && loaded) else { return }
+        let (plan, from, to) = window()
+        var took = false
+        for c in site.cloudTiles.laid where plan.tiles.contains(where: { $0.tileId == c.tileId }) {
+            if c.partial {
+                guard tiles[c.tileId] == nil, Self.reach(c) > open.map(Self.reach) ?? -.infinity else { continue }
+                open = c
+            } else {
+                guard tiles[c.tileId]?.etag != c.etag else { continue }
+                tiles[c.tileId] = c
+                if open?.tileId == c.tileId { open = nil }
+            }
+            took = true
+        }
+        if took { fromCloud = true }
+        show(plan, from, to)
+        cloudUpToMs = fromCloud ? frame.flatMap(Self.dataEndMs) : nil
+    }
+
+    /// Where a tile's values end: the end of its newest step with a value
+    /// in any series, or its start.
+    nonisolated static func reach(_ c: HistChunk) -> Double {
+        let columns = HistoryGeometry.unpack(c.data, seriesCount: c.series.count)
+        let last = columns.compactMap { $0.lastIndex { $0 != missingSample } }.max()
+        return c.startMs + Double((last ?? -1) + 1) * c.stepMs
+    }
+
+    /// The end of a frame's newest step with a value, nil when it has none.
+    nonisolated static func dataEndMs(_ frame: HistoryGeometry.Frame) -> Double? {
+        let last = frame.columns.compactMap { $0.lastIndex { $0 != missingSample } }.max()
+        return last.map { frame.time(at: $0) + frame.stepMs }
+    }
+
+    /// "From FTW Cloud · up to 17:15": where the shown history came from
+    /// and where it ends, dated so it never reads as now. Nil unless it
+    /// came from FTW Cloud's copy.
+    public func cloudNote(nowMs: Double, zone: TimeZone = .current) -> String? {
+        guard let at = cloudUpToMs else { return nil }
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = zone
+        let today = cal.isDate(Date(timeIntervalSince1970: at / 1000), inSameDayAs: Date(timeIntervalSince1970: nowMs / 1000))
+        return NodeWords.format("From FTW Cloud · up to %@", today ? AppWords.clock(at, zone: zone) : AppWords.day(at, nowMs: nowMs, zone: zone))
     }
 
     /// The closed tiles and the open one, laid on the window. Past the open
@@ -198,9 +296,9 @@ public final class HistoryModel {
         return Self.samples(frame, node: node, fromMs: fromMs, fetching: pending)
     }
 
-    /// A tile not here yet is on its way: while the box is asked, or
-    /// before it has answered once and nothing has failed.
-    var pending: Bool { loading || (!loaded && problem == nil) }
+    /// A tile not here yet is on its way: while the box or FTW Cloud is
+    /// asked, or before either has answered once and nothing has failed.
+    var pending: Bool { loading || cloudAsking || (!loaded && problem == nil && !cloudAnswered) }
 
     /// `fetching`: a hole whose tile has not arrived is on its way, not
     /// known to be empty.

@@ -106,6 +106,7 @@ public enum NodeWords {
         "Your box keeps no history.": "Boxen sparar ingen historik.",
         "No history yet. Your box is out of reach.": "Ingen historik än. Boxen går inte att nå.",
         "Not up to date. Your box is out of reach.": "Inte uppdaterat. Boxen går inte att nå.",
+        "From FTW Cloud · up to %@": "Från FTW Cloud · fram till %@",
         "Your box can't send its history right now. Still trying.": "Boxen kan inte skicka sin historik just nu. Försöker igen.",
         "Couldn't get the plan from your box. Still trying.": "Fick ingen plan från boxen. Försöker igen.",
         "Your box couldn't plan ahead just now, so it runs on safe defaults.": "Boxen kunde inte planera framåt just nu, så den kör på säkra standardval.",

@@ -185,6 +185,11 @@ public final class SiteModel {
     /// When the newest cloud envelope arrived, for the time of a reading the
     /// anchor cannot place.
     @ObservationIgnored private var cloudArrivalMs: Double?
+    /// FTW Cloud's history tiles of this home, each signed by the box and
+    /// checked here, for the history while the box cannot answer.
+    @ObservationIgnored private(set) var cloudTiles = CloudTileStore()
+    /// Hear each tile taken, and with `true` each answer to `tiles.get`.
+    @ObservationIgnored private var tileListeners: [@MainActor (Bool) -> Void] = []
     /// What the notification extension was last given for this home.
     @ObservationIgnored private var sharedCloudHome: CloudHome?
     /// Whether FTW Cloud's session takes the phone's APNs token, and the
@@ -1156,6 +1161,7 @@ extension SiteModel {
             // carry the very session that brought this hello.
             if cloudHome != identity.home { closeCloud() }
             cloudView = CloudView(home: identity.home, boxKey: identity.pk)
+            cloudTiles = CloudTileStore()
             ruleU = nil
         }
         cloudIdentity = identity
@@ -1178,6 +1184,7 @@ extension SiteModel {
             uninstallPushSink()
             cloudView = nil
             cloudIdentity = nil
+            cloudTiles = CloudTileStore()
             ruleU = nil
             cloudDirty = false
             if let siteId { files?.remove("cloud-\(siteId)") }
@@ -1309,13 +1316,25 @@ extension SiteModel {
 
     private func onCloudSnapshot(_ snapshot: CloudWire.Snapshot, _ at: Double) {
         var any = false
-        for env in snapshot.envelopes where acceptCloud(env, at) { any = true }
+        for env in snapshot.envelopes where env.t != CloudWire.msgTiles && acceptCloud(env, at) { any = true }
+        for env in snapshot.envelopes where env.t == CloudWire.msgTiles { takeCloudTile(env) }
         first("cloud snapshot")
         if any { cloudRead(at) } else { publish() }
         scheduleClock()
     }
 
     private func onCloudEnvelope(_ env: CloudWire.Envelope, _ at: Double) {
+        // Tiles are history, not the newest of a class: they skip the
+        // freshness rules, and are checked and kept apart.
+        switch env.t {
+        case CloudWire.msgTiles:
+            takeCloudTile(env)
+            return
+        case CloudWire.msgTilesEnd:
+            for f in tileListeners { f(true) }
+            return
+        default: break
+        }
         guard acceptCloud(env, at) else { return }
         if env.t == CloudWire.msgLive { first("cloud live") }
         cloudRead(at)
@@ -1332,6 +1351,37 @@ extension SiteModel {
         default: break
         }
         return true
+    }
+
+    /// One history tile from FTW Cloud: kept only when the box signed it,
+    /// checked with the key the box gave this phone over Noise, and it is
+    /// one of the shapes the box sends. Whatever fails is never laid.
+    private func takeCloudTile(_ env: CloudWire.Envelope) {
+        guard let identity = cloudIdentity, CloudWire.verify(boxKey: identity.pk, home: identity.home, envelope: env),
+              let tile = try? CloudWire.Tiles(body: env.b), (try? tile.check()) != nil else { return }
+        cloudTiles.take(tile, nowMs: Int64(scheduler.nowMs))
+        for f in tileListeners { f(false) }
+    }
+
+    /// Hear FTW Cloud's tiles: `false` for each tile taken, `true` when an
+    /// answer to `tilesGet` is complete.
+    func observeCloudTiles(_ f: @escaping @MainActor (Bool) -> Void) {
+        tileListeners.append(f)
+    }
+
+    /// When the FTW Cloud session that carries the readable copy opened, or
+    /// nil while there is none. Tiles come only with the copy.
+    var cloudCopyOpenSinceMs: Double? {
+        guard cloudOn, cloudIdentity != nil, case .open(let since)? = cloud?.status else { return nil }
+        return since
+    }
+
+    /// Ask FTW Cloud for the tiles this phone lacks. False when nothing
+    /// went out.
+    @discardableResult
+    func askCloudTiles(have: [String: String]) -> Bool {
+        guard cloudCopyOpenSinceMs != nil else { return false }
+        return cloud?.tilesGet(have: have) ?? false
     }
 
     private func cloudRead(_ at: Double) {

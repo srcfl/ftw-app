@@ -1043,7 +1043,11 @@ private enum PeriodWords {
             }
             guard let frame = models.history.frame, frame.points > 0 else { return models.history.problem ?? " " }
             let e = EnergyToday.sum(models.history.samples(node, fromMs: fromMs), fromMs: fromMs)
-            return NodeSummary.energy(node, e, today: period == .today)
+            let energy = NodeSummary.energy(node, e, today: period == .today)
+            // FTW Cloud's copy while the box is away: dated, on a line of
+            // its own.
+            guard let cloud = models.history.cloudNote(nowMs: site.minuteMs, zone: zone) else { return energy }
+            return energy + "\n" + cloud
         case .ahead:
             let now = site.nowMs
             // "No plan" only once the box has answered without one; until
