@@ -408,27 +408,24 @@ struct NodeHero: View {
 }
 
 /// The fact beside the figure that only this node has: the battery's level
-/// as the 10-cell meter, the car's level and where it comes from, what the
-/// grid costs an hour, the sun against its forecast, or the home's sources.
+/// as a ring, the car's level as a ring with its goal and where the level
+/// comes from, what the grid costs an hour, the sun against its forecast,
+/// or the home's sources.
 struct SecondFact: View {
     let site: SiteModel
     let node: EnergyNode
     let home: HomeModels
     let reading: NodeReading?
     let live: Bool
-    @ScaledMetric(relativeTo: .title) private var levelSize: CGFloat = 34
+    /// The level's ring, beside the hero's figure.
+    @ScaledMetric(relativeTo: .title) private var ringSize: CGFloat = 84
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
             switch node {
             case .battery:
                 if let pct = reading?.levelPct {
-                    Text(AppWords.percent(pct))
-                        .font(Theme.figure(levelSize))
-                        .foregroundStyle(live ? Theme.ink : Theme.ink3)
-                        .contentTransition(.numericText(value: pct))
-                    CellMeter(pct: pct, tint: Theme.stores, live: live)
-                        .frame(width: 74, height: 4)
+                    levelRing(pct, text: AppWords.percent(pct), tint: reading.map(NodeLook.hue) ?? Theme.stores, lit: live, glows: true, goal: nil)
                 }
             case .car:
                 // Never worked out from power: the level as the car, this
@@ -436,23 +433,15 @@ struct SecondFact: View {
                 // On a box that keeps cars, the car's own, plugged in or not;
                 // none for a plugged-in car the box cannot name.
                 if home.cars.keepsCars, let car = home.cars.shownCar, let level = home.cars.level(car) {
-                    Text(CarText.percent(level))
-                        .font(Theme.figure(levelSize))
-                        .foregroundStyle(level.guessed ? Theme.ink3 : Theme.ink)
-                        .contentTransition(.numericText(value: level.pct))
-                    CellMeter(pct: level.pct, tint: Theme.car, live: !level.guessed, glows: false)
-                        .frame(width: 74, height: 4)
+                    let goal = car.goal.map { CarsModel.schedule($0, nowMs: site.minuteMs, zone: home.loadpoints.zone) }
+                    levelRing(level.pct, text: CarText.percent(level), tint: Theme.car, lit: !level.guessed, glows: false, goal: goal.flatMap(Self.goalPct))
                     Text(CarText.origin(level, nowMs: site.minuteMs, zone: home.loadpoints.zone))
                         .font(.footnote)
                         .foregroundStyle(Theme.ink2)
                 } else if let level = home.loadpoints.carLevel {
                     let guessed = level.origin == .assumed || level.origin == .unconfirmed
-                    Text(AppWords.percent(level.pct))
-                        .font(Theme.figure(levelSize))
-                        .foregroundStyle(guessed ? Theme.ink3 : Theme.ink)
-                        .contentTransition(.numericText(value: level.pct))
-                    CellMeter(pct: level.pct, tint: Theme.car, live: !guessed, glows: false)
-                        .frame(width: 74, height: 4)
+                    let lp = home.loadpoints.points.first(where: \.pluggedIn) ?? home.loadpoints.points.first
+                    levelRing(level.pct, text: (guessed ? "≈\u{00A0}" : "") + AppWords.percent(level.pct), tint: Theme.car, lit: !guessed, glows: false, goal: lp?.schedule.flatMap(Self.goalPct))
                     Text(EVText.originAged(level, nowMs: site.minuteMs, zone: home.loadpoints.zone))
                         .font(.footnote)
                         .foregroundStyle(Theme.ink2)
@@ -504,6 +493,28 @@ struct SecondFact: View {
         guard let window = home.prices.prices else { return nil }
         let now = site.nowMs
         return window.slots.first { $0.startMs <= now && now < $0.startMs + $0.durationMs }.map { ($0.totalMinor, window.currency) }
+    }
+}
+
+extension SecondFact {
+    /// The level in its ring, the figure in the middle: what the cell
+    /// meter and the large figure said, in the ring's language.
+    func levelRing(_ pct: Double, text: String, tint: Color, lit: Bool, glows: Bool, goal: Double?) -> some View {
+        LevelRing(pct: pct, goalPct: goal, tint: tint, lit: lit, glows: glows, thickness: max(5, ringSize * 0.07)) {
+            Text(text)
+                .font(Theme.figure(ringSize * 0.26))
+                .foregroundStyle(lit ? Theme.ink : Theme.ink3)
+                .contentTransition(.numericText(value: pct))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .padding(.horizontal, ringSize * 0.12)
+        }
+        .frame(width: ringSize, height: ringSize)
+    }
+
+    /// The goal's level, unless the goal is the car's own limit.
+    static func goalPct(_ s: Loadpoint.Schedule) -> Double? {
+        s.finishAtVehicleLimit ? nil : s.socPct
     }
 }
 

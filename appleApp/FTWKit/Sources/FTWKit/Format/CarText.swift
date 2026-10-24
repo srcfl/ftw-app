@@ -81,6 +81,8 @@ public enum CarWords {
         "assumed at plug-in": "antagen vid inkoppling",
         "yesterday %@": "i går %@",
         "Limit %@": "Laddgräns %@",
+        // The goal's level, inside the car's ring.
+        "Goal %@": "Mål %@",
         "On %@ · %@ max": "På %@ · max %@",
         "On %@": "På %@",
         "Not plugged in": "Inte inkopplad",
