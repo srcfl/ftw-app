@@ -200,15 +200,12 @@ private struct DayList: View, Equatable {
             let bars = hours.map { DayRow.Bar(at: ($0.startMs - midnight) / 86_400_000, width: $0.lenMs / 86_400_000, wh: $0.wh) }
             return DayRow.Day(node: node, line: DayWords.car(wh: car.wh(sinceMs: midnight)), note: nil, known: true, spark: .bars(bars), elapsed: elapsed)
         }
-        let samples = history.samples(node, fromMs: midnight)
-        let told = samples.contains { $0.watts != nil }
-        // Nothing since midnight yet: the box has not been asked, or its
-        // answer is on its way. A box that answered and has nothing says so
-        // through its holes, below.
-        guard told || (history.loaded && !samples.contains(where: \.fetching) && !samples.isEmpty) else {
+        // Nothing told since midnight: the box has not been asked, or its
+        // answer is on its way.
+        guard let e = history.today(node) else {
             return history.problem.map { DayRow.Day(node: node, line: $0, note: nil, known: true, spark: .none, elapsed: elapsed) } ?? .waiting(node)
         }
-        let e = EnergyToday.sum(samples, fromMs: midnight)
+        let samples = history.samples(node, fromMs: midnight)
         let line = samples.map { s in s.watts.map { DayRow.Point(at: (s.startMs - midnight) / 86_400_000, w: $0) } }
         return DayRow.Day(node: node, line: DayWords.line(node, e), note: DayWords.missing(e), known: true, spark: .line(line), elapsed: elapsed)
     }

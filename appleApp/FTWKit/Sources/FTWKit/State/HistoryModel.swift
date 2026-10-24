@@ -339,10 +339,23 @@ public final class HistoryModel {
         calendar.startOfDay(for: Date(timeIntervalSince1970: site.nowMs / 1000)).timeIntervalSince1970 * 1000
     }
 
-    /// Energy since midnight, from the same tiles the chart draws.
+    /// Energy since midnight, from the same tiles the chart draws. Nil
+    /// until the phone has been told any of today (`told`).
     public func today(_ node: EnergyNode) -> EnergyToday? {
         guard let frame, frame.names.contains(node.series) else { return nil }
-        return EnergyToday.sum(Self.samples(frame, node: node, fromMs: midnightMs, untilMs: cloudUpToMs), fromMs: midnightMs)
+        let samples = Self.samples(frame, node: node, fromMs: midnightMs, untilMs: cloudUpToMs, fetching: pending)
+        return Self.told(samples, fromMs: midnightMs, answered: (loaded || cloudAnswered) && !pending)
+    }
+
+    /// A day the phone has been told: once any sample since `fromMs` has a
+    /// value, or once the box or FTW Cloud has answered for the day and
+    /// nothing is on its way, when its holes are what it recorded. Until
+    /// then nil, so a day not told never reads as zero, and a tile on its
+    /// way never counts as missing.
+    nonisolated static func told(_ samples: [HistorySample], fromMs: Double, answered: Bool) -> EnergyToday? {
+        let any = samples.contains { $0.watts != nil }
+        guard any || (answered && !samples.isEmpty && !samples.contains(where: \.fetching)) else { return nil }
+        return EnergyToday.sum(samples, fromMs: fromMs)
     }
 }
 
