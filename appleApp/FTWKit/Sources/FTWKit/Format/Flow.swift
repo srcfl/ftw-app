@@ -352,6 +352,49 @@ public enum Flow {
         }
     }
 
+    // MARK: The ring on Now
+
+    /// How much of its quarter of the ring a node's arc lights, from its
+    /// power: none at rest, a fifth at 0.6 kW, half at 1.8 kW, nine tenths
+    /// at 6 kW. One curve for every node, so arcs compare across the ring,
+    /// and it saturates, so an 11 kW charger never swallows the rest.
+    public static func ringFill(kw: Double) -> Double {
+        let a = abs(kw)
+        guard a.isFinite, a * 1_000 > idleW else { return 0 }
+        return min(1, max(0.12, 1 - exp(-a / 2.5)))
+    }
+
+    /// One arc of the ring over time: its beam's light, wave and rest
+    /// (`BeamMotion`), and how much of its quarter it lights, which swells
+    /// to a new reading like a beam's width does.
+    public struct RingMotion: Equatable, Sendable {
+        private var beam: BeamMotion
+        private var fill: Follow
+        private var last: Double
+
+        public init(_ target: BeamTarget, at t: Double) {
+            beam = BeamMotion(target, at: t)
+            fill = Follow(Flow.ringFill(kw: target.kw))
+            last = t
+        }
+
+        public mutating func step(_ target: BeamTarget, at t: Double, reduceMotion: Bool) -> RingFrame {
+            let dt = max(0, t - last)
+            last = max(last, t)
+            let f = beam.step(target, at: t, reduceMotion: reduceMotion)
+            let wanted = Flow.ringFill(kw: target.kw)
+            if reduceMotion { fill.snap(wanted) } else { fill.step(toward: wanted, dt: dt, tau: BeamMotion.tau) }
+            return RingFrame(beam: f, fill: min(1, max(0, fill.value)))
+        }
+    }
+
+    /// One arc's look in one frame.
+    public struct RingFrame: Equatable, Sendable {
+        public var beam: BeamFrame
+        /// The share of its quarter the arc lights, 0 to 1.
+        public var fill: Double
+    }
+
     // MARK: The fuse
 
     public struct Phase: Equatable, Sendable, Identifiable {

@@ -175,7 +175,10 @@ private struct PlanSlot: View {
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            PlanSection(site: site, models: home.nodes, prices: home.prices, loadpoints: home.loadpoints, zoom: zoom)
+            VStack(alignment: .leading, spacing: 18) {
+                NowCarRow(home: home, zoom: zoom)
+                PlanSection(site: site, models: home.nodes, prices: home.prices, loadpoints: home.loadpoints, zoom: zoom)
+            }
                 .opacity(nothingYet ? 0 : 1)
                 .allowsHitTesting(!nothingYet)
                 .accessibilityHidden(nothingYet)
@@ -185,6 +188,56 @@ private struct PlanSlot: View {
             }
         }
         .animation(Theme.spring, value: nothingYet)
+    }
+}
+
+/// The car under the ring: its goal and its level, and a door into the
+/// car's view. Only on a box that keeps cars and knows one; on a box that
+/// does not, the charger stays in the ring's corner and this row is not
+/// there, so the page's shape is the home's, never the data's.
+private struct NowCarRow: View {
+    let home: HomeModels
+    let zoom: Namespace.ID
+
+    var body: some View {
+        let cars = home.cars
+        if cars.keepsCars, let car = cars.ordered.first {
+            let site = home.site, zone = home.loadpoints.zone
+            let now = site.minuteMs
+            let level = cars.level(car)
+            let goal = car.goal.map { CarsModel.schedule($0, nowMs: now, zone: zone) }
+            let title = goal.map { "\(car.shownName) · \(EVText.goal($0, at: Date(timeIntervalSince1970: now / 1000), zone: zone))" } ?? car.shownName
+            let detail = level.map { "\(CarText.percent($0)) · \(CarText.origin($0, nowMs: now, zone: zone))" } ?? C("Level unknown")
+            NavigationLink(value: HomeRoute.car(car.id)) {
+                HStack(spacing: 12) {
+                    Image(systemName: cars.charger(of: car)?.pluggedIn == true ? "bolt.car.fill" : "car.side.fill")
+                        .font(.title3)
+                        .foregroundStyle(Theme.car)
+                        .frame(width: 32)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(Theme.ink)
+                        Text(detail)
+                            .font(.footnote)
+                            .foregroundStyle(level?.guessed == true ? Theme.ink3 : Theme.ink2)
+                            .monospacedDigit()
+                    }
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Theme.ink3)
+                }
+                .frame(minHeight: 48)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .matchedTransitionSource(id: HomeRoute.car(car.id), in: zoom)
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("now.car")
+        }
     }
 }
 

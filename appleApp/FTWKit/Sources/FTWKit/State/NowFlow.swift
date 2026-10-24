@@ -133,17 +133,19 @@ extension NowFlow {
     }
 }
 
-/// Where the flow goes on Now, from the height there is: 45 % of the room
+/// Where the flow goes on Now, from the height there is: 72 % of the room
 /// between the bar and the plan, never less than 232 pt and never more
-/// than 340 pt, centred in that room so the ground above and below it
+/// than 420 pt, centred in that room so the ground above and below it
 /// match. The price row of the plan's strip takes 15 % of the ground the
 /// flow leaves, from 20 pt up to 56 pt, so its bars read as a chart. A
 /// function of the screen and the home's shape alone, so nothing on the
 /// page moves when data arrives.
 public struct NowLayout: Equatable, Sendable {
     public static let minFlow: CGFloat = 232
-    public static let maxFlow: CGFloat = 340
-    public static let share: CGFloat = 0.45
+    /// The ring and the four corners around it need the height of the ring
+    /// plus a label above and below it (Ring / Quiet, 24 October 2026).
+    public static let maxFlow: CGFloat = 420
+    public static let share: CGFloat = 0.72
     /// The least ground between the flow and the plan.
     public static let gap: CGFloat = 16
     public static let minPrice: CGFloat = 20
@@ -188,19 +190,10 @@ public enum FlowPlan {
         public var onTop: Bool { self == .topLeading || self == .topTrailing || self == .top }
     }
 
-    /// A beam's two ends: at the node, and 8 pt outside the hub's ring.
-    public struct Ends: Equatable, Sendable {
-        public let node: CGPoint
-        public let hub: CGPoint
-        public var length: CGFloat { hypot(node.x - hub.x, node.y - hub.y) }
-    }
-
-    /// From a beam's end to the hub's ring.
+    /// From the ring to a node on the axis, and from a node's text to the
+    /// room it needs, in the axis's least height.
     public static let hubGap: CGFloat = 8
-    /// From a node's text to its beam.
     public static let nodeGap: CGFloat = 4
-    /// A beam shorter than this is not drawn: there is no room for light.
-    public static let shortest: CGFloat = 12
 
     public static func spot(_ node: EnergyNode, among nodes: [EnergyNode]) -> Spot {
         func has(_ n: EnergyNode) -> Bool { nodes.contains(n) }
@@ -214,35 +207,46 @@ public enum FlowPlan {
     }
 
     /// The height a home's shape needs: the four corners fit the floor,
-    /// while a node on the axis stacks over or under the hub with a beam
-    /// between them.
+    /// while a node on the axis stacks over or under the ring.
     public static func least(_ nodes: [EnergyNode], node height: CGFloat = 72, hub: CGFloat = 92) -> CGFloat {
         let axis = nodes.contains { [.top, .bottom].contains(spot($0, among: nodes)) }
         guard axis else { return NowLayout.minFlow }
         return 2 * (height + nodeGap + 24 + hubGap + hub / 2)
     }
 
-    /// Where a node's beam meets it: just past the text on the hub's side,
-    /// a fifth of the way in from its inner edge, or under its middle on
-    /// the axis. Fixed by the node's frame, never by its words, so a beam
-    /// never moves when a figure changes.
-    public static func anchor(_ frame: CGRect, at spot: Spot) -> CGPoint {
-        let inset = frame.width * 0.2
-        let y = spot.onTop ? frame.maxY + nodeGap : frame.minY - nodeGap
-        if spot.leading { return CGPoint(x: frame.maxX - inset, y: y) }
-        if spot.trailing { return CGPoint(x: frame.minX + inset, y: y) }
-        return CGPoint(x: frame.midX, y: y)
+    // MARK: The ring
+
+    /// Degrees left open between two quarters of the ring.
+    public static let ringGap: Double = 14
+
+    /// The middle of a node's arc, in degrees clockwise from three o'clock
+    /// (SwiftUI's angles, y down): the quarter facing the node's corner, or
+    /// straight up or down for a node on the axis.
+    public static func ringAngle(_ spot: Spot) -> Double {
+        switch spot {
+        case .topLeading: return 225
+        case .topTrailing: return 315
+        case .bottomTrailing: return 45
+        case .bottomLeading: return 135
+        case .top: return 270
+        case .bottom: return 90
+        case .center: return 0
+        }
     }
 
-    /// The beam between a node and the hub, straight along the line to the
-    /// hub's centre. Nil when the two sit too close for one.
-    public static func beam(node frame: CGRect, at spot: Spot, hub: CGRect) -> Ends? {
-        let a = anchor(frame, at: spot)
-        let c = CGPoint(x: hub.midX, y: hub.midY)
-        let d = hypot(a.x - c.x, a.y - c.y)
-        let r = hub.width / 2 + hubGap
-        guard d - r >= shortest else { return nil }
-        let k = r / d
-        return Ends(node: a, hub: CGPoint(x: c.x + (a.x - c.x) * k, y: c.y + (a.y - c.y) * k))
+    /// A node's arc: the whole quarter it may light (`track`), and the part
+    /// it lights at `fill`, centred in it, so a stronger flow grows both
+    /// ways and the quarter's middle always faces the node.
+    public struct RingArc: Equatable, Sendable {
+        public let track: ClosedRange<Double>
+        public let lit: ClosedRange<Double>?
+    }
+
+    public static func ringArc(_ spot: Spot, fill: Double) -> RingArc {
+        let mid = ringAngle(spot), half = (90 - ringGap) / 2
+        let track = (mid - half)...(mid + half)
+        let f = min(1, max(0, fill))
+        guard f > 0.001 else { return RingArc(track: track, lit: nil) }
+        return RingArc(track: track, lit: (mid - half * f)...(mid + half * f))
     }
 }

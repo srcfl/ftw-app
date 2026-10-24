@@ -130,17 +130,25 @@ native, and smooth enough to impress.
   `.contentTransition(.numericText(value:))`, new points animate in, and
   everything that moves uses one spring, `Theme.spring`. The car row on
   Now zooms into the car view (`navigationTransition(.zoom)`).
-- **The flow is beams of light** (Fredrik, 13 Oct 2026: "smaller and
-  smoother, flowing, not dots"). Straight beams whose width says the power
-  and whose soft wave of light runs from source to sink, faster with more
-  power (`Flow.beamWidth`, `Flow.waveSpeed`, `Flow.BeamMotion`, tested). The
-  light runs at the display's rate while a beam is live and Now is on
-  screen in an active app, ignites on the first live frame and decays when
-  live ends; otherwise the timeline rests. Under Reduce Motion it holds
-  still and a still chevron shows the direction; in Low Power Mode it drops
-  to 20 fps. A node at 42 W or less is a still dotted hairline. The live
-  curve glides over each second, except under Reduce Motion or in Low
-  Power Mode.
+- **The flow is a ring of light** (Ring / Quiet, chosen by Fredrik on 24
+  Oct 2026 from the design canvas; it replaces the beams of 13 Oct). The
+  home's use sits in the middle; each node has the quarter of the ring
+  that faces its corner. Its arc lights from the quarter's middle out,
+  longer with more power (`Flow.ringFill`: a fifth at 0.6 kW, half at
+  1.8 kW, nine tenths at 6 kW, never past the quarter), in the node's
+  colour, and a soft wave of light runs along it, faster with more power:
+  clockwise for power coming into the home, the other way for power
+  leaving it (`Flow.RingMotion` over `Flow.BeamMotion`, tested). The light
+  runs at the display's rate while an arc is live and Now is on screen in
+  an active app, ignites on the first live frame and decays when live
+  ends, and the arc's colour crosses to ink as it cools; otherwise the
+  timeline rests. Under Reduce Motion it holds still and a still chevron
+  on the arc shows the direction; in Low Power Mode it drops to 20 fps. A
+  node at 42 W or less lights nothing; only its quarter's track shows.
+  The corner labels sit as close to the ring as clears it by 10 pt
+  (`RingGeometry`), and the car's goal and level are one row under it.
+  The live curve glides over each second, except under Reduce Motion or
+  in Low Power Mode.
 - **No layout jumps.** Reserve room for receipts, labels and pending
   marks, so a row never moves under the finger. Freshness and state
   changes cross-fade, and a transition can be interrupted.
@@ -210,6 +218,7 @@ His standing rules from that day outlive the release:
    loads (0 ↔ 1 kW) draw as bucket means with a range, and the scrub still
    gives exact values.
 6. The flow on Now is small and smooth: continuous light, not jumping dots.
+   Since 24 Oct 2026 it is the ring (Ring / Quiet).
 7. TUI and retro are welcome, never bloated: Swedish simplicity.
 
 The rules below put these into practice.
@@ -247,9 +256,9 @@ The rules below put these into practice.
   | Mono status line, `● LIVE · FTW IN CONTROL` | Under every title | Whether this is now, and who controls the home |
   | 8-level block price bars (▁▂▃▄▅▆▇█) | Now's strip, dial ticks, lock-screen widget | Price per slot at a glance |
   | Lock-on: corner brackets and an inverse-video tag | Under a finger, on a pressed node | What the finger is on, and its value |
-  | 10-cell meter | Battery and car level | Level in tenths, readable at 4 pt |
+  | 10-cell meter | Battery and car level in their own views (Now says it in words beside the figure) | Level in tenths, readable at 4 pt |
   | Receipt log `SENT ▸ ACCEPTED ▸ MEASURED ▸ CONFIRMED` | Car commands | How far the box has confirmed a command |
-  | Phosphor ignite and decay | Beams, the trace's head, the status dot | When live starts and when it stops |
+  | Phosphor ignite and decay | The ring's arcs, the trace's head, the status dot | When live starts and when it stops |
 
 - **One palette source.** The roles live in `appleApp/FTWCharts/Theme.xcassets`,
   in Display P3, one colour set per role with its dark variant: `ground`,

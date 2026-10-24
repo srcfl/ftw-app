@@ -294,17 +294,22 @@ import FTWShared
 /// Now's fixed page: the flow's size and place come from the screen and the
 /// home's shape alone.
 @Suite struct NowLayoutTests {
-    /// 45 % of the room, from 232 pt to 340 pt, centred: the ground above
+    /// 72 % of the room, from 232 pt to 420 pt, centred: the ground above
     /// the flow and the ground below it match.
     @Test func theFlowTakesItsShareOfTheRoomCentred() {
-        // An SE: the floor, centred.
+        // A small room: the floor, centred.
+        let small = NowLayout(room: 300)
+        #expect(small.flow == 232)
+        // An SE: 72 % of the room.
         let se = NowLayout(room: 444)
-        #expect(se.flow == 232)
-        // A Pro Max: 45 % of the room.
+        #expect(abs(se.flow - 444 * 0.72) < 0.001)
+        // A Pro: 72 % of the room.
+        let pro = NowLayout(room: 520)
+        #expect(abs(pro.flow - 520 * 0.72) < 0.001)
+        // A Pro Max reaches the cap: never more than 420 pt.
         let pm = NowLayout(room: 731)
-        #expect(abs(pm.flow - 731 * 0.45) < 0.001)
-        // Never more than 340 pt.
-        #expect(NowLayout(room: 2_000).flow == 340)
+        #expect(pm.flow == 420)
+        #expect(NowLayout(room: 2_000).flow == 420)
         for l in [se, pm, NowLayout(room: 2_000), NowLayout(room: 300)] {
             let room = l.flow + l.grow + 2 * l.above
             let below = room - l.above - l.flow - l.grow
@@ -315,9 +320,9 @@ import FTWShared
     /// What the flow leaves, the price row takes 15 % of, from 20 pt to
     /// 56 pt, and never the gap the flow keeps from the plan.
     @Test func thePriceRowGrowsWithTheGround() {
-        let se = NowLayout(room: 444)
-        #expect(abs(se.price - (444 - 232) * 0.15) < 0.001)
-        #expect(NowLayout(room: 731).price == 56)
+        let pm = NowLayout(room: 731)
+        #expect(abs(pm.price - (731 - 420) * 0.15) < 0.001)
+        #expect(NowLayout(room: 444).price == 20)
         #expect(NowLayout(room: 2_000).price == 56)
         #expect(NowLayout(room: 300).price == 20)
         #expect(NowLayout(room: 240).price == 20)
@@ -339,8 +344,9 @@ import FTWShared
     @Test func aNodeOnTheAxisAsksForMore() {
         let y = FlowPlan.least([.solar, .battery, .home, .grid])
         #expect(y > NowLayout.minFlow)
-        #expect(NowLayout(room: 500, least: y).flow == y)
-        #expect(NowLayout(room: 2_000, least: y).flow == max(y, 340))
+        // Where 72 % of the room is less than the axis needs.
+        #expect(NowLayout(room: 400, least: y).flow == y)
+        #expect(NowLayout(room: 2_000, least: y).flow == max(y, 420))
         #expect(NowLayout(room: 250, least: y).flow == 250 - NowLayout.gap)
         #expect(FlowPlan.least([.solar, .battery, .home, .grid, .car]) == NowLayout.minFlow)
     }
