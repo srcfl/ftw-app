@@ -245,4 +245,16 @@ import Testing
         let short = LiveSeries.binned(Array(run.prefix(300)), widthMs: 300, periodMs: 200)
         #expect(short.samples == Array(run.prefix(300)) && short.weights == nil)
     }
+
+    /// On the plan's lanes a sideways move or a rest scrubs, a move up or
+    /// down scrolls the page, and a touch too short to tell waits.
+    @Test func aFingerOnTheLanesScrubsSidewaysAndScrollsUpAndDown() {
+        let at = CGPoint(x: 100, y: 100)
+        #expect(LaneIntent.decide(start: at, now: CGPoint(x: 103, y: 101), heldMs: 30) == nil)
+        #expect(LaneIntent.decide(start: at, now: CGPoint(x: 112, y: 104), heldMs: 30) == .scrub)
+        #expect(LaneIntent.decide(start: at, now: CGPoint(x: 102, y: 120), heldMs: 30) == .pass)
+        #expect(LaneIntent.decide(start: at, now: at, heldMs: RingIntent.holdMs) == .scrub)
+        // A swipe up whose first event comes after a stall still scrolls.
+        #expect(LaneIntent.decide(start: at, now: CGPoint(x: 101, y: 40), heldMs: 400) == .pass)
+    }
 }
