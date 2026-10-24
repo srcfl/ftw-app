@@ -180,12 +180,19 @@ native, and smooth enough to impress.
   longer one, or one the box confirms empty, breaks the line, and no
   "no data" ever sits over a joined span. What this phone did not see
   live is drawn in ink on the same curve. No dot travels along a line.
-- **A node has one timeline** (Fredrik, 18 Oct 2026). It opens from the
-  phone's cached box history, adds source observations as they arrive,
-  and shows the box's plan or forecast beyond now. No Live/Today/48 h/
-  Ahead picker. Drag to move through time, pinch around the fingers to
-  zoom, and hold to read. A panned window stays put while new data lands;
-  Back to now follows the readings again. Compact and enlarged share it.
+- **A node has one timeline** (Fredrik, 18 and 24 Oct 2026). No
+  Live/Today/48 h/Ahead picker. It opens on today, midnight to midnight
+  on the household's clock, from the phone's cached box history; the live
+  readings build on that history at now, and the box's plan or forecast
+  carries on after it. Drag to move through time (two days back, one
+  ahead), pinch around the fingers to zoom (5 min to 72 h), and hold to
+  read: the finger runs on across now into the plan. A window with now in
+  it follows now, so a view pinched in on the last minutes is live; one
+  dragged off now stays put while data lands; "Today" goes back. Under it,
+  two lines: what the window shows ("Today", "Yesterday 18:00 – Today
+  06:00") and what its past adds up to. Compact and enlarged share it,
+  and the car view draws the car on it too, opening on the six hours
+  behind and eighteen ahead, since the night's charge is the point there.
 - **Keep the evidence distinct.** Closed history means keep the interval
   the box returned; the car's ledger means stay hourly. An unfinished bucket is not
   instantaneous power: wait for it to close, with actual source readings

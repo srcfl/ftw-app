@@ -1,9 +1,10 @@
 import FTWKit
 import SwiftUI
 
-/// One continuous timeline: the box's stored means, source observations,
-/// and its plan or forecast. Drag time, pinch to zoom, hold to read. The
-/// same window opens on the whole screen and only follows now at now.
+/// One continuous timeline: the box's stored means, the live readings
+/// built on them, and its plan or forecast after now. It opens on today;
+/// drag through time, pinch to zoom, hold to read across the past, now
+/// and what is planned. The same window opens on the whole screen.
 struct NodeView: View {
     let app: AppModel
     let home: HomeModels
@@ -11,7 +12,8 @@ struct NodeView: View {
     let zoom: Namespace.ID
     @State private var scrub = ScrubModel()
     @State private var choosingMode = false
-    @State private var window = TimelineWindow(nowMs: Date().timeIntervalSince1970 * 1000)
+    /// Every node opens on today; a drag or a pinch moves from there.
+    @State private var window = TimelineWindow.today(nowMs: Date().timeIntervalSince1970 * 1000, clock: .of(.current))
     @State private var text = PeriodText()
     @State private var series: [EnergyNode]
     @State private var enlarged = false

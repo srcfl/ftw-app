@@ -123,6 +123,13 @@ public enum NodeWords {
         "Your box sends no reading for this.": "Boxen skickar ingen mätning för det här.",
         "Period": "Period",
         "Today": "I dag",
+        "Yesterday": "I går",
+        // The timeline's lines and readout.
+        "So far: %@": "Hittills: %@",
+        "saved": "sparad",
+        "plan": "plan",
+        "What FTW plans or forecasts, not measured.": "Det FTW planerar eller förutser, inte uppmätt.",
+        "Tomorrow": "I morgon",
         "48 h": "48 h",
         "Ahead": "Framåt",
         "Today: made %@": "I dag: producerat %@",

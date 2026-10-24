@@ -20,14 +20,61 @@ import Testing
         #expect(next.time(at: 0.6) == original.time(at: 0.3))
     }
 
+    static let stockholm = ZoneClock.of(TimeZone(identifier: "Europe/Stockholm")!)
+
+    static func local(_ day: Int, _ hour: Int, _ minute: Int = 0) -> Double {
+        stockholm.calendar.date(from: DateComponents(year: 2026, month: 10, day: day, hour: hour, minute: minute))!.timeIntervalSince1970 * 1000
+    }
+
     @Test func readingsAndLateHistoryAnswersCannotMoveAPannedWindow() {
         var window = TimelineWindow(nowMs: Self.now).transformed(anchor: 0, destination: 0.5, magnification: 1, nowMs: Self.now)
         let held = window
-        window.follow(nowMs: Self.now + 120_000)
+        window.follow(nowMs: Self.now + 120_000, clock: Self.stockholm)
         #expect(window == held)
-        window.returnToNow(nowMs: Self.now + 120_000)
-        #expect(window.followsNow)
-        #expect(window.time(at: TimelineWindow.nowPosition) == Self.now + 120_000)
+        window.returnToToday(nowMs: Self.now + 120_000, clock: Self.stockholm)
+        #expect(window.isToday)
+        #expect(window == TimelineWindow.today(nowMs: Self.now + 120_000, clock: Self.stockholm))
+    }
+
+    /// A node opens on today, midnight to midnight on the household's
+    /// clock, holds through the day and rolls at midnight, into a 25-hour
+    /// day when the clock turns back.
+    @Test func aNodeOpensOnTodayAndRollsAtMidnight() {
+        let now = Self.local(24, 15, 13)
+        var window = TimelineWindow.today(nowMs: now, clock: Self.stockholm)
+        #expect(window.fromMs == Self.local(24, 0))
+        #expect(window.toMs == Self.local(25, 0))
+        #expect(window.isToday && window.followsNow)
+        let held = window
+        window.follow(nowMs: Self.local(24, 23, 59), clock: Self.stockholm)
+        #expect(window == held)
+        window.follow(nowMs: Self.local(25, 0, 1), clock: Self.stockholm)
+        #expect(window.fromMs == Self.local(25, 0))
+        #expect(window.toMs == Self.local(26, 0))
+        #expect(window.spanMs == 25 * 3_600_000)
+        #expect(window.isToday)
+    }
+
+    /// Pinched in on now, the window follows now, so it is live; dragged to
+    /// yesterday it holds still. A gesture that moves nothing keeps today.
+    @Test func aWindowWithNowInItFollowsAndYesterdayHoldsStill() {
+        let now = Self.local(24, 15)
+        let today = TimelineWindow.today(nowMs: now, clock: Self.stockholm)
+        let f = (now - today.fromMs) / today.spanMs
+        var live = today.transformed(anchor: f, destination: f, magnification: 24, nowMs: now)
+        #expect(!live.isToday)
+        #expect(abs(live.spanMs - 3_600_000) < 1)
+        #expect(live.nowFraction != nil)
+        let from = live.fromMs
+        live.follow(nowMs: now + 60_000, clock: Self.stockholm)
+        #expect(abs(live.fromMs - (from + 60_000)) < 1)
+        var yesterday = today.transformed(anchor: 0, destination: 1, magnification: 1, nowMs: now)
+        #expect(yesterday.fromMs == Self.local(23, 0))
+        #expect(!yesterday.followsNow)
+        let held = yesterday
+        yesterday.follow(nowMs: now + 60_000, clock: Self.stockholm)
+        #expect(yesterday == held)
+        #expect(today.transformed(anchor: 0.3, destination: 0.3, magnification: 1, nowMs: now).isToday)
     }
 
     @Test func theAvailablePastAndZoomAreBounded() {

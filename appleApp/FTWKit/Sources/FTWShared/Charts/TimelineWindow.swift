@@ -1,34 +1,73 @@
 import Foundation
 
-/// An elapsed-time window, independent of the data that arrives in it.
-/// Only a window following now moves on a reading. A finger keeps its
-/// time through a pan or a zoom, including across a daylight-saving turn.
+/// An elapsed-time window, independent of the data that arrives in it. A
+/// node opens on today, midnight to midnight on the household's clock,
+/// which rolls to the next day at midnight. After a pan or a pinch the
+/// window follows now while now is in it, so a view pinched in on the last
+/// minutes is live, and holds still once now has left it, so yesterday
+/// stays yesterday. A finger keeps its time through a pan or a zoom,
+/// including across a daylight-saving turn.
 public struct TimelineWindow: Equatable, Sendable {
     public static let historyMs: Double = 48 * 3_600_000
     public static let aheadMs: Double = 24 * 3_600_000
     public static let minimumSpanMs: Double = 5 * 60_000
-    public static let maximumSpanMs = historyMs
+    /// The whole reach, two days back and one ahead, at once.
+    public static let maximumSpanMs = historyMs + aheadMs
+    /// Where now sits in a window made around it.
     public static let nowPosition: Double = 0.85
 
     public private(set) var fromMs: Double
     public private(set) var toMs: Double
-    public private(set) var followsNow: Bool
+    /// Today's window, as a view opens: it rolls at midnight.
+    public private(set) var isToday: Bool
+    /// Where now sits while the window follows it; nil once now has left.
+    public private(set) var nowFraction: Double?
     public var spanMs: Double { toMs - fromMs }
+    /// Moves on its own: today at midnight, or with now.
+    public var followsNow: Bool { isToday || nowFraction != nil }
 
-    public init(nowMs: Double, spanMs: Double = 3_600_000) {
+    /// A window of `spanMs` around now, now at `nowAt` of it, following
+    /// it: the car's view opens on the night ahead this way.
+    public init(nowMs: Double, spanMs: Double = 3_600_000, nowAt: Double = TimelineWindow.nowPosition) {
         let span = min(max(spanMs, Self.minimumSpanMs), Self.maximumSpanMs)
-        fromMs = nowMs - span * Self.nowPosition
+        let at = min(max(nowAt, 0), 1)
+        fromMs = nowMs - span * at
         toMs = fromMs + span
-        followsNow = true
+        isToday = false
+        nowFraction = at
     }
 
-    public mutating func follow(nowMs: Double) {
-        guard followsNow else { return }
-        self = Self(nowMs: nowMs, spanMs: spanMs)
+    /// Today on `clock`: from its midnight to the next one, 23 or 25 hours
+    /// on a day the clock turns.
+    public static func today(nowMs: Double, clock: ZoneClock) -> Self {
+        let calendar = clock.calendar
+        let date = Date(timeIntervalSince1970: nowMs / 1000)
+        let start = calendar.startOfDay(for: date)
+        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
+        var w = Self(nowMs: nowMs)
+        w.fromMs = start.timeIntervalSince1970 * 1000
+        w.toMs = end.timeIntervalSince1970 * 1000
+        w.isToday = true
+        w.nowFraction = nil
+        return w
     }
 
-    public mutating func returnToNow(nowMs: Double) {
-        self = Self(nowMs: nowMs, spanMs: spanMs)
+    /// A reading or a minute moves the window only as it follows: today
+    /// rolls at midnight, a window with now in it keeps now where it was.
+    public mutating func follow(nowMs: Double, clock: ZoneClock) {
+        if isToday {
+            let next = Self.today(nowMs: nowMs, clock: clock)
+            if next.fromMs != fromMs { self = next }
+        } else if let f = nowFraction {
+            let span = spanMs
+            fromMs = nowMs - f * span
+            toMs = fromMs + span
+        }
+    }
+
+    /// Back to today, as the view opened.
+    public mutating func returnToToday(nowMs: Double, clock: ZoneClock) {
+        self = Self.today(nowMs: nowMs, clock: clock)
     }
 
     public func time(at fraction: Double) -> Double {
@@ -45,10 +84,13 @@ public struct TimelineWindow: Equatable, Sendable {
         let lower = nowMs - Self.historyMs
         let upper = nowMs + Self.aheadMs - span
         let start = min(max(wanted, lower), upper)
-        var next = Self(nowMs: nowMs, spanMs: span)
+        var next = self
         next.fromMs = start
         next.toMs = start + span
-        next.followsNow = abs(start - (nowMs - span * Self.nowPosition)) <= span * 0.01
+        // A gesture that leaves the window where it was keeps it today's.
+        next.isToday = isToday && abs(start - fromMs) < 1 && abs(span - spanMs) < 1
+        let f = (nowMs - start) / span
+        next.nowFraction = next.isToday || f < 0 || f > 1 ? nil : f
         return next
     }
 }

@@ -65,14 +65,16 @@ struct TimelineChartArea: View {
         // At short scales labels need minutes, and at long ones the date.
         let step = window.spanMs <= 3_600_000 ? 900_000.0 : window.spanMs <= 6 * 3_600_000 ? 3_600_000.0 : window.spanMs <= 24 * 3_600_000 ? 6 * 3_600_000.0 : 12 * 3_600_000.0
         let clock = ZoneClock.of(.current)
-        var at = clock.alignDown(window.fromMs, stepMs: step) + step
+        var at = clock.alignDown(window.fromMs + step, stepMs: step)
         picture.ticks = []
         while at < window.toMs - window.spanMs * 0.04 {
             let label = window.spanMs >= 24 * 3_600_000 && clock.minuteOfDay(at) == 0
                 ? Date(timeIntervalSince1970: at / 1000).formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: AppWords.language == .sv ? "sv_SE" : "en_US")))
                 : clock.label(at)
             picture.ticks.append(.init(ms: at, label: label))
-            at += step
+            // The next tick on the clock, not a fixed step of elapsed time,
+            // so 06:00 stays 06:00 the night the clock turns.
+            at = clock.alignDown(at + step * 1.5, stepMs: step)
         }
         for i in picture.layers.indices {
             guard var ghost = picture.layers[i].ghost, ghost.kind == .forecast,
@@ -111,7 +113,7 @@ struct TimelineChartArea: View {
     }
 
     private func followIfFree() {
-        if !interacting { window.follow(nowMs: site.nowMs) }
+        if !interacting { window.follow(nowMs: site.nowMs, clock: .of(.current)) }
     }
 
     private func chart(_ data: [Input], picture: HistoryPicture, traces: [String: LiveSeries], frame: ChartFrame, looks: [String: TraceLook], live: Set<String>, empty: String?) -> some View {
@@ -162,12 +164,12 @@ private struct TimelineAccessibility: ViewModifier {
         content
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(node.title + ". " + L("History and live readings"))
-            .accessibilityValue(TimelineWords.window(window) + (empty.map { ". " + $0 } ?? ""))
+            .accessibilityValue(TimelineLabel.window(window, nowMs: nowMs, clock: .of(.current)) + (empty.map { ". " + $0 } ?? ""))
             .accessibilityHint(L("Swipe up or down to move through time. Actions change the zoom."))
             .accessibilityAdjustableAction(adjust)
             .accessibilityAction(named: Text(L("Zoom in"))) { zoom(2) }
             .accessibilityAction(named: Text(L("Zoom out"))) { zoom(0.5) }
-            .accessibilityAction(named: Text(L("Back to now"))) { window.returnToNow(nowMs: nowMs) }
+            .accessibilityAction(named: Text(L("Today"))) { window.returnToToday(nowMs: nowMs, clock: .of(.current)) }
             .accessibilityChartDescriptor(TimelineDescriptor(node: node, history: history, observations: observations, sampleMs: sampleMs))
             .accessibilityIdentifier("node.timeline.chart")
     }
@@ -283,7 +285,7 @@ private struct TimelineTouchOverlay: View {
         let value = reading(ms)
         let words = TimelineWords.reading(value, atMs: ms)
         let watts = value.watts
-        text.set([words], spans: { _ in words }, heroes: [.init(watts: watts.map(abs), signed: watts ?? 0, word: words)])
+        text.set([words], spans: { _ in words }, heroes: [.init(watts: watts.map(abs), signed: watts ?? 0, word: TimelineWords.when(value, atMs: ms))])
         scrub.move(to: 0, landmark: false)
     }
 
@@ -294,6 +296,10 @@ private struct TimelineTouchOverlay: View {
     }
 }
 
+/// Under the chart, two lines: what the window shows ("Today",
+/// "Yesterday 18:00 – Today 06:00") with the way back to today once it has
+/// moved, and what the past in it adds up to, or under a finger the
+/// reading there.
 struct TimelineControls: View {
     let site: SiteModel
     let node: EnergyNode
@@ -304,16 +310,27 @@ struct TimelineControls: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Text(TimelineWords.window(window)).font(.caption).foregroundStyle(Theme.ink2).monospacedDigit()
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(TimelineLabel.window(window, nowMs: site.minuteMs, clock: .of(.current)))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.ink)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .contentTransition(.opacity)
                 Spacer(minLength: 8)
-                Button(L("Back to now")) { window.returnToNow(nowMs: site.nowMs) }
-                    .font(.caption.weight(.semibold))
-                    .opacity(window.followsNow ? 0 : 1)
-                    .disabled(window.followsNow)
-                    .accessibilityHidden(window.followsNow)
-                    .accessibilityIdentifier("timeline.now")
+                Button {
+                    withAnimation(Theme.spring) { window.returnToToday(nowMs: site.nowMs, clock: .of(.current)) }
+                } label: {
+                    Label(L("Today"), systemImage: "arrow.uturn.backward")
+                }
+                .font(.subheadline.weight(.semibold))
+                .buttonStyle(.quiet)
+                .opacity(window.isToday ? 0 : 1)
+                .disabled(window.isToday)
+                .accessibilityHidden(window.isToday)
+                .accessibilityIdentifier("timeline.today")
             }
             Group {
                 if typeSize.isAccessibilitySize { readout.fixedSize(horizontal: false, vertical: true) }
@@ -321,35 +338,33 @@ struct TimelineControls: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityIdentifier("chart.readout")
-            Text(TimelineWords.material(node, sampleMs: sampleMs) + "\n" + L("Drag through time · pinch to zoom · hold to read"))
-                .font(.caption2).foregroundStyle(Theme.ink3)
         }
+        .animation(Theme.spring, value: window.isToday)
     }
 
     private var readout: some View {
-        Text(text.text(scrub) ?? summary).font(.subheadline).foregroundStyle(Theme.ink2)
+        Text(summary).font(.subheadline).foregroundStyle(Theme.ink2).monospacedDigit()
     }
 
-    private var sampleMs: Double {
-        node == .car ? 3_600_000 : (home.nodes.history.frame?.stepMs ?? 300_000)
-    }
-
+    /// What the box recorded in the window's past, in the node's words, and
+    /// what is missing from it. A window wholly ahead says it is the plan.
     private var summary: String {
         let problem = node == .car ? home.nodes.carEnergy.problem : home.nodes.history.problem
         let loaded = node == .car ? home.nodes.carEnergy.loaded : home.nodes.history.loaded
         if let problem { return problem }
-        guard window.fromMs < site.nowMs else { return L("Plan and forecast · not measured energy") }
+        guard window.fromMs < site.nowMs else { return L("What FTW plans or forecasts, not measured.") }
         let samples = NodeHistory.samples(node, home: home, fromMs: window.fromMs - 3_600_000)
         let step = node == .car ? 3_600_000 : (home.nodes.history.frame?.stepMs ?? 300_000)
         let energy = TimelineEnergy.recorded(samples, sampleMs: step, fromMs: window.fromMs, toMs: window.toMs, nowMs: site.nowMs)
         guard energy.knownMs > 0 else { return loaded ? L("No recorded energy in this window.") : L("Fetching history…") }
-        let prefix = energy.prorated ? "≈ " : energy.missingMs > 0 || energy.fetchingMs > 0 ? "≥ " : ""
-        var words = L("Recorded in view") + ": " + prefix + NodeLive.between(node, (energy.inWh, energy.outWh))
-        if energy.missingMs >= 60_000 {
+        let line = DayWords.line(node, inWh: energy.inWh, outWh: energy.outWh)
+        var words = (energy.prorated ? "≈ " : "") + line
+        // "So far: charged …", the sentence's own first word in lower case.
+        if window.toMs > site.nowMs { words = NodeWords.format("So far: %@", (energy.prorated ? "≈ " : "") + line.prefix(1).lowercased() + line.dropFirst()) }
+        if energy.missingMs >= 600_000 {
             let minutes = Int((energy.missingMs / 60_000).rounded())
             words += " · " + NodeWords.format("%@ not recorded", minutes < 120 ? "\(minutes) min" : "\(minutes / 60) h")
         }
-        if energy.fetchingMs > 0 { words += " · " + L("last interval filling") }
         return words
     }
 }
@@ -397,24 +412,29 @@ private enum TimelineWords {
         }
     }
 
-    static func window(_ window: TimelineWindow) -> String {
-        func label(_ ms: Double) -> String {
-            let date = Date(timeIntervalSince1970: ms / 1000)
-            return date.formatted(.dateTime.day().month(.abbreviated).hour().minute().locale(Locale(identifier: AppWords.language == .sv ? "sv_SE" : "en_US")))
+    /// The hero's word under a finger: when, and what kind if it is not
+    /// measured. The figure says the power.
+    static func when(_ value: TimelineReading, atMs: Double) -> String {
+        switch value {
+        case let .observation(at, _, seen): return Readouts.seconds(at) + (seen ? "" : " · " + L("saved"))
+        case let .mean(start, end, _): return Readouts.span(start, end)
+        case let .forecast(start, end, _): return Readouts.span(start, end) + " · " + L("forecast")
+        case let .plan(start, end, _): return Readouts.span(start, end) + " · " + L("plan")
+        case .fetching: return Readouts.clock(atMs) + " · " + L("Waiting for history")
+        case .missing: return Readouts.clock(atMs) + " · " + L("no data")
         }
-        return label(window.fromMs) + " – " + label(window.toMs)
     }
 
     static func reading(_ value: TimelineReading, atMs: Double) -> String {
         switch value {
         case let .observation(at, watts, seen):
-            return Readouts.seconds(at) + " · " + L(seen ? "source reading" : "saved reading") + " · " + AppWords.power(abs(watts))
+            return Readouts.seconds(at) + " · " + (seen ? "" : L("saved") + " ") + AppWords.power(abs(watts))
         case let .mean(start, end, watts):
-            return Readouts.span(start, end) + " · " + L("interval mean") + " · " + AppWords.power(abs(watts))
+            return Readouts.span(start, end) + " · " + AppWords.power(abs(watts))
         case let .forecast(start, end, watts):
-            return Readouts.span(start, end) + " · " + L("forecast") + " · " + AppWords.power(abs(watts))
+            return Readouts.span(start, end) + " · " + L("forecast") + " " + AppWords.power(abs(watts))
         case let .plan(start, end, watts):
-            return Readouts.span(start, end) + " · " + L("planned") + " · " + AppWords.power(abs(watts))
+            return Readouts.span(start, end) + " · " + L("plan") + " " + AppWords.power(abs(watts))
         case .fetching: return Readouts.clock(atMs) + " · " + L("Waiting for history")
         case .missing: return Readouts.clock(atMs) + " · " + L("no data")
         }

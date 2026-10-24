@@ -142,6 +142,7 @@ struct CarView: View {
         .onAppear {
             model.activate()
             cars.activate()
+            home.nodes.carEnergy.activate()
             model.watchPlan()
             home.prices.activate()
             LaunchClock.mark("first content")
@@ -150,6 +151,7 @@ struct CarView: View {
             model.unwatchPlan()
             model.deactivate()
             cars.deactivate()
+            home.nodes.carEnergy.deactivate()
             home.prices.deactivate()
         }
         .sheet(isPresented: $editingGoal) {
@@ -206,25 +208,48 @@ struct StatusLines: View {
 
 // MARK: The plan
 
-/// The car's plan for the hours ahead, as the car node's Ahead draws it:
-/// its charging as ghost bars, the price under the same slots in eight
-/// levels, and a finger that reads each slot. Under it, the plan in one
-/// sentence, or the slot under the finger.
+/// The car on the same timeline as its node: what it charged, from the
+/// box's hourly ledger, the live charge at now, and the plan's charging
+/// after it as ghost bars. It opens on the six hours behind and the
+/// eighteen ahead, following now, since the night's charge is what the
+/// car view is for; drag, pinch and hold read across all three. Under it,
+/// the plan in one sentence.
 struct CarPlan: View {
     let lp: Loadpoint
     let model: LoadpointsModel
     let home: HomeModels
     let scrub: ScrubModel
     let text: PeriodText
+    @State private var window = CarPlan.opening(nowMs: Date().timeIntervalSince1970 * 1000)
     @Environment(\.dynamicTypeSize) private var typeSize
+
+    static func opening(nowMs: Double) -> TimelineWindow {
+        TimelineWindow(nowMs: nowMs, spanMs: 24 * 3_600_000, nowAt: 0.25)
+    }
+
+    /// The window as the view opened, following now.
+    private var atOpening: Bool { window.nowFraction == 0.25 && window.spanMs == 24 * 3_600_000 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Kicker(L("Plan"))
-                .padding(.horizontal, 20)
-            AheadChartArea(site: home.site, node: .car, home: home, scrub: scrub, text: text)
+            HStack(alignment: .firstTextBaseline) {
+                Kicker(TimelineLabel.window(window, nowMs: home.site.minuteMs, clock: .of(.current)))
+                Spacer(minLength: 8)
+                if !atOpening {
+                    Button {
+                        withAnimation(Theme.spring) { window = Self.opening(nowMs: home.site.nowMs) }
+                    } label: {
+                        Label(L("Now"), systemImage: "arrow.uturn.backward")
+                    }
+                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(.quiet)
+                    .accessibilityIdentifier("car.timeline.today")
+                }
+            }
+            .padding(.horizontal, 20)
+            TimelineChartArea(site: home.site, node: .car, home: home, scrub: scrub, window: $window, series: [.car], text: text)
                 .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-                .frame(height: 170)
+                .frame(height: 190)
                 .padding(.horizontal, 4)
             ZStack(alignment: .topLeading) {
                 Text(verbatim: "\n")
@@ -240,8 +265,7 @@ struct CarPlan: View {
     }
 
     private var line: String {
-        if let under = text.text(scrub) { return under }
-        return PlanText.car(model.windows[lp.id] ?? lp.planWindows, nowMs: home.site.minuteMs, zone: model.zone)
+        PlanText.car(model.windows[lp.id] ?? lp.planWindows, nowMs: home.site.minuteMs, zone: model.zone)
     }
 }
 

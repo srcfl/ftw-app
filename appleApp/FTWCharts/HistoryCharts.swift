@@ -146,8 +146,11 @@ struct HistoryDrawing: ChartDrawing {
                     hatch.clip(to: Path(rect))
                     hatch.fill(Path(rect), with: .color(Theme.ink.opacity(0.04)))
                     hatch.stroke(Self.hatch(rect), with: .color(Theme.ink.opacity(0.10)), style: StrokeStyle(lineWidth: px, lineCap: .butt, lineJoin: .round))
+                    // Named only where it shows: the live readings drawn
+                    // over the interval still filling leave no gap to name.
                     let text = g.resolve(ChartText.label(words.fetching, size: axis))
                     let width = text.measure(in: size).width
+                    guard Self.uncovered(x0...x1, by: observationRuns[layer.key] ?? [], grid: series.grid, width: plot.width) >= width + 8 else { continue }
                     let x = min(max(0, rect.midX - width / 2), max(0, plot.width - width))
                     g.draw(text, at: CGPoint(x: plot.minX + x, y: plot.minY + 4), anchor: .topLeading)
                 }
@@ -179,6 +182,18 @@ struct HistoryDrawing: ChartDrawing {
             g.draw(label, at: CGPoint(x: min(max(plot.minX, x - w / 2), plot.maxX - w), y: plot.minY + 2), anchor: .topLeading)
         }
         ChartAxes.time(in: &g, plot: plot, size: size, grid: picture.grid, ticks: picture.ticks.map { ($0.ms, $0.label) }, nowMs: picture.nowMs, nowWord: words.now, axis: axis)
+    }
+
+    /// How wide a stretch of the plot is once the observed runs are taken
+    /// out of it.
+    static func uncovered(_ span: ClosedRange<CGFloat>, by runs: [ClosedRange<Double>], grid: SlotGrid, width: CGFloat) -> CGFloat {
+        var left = span.upperBound - span.lowerBound
+        for run in runs {
+            let a = max(span.lowerBound, grid.x(atMs: run.lowerBound, width: width))
+            let b = min(span.upperBound, grid.x(atMs: run.upperBound, width: width))
+            if b > a { left -= b - a }
+        }
+        return max(0, left)
     }
 
     /// Diagonal hairlines 4 pt apart across a rect.
