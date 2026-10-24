@@ -15,14 +15,17 @@ struct TimelineDrawing: ChartDrawing {
     /// The clock, for the head's freshness; the picture's now steps by a
     /// point of the plot.
     var nowMs: Double? = nil
+    /// The scale on screen while it moves to the picture's (`ScaleMotion`).
+    var shown: YDomain? = nil
     var axis: CGFloat = 10
     var words = ChartLabels()
 
     func draw(in g: inout GraphicsContext, size: CGSize) {
         let runs = traces.mapValues(\.observedRanges)
-        HistoryDrawing(picture: history, looks: looks, frame: frame, words: words, axis: axis, live: false, observationRuns: runs, showsFetchingEstimate: false).draw(in: &g, size: size)
+        HistoryDrawing(picture: history, looks: looks, frame: frame, words: words, axis: axis, live: false, shownDomain: shown, observationRuns: runs, showsFetchingEstimate: false).draw(in: &g, size: size)
         let plot = frame.plot(in: size)
-        let base = YMap(domain: history.domain, height: plot.height).baseline
+        let domain = shown ?? history.domain
+        let base = YMap(domain: domain, height: plot.height).baseline
         var p = g
         p.clip(to: Path(plot.insetBy(dx: 0, dy: -12)))
         p.translateBy(x: plot.minX, y: plot.minY)
@@ -33,7 +36,7 @@ struct TimelineDrawing: ChartDrawing {
             guard let trace = traces[layer.key] else { continue }
             let live = liveKeys.contains(layer.key)
             let look = live ? (looks[layer.key] ?? TraceLook(up: Theme.ink, down: Theme.ink)) : ink
-            let transform = TraceInk.rescale(trace.domain, history.domain, height: plot.height)
+            let transform = TraceInk.rescale(trace.domain, domain, height: plot.height)
             let own = layer.key == history.layers.first?.key
             let width = own ? TraceInk.line : TraceInk.otherLine
             if own {
@@ -48,7 +51,7 @@ struct TimelineDrawing: ChartDrawing {
             TraceInk.line(Path(trace.lineUnseen.cgPath).applying(transform), look: ink, width: width, glows: false, above: above, below: below, in: p)
             if own, liveKeys.contains(layer.key), let last = trace.last, last.seen,
                let now = nowMs ?? history.nowMs, now - last.t <= trace.gapMs {
-                let point = CGPoint(x: trace.x(last.t), y: YMap(domain: history.domain, height: plot.height).y(last.v))
+                let point = CGPoint(x: trace.x(last.t), y: YMap(domain: domain, height: plot.height).y(last.v))
                 let color = last.v >= 0 ? look.up : look.down
                 if TraceInk.glows(live: true, in: g) {
                     p.fill(Path(ellipseIn: CGRect(x: point.x - 5, y: point.y - 5, width: 10, height: 10)), with: .color(color.opacity(0.25)))
@@ -56,5 +59,34 @@ struct TimelineDrawing: ChartDrawing {
                 p.fill(Path(ellipseIn: CGRect(x: point.x - 2.5, y: point.y - 2.5, width: 5, height: 5)), with: .color(color))
             }
         }
+    }
+}
+
+/// The timeline's scale on its way to a new one: a pan or a pinch that
+/// brings a higher peak into view moves the axis, the lines and the plan
+/// over `TraceInk.spring`, critically damped, from wherever it was, so a
+/// second change mid-way carries on without a jump. Under Reduce Motion
+/// it changes at once. Not observed: the timeline steps it and nothing
+/// else reads it.
+@MainActor
+final class ScaleMotion {
+    private var from: YDomain?
+    private(set) var to: YDomain?
+    private var since: Double = 0
+
+    /// A new scale at `t`, from the one on screen then.
+    func target(_ domain: YDomain, at t: Double, still: Bool) {
+        guard domain != to else { return }
+        from = still ? nil : to.map { _ in shown(at: t) ?? domain }
+        to = domain
+        since = t
+    }
+
+    /// The scale on screen at `t`; nil before the first.
+    func shown(at t: Double) -> YDomain? {
+        guard let to else { return nil }
+        guard let from else { return to }
+        let k = TraceInk.ease(t - since, TraceInk.spring)
+        return k >= 1 ? to : TraceInk.between(from, to, k)
     }
 }

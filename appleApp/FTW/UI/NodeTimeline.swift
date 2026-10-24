@@ -16,6 +16,12 @@ struct TimelineChartArea: View {
     @State private var size = CGSize.zero
     @State private var shown: YDomain?
     @State private var interacting = false
+    /// The scale on screen moving to a new one, and the changes seen and
+    /// settled: the drawing runs at the display's rate only between them.
+    @State private var motion = ScaleMotion()
+    @State private var scaleChanges = 0
+    @State private var scaleSettled = 0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .caption2) private var axis: CGFloat = 10
     @ScaledMetric(relativeTo: .caption) private var tag: CGFloat = 11
 
@@ -107,7 +113,16 @@ struct TimelineChartArea: View {
         let empty = emptyMessage(data)
         chart(data, picture: picture, traces: traces, frame: frame, looks: looks, live: live, empty: empty)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
-        .onChange(of: picture.domain) { shown = picture.domain }
+        .onChange(of: picture.domain, initial: true) {
+            shown = picture.domain
+            motion.target(picture.domain, at: Date.timeIntervalSinceReferenceDate, still: reduceMotion)
+            scaleChanges += 1
+        }
+        .task(id: scaleChanges) {
+            try? await Task.sleep(for: .seconds(TraceInk.spring + 0.05))
+            guard !Task.isCancelled else { return }
+            scaleSettled = scaleChanges
+        }
         .modifier(TimelineAccessibility(node: node, window: $window, shown: shownWindow, nowMs: site.nowMs,
             empty: empty, history: picture, observations: traces[node.rawValue]?.readings ?? [],
             sampleMs: data.first(where: { $0.node == node })?.stepMs ?? 300_000))
@@ -130,8 +145,14 @@ struct TimelineChartArea: View {
 
     private func chart(_ data: [Input], picture: HistoryPicture, traces: [String: LiveSeries], frame: ChartFrame, looks: [String: TraceLook], live: Set<String>, empty: String?) -> some View {
         ZStack {
-            ChartSurface(drawing: TimelineDrawing(history: picture, traces: traces, looks: looks, frame: frame, liveKeys: live, nowMs: site.nowMs, axis: axis, words: ChartLabels(fetching: L("Waiting for history"), now: L("NOW"))))
-                .equatable()
+            // A new scale springs in from the one on screen; between
+            // changes the timeline rests and the surface draws on data.
+            let moving = scaleSettled != scaleChanges
+            TimelineView(.animation(paused: !moving)) { tick in
+                let t = (moving ? tick.date : Date()).timeIntervalSinceReferenceDate
+                ChartSurface(drawing: TimelineDrawing(history: picture, traces: traces, looks: looks, frame: frame, liveKeys: live, nowMs: site.nowMs, shown: motion.shown(at: t), axis: axis, words: ChartLabels(fetching: L("Waiting for history"), now: L("NOW"))))
+                    .equatable()
+            }
             TimelineTouchOverlay(window: $window, shown: shownWindow, nowMs: site.nowMs, frame: frame, domain: picture.domain, scrub: scrub, text: text, node: node,
                 reading: { ms in
                     // The own series, or the first chosen when its chip is

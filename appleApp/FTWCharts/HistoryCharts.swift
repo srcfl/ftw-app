@@ -37,6 +37,9 @@ struct HistoryDrawing: ChartDrawing {
     var from: HistoryPicture?
     var slide: Double = 1
     var spring: Double = 1
+    /// The scale on screen when the caller moves it itself, as the
+    /// timeline does between two scales; otherwise `from` and `spring`.
+    var shownDomain: YDomain? = nil
     /// Source runs can cover the stored means without changing them.
     /// A lone point hides no history, and a silence hides no later mean.
     var observationRuns: [String: [ClosedRange<Double>]] = [:]
@@ -48,7 +51,7 @@ struct HistoryDrawing: ChartDrawing {
         let primary = picture.layers.first?.key
 
         let k = min(max(spring, 0), 1)
-        let shown = from.map { TraceInk.between($0.domain, picture.domain, k) } ?? picture.domain
+        let shown = shownDomain ?? from.map { TraceInk.between($0.domain, picture.domain, k) } ?? picture.domain
         let toShown = TraceInk.rescale(picture.domain, shown, height: plot.height)
         let base = YMap(domain: shown, height: plot.height).baseline
 
