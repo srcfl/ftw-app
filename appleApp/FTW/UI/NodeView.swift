@@ -35,12 +35,14 @@ struct NodeView: View {
     @Namespace private var chartZoom
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    init(app: AppModel, home: HomeModels, node: EnergyNode, zoom: Namespace.ID) {
+    /// `opening`: the chart to open on, as History opens a node's day;
+    /// otherwise the viewer's last choice for this node.
+    init(app: AppModel, home: HomeModels, node: EnergyNode, zoom: Namespace.ID, opening: Timebase? = nil) {
         self.app = app
         self.home = home
         self.node = node
         self.zoom = zoom
-        _timebase = State(initialValue: Timebase.remembered(node))
+        _timebase = State(initialValue: opening ?? Timebase.remembered(node))
         _series = State(initialValue: SeriesChoice.load(node))
     }
 

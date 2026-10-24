@@ -853,6 +853,7 @@ import FTWShared
             "appleApp/FTW/UI/StatusLine.swift", "appleApp/FTW/UI/ControlSheet.swift", "appleApp/FTW/UI/ModeMenu.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/StatusLine.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/GridPhases.swift", "appleApp/FTW/UI/GridPhasesRow.swift",
+            "appleApp/FTW/UI/HistoryTab.swift", "appleApp/FTW/UI/HomeTab.swift", "appleApp/FTWKit/Sources/FTWKit/State/HomeTab.swift",
         ]
         let pattern = #/(?:\bL|NodeWords\.(?:text|format)|AppWords\.(?:text|format))\("((?:[^"\\]|\\.)*)"/#
         var english = Set<String>()
@@ -981,5 +982,42 @@ final class DemoRig {
         #expect(again.record.readAtMs > first.record.readAtMs)
         #expect(wakes.count == writes + 1)
         plan.deactivate()
+    }
+}
+
+// MARK: Tabs and History's day
+
+@Suite struct HomeTabTests {
+    /// The tab bar reads Now, Plan, History, Home, and Swedish says Hem
+    /// for the tab where Now says Hemmet for the node.
+    @Test func theTabsInBothLanguages() {
+        #expect(HomeTab.allCases == [.now, .plan, .history, .home])
+        AppWords.$language.withValue(.en) {
+            #expect(HomeTab.allCases.map(\.title) == ["Now", "Plan", "History", "Home"])
+        }
+        AppWords.$language.withValue(.sv) {
+            #expect(HomeTab.allCases.map(\.title) == ["Nu", "Plan", "Historik", "Hem"])
+            #expect(EnergyNode.home.title != HomeTab.home.title)
+        }
+    }
+
+    /// Each row says what its node did, in both directions where power
+    /// runs both ways, and a gap only once it is ten minutes.
+    @Test func aDayInEachNodesWords() {
+        let e = EnergyToday(inWh: 5_000, outWh: 4_200, missingMs: 0)
+        AppWords.$language.withValue(.en) {
+            #expect(DayWords.line(.solar, e) == "Made 5.0\u{00A0}kWh")
+            #expect(DayWords.line(.battery, e) == "Charged 5.0\u{00A0}kWh · gave 4.2\u{00A0}kWh")
+            #expect(DayWords.line(.grid, e) == "Bought 5.0\u{00A0}kWh · sold 4.2\u{00A0}kWh")
+            #expect(DayWords.line(.home, e) == "Used 5.0\u{00A0}kWh")
+            #expect(DayWords.car(wh: 33_000) == "Charged 33\u{00A0}kWh")
+            #expect(DayWords.missing(e) == nil)
+            #expect(DayWords.missing(EnergyToday(inWh: 0, outWh: 0, missingMs: 540_000)) == nil)
+            #expect(DayWords.missing(EnergyToday(inWh: 0, outWh: 0, missingMs: 2_400_000)) == "40 min not recorded")
+        }
+        AppWords.$language.withValue(.sv) {
+            #expect(DayWords.line(.battery, e) == "Laddat 5,0\u{00A0}kWh · gett 4,2\u{00A0}kWh")
+            #expect(DayWords.shape(.solar) == "Producerat 0,0\u{00A0}kWh")
+        }
     }
 }

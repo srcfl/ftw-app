@@ -76,8 +76,7 @@ final class AccessE2E: XCTestCase {
         app.buttons["offer.done"].tap()
 
         // The assistant in the roster, as the box lists it.
-        app.buttons["now.title"].tap()
-        app.buttons["menu.settings"].tap()
+        app.tabBars.buttons["Home"].tap()
         let access = app.buttons["settings.access"]
         let screen = app.windows.firstMatch.frame
         for _ in 0..<8 where !(access.exists && access.isHittable && screen.contains(access.frame)) {
