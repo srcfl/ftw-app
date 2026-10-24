@@ -11,10 +11,10 @@ struct PlanStripLayout: Equatable {
     static let batteryY: CGFloat = 3
     static let carY: CGFloat = 13
     static let priceTop: CGFloat = 25
-    /// The price row at its least: eight levels of 2.5 pt.
-    static let leastPrice: CGFloat = 20
-    /// The most a price row grows to when Now has room.
-    static let mostPrice: CGFloat = 56
+    /// The price row at its least, and the most it grows to when Now has
+    /// room: the same two Now's layout reads.
+    static let leastPrice = PlanStrip.leastPrice
+    static let mostPrice = PlanStrip.mostPrice
 
     /// The hours' mono size, scaled with the text.
     var axis: CGFloat = 10
