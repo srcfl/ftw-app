@@ -89,8 +89,6 @@ import Testing
 
 }
 
-/// The beams on Now: what width, speed and light a reading gives, and how a
-/// beam moves between frames. Light means live: a cache never glows.
 /// The ring on Now (Ring / Quiet): each node's quarter, how much of it a
 /// flow lights, and that its light follows the same rules as a beam's.
 @Suite struct FlowRingTests {
@@ -177,6 +175,66 @@ import Testing
         #expect(abs(last - goal) < 0.001)
         var still = Flow.RingMotion(target(0.6, live: true), at: 0)
         #expect(still.step(target(6, live: true), at: 0.01, reduceMotion: true).fill == goal)
+    }
+
+    /// On every phone from the SE to the Pro Max, at every height Now can
+    /// give the flow and up to the largest standard text, the corner labels
+    /// clear the ring by 10 pt: the ring shrinks first, then the labels, and
+    /// the box never leaves the frame. Only at the labels' least size may
+    /// they come closer.
+    @Test func theCornerLabelsNeverTouchTheRing() {
+        // The flow's width on each phone, less the page's 16 pt sides.
+        for width: CGFloat in [343, 370, 370, 408] {
+            for k: CGFloat in [1, 1.15, 1.35] {
+                let label = RingGeometry.labelHeight(name: 15 * k, figure: 30 * k, word: 14 * k)
+                let labelWidth = min(140, max(92, width * 0.38))
+                for axis in [false, true] { for height in stride(from: NowLayout.minFlow, through: NowLayout.maxFlow, by: 2) {
+                    let g = RingGeometry(size: CGSize(width: width, height: height), label: label, labelWidth: labelWidth, axis: axis)
+                    #expect(g.box <= height + 0.001)
+                    #expect(g.diameter >= RingGeometry.least)
+                    #expect(g.hub == g.diameter * 0.62)
+                    // A top label's inner lower corner, from the ring's
+                    // middle; on the axis, the middle of its foot.
+                    let x = axis ? 0 : width / 2 - labelWidth
+                    let y = g.box / 2 - label * g.labelScale
+                    let clear = (x * x + y * y).squareRoot() - (g.radius + g.thickness / 2)
+                    if g.labelScale > RingGeometry.leastScale {
+                        #expect(clear >= 10 - 0.01, "width \(width) height \(height) text ×\(k): \(clear) pt")
+                    }
+                    if g.labelScale < 1 { #expect(g.diameter == RingGeometry.least) }
+                } }
+            }
+        }
+    }
+
+    /// Where there is room, the labels keep their size.
+    @Test func theLabelsKeepTheirSizeWhereThereIsRoom() {
+        let label = RingGeometry.labelHeight(name: 15, figure: 30, word: 14)
+        let pro = RingGeometry(size: CGSize(width: 370, height: 386), label: label, labelWidth: 140, axis: false)
+        #expect(pro.labelScale == 1)
+        #expect(pro.diameter > 200)
+    }
+
+    /// A reading that went out while nothing was drawn, the phone away or
+    /// the timeline at rest, is dark on the first frame back: a glow that
+    /// cooled unseen never cools on screen. One that goes out on screen
+    /// still cools, and one that comes back still ignites.
+    @Test func aGlowThatWentOutUnseenIsGoneOnTheFirstFrame() {
+        var m = Flow.RingMotion(target(3.2, live: true), at: 0)
+        _ = m.step(target(3.2, live: true), at: 1.0 / 60, reduceMotion: false)
+        let back = m.step(target(3.2, live: false), at: 600, reduceMotion: false)
+        #expect(back.beam.light == 0)
+
+        var seen = Flow.RingMotion(target(3.2, live: true), at: 0)
+        _ = seen.step(target(3.2, live: true), at: 1.0 / 60, reduceMotion: false)
+        let cooling = seen.step(target(3.2, live: false), at: 2.0 / 60, reduceMotion: false)
+        #expect(cooling.beam.light > 0.9)
+
+        var lit = Flow.RingMotion(target(3.2, live: false), at: 0)
+        let first = lit.step(target(3.2, live: true), at: 600, reduceMotion: false)
+        let later = lit.step(target(3.2, live: true), at: 600.2, reduceMotion: false)
+        #expect(first.beam.light < 0.05)
+        #expect(later.beam.light > first.beam.light)
     }
 }
 

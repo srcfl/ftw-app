@@ -218,6 +218,8 @@ public enum NodeWords {
 
         // Mode
         "Mode": "Läge",
+        // VoiceOver, for a car level FTW assumes.
+        "about %@": "ungefär %@",
         "Mode: %@": "Läge: %@",
         "Change": "Byt",
         "Change mode": "Byt läge",

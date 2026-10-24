@@ -174,6 +174,63 @@ public struct NowLayout: Equatable, Sendable {
     }
 }
 
+/// The ring's size and place in the flow's frame: the largest ring, up to
+/// 62 % of the width, whose four corner labels clear it by 10 pt, with the
+/// labels in the corners of a box (`box`) just tall enough for that. A label
+/// on the axis above or below needs the most room; a corner label beside
+/// the ring needs less, since the circle leaves the corners free. Where
+/// even the least ring leaves the labels too little height, on the
+/// smallest phones at the largest text, the labels shrink (`labelScale`)
+/// rather than touch it.
+public struct RingGeometry: Equatable, Sendable {
+    public let center: CGPoint
+    /// Through the middle of the arcs.
+    public let diameter: CGFloat
+    public let thickness: CGFloat
+    /// The hub's circle inside it.
+    public let hub: CGFloat
+    /// The height of the box whose corners hold the labels.
+    public let box: CGFloat
+    /// What the labels are drawn at, of their size: 1 unless they would
+    /// touch the least ring.
+    public let labelScale: CGFloat
+
+    /// The least ring: below it the home's figure has no room.
+    public static let least: CGFloat = 120
+    /// The least the labels shrink to; past it they may come closer.
+    public static let leastScale: CGFloat = 0.7
+
+    public init(size: CGSize, label: CGFloat, labelWidth: CGFloat, axis: Bool) {
+        // How far a label's inner edge sits from the middle, sideways: none
+        // for one centred on the axis.
+        let dx = axis ? 0 : max(0, size.width / 2 - labelWidth)
+        func thick(_ d: CGFloat) -> CGFloat { max(7, (d * 0.042).rounded()) }
+        func dy(_ d: CGFloat) -> CGFloat {
+            let reach = d / 2 + thick(d) / 2 + 10
+            return dx < reach ? (reach * reach - dx * dx).squareRoot() : 0
+        }
+        func box(_ d: CGFloat) -> CGFloat { 2 * (dy(d) + label) }
+        var d = min(size.width * 0.62, 300)
+        while d > Self.least, box(d) > size.height { d = max(Self.least, d - 2) }
+        diameter = d
+        thickness = thick(d)
+        hub = d * 0.62
+        // The labels take what height the least ring leaves them.
+        let room = size.height / 2 - dy(d)
+        labelScale = box(d) > size.height && label > 0 ? min(1, max(Self.leastScale, room / label)) : 1
+        self.box = min(size.height, 2 * (dy(d) + label * labelScale))
+        center = CGPoint(x: size.width / 2, y: size.height / 2)
+    }
+
+    public var radius: CGFloat { diameter / 2 }
+
+    /// A corner label's height for its three rows' type sizes, as
+    /// `NodeLabel` lays them out: the name stops at 18 pt.
+    public static func labelHeight(name: CGFloat, figure: CGFloat, word: CGFloat) -> CGFloat {
+        min(name, 18) * 1.3 + figure * 1.2 + word * 1.3 + 2
+    }
+}
+
 /// Where each part of the flow sits, by the box's own rules: the sun top
 /// left, the battery top right, the grid bottom left, the car bottom right,
 /// the home in the middle. A node whose partner across the middle is

@@ -30,7 +30,7 @@ struct FlowDiagram: View {
         GeometryReader { geo in
             let nodes = readings.map(\.node)
             let width = Self.nodeWidth(geo.size.width)
-            let label = min(nameSize, 18) * 1.3 + figureSize * 1.2 + wordSize * 1.3 + 2
+            let label = RingGeometry.labelHeight(name: nameSize, figure: figureSize, word: wordSize)
             let axis = nodes.contains { [.top, .bottom].contains(FlowPlan.spot($0, among: nodes)) }
             let ring = RingGeometry(size: geo.size, label: label, labelWidth: width, axis: axis)
             ZStack {
@@ -44,7 +44,7 @@ struct FlowDiagram: View {
                         // The node's place is a fixed frame, so nothing moves
                         // when a word or a figure changes width; the whole
                         // frame takes the finger.
-                        door(r) { NodeLabel(reading: r, spot: spot).equatable().frame(width: width, alignment: spot.textAlignment) }
+                        door(r) { NodeLabel(reading: r, spot: spot, scale: ring.labelScale).equatable().frame(width: width, alignment: spot.textAlignment) }
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: spot.alignment)
                     }
                 }
@@ -77,43 +77,6 @@ struct FlowDiagram: View {
             return FlowRing.Arc(target: Flow.BeamTarget(r), spot: FlowPlan.spot(r.node, among: nodes), color: NodeLook.hue(r))
         }
     }
-}
-
-/// The ring's size and place in the flow's frame: the largest ring, up to
-/// 62 % of the width, whose four corner labels clear it by 10 pt, with the
-/// labels in the corners of a box (`box`) just tall enough for that. A label
-/// on the axis above or below needs the most room; a corner label beside
-/// the ring needs less, since the circle leaves the corners free.
-struct RingGeometry: Equatable {
-    let center: CGPoint
-    /// Through the middle of the arcs.
-    let diameter: CGFloat
-    let thickness: CGFloat
-    /// The hub's circle inside it.
-    let hub: CGFloat
-    /// The height of the box whose corners hold the labels.
-    let box: CGFloat
-
-    init(size: CGSize, label: CGFloat, labelWidth: CGFloat, axis: Bool) {
-        // How far a label's inner edge sits from the middle, sideways: none
-        // for one centred on the axis.
-        let dx = axis ? 0 : max(0, size.width / 2 - labelWidth)
-        func thick(_ d: CGFloat) -> CGFloat { max(7, (d * 0.042).rounded()) }
-        func box(_ d: CGFloat) -> CGFloat {
-            let reach = d / 2 + thick(d) / 2 + 10
-            let dy = dx < reach ? (reach * reach - dx * dx).squareRoot() : 0
-            return 2 * (dy + label)
-        }
-        var d = min(size.width * 0.62, 300)
-        while d > 120, box(d) > size.height { d -= 2 }
-        diameter = d
-        thickness = thick(d)
-        hub = d * 0.62
-        self.box = min(size.height, box(d))
-        center = CGPoint(x: size.width / 2, y: size.height / 2)
-    }
-
-    var radius: CGFloat { diameter / 2 }
 }
 
 extension FlowPlan.Spot {
@@ -207,8 +170,9 @@ private struct FlowRing: View {
             // ink once it does not, crossing over as the phosphor ignites
             // or cools.
             let color = Self.mix(Theme.ink2.resolve(in: g.environment), arc.color.resolve(in: g.environment), f.beam.light)
-            let stops = Self.stops(lit, radius: Double(ring.radius), clockwise: arc.target.towardHome, f.beam, color, k)
-            g.stroke(p, with: .conicGradient(Gradient(stops: stops), center: ring.center, angle: .degrees(lit.lowerBound)), style: style)
+            let cap = Double(ring.thickness) / 2 / Double(ring.radius) * 180 / .pi
+            let stops = Self.stops(lit, radius: Double(ring.radius), clockwise: arc.target.towardHome, f.beam, color, k, lead: cap)
+            g.stroke(p, with: .conicGradient(Gradient(stops: stops), center: ring.center, angle: .degrees(lit.lowerBound - cap)), style: style)
             if still, arc.target.flowing { chevron(lit, clockwise: arc.target.towardHome, opacity: f.beam.alpha * k, in: g) }
         }
     }
@@ -228,9 +192,11 @@ private struct FlowRing: View {
     }
 
     /// The core's brightness along the arc as stops of a conic gradient that
-    /// starts at the arc's first angle. Inside, the stops sit on the wave's
-    /// own grid, ten to a wavelength, so a crest keeps its shape as it runs.
-    static func stops(_ lit: ClosedRange<Double>, radius: Double, clockwise: Bool, _ f: Flow.BeamFrame, _ color: Color.Resolved, _ k: Double) -> [Gradient.Stop] {
+    /// starts `lead` degrees before the arc's first angle, so the round cap
+    /// there takes the arc's first colour rather than the gradient's last.
+    /// Inside, the stops sit ten to a wavelength along the arc, close enough
+    /// that a crest running past them keeps its height within 4 %.
+    static func stops(_ lit: ClosedRange<Double>, radius: Double, clockwise: Bool, _ f: Flow.BeamFrame, _ color: Color.Resolved, _ k: Double, lead: Double = 0) -> [Gradient.Stop] {
         let span = lit.upperBound - lit.lowerBound
         let perDegree = radius * .pi / 180
         let length = span * perDegree
@@ -241,9 +207,11 @@ private struct FlowRing: View {
             let b = f.alpha * (1 - f.depth * (1 - Flow.wave(s, phase: f.phase))) * k
             var c = color
             c.opacity *= Float(b)
-            return Gradient.Stop(color: Color(c), location: deg / 360)
+            return Gradient.Stop(color: Color(c), location: (deg + lead) / 360)
         }
-        var out = [stop(0)]
+        var head = stop(0)
+        head.location = 0
+        var out = [head, stop(0)]
         if f.depth > 0.001, length > 1 {
             let step = Flow.wavelength / 10 / perDegree
             var d = step
@@ -253,7 +221,8 @@ private struct FlowRing: View {
             }
         }
         out.append(stop(span))
-        // Past the arc the gradient is never drawn; keep its colour.
+        // Past the arc only the end's round cap is drawn; it keeps the
+        // end's colour.
         var tail = out[out.count - 1]
         tail.location = 1
         out.append(tail)
@@ -367,22 +336,28 @@ private struct Brackets: Shape {
 
 /// One node of the flow, as text on the ground in three fixed rows: the
 /// symbol and name in its energy's colour, the figure, and what it does
-/// with the battery's or the car's level beside it ("Charging · 68 %").
-/// Every row is kept, filled or not, so nothing moves when a word or a
-/// level arrives. A figure the box has not confirmed live is drawn in a
-/// softer ink; the status line says how old.
+/// with the battery's or the car's level beside it ("Charging · 68 %", "≈
+/// 20 %" for a level FTW assumes). Every row is kept, filled or not, so
+/// nothing moves when a word or a level arrives. Light means live: a node
+/// the box has not confirmed live is ink, its name and symbol too, and
+/// the status line says how old.
 struct NodeLabel: View, Equatable {
     let reading: NodeReading
     let spot: FlowPlan.Spot
+    /// Of the label's size, where the room is short (`RingGeometry`).
+    var scale: CGFloat = 1
     /// The name stops at a large size; the figure grows on.
     @ScaledMetric(relativeTo: .subheadline) private var scaledName: CGFloat = 15
-    private var name: CGFloat { min(scaledName, 18) }
-    @ScaledMetric(relativeTo: .title) private var figure: CGFloat = 30
-    @ScaledMetric(relativeTo: .subheadline) private var unit: CGFloat = 15
-    @ScaledMetric(relativeTo: .footnote) private var word: CGFloat = 14
+    private var name: CGFloat { min(scaledName, 18) * scale }
+    @ScaledMetric(relativeTo: .title) private var scaledFigure: CGFloat = 30
+    @ScaledMetric(relativeTo: .subheadline) private var scaledUnit: CGFloat = 15
+    @ScaledMetric(relativeTo: .footnote) private var scaledWord: CGFloat = 14
+    private var figure: CGFloat { scaledFigure * scale }
+    private var unit: CGFloat { scaledUnit * scale }
+    private var word: CGFloat { scaledWord * scale }
     @Environment(\.lockedOn) private var lockedOn
 
-    nonisolated static func == (a: Self, b: Self) -> Bool { a.reading == b.reading && a.spot == b.spot }
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.reading == b.reading && a.spot == b.spot && a.scale == b.scale }
 
     var body: some View {
         let live = reading.freshness.live
@@ -397,13 +372,13 @@ struct NodeLabel: View, Equatable {
                     .minimumScaleFactor(0.75)
                 if spot.trailing { symbol }
             }
-            .foregroundStyle(hue)
+            .foregroundStyle(live ? hue : Theme.ink2)
             .lineLimit(1)
             NodeValue(watts: reading.watts, size: figure, unit: unit)
                 .foregroundStyle(reading.watts == nil || !live ? Theme.ink2 : Theme.ink)
             Text(NodeLook.doing(reading))
                 .font(.system(size: word))
-                .foregroundStyle(Theme.ink2)
+                .foregroundStyle(live ? Theme.ink2 : Theme.ink3)
                 .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -426,11 +401,17 @@ extension NodeLabel {
 
 /// The home in the middle of the ring, everything it uses right now: its
 /// symbol, the figure, its unit and its name, inside a thin circle of ink.
+/// The type grows with the text up to what the circle holds, and a small
+/// circle leaves the symbol out, so the figure is never cut.
 struct HubLabel: View, Equatable {
     let reading: NodeReading
     let diameter: CGFloat
-    @ScaledMetric(relativeTo: .largeTitle) private var figure: CGFloat = 44
-    @ScaledMetric(relativeTo: .caption) private var word: CGFloat = 13
+    @ScaledMetric(relativeTo: .largeTitle) private var scaledFigure: CGFloat = 44
+    @ScaledMetric(relativeTo: .caption) private var scaledWord: CGFloat = 13
+    private var figure: CGFloat { min(scaledFigure, diameter * 0.38) }
+    private var word: CGFloat { min(scaledWord, diameter * 0.12) }
+    /// Room for the symbol over the figure.
+    private var symbol: Bool { diameter >= 110 }
     @Environment(\.lockedOn) private var lockedOn
     /// The figure on screen, held on a rounding edge.
     @State private var held: Double?
@@ -442,10 +423,12 @@ struct HubLabel: View, Equatable {
         let shown = reading.watts.map { Flow.quantised($0, holding: held) }
         let parts = shown.map(PowerFormat.parts)
         VStack(spacing: 0) {
-            Image(systemName: "house.fill")
-                .font(.system(size: word + 3, weight: .semibold))
-                .foregroundStyle(Theme.ink2)
-                .padding(.bottom, 2)
+            if symbol {
+                Image(systemName: "house.fill")
+                    .font(.system(size: word + 3, weight: .semibold))
+                    .foregroundStyle(Theme.ink2)
+                    .padding(.bottom, 2)
+            }
             Text(parts.map { AppWords.decimal($0.text) } ?? "—")
                 .font(Theme.figure(figure))
                 .tracking(-1)
@@ -533,11 +516,13 @@ enum NodeLook {
 
     /// What a node does, as Now writes it under its figure: the word with a
     /// capital, and the battery's or the car's level after it, "Charging ·
-    /// 68 %". A space when there is nothing yet, so the row keeps its height.
+    /// 68 %", or "≈ 20 %" for a car level FTW assumes, as the car row and
+    /// the car view write it. A space when there is nothing yet, so the row
+    /// keeps its height.
     static func doing(_ r: NodeReading) -> String {
         let word = r.word.prefix(1).uppercased() + r.word.dropFirst()
         guard let level = r.levelPct else { return word.isEmpty ? " " : word }
-        let pct = AppWords.percent(level)
+        let pct = (r.levelAssumed ? "≈\u{00A0}" : "") + AppWords.percent(level)
         return word.isEmpty ? pct : "\(word) · \(pct)"
     }
 
@@ -554,7 +539,9 @@ enum NodeLook {
         var parts = [String]()
         if let w = r.watts { parts.append(AppWords.power(w)) }
         parts.append(r.word)
-        if let level = r.levelPct { parts.append(AppWords.percent(level)) }
+        if let level = r.levelPct {
+            parts.append(r.levelAssumed ? NodeWords.format("about %@", AppWords.percent(level)) : AppWords.percent(level))
+        }
         parts.append(r.freshness.live ? L("live") : age(r.freshness))
         return parts.joined(separator: ", ")
     }

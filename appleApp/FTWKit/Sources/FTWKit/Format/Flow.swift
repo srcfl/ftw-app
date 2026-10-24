@@ -333,10 +333,17 @@ public enum Flow {
 
         /// The beam at `t`. Under Reduce Motion it snaps and its light does
         /// not run.
+        /// Longer than this between two frames, nothing was drawn: the
+        /// screen was away or the timeline rested.
+        public static let gap: Double = 0.5
+
         public mutating func step(_ target: BeamTarget, at t: Double, reduceMotion: Bool) -> BeamFrame {
             let dt = max(0, t - last)
             last = max(last, t)
-            light.set(live: target.live, at: t, instant: reduceMotion)
+            // A reading that stopped being live while nothing was drawn went
+            // out at a moment nobody saw, so its glow is already gone: it
+            // never cools on screen afterwards. Igniting still plays.
+            light.set(live: target.live, at: t, instant: reduceMotion || (!target.live && dt > Self.gap))
             let w = Flow.beamWidth(kw: target.kw), v = Flow.waveSpeed(kw: target.kw), rest: Double = target.flowing ? 0 : 1
             if reduceMotion {
                 width.snap(w)
