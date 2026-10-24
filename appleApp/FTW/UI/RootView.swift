@@ -13,7 +13,10 @@ struct RootView: View {
                 PairView(app: app)
                     .id(app.offeredLink ?? "")
             } else if let home = app.home {
+                // A new home is a new set of tabs: no route, tab or model
+                // count carries over from the last one.
                 HomeView(app: app, home: home)
+                    .id(ObjectIdentifier(home))
             }
         }
         .background(Theme.surface.ignoresSafeArea())

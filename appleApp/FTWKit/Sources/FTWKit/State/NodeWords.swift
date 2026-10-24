@@ -111,6 +111,7 @@ public enum NodeWords {
         "Charged %@": "Laddat %@",
         "Opens what your home saved.": "Öppnar vad hemmet har sparat.",
         "Opens this day's chart.": "Öppnar dagens diagram.",
+        "Not read yet": "Inte läst än",
         "Your box keeps no history.": "Boxen sparar ingen historik.",
         "No history yet. Your box is out of reach.": "Ingen historik än. Boxen går inte att nå.",
         "Not up to date. Your box is out of reach.": "Inte uppdaterat. Boxen går inte att nå.",
