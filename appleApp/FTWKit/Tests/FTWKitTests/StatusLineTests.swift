@@ -330,6 +330,19 @@ import FTWShared
         #expect(NowLayout(room: 240).grow == 0)
     }
 
+    /// At every height the flow, the grown strip and the ground around
+    /// them fill the room exactly, the ground below is at least the gap,
+    /// and the strip never asks for a price row its drawing cannot reach.
+    @Test func everyRoomFitsAndTheStripCanReachWhatItIsGiven() {
+        for room in stride(from: CGFloat(232), through: 1_200, by: 7) {
+            let l = NowLayout(room: room)
+            let below = room - l.above - l.flow - l.grow
+            #expect(below >= NowLayout.gap - 0.001, "\(room)")
+            #expect(l.above >= 0 && l.flow > 0, "\(room)")
+            #expect(l.price >= PlanStrip.leastPrice && l.price <= PlanStrip.mostPrice, "\(room)")
+        }
+    }
+
     /// A small room: the flow gives way before the gap does, and nothing is
     /// ever below zero.
     @Test func aSmallRoomKeepsTheGap() {

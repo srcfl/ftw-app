@@ -148,11 +148,11 @@ public struct NowLayout: Equatable, Sendable {
     public static let share: CGFloat = 0.72
     /// The least ground between the flow and the plan.
     public static let gap: CGFloat = 16
-    public static let minPrice: CGFloat = 20
+    public static let minPrice = PlanStrip.leastPrice
     /// The strip takes a third of the ground the flow leaves, so on a
     /// phone with room the plan and its prices read as a chart (Fredrik,
     /// 24 October 2026: there was much room above for the rest).
-    public static let maxPrice: CGFloat = 72
+    public static let maxPrice = PlanStrip.mostPrice
     public static let priceShare: CGFloat = 0.35
 
     public let flow: CGFloat

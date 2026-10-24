@@ -11,6 +11,11 @@ public struct PlanStrip: Equatable, Sendable {
     public static let count = 48
     /// The block-glyph scale: ▁▂▃▄▅▆▇█.
     public static let levels = 8
+    /// The price row's height: eight levels of 2.5 pt at its least, and
+    /// the most it grows to when Now has room. Now's layout and the strip's
+    /// drawing read the same two.
+    public static let leastPrice: CGFloat = 20
+    public static let mostPrice: CGFloat = 72
 
     public enum Battery: Equatable, Sendable {
         case stores, gives
