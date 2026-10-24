@@ -596,23 +596,3 @@ private struct SavingsRow: View {
         .accessibilityIdentifier("node.savings.open")
     }
 }
-
-/// The energy line under a node's history, in the node's own words.
-enum NodeSummary {
-    static func energy(_ node: EnergyNode, _ e: EnergyToday, today: Bool) -> String {
-        let a = AppWords.energy(e.inWh), b = AppWords.energy(e.outWh)
-        var text: String
-        switch node {
-        case .solar: text = today ? NodeWords.format("Today: made %@", a) : NodeWords.format("48 h: made %@", a)
-        case .battery: text = today ? NodeWords.format("Today: charged %@ · gave %@", a, b) : NodeWords.format("48 h: charged %@ · gave %@", a, b)
-        case .home: text = today ? NodeWords.format("Today: used %@", a) : NodeWords.format("48 h: used %@", a)
-        case .grid: text = today ? NodeWords.format("Today: bought %@ · sold %@", a, b) : NodeWords.format("48 h: bought %@ · sold %@", a, b)
-        case .car: text = today ? NodeWords.format("Today: charged %@", a) : NodeWords.format("48 h: charged %@", a)
-        }
-        if e.missingMs >= 600_000 {
-            let minutes = Int((e.missingMs / 60_000).rounded())
-            text += " · " + NodeWords.format("%@ not recorded", minutes < 120 ? "\(minutes) min" : "\(minutes / 60) h")
-        }
-        return text
-    }
-}

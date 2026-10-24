@@ -3,6 +3,9 @@ import SwiftUI
 
 /// The same history material and scale, with source observations at the
 /// right edge. Stored means never glow. Only a fresh observed head can.
+/// Light means live: readings this phone saw live take the node's colour,
+/// readings kept from before this launch are ink, and a node that is not
+/// live now is ink throughout.
 struct TimelineDrawing: ChartDrawing {
     let history: HistoryPicture
     let traces: [String: LiveSeries]
@@ -22,19 +25,21 @@ struct TimelineDrawing: ChartDrawing {
         p.translateBy(x: plot.minX, y: plot.minY)
         let above = Path(CGRect(x: -10, y: -40, width: plot.width + 20, height: base + 40))
         let below = Path(CGRect(x: -10, y: base, width: plot.width + 20, height: plot.height - base + 40))
+        let ink = TraceLook(up: Theme.ink2, down: Theme.ink2)
         for layer in history.layers.reversed() {
             guard let trace = traces[layer.key] else { continue }
-            let look = looks[layer.key] ?? TraceLook(up: Theme.ink, down: Theme.ink)
+            let live = liveKeys.contains(layer.key)
+            let look = live ? (looks[layer.key] ?? TraceLook(up: Theme.ink, down: Theme.ink)) : ink
             let transform = TraceInk.rescale(trace.domain, history.domain, height: plot.height)
             let own = layer.key == history.layers.first?.key
+            let width = own ? TraceInk.line : TraceInk.otherLine
             if own {
-                var body = Path(trace.body.cgPath)
-                body.addPath(Path(trace.bodyUnseen.cgPath))
-                body = body.applying(transform)
-                TraceInk.body(body, look: look, baseline: base, height: plot.height, above: above, below: below, in: p)
+                TraceInk.body(Path(trace.body.cgPath).applying(transform), look: look, ink: !live, baseline: base, height: plot.height, above: above, below: below, in: p)
+                TraceInk.body(Path(trace.bodyUnseen.cgPath).applying(transform), look: look, ink: true, baseline: base, height: plot.height, above: above, below: below, in: p)
             }
             TraceInk.band(Path(trace.band.cgPath).applying(transform), look: look, above: above, below: below, in: p)
-            TraceInk.line(Path(trace.wholeLine.cgPath).applying(transform), look: look, width: own ? TraceInk.line : TraceInk.otherLine, glows: false, above: above, below: below, in: p)
+            TraceInk.line(Path(trace.line.cgPath).applying(transform), look: look, width: width, glows: false, above: above, below: below, in: p)
+            TraceInk.line(Path(trace.lineUnseen.cgPath).applying(transform), look: ink, width: width, glows: false, above: above, below: below, in: p)
             if own, liveKeys.contains(layer.key), let last = trace.last, last.seen,
                let now = history.nowMs, now - last.t <= trace.gapMs {
                 let point = CGPoint(x: trace.x(last.t), y: YMap(domain: history.domain, height: plot.height).y(last.v))

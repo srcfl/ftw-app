@@ -55,6 +55,17 @@ import Testing
         #expect(window.isToday)
     }
 
+    /// In the first hour of the 25-hour day the clock turns back, a gesture
+    /// that moves nothing leaves today as it is: its end is in reach.
+    @Test func theLongDayIsInReachFromItsFirstHour() {
+        let now = Self.local(25, 0, 30)
+        let today = TimelineWindow.today(nowMs: now, clock: Self.stockholm)
+        #expect(today.spanMs == 25 * 3_600_000)
+        let still = today.transformed(anchor: 0.5, destination: 0.5, magnification: 1, nowMs: now)
+        #expect(still == today)
+        #expect(still.isToday)
+    }
+
     /// Pinched in on now, the window follows now, so it is live; dragged to
     /// yesterday it holds still. A gesture that moves nothing keeps today.
     @Test func aWindowWithNowInItFollowsAndYesterdayHoldsStill() {
@@ -208,4 +219,30 @@ import Testing
         #expect(picture.domain.upper >= 1_000)
     }
 
+
+    /// Fifteen minutes at five readings a second on a whole day: the bins
+    /// keep the trace's shape, its first reading and its head, and leave
+    /// a short window's readings as they were.
+    @Test func aLongWindowBinsTheLiveTraceAndKeepsItsShape() {
+        let now = Self.now
+        let run = (0..<4_500).map { i -> LiveSample in
+            let t = now - 900_000 + Double(i) * 200
+            return LiveSample(t: t, v: 2_000 + 1_500 * sin(Double(i) / 400), seen: i > 100)
+        }
+        let sigmaMs = 660_000.0
+        let bins = LiveSeries.binned(run, widthMs: sigmaMs / 4, periodMs: 200)
+        #expect(bins.samples.count < 20)
+        #expect(bins.samples.first == run.first && bins.samples.last == run.last)
+        #expect(!bins.samples[1].seen)
+        #expect(bins.weights?.reduce(0, +) == Double(run.count))
+        let raw = LiveSeries.smoothed(run, sigmaMs: sigmaMs)
+        let fast = LiveSeries.smoothed(bins.samples, sigmaMs: sigmaMs, weights: bins.weights)
+        // The smoothed curves agree where both have a point.
+        for p in fast.dropFirst().dropLast() {
+            let i = raw.firstIndex { $0.t >= p.t } ?? raw.count - 1
+            #expect(abs(raw[i].v - p.v) < 60, "at \(p.t - now)")
+        }
+        let short = LiveSeries.binned(Array(run.prefix(300)), widthMs: 300, periodMs: 200)
+        #expect(short.samples == Array(run.prefix(300)) && short.weights == nil)
+    }
 }

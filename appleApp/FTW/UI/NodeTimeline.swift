@@ -34,10 +34,10 @@ struct TimelineChartArea: View {
             let points = home.nodes.live.samples(n, sinceMs: site.nowMs - LiveTrace.windowMs)
             let period = LiveSeries.period(of: points) ?? 1_000
             let step = n == .car ? 3_600_000 : (home.nodes.history.frame?.stepMs ?? 300_000)
-            var history = NodeHistory.samples(n, home: home, fromMs: window.fromMs - 3_600_000)
+            var history = NodeHistory.samples(n, home: home, fromMs: shownWindow.fromMs - 3_600_000)
             if history.isEmpty, n != .car, !home.nodes.history.loaded, home.nodes.history.problem == nil {
-                let first = (window.fromMs / 300_000).rounded(.down) * 300_000
-                history = stride(from: first, to: min(window.toMs, site.nowMs), by: 300_000).map { ChartSample(startMs: $0, value: nil, fetching: true) }
+                let first = (shownWindow.fromMs / 300_000).rounded(.down) * 300_000
+                history = stride(from: first, to: min(shownWindow.toMs, site.nowMs), by: 300_000).map { ChartSample(startMs: $0, value: nil, fetching: true) }
             }
             history = history.map { sample in
                 sample.startMs + step <= site.nowMs ? sample : ChartSample(startMs: sample.startMs, value: nil, fetching: true)
@@ -54,21 +54,23 @@ struct TimelineChartArea: View {
     }
 
     private func picture(_ inputs: [Input], size: CGSize) -> HistoryPicture {
-        let values = inputs.flatMap { $0.observations.filter { $0.t >= window.fromMs && $0.t <= min(window.toMs, site.nowMs) }.map(\.v) }
+        let values = inputs.flatMap { $0.observations.filter { $0.t >= shownWindow.fromMs && $0.t <= min(shownWindow.toMs, site.nowMs) }.map(\.v) }
         let extent = values.min().flatMap { lo in values.max().map { lo...$0 } }
         let words = ReadoutWords(value: { AppWords.power(abs($0)) }, range: { "\(AppWords.power(abs($0)))–\(AppWords.power(abs($1)))" }, none: L("no data"))
         var picture = HistoryPicture.build(inputs.map { ($0.node.rawValue, $0.history) },
             ahead: Dictionary(uniqueKeysWithValues: inputs.compactMap { i in i.ahead.map { (i.node.rawValue, $0) } }),
-            fromMs: window.fromMs, toMs: window.toMs, nowMs: site.nowMs, size: size, previous: shown,
-            floor: node.scaleFloorW(), clock: .of(.current), everyHours: window.spanMs > 24 * 3_600_000 ? 12 : max(1, Int(window.spanMs / (4 * 3_600_000))),
+            fromMs: shownWindow.fromMs, toMs: shownWindow.toMs, nowMs: drawNow(width: size.width), size: size, previous: shown,
+            floor: node.scaleFloorW(), clock: .of(.current), everyHours: shownWindow.spanMs > 24 * 3_600_000 ? 12 : max(1, Int(shownWindow.spanMs / (4 * 3_600_000))),
             observationExtent: extent, sampleSteps: Dictionary(uniqueKeysWithValues: inputs.map { ($0.node.rawValue, $0.stepMs) }), words: words)
         // At short scales labels need minutes, and at long ones the date.
-        let step = window.spanMs <= 3_600_000 ? 900_000.0 : window.spanMs <= 6 * 3_600_000 ? 3_600_000.0 : window.spanMs <= 24 * 3_600_000 ? 6 * 3_600_000.0 : 12 * 3_600_000.0
+        let span = shownWindow.spanMs
+        let step = span <= 10 * 60_000 ? 60_000.0 : span <= 30 * 60_000 ? 300_000.0 : span <= 3_600_000 ? 900_000.0
+            : span <= 6 * 3_600_000 ? 3_600_000.0 : span <= 24 * 3_600_000 ? 6 * 3_600_000.0 : 12 * 3_600_000.0
         let clock = ZoneClock.of(.current)
-        var at = clock.alignDown(window.fromMs + step, stepMs: step)
+        var at = clock.alignDown(shownWindow.fromMs + step, stepMs: step)
         picture.ticks = []
-        while at < window.toMs - window.spanMs * 0.04 {
-            let label = window.spanMs >= 24 * 3_600_000 && clock.minuteOfDay(at) == 0
+        while at < shownWindow.toMs - shownWindow.spanMs * 0.04 {
+            let label = shownWindow.spanMs >= 24 * 3_600_000 && clock.minuteOfDay(at) == 0
                 ? Date(timeIntervalSince1970: at / 1000).formatted(.dateTime.day().month(.abbreviated).locale(Locale(identifier: AppWords.language == .sv ? "sv_SE" : "en_US")))
                 : clock.label(at)
             picture.ticks.append(.init(ms: at, label: label))
@@ -79,7 +81,7 @@ struct TimelineChartArea: View {
         for i in picture.layers.indices {
             guard var ghost = picture.layers[i].ghost, ghost.kind == .forecast,
                   let input = inputs.first(where: { $0.node.rawValue == picture.layers[i].key }), let ahead = input.ahead else { continue }
-            ghost.line = AheadPicture.forecastLine(ahead.slots, fromMs: window.fromMs, toMs: window.toMs, domain: picture.domain, size: size, intervalMeans: true, notBeforeMs: site.nowMs)
+            ghost.line = AheadPicture.forecastLine(ahead.slots, fromMs: shownWindow.fromMs, toMs: shownWindow.toMs, domain: picture.domain, size: size, intervalMeans: true, notBeforeMs: drawNow(width: size.width))
             picture.layers[i].ghost = ghost
         }
         return picture
@@ -95,7 +97,7 @@ struct TimelineChartArea: View {
         let traces = Dictionary(uniqueKeysWithValues: data.compactMap { input -> (String, LiveSeries)? in
             let points = input.observations.filter { $0.t <= site.nowMs }
             guard !points.isEmpty else { return nil }
-            let trace = LiveSeries.build(points, sourceGapMs: input.gapMs, windowMs: window.spanMs, nowMs: window.toMs, size: plot.size, inset: 0)
+            let trace = LiveSeries.build(points, sourceGapMs: input.gapMs, windowMs: shownWindow.spanMs, nowMs: shownWindow.toMs, size: plot.size, inset: 0)
             return trace.readings.isEmpty ? nil : (input.node.rawValue, trace)
         })
         let looks = Dictionary(uniqueKeysWithValues: data.map { ($0.node.rawValue, NodeChartLook.look($0.node)) })
@@ -104,25 +106,33 @@ struct TimelineChartArea: View {
         chart(data, picture: picture, traces: traces, frame: frame, looks: looks, live: live, empty: empty)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
         .onChange(of: picture.domain) { shown = picture.domain }
-        .onChange(of: home.nodes.live.revision, initial: true) { followIfFree() }
-        .onChange(of: site.minuteMs) { followIfFree() }
-        .onChange(of: interacting) { followIfFree() }
-        .modifier(TimelineAccessibility(node: node, window: $window, nowMs: site.nowMs,
+        .modifier(TimelineAccessibility(node: node, window: $window, shown: shownWindow, nowMs: site.nowMs,
             empty: empty, history: picture, observations: traces[node.rawValue]?.readings ?? [],
             sampleMs: data.first(where: { $0.node == node })?.stepMs ?? 300_000))
     }
 
-    private func followIfFree() {
-        if !interacting { window.follow(nowMs: site.nowMs, clock: .of(.current)) }
+    /// The window as drawn: the stored one while a finger is on it, else
+    /// the stored one carried along with now. Nothing here writes it back,
+    /// so a reading redraws once, and a chart under the full-screen cover
+    /// moves nothing under the finger on it.
+    private var shownWindow: TimelineWindow {
+        interacting ? window : window.following(nowMs: site.nowMs, clock: .of(.current))
+    }
+
+    /// Now on the plot's own grain, one point of time: the history picture
+    /// holds still between readings that move now by less than a point.
+    private func drawNow(width: CGFloat) -> Double {
+        let q = max(1_000, shownWindow.spanMs / Double(max(1, width)))
+        return (site.nowMs / q).rounded(.down) * q
     }
 
     private func chart(_ data: [Input], picture: HistoryPicture, traces: [String: LiveSeries], frame: ChartFrame, looks: [String: TraceLook], live: Set<String>, empty: String?) -> some View {
         ZStack {
             ChartSurface(drawing: TimelineDrawing(history: picture, traces: traces, looks: looks, frame: frame, liveKeys: live, axis: axis, words: ChartLabels(fetching: L("Waiting for history"), now: L("NOW"))))
                 .equatable()
-            TimelineTouchOverlay(window: $window, nowMs: site.nowMs, frame: frame, domain: picture.domain, scrub: scrub, text: text, node: node,
+            TimelineTouchOverlay(window: $window, shown: shownWindow, nowMs: site.nowMs, frame: frame, domain: picture.domain, scrub: scrub, text: text, node: node,
                 reading: { ms in
-                    guard let own = data.first(where: { $0.node == node }) else { return .missing }
+                    guard let own = data.first(where: { $0.node == node }) ?? data.first else { return .missing }
                     return TimelineReading.at(ms, history: own.history, sampleMs: own.stepMs, observations: own.observations, gapMs: own.gapMs, nowMs: site.nowMs, ahead: own.ahead)
                 }, onTap: onTap, touchingChanged: { interacting = $0 })
             if let message = empty {
@@ -135,18 +145,18 @@ struct TimelineChartArea: View {
 
     private func emptyMessage(_ inputs: [Input]) -> String? {
         guard let own = inputs.first(where: { $0.node == node }) else { return nil }
-        let end = min(window.toMs, site.nowMs)
-        if window.fromMs >= site.nowMs {
-            return own.ahead?.slots.contains(where: { $0.startMs < window.toMs && $0.endMs > window.fromMs }) == true ? nil : L("No plan or forecast for this time.")
+        let end = min(shownWindow.toMs, site.nowMs)
+        if shownWindow.fromMs >= site.nowMs {
+            return own.ahead?.slots.contains(where: { $0.startMs < shownWindow.toMs && $0.endMs > shownWindow.fromMs }) == true ? nil : L("No plan or forecast for this time.")
         }
-        let hasHistory = own.history.contains { $0.value != nil && $0.startMs < end && $0.startMs + own.stepMs > window.fromMs }
-        let hasObservation = own.observations.contains { $0.t >= window.fromMs && $0.t <= end }
+        let hasHistory = own.history.contains { $0.value != nil && $0.startMs < end && $0.startMs + own.stepMs > shownWindow.fromMs }
+        let hasObservation = own.observations.contains { $0.t >= shownWindow.fromMs && $0.t <= end }
         guard !hasHistory, !hasObservation else { return nil }
         let problem = node == .car ? home.nodes.carEnergy.problem : home.nodes.history.problem
         let loaded = node == .car ? home.nodes.carEnergy.loaded : home.nodes.history.loaded
         if let problem { return problem }
         if !loaded { return L("Fetching history…") }
-        if own.history.contains(where: { $0.fetching && $0.startMs < end && $0.startMs + own.stepMs > window.fromMs }) { return L("Waiting for history") }
+        if own.history.contains(where: { $0.fetching && $0.startMs < end && $0.startMs + own.stepMs > shownWindow.fromMs }) { return L("Waiting for history") }
         return L("No recorded history in this window.")
     }
 }
@@ -154,6 +164,7 @@ struct TimelineChartArea: View {
 private struct TimelineAccessibility: ViewModifier {
     let node: EnergyNode
     @Binding var window: TimelineWindow
+    let shown: TimelineWindow
     let nowMs: Double
     let empty: String?
     let history: HistoryPicture
@@ -164,7 +175,7 @@ private struct TimelineAccessibility: ViewModifier {
         content
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(node.title + ". " + L("History and live readings"))
-            .accessibilityValue(TimelineLabel.window(window, nowMs: nowMs, clock: .of(.current)) + (empty.map { ". " + $0 } ?? ""))
+            .accessibilityValue(TimelineLabel.window(shown, nowMs: nowMs, clock: .of(.current)) + (empty.map { ". " + $0 } ?? ""))
             .accessibilityHint(L("Swipe up or down to move through time. Actions change the zoom."))
             .accessibilityAdjustableAction(adjust)
             .accessibilityAction(named: Text(L("Zoom in"))) { zoom(2) }
@@ -181,11 +192,11 @@ private struct TimelineAccessibility: ViewModifier {
         case .decrement: destination = 0.25
         @unknown default: return
         }
-        window = window.transformed(anchor: 0, destination: destination, magnification: 1, nowMs: nowMs)
+        window = shown.transformed(anchor: 0, destination: destination, magnification: 1, nowMs: nowMs)
     }
 
     private func zoom(_ factor: Double) {
-        window = window.transformed(anchor: 0.5, destination: 0.5, magnification: factor, nowMs: nowMs)
+        window = shown.transformed(anchor: 0.5, destination: 0.5, magnification: factor, nowMs: nowMs)
     }
 }
 
@@ -194,6 +205,9 @@ private struct TimelineAccessibility: ViewModifier {
 /// centroid. Starting at the leading edge leaves the system back gesture.
 private struct TimelineTouchOverlay: View {
     @Binding var window: TimelineWindow
+    /// The window as drawn when the finger lands; the gesture starts from
+    /// it, so a window that was following now does not jump back.
+    let shown: TimelineWindow
     let nowMs: Double
     let frame: ChartFrame
     let domain: YDomain
@@ -215,6 +229,8 @@ private struct TimelineTouchOverlay: View {
         var lastX: CGFloat
         // 0 waits for intent, 1 pans, 2 reads, 3 zooms.
         var mode = 0
+        /// Panned, read, zoomed or had a second finger: never a tap.
+        var acted = false
     }
 
     var body: some View {
@@ -240,13 +256,18 @@ private struct TimelineTouchOverlay: View {
                 guard !positions.isEmpty, size.width > frame.trailing else { return }
                 if start == nil || start?.positions.count != positions.count {
                     scrub.lift()
-                    start = Touch(window: window, positions: positions, began: Date(), lastX: positions[0])
+                    // A changed finger count keeps the gesture from being a
+                    // tap, so a pinch never ends by opening the full screen.
+                    let acted = start != nil || positions.count >= 2
+                    window = shown
+                    start = Touch(window: shown, positions: positions, began: Date(), lastX: positions[0], acted: acted)
                     return
                 }
                 guard var saved = start else { return }
                 let width = size.width - frame.trailing
                 if positions.count >= 2 {
                     saved.mode = 3
+                    saved.acted = true
                     let oldSpan = max(1, saved.positions.last! - saved.positions[0])
                     let nextSpan = max(1, positions.last! - positions[0])
                     let anchor = Double((saved.positions[0] + saved.positions.last!) / 2 / width)
@@ -257,22 +278,26 @@ private struct TimelineTouchOverlay: View {
                     read(positions[0])
                 } else if abs(positions[0] - saved.positions[0]) >= 6 {
                     saved.mode = 1
+                    saved.acted = true
                     window = saved.window.transformed(anchor: Double(saved.positions[0] / width), destination: Double(positions[0] / width), magnification: 1, nowMs: nowMs)
                 }
                 saved.lastX = positions[0]
                 start = saved
             }
             .onEnded { _ in
-                if start?.mode == 0 { onTap?() }
+                if let s = start, s.mode == 0, !s.acted { onTap?() }
                 end()
             })
         .simultaneousGesture(LongPressGesture(minimumDuration: 0.25, maximumDistance: 6).onEnded { _ in
             guard var saved = start, saved.positions.count == 1, saved.mode == 0 else { return }
             saved.mode = 2
+            saved.acted = true
             start = saved
             read(saved.lastX)
         })
         .onChange(of: touching) { _, down in
+            // Held from where it was drawn, so nothing moves under the finger.
+            if down { window = shown }
             touchingChanged(down)
             if !down { end() }
         }
@@ -285,7 +310,7 @@ private struct TimelineTouchOverlay: View {
         let value = reading(ms)
         let words = TimelineWords.reading(value, atMs: ms)
         let watts = value.watts
-        text.set([words], spans: { _ in words }, heroes: [.init(watts: watts.map(abs), signed: watts ?? 0, word: TimelineWords.when(value, atMs: ms))])
+        text.set([words], spans: { _ in words }, heroes: [.init(watts: watts.map(abs), signed: watts ?? 0, word: TimelineWords.when(value, node: node, atMs: ms))])
         scrub.move(to: 0, landmark: false)
     }
 
@@ -309,10 +334,13 @@ struct TimelineControls: View {
     let text: PeriodText
     @Environment(\.dynamicTypeSize) private var typeSize
 
+    /// The window as the chart draws it, carried along with now.
+    private var shown: TimelineWindow { window.following(nowMs: site.nowMs, clock: .of(.current)) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .firstTextBaseline) {
-                Text(TimelineLabel.window(window, nowMs: site.minuteMs, clock: .of(.current)))
+                Text(TimelineLabel.window(shown, nowMs: site.minuteMs, clock: .of(.current)))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Theme.ink)
                     .monospacedDigit()
@@ -352,6 +380,7 @@ struct TimelineControls: View {
         let problem = node == .car ? home.nodes.carEnergy.problem : home.nodes.history.problem
         let loaded = node == .car ? home.nodes.carEnergy.loaded : home.nodes.history.loaded
         if let problem { return problem }
+        let window = shown
         guard window.fromMs < site.nowMs else { return L("What FTW plans or forecasts, not measured.") }
         let samples = NodeHistory.samples(node, home: home, fromMs: window.fromMs - 3_600_000)
         let step = node == .car ? 3_600_000 : (home.nodes.history.frame?.stepMs ?? 300_000)
@@ -412,14 +441,16 @@ private enum TimelineWords {
         }
     }
 
-    /// The hero's word under a finger: when, and what kind if it is not
-    /// measured. The figure says the power.
-    static func when(_ value: TimelineReading, atMs: Double) -> String {
+    /// The hero's word under a finger: when, what kind if it is not
+    /// measured, and which way it ran, "21:30–21:45 · plan · charging". The
+    /// figure says the power.
+    static func when(_ value: TimelineReading, node: EnergyNode, atMs: Double) -> String {
+        let way = value.watts.map { " · " + Readouts.word(node, $0) } ?? ""
         switch value {
-        case let .observation(at, _, seen): return Readouts.seconds(at) + (seen ? "" : " · " + L("saved"))
-        case let .mean(start, end, _): return Readouts.span(start, end)
-        case let .forecast(start, end, _): return Readouts.span(start, end) + " · " + L("forecast")
-        case let .plan(start, end, _): return Readouts.span(start, end) + " · " + L("plan")
+        case let .observation(at, _, seen): return Readouts.seconds(at) + (seen ? "" : " · " + L("saved")) + way
+        case let .mean(start, end, _): return Readouts.span(start, end) + way
+        case let .forecast(start, end, _): return Readouts.span(start, end) + " · " + L("forecast") + way
+        case let .plan(start, end, _): return Readouts.span(start, end) + " · " + L("plan") + way
         case .fetching: return Readouts.clock(atMs) + " · " + L("Waiting for history")
         case .missing: return Readouts.clock(atMs) + " · " + L("no data")
         }

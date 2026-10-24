@@ -58,7 +58,7 @@ public struct RingBuffer<Element: Sendable>: Sendable {
 /// rule records nothing, and the curve breaks there rather than drawing a
 /// line across.
 ///
-/// The last five minutes are sealed as `ring-<site>` with the home's other
+/// The last fifteen minutes are sealed as `ring-<site>` with the home's other
 /// files, so after a kill a node's curve opens with what the app saw
 /// before. Those points are marked `restored`: drawn in ink, never as live,
 /// and `resumed` dates the time the app missed.

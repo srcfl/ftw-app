@@ -195,7 +195,11 @@ public struct LiveSeries: Equatable, Sendable {
         let stepMs = pt > 0 ? Double(step / pt) : 0
 
         for (run, frames) in zip(runs, frameBands) {
-            let curve = thinned(smoothed(run, sigmaMs: sigmaMs), stepMs: stepMs)
+            // On a long window the Gaussian spans minutes: readings that
+            // close together are averaged into bins a quarter of it wide
+            // first, so smoothing stays linear in the readings.
+            let bins = binned(run, widthMs: sigmaMs / 4, periodMs: period)
+            let curve = thinned(smoothed(bins.samples, sigmaMs: sigmaMs, weights: bins.weights), stepMs: stepMs)
             series.curves.append(curve)
             series.addCurve(curve)
             series.addBand(run, frames)
@@ -340,7 +344,43 @@ public struct LiveSeries: Equatable, Sendable {
     /// width). The reach shrinks to nothing at the head, so the last reading
     /// is drawn raw. It weights real readings only, so it stays inside their
     /// range.
-    public static func smoothed(_ run: [LiveSample], sigmaMs: Double) -> [Point] {
+    /// Readings averaged into bins `widthMs` wide, on buckets of the clock
+    /// so the same readings make the same bins from one build to the next.
+    /// The first and the last reading stay as they are, so the line still
+    /// starts at its first reading and ends at the head. A bin is seen only
+    /// if every reading in it was. Bins no wider than two read periods
+    /// change nothing, and the run comes back as it was.
+    /// Each bin's weight is how many readings it holds, so smoothing the
+    /// bins weighs them as it would weigh the readings.
+    public static func binned(_ run: [LiveSample], widthMs: Double, periodMs: Double) -> (samples: [LiveSample], weights: [Double]?) {
+        guard run.count > 3, widthMs.isFinite, widthMs > 2 * periodMs else { return (run, nil) }
+        var out: [LiveSample] = [run[0]]
+        var weights: [Double] = [1]
+        out.reserveCapacity(Int((run[run.count - 1].t - run[0].t) / widthMs) + 3)
+        var bucket = Double.nan
+        var st = 0.0, sv = 0.0, n = 0.0, seen = true
+        func flush() {
+            guard n > 0 else { return }
+            out.append(LiveSample(t: st / n, v: sv / n, seen: seen))
+            weights.append(n)
+        }
+        for q in run.dropFirst().dropLast() {
+            let b = (q.t / widthMs).rounded(.down)
+            if b != bucket {
+                flush()
+                bucket = b; st = 0; sv = 0; n = 0; seen = true
+            }
+            st += q.t; sv += q.v; n += 1
+            seen = seen && q.seen
+        }
+        flush()
+        out.append(run[run.count - 1])
+        weights.append(1)
+        return (out, weights)
+    }
+
+    /// `weights`, one per reading, weigh a bin of readings as the readings.
+    public static func smoothed(_ run: [LiveSample], sigmaMs: Double, weights: [Double]? = nil) -> [Point] {
         var out = run.map { Point(t: $0.t, v: $0.v, seen: $0.seen) }
         guard run.count > 2, sigmaMs > 0, let head = run.last?.t else { return out }
         for i in run.indices {
@@ -349,14 +389,14 @@ public struct LiveSeries: Equatable, Sendable {
             var sw = 0.0, sv = 0.0
             var j = i
             while j >= 0, run[i].t - run[j].t <= reach {
-                let d = (run[j].t - run[i].t) / sigmaMs, w = exp(-0.5 * d * d)
+                let d = (run[j].t - run[i].t) / sigmaMs, w = exp(-0.5 * d * d) * (weights?[j] ?? 1)
                 sw += w
                 sv += w * run[j].v
                 j -= 1
             }
             j = i + 1
             while j < run.count, run[j].t - run[i].t <= reach {
-                let d = (run[j].t - run[i].t) / sigmaMs, w = exp(-0.5 * d * d)
+                let d = (run[j].t - run[i].t) / sigmaMs, w = exp(-0.5 * d * d) * (weights?[j] ?? 1)
                 sw += w
                 sv += w * run[j].v
                 j += 1

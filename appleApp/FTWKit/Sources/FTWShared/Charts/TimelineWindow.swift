@@ -9,9 +9,12 @@ import Foundation
 /// including across a daylight-saving turn.
 public struct TimelineWindow: Equatable, Sendable {
     public static let historyMs: Double = 48 * 3_600_000
-    public static let aheadMs: Double = 24 * 3_600_000
+    /// A day and a little: today's end on the 25-hour day the clock turns
+    /// back stays in reach from its first hour, and so does the plan's
+    /// night.
+    public static let aheadMs: Double = 30 * 3_600_000
     public static let minimumSpanMs: Double = 5 * 60_000
-    /// The whole reach, two days back and one ahead, at once.
+    /// The whole reach, two days back and the day ahead, at once.
     public static let maximumSpanMs = historyMs + aheadMs
     /// Where now sits in a window made around it.
     public static let nowPosition: Double = 0.85
@@ -63,6 +66,14 @@ public struct TimelineWindow: Equatable, Sendable {
             fromMs = nowMs - f * span
             toMs = fromMs + span
         }
+    }
+
+    /// The window carried along with now, as `follow` would leave it,
+    /// without writing it: a view draws this between gestures.
+    public func following(nowMs: Double, clock: ZoneClock) -> Self {
+        var w = self
+        w.follow(nowMs: nowMs, clock: clock)
+        return w
     }
 
     /// Back to today, as the view opened.
