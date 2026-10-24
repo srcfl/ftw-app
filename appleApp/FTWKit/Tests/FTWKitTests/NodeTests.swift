@@ -1001,6 +1001,24 @@ final class DemoRig {
         }
     }
 
+    /// The goal the car's ring marks: its level, none when the goal is the
+    /// car's own limit, and words for the mark beside the origin.
+    @Test func theCarsGoalOnItsRing() {
+        var s = Loadpoint.Schedule(socPct: 80, timeOfDayMinUTC: 300, clockMin: 420, surplusUnlockPct: 0, recurring: true, days: 0, finishAtVehicleLimit: false)
+        #expect(CarText.goalPct(s) == 80)
+        s.socPct = 140
+        #expect(CarText.goalPct(s) == 100)
+        s.finishAtVehicleLimit = true
+        #expect(CarText.goalPct(s) == nil)
+        AppWords.$language.withValue(.en) {
+            #expect(CarText.originAndGoal("assumed at plug-in", goalPct: 80) == "assumed at plug-in · goal 80\u{00A0}%")
+            #expect(CarText.originAndGoal("from the car", goalPct: nil) == "from the car")
+        }
+        AppWords.$language.withValue(.sv) {
+            #expect(CarText.originAndGoal("antaget vid inkoppling", goalPct: 80) == "antaget vid inkoppling · mål 80\u{00A0}%")
+        }
+    }
+
     /// A day the phone has not been told is not zero: nothing since
     /// midnight and the answer on its way, or never asked, gives nothing;
     /// once the box has answered, its holes are what it recorded.

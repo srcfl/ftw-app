@@ -158,6 +158,12 @@ native, and smooth enough to impress.
   settings sheet held: the mode, the cars, assistants, the watch, the
   homes, this phone and About. Now's title is the home's name and opens
   nothing; the mode sheet opens from Now's mode button and from Home.
+  In their own views the battery's and the car's levels are rings
+  (`LevelRing`): lit clockwise from twelve to the level, in the node's
+  colour only while live (the car's level is a fact, violet without
+  glow, ink when FTW assumes it), with the car's goal as a mark across
+  the ring. The car view opens on the large one; the node views carry a
+  small one beside the figure.
 - **No layout jumps.** Reserve room for receipts, labels and pending
   marks, so a row never moves under the finger. Freshness and state
   changes cross-fade, and a transition can be interrupted.
@@ -265,7 +271,7 @@ The rules below put these into practice.
   | Mono status line, `● LIVE · FTW IN CONTROL` | Under every title | Whether this is now, and who controls the home |
   | 8-level block price bars (▁▂▃▄▅▆▇█) | Now's strip, dial ticks, lock-screen widget | Price per slot at a glance |
   | Lock-on: corner brackets and an inverse-video tag | Under a finger, on a pressed node | What the finger is on, and its value |
-  | 10-cell meter | Battery and car level in their own views (Now says it in words beside the figure) | Level in tenths, readable at 4 pt |
+  | 10-cell meter | A grid phase against its fuse | Share in tenths, readable at 4 pt |
   | Receipt log `SENT ▸ ACCEPTED ▸ MEASURED ▸ CONFIRMED` | Car commands | How far the box has confirmed a command |
   | Phosphor ignite and decay | The ring's arcs, the trace's head, the status dot | When live starts and when it stops |
 
@@ -309,7 +315,7 @@ never their graphics or brands.
 |---|---|---|
 | Scrub a chart: the header gives way to the value under the finger, and comes back on release | Stocks | Every chart: price, node history, ahead |
 | Hourly strip with a now marker | Weather | Now's plan strip, the price chart |
-| A level that fills with a spring, one hue per kind | Fitness | Battery and car levels, as the 10-cell meter |
+| A level that fills with a spring, one hue per kind | Fitness | Battery and car levels, as a ring (`LevelRing`) with the car's goal marked |
 | Big state, three fixed controls, receipt under them | Tesla, Rivian | The car view's Plan · Charge now · Pause bar and its receipt log |
 | A plain "what happens next" timeline with times | Flighty | Now's plan sentence, plan view, plan widget |
 | Price as bars by level, with the cheap window marked | Tibber, Octopus | Price chart: ink bars by thirds and a cheapest bracket, never red and green |
