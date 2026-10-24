@@ -176,7 +176,8 @@ struct TimelineChartArea: View {
         guard let own = inputs.first(where: { $0.node == node }) else { return nil }
         let end = min(shownWindow.toMs, site.nowMs)
         if shownWindow.fromMs >= site.nowMs {
-            return own.ahead?.slots.contains(where: { $0.startMs < shownWindow.toMs && $0.endMs > shownWindow.fromMs }) == true ? nil : L("No plan or forecast for this time.")
+            return own.ahead?.slots.contains(where: { $0.startMs < shownWindow.toMs && $0.endMs > shownWindow.fromMs }) == true ? nil
+                : (TimelineWords.planned(own.node) ? L("No plan for this time.") : L("No forecast for this time."))
         }
         let hasHistory = own.history.contains { $0.value != nil && $0.startMs < end && $0.startMs + own.stepMs > shownWindow.fromMs }
         let hasObservation = own.observations.contains { $0.t >= shownWindow.fromMs && $0.t <= end }
@@ -274,7 +275,8 @@ private struct TimelineTouchOverlay: View {
                 let y = plot.minY + YMap(domain: domain, height: plot.height).y(watts)
                 LockOn.dot(at: CGPoint(x: x, y: y), color: NodeChartLook.color(from), in: &g)
             }
-            LockOn.tag(TimelineWords.reading(value, atMs: selectedMs), over: x, plot: plot, size: 10, in: &g, canvas: size)
+            let whose = from == node ? "" : from.title + " · "
+            LockOn.tag(whose + TimelineWords.reading(value, atMs: selectedMs), over: x, plot: plot, size: 10, in: &g, canvas: size)
         }
         .leavesTheEdge()
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
@@ -338,9 +340,15 @@ private struct TimelineTouchOverlay: View {
         let ms = window.time(at: fraction)
         selectedMs = ms
         let (from, value) = reading(ms)
-        let words = TimelineWords.reading(value, atMs: ms)
+        // Another series than the view's own says whose it is, so the
+        // battery's plan never reads as the home's under "Usage".
+        let whose = from == node ? "" : from.title + " · "
+        let words = whose + TimelineWords.reading(value, atMs: ms)
         let watts = value.watts
-        text.set([words], spans: { _ in words }, heroes: [.init(watts: watts.map(abs), signed: watts ?? 0, word: TimelineWords.when(value, node: from, atMs: ms), node: from)])
+        // The hero's one line: a series of the view's own gives its time,
+        // another its name instead, the time being on the tag.
+        let hero = from == node ? TimelineWords.when(value, node: from, atMs: ms) : from.title + TimelineWords.kind(value, node: from)
+        text.set([words], spans: { _ in words }, heroes: [.init(watts: watts.map(abs), signed: watts ?? 0, word: hero, node: from)])
         scrub.move(to: 0, landmark: false)
     }
 
@@ -411,7 +419,7 @@ struct TimelineControls: View {
         let loaded = node == .car ? home.nodes.carEnergy.loaded : home.nodes.history.loaded
         if let problem { return problem }
         let window = shown
-        guard window.fromMs < site.nowMs else { return L("What FTW plans or forecasts, not measured.") }
+        guard window.fromMs < site.nowMs else { return TimelineWords.planned(node) ? L("What FTW plans, not measured.") : L("What FTW forecasts, not measured.") }
         let samples = NodeHistory.samples(node, home: home, fromMs: window.fromMs - 3_600_000)
         let step = node == .car ? 3_600_000 : (home.nodes.history.frame?.stepMs ?? 300_000)
         let energy = TimelineEnergy.recorded(samples, sampleMs: step, fromMs: window.fromMs, toMs: window.toMs, nowMs: site.nowMs)
@@ -464,6 +472,16 @@ struct TimelineFullScreen: View {
 }
 
 private enum TimelineWords {
+    /// What FTW decides is planned: the battery, the car, and the grid,
+    /// which is what those plans leave over. The home's use and the sun
+    /// cannot be planned, only forecast (Fredrik, 24 October 2026).
+    static func planned(_ node: EnergyNode) -> Bool {
+        switch node {
+        case .battery, .car, .grid: return true
+        case .home, .solar: return false
+        }
+    }
+
     static func material(_ node: EnergyNode, sampleMs: Double) -> String {
         switch node {
         case .car, .battery, .grid: NodeWords.timelineMaterial(sampleMs: sampleMs, planned: true)
@@ -483,6 +501,19 @@ private enum TimelineWords {
         case let .plan(start, end, _): return Readouts.span(start, end) + " · " + L("plan") + way
         case .fetching: return Readouts.clock(atMs) + " · " + L("Waiting for history")
         case .missing: return Readouts.clock(atMs) + " · " + L("no data")
+        }
+    }
+
+    /// What kind and which way, without the time: " · plan · charging".
+    static func kind(_ value: TimelineReading, node: EnergyNode) -> String {
+        let way = value.watts.map { " · " + Readouts.word(node, $0) } ?? ""
+        switch value {
+        case .observation(_, _, let seen): return (seen ? "" : " · " + L("saved")) + way
+        case .mean: return way
+        case .forecast: return " · " + L("forecast") + way
+        case .plan: return " · " + L("plan") + way
+        case .fetching: return " · " + L("Waiting for history")
+        case .missing: return " · " + L("no data")
         }
     }
 
