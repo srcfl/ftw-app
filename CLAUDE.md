@@ -47,13 +47,20 @@ in M1 may depend on it.
 2026-10-14: Now, the plan dial (the Crown steps it by quarter hour), the car
 and the price, Charge now, Pause, Back to the plan and the mode, and
 complications. watchOS 26 is the minimum. watchOS gives an ordinary app no
-WebSocket (TN3135), so in W1 the watch reads and commands through the iPhone
-(`WatchBridge`, WatchConnectivity); FTW Cloud never controls. The app is
-built to stand alone (`WKRunsIndependentlyOfCompanionApp`): it opens on its
-own cache, makes its own key and its own `cmdId`, and reads and sends
-through two seams, `ReadPath` and `CommandPath`. `PhonePath` is the only
-path now; FTW Cloud reads and the relay's exchange (ADR 0009) come later.
-An unlocked watch on the wrist counts as unlocked for commands.
+WebSocket (TN3135), so the watch reads and commands through the iPhone
+(`WatchBridge`, WatchConnectivity) when it can. The app stands alone
+(`WKRunsIndependentlyOfCompanionApp`): it opens on its own cache, makes its
+own key and its own `cmdId`, and reads and sends through two seams,
+`ReadPath` and `CommandPath`. `PathChooser` puts `PhonePath` and
+`CloudPath` behind them: with the phone away the watch reads FTW Cloud's
+copy and sends charger commands through the box's exchange, each one
+HTTPS request (srcfl/ftw ADR 0009, "Through FTW Cloud"). Their rules
+live in the package with tests: `WatchRoute` (FTWShared) picks the path,
+and `WatchCommander` (FTWWire) runs a command through FTW Cloud. An owner's phone
+adds the watch to the box by its key first (`WatchAccess`). FTW Cloud
+carries the exchange and reads none of it; the box decides. The mode and
+"Which car?" go through the phone alone. An unlocked watch on the wrist
+counts as unlocked for commands.
 
 **Android (`androidApp/`, `shared/`).** Pair + Now, shipped on `main` as of
 2026-08-22. Do not add Energy / History / Plan / EV, commands, escrow, LAN,
@@ -123,17 +130,40 @@ native, and smooth enough to impress.
   `.contentTransition(.numericText(value:))`, new points animate in, and
   everything that moves uses one spring, `Theme.spring`. The car row on
   Now zooms into the car view (`navigationTransition(.zoom)`).
-- **The flow is beams of light** (Fredrik, 13 Oct 2026: "smaller and
-  smoother, flowing, not dots"). Straight beams whose width says the power
-  and whose soft wave of light runs from source to sink, faster with more
-  power (`Flow.beamWidth`, `Flow.waveSpeed`, `Flow.BeamMotion`, tested). The
-  light runs at the display's rate while a beam is live and Now is on
-  screen in an active app, ignites on the first live frame and decays when
-  live ends; otherwise the timeline rests. Under Reduce Motion it holds
-  still and a still chevron shows the direction; in Low Power Mode it drops
-  to 20 fps. A node at 42 W or less is a still dotted hairline. The live
-  curve glides over each second, except under Reduce Motion or in Low
-  Power Mode.
+- **The flow is a ring of light** (Ring / Quiet, chosen by Fredrik on 24
+  Oct 2026 from the design canvas; it replaces the beams of 13 Oct). The
+  home's use sits in the middle; each node has the quarter of the ring
+  that faces its corner. Its arc lights from the quarter's middle out,
+  longer with more power (`Flow.ringFill`: a fifth at 0.6 kW, half at
+  1.8 kW, nine tenths at 6 kW, never past the quarter), in the node's
+  colour, and a soft wave of light runs along it, faster with more power:
+  clockwise for power coming into the home, the other way for power
+  leaving it (`Flow.RingMotion` over `Flow.BeamMotion`, tested). The light
+  runs at the display's rate while an arc is live and Now is on screen in
+  an active app, ignites on the first live frame and decays when live
+  ends, and the arc's colour crosses to ink as it cools; otherwise the
+  timeline rests. Under Reduce Motion it holds still and a still chevron
+  on the arc shows the direction; in Low Power Mode it drops to 20 fps. A
+  node at 42 W or less lights nothing; only its quarter's track shows.
+  The corner labels sit as close to the ring as clears it by 10 pt
+  (`RingGeometry`), and the car's goal and level are one row under it.
+  The live curve glides over each second, except under Reduce Motion or
+  in Low Power Mode.
+- **Four tabs** (Ring / Quiet step 3, 24 Oct 2026), the system's
+  `TabView`: Now, Plan, History and Home (`HomeTab`). Each keeps its own
+  stack, and a second tap on a tab takes it to its top. History tells
+  today: the savings, then a row per node with its energy in words and
+  its day drawn midnight to midnight on one shared axis, each into that
+  node's view on Today. Home holds what the title's menu and the
+  settings sheet held: the mode, the cars, assistants, the watch, the
+  homes, this phone and About. Now's title is the home's name and opens
+  nothing; the mode sheet opens from Now's mode button and from Home.
+  In their own views the battery's and the car's levels are rings
+  (`LevelRing`): lit clockwise from twelve to the level, in the node's
+  colour only while live (the car's level is a fact, violet without
+  glow, ink when FTW assumes it), with the car's goal as a mark across
+  the ring. The car view opens on the large one; the node views carry a
+  small one beside the figure.
 - **No layout jumps.** Reserve room for receipts, labels and pending
   marks, so a row never moves under the finger. Freshness and state
   changes cross-fade, and a transition can be interrupted.
@@ -213,6 +243,7 @@ His standing rules from that day outlive the release:
    loads (0 ↔ 1 kW) draw as bucket means with a range, and the scrub still
    gives exact values.
 6. The flow on Now is small and smooth: continuous light, not jumping dots.
+   Since 24 Oct 2026 it is the ring (Ring / Quiet).
 7. TUI and retro are welcome, never bloated: Swedish simplicity.
 
 The rules below put these into practice.
@@ -250,9 +281,9 @@ The rules below put these into practice.
   | Mono status line, `● LIVE · FTW IN CONTROL` | Under every title | Whether this is now, and who controls the home |
   | 8-level block price bars (▁▂▃▄▅▆▇█) | Now's strip, dial ticks, lock-screen widget | Price per slot at a glance |
   | Lock-on: corner brackets and an inverse-video tag | Under a finger, on a pressed node | What the finger is on, and its value |
-  | 10-cell meter | Battery and car level | Level in tenths, readable at 4 pt |
+  | 10-cell meter | A grid phase against its fuse | Share in tenths, readable at 4 pt |
   | Receipt log `SENT ▸ ACCEPTED ▸ MEASURED ▸ CONFIRMED` | Car commands | How far the box has confirmed a command |
-  | Phosphor ignite and decay | Beams, the trace's head, the status dot | When live starts and when it stops |
+  | Phosphor ignite and decay | The ring's arcs, the trace's head, the status dot | When live starts and when it stops |
 
 - **One palette source.** The roles live in `appleApp/FTWCharts/Theme.xcassets`,
   in Display P3, one colour set per role with its dark variant: `ground`,
@@ -294,7 +325,7 @@ never their graphics or brands.
 |---|---|---|
 | Scrub a chart: the header gives way to the value under the finger, and comes back on release | Stocks | Every chart: price, node history, ahead |
 | Hourly strip with a now marker | Weather | Now's plan strip, the price chart |
-| A level that fills with a spring, one hue per kind | Fitness | Battery and car levels, as the 10-cell meter |
+| A level that fills with a spring, one hue per kind | Fitness | Battery and car levels, as a ring (`LevelRing`) with the car's goal marked |
 | Big state, three fixed controls, receipt under them | Tesla, Rivian | The car view's Plan · Charge now · Pause bar and its receipt log |
 | A plain "what happens next" timeline with times | Flighty | Now's plan sentence, plan view, plan widget |
 | Price as bars by level, with the cheap window marked | Tibber, Octopus | Price chart: ink bars by thirds and a cheapest bracket, never red and green |
@@ -364,12 +395,18 @@ strip, with gold for the battery giving power.
 
 ## Shared vs UI
 
-On iPhone, one Swift package in `appleApp/FTWKit` holds three modules:
+On iPhone, one Swift package in `appleApp/FTWKit` holds four modules:
 
 - `FTWKit` owns everything that is not a pixel: enrollment parse,
-  rendezvous handles, Noise IK, frames, the tunnel, relay and Noise carriers, the
-  session, vault wrap/unwrap and the state each screen reads. The app alone
-  links it. It writes the App Group cache.
+  rendezvous handles, the tunnel, relay and Noise carriers, the session,
+  vault wrap/unwrap and the state each screen reads. The app alone links
+  it. It writes the App Group cache, and re-exports `FTWWire`.
+- `FTWWire` is the wire the phone and the watch both speak: Noise IK,
+  frames, CBOR, the app protocol's messages and history chunks, FTW
+  Cloud's envelopes, tiles and freshness rules (`CloudView`), the
+  one-shot request and the box's
+  exchange, and what one read of FTW Cloud becomes on the wrist
+  (`WatchCloud`). No state, no main actor.
 - `FTWShared` holds plain `Sendable` values for the app's extensions: the
   App Group cache (`prices-<site>`, `car-<site>`), the price and freshness
   formatters, and their Swedish and English words. Nothing on the main
@@ -381,8 +418,8 @@ On iPhone, one Swift package in `appleApp/FTWKit` holds three modules:
 `appleApp/FTW` owns the camera, the passkey ceremony, the Keychain and every
 pixel. `appleApp/FTWWidgets` owns the widgets. `appleApp/FTWWatch` is the
 watch app, `FTWWatchWidgets` its complications and `FTWWatchShared` what
-both draw (the dial). The watch links `FTWShared` and `FTWCharts`, never
-FTWKit. What the phone and the watch say to each other lives in
+both draw (the dial). The watch links `FTWShared`, `FTWWire` and
+`FTWCharts`, never FTWKit. What the phone and the watch say to each other lives in
 `FTWShared/Watch/`, and the phone's side of it in `FTWKit`'s `WatchShare`. Keep logic out of views: if a
 sentence or a rule can be tested, it belongs in a package module with a
 test. The App Group name is written once, in `appleApp/FTW.xcconfig`; the
@@ -397,7 +434,7 @@ commonMain. Android uses EncryptedSharedPreferences + a Keystore master key.
 Noise_IK_25519_ChaChaPoly_SHA256, Cacophony-tested, must stay byte-identical
 to the TypeScript client and the Go box. Do not swap the primitives for a
 library that has not passed `NoiseTest` (Kotlin) or `NoiseTests` (Swift).
-FTWKit uses CryptoKit.
+FTWWire uses CryptoKit.
 
 ## RP ID
 

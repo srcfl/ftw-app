@@ -21,7 +21,7 @@ import FTWDemo
             if seed { box.access.seed() }
             site = SiteModel(siteId: "home1", build: "t", ua: "t", scheduler: scheduler, files: nil)
             let s = scheduler
-            access = AccessModel(site: site, signedFor: AccessModel.demoFor, keyring: keyring, wallMs: { s.nowMs + phoneClockOffMs })
+            access = AccessModel(site: site, signedFor: AccessModel.demoFor, keyring: keyring, wallMs: { s.nowMs + phoneClockOffMs }, invitationLookup: SimulatedAccess.lookup)
             site.start()
             site.connect(LoopbackCarrier(box: box, scheduler: scheduler, latencyMs: 20))
         }
@@ -150,7 +150,8 @@ import FTWDemo
         #expect(w.keyring.unlocks == 1)
         #expect(w.box.access.keys[AccessModel.demoFor.deviceID] != nil)
         #expect(w.access.boxHasKey)
-        #expect(added.scopes == ["ftw.events.read", "ftw.health.read", "ftw.history.read", "ftw.live.read", "ftw.plan.read"])
+        #expect(added.scopes == ["ftw.config.read", "ftw.diag.run", "ftw.events.read", "ftw.health.read", "ftw.history.read", "ftw.live.read", "ftw.plan.read"])
+        #expect(!added.scopes.contains(AccessWire.scopeSetup))
         #expect(added.ops.isEmpty)
         #expect(added.principal.clientId == "https://claude.ai/oauth/mcp-oauth-client-metadata")
         // Within the role's longest, as the box holds it.
@@ -604,6 +605,23 @@ import FTWDemo
     }
 
     /// Every word an owner reads has its Swedish.
+    @Test func setupNeedsItsOwnChoiceEvenWithControl() {
+        var offer = GrantOffer()
+        offer.role = Contract.roleAgent
+        offer.scopes = ["ftw.config.read", AccessWire.scopeHold, AccessWire.scopeSetup]
+        offer.ttlS = 30 * 86_400
+        offer.caps = Caps(holdS: 300, maxW: 3000, perMin: 6)
+        let reading = Grant.from(offer, control: false, lengthMs: 86_400_000)
+        let controlling = Grant.from(offer, control: true, lengthMs: 86_400_000)
+        #expect(!reading.scopes.contains(AccessWire.scopeSetup))
+        #expect(!controlling.scopes.contains(AccessWire.scopeSetup))
+        let setup = Grant.from(offer, control: false, lengthMs: 86_400_000, setup: true)
+        #expect(setup.scopes.contains(AccessWire.scopeSetup))
+        #expect(!setup.scopes.contains(AccessWire.scopeHold))
+        offer.scopes.removeAll { $0 == AccessWire.scopeSetup }
+        #expect(!Grant.from(offer, control: false, lengthMs: 86_400_000, setup: true).scopes.contains(AccessWire.scopeSetup))
+    }
+
     @Test func everyWordHasItsSwedish() {
         for scope in Contract.agentRoleScopes[Contract.roleAgent]! {
             #expect(AccessWords.sv[AccessWords.scopeWords[scope] ?? ""] != nil, "\(scope)")

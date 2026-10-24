@@ -23,6 +23,10 @@ import WatchConnectivity
 /// A watch unlocked on the wrist counts as unlocked for its commands
 /// (Fredrik, 14 Oct 2026). The device key opens after the first unlock, so
 /// a locked phone in a pocket can still carry them.
+///
+/// The watch also offers its own public key. Once an owner adds it to the
+/// box (`WatchAccess`), the context carries the watch's link, and the watch
+/// reaches the box through FTW Cloud when this phone is away.
 @MainActor
 final class WatchBridge: NSObject {
     static let shared = WatchBridge()
@@ -97,7 +101,7 @@ final class WatchBridge: NSObject {
         }
         // No home and no paired site is a sign-out; no home with a site is
         // a phone still opening it, which the watch leaves be.
-        let ctx = WatchShare.context(app.home, isDemo: app.isDemo, signedOut: app.home == nil && app.sites.current() == nil, receipt: lastReceipt, nowMs: nowMs)
+        let ctx = WatchShare.context(app.home, isDemo: app.isDemo, signedOut: app.home == nil && app.sites.current() == nil, receipt: lastReceipt, link: app.watchLink(), nowMs: nowMs)
         if let lastSent, lastSent.sameAs(ctx) { return }
         do {
             let data = try ctx.packed()
@@ -120,6 +124,8 @@ final class WatchBridge: NSObject {
         guard let app else { return }
         withObservationTracking {
             _ = app.home
+            // An owner added the watch: the link goes over at once.
+            _ = app.watch.adding
             guard app.isDemo, let home = app.home else { return }
             _ = home.prices.window
             _ = home.loadpoints.stamp
@@ -255,7 +261,22 @@ final class WatchBridge: NSObject {
 extension WatchBridge: WCSessionDelegate {
     nonisolated func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
         if let error { WatchBridge.log.error("watch session: \(error.localizedDescription, privacy: .public)") }
-        Task { @MainActor in self.send() }
+        let key = session.receivedApplicationContext[WatchLink.watchKeyKey] as? Data
+        Task { @MainActor in
+            if let key { self.app?.watch.watchKey = key }
+            self.send()
+        }
+    }
+
+    /// The watch offered its key.
+    nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+        guard let key = applicationContext[WatchLink.watchKeyKey] as? Data else { return }
+        Task { @MainActor in
+            guard self.app?.watch.watchKey != key else { return }
+            self.app?.watch.watchKey = key
+            self.lastSent = nil
+            self.send()
+        }
     }
 
     nonisolated func sessionDidBecomeInactive(_ session: WCSession) {}

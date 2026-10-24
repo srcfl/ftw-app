@@ -89,27 +89,27 @@ final class NowFitsTests: XCTestCase {
         }
         XCTAssertTrue(app.buttons["now.mode"].isHittable)
         XCTAssertTrue(app.buttons["status.line"].isHittable)
-        // About, Privacy and the build moved from the foot into the title's menu.
+        // About, Privacy and the build live on the Home tab.
         XCTAssertFalse(app.buttons["Source & licenses"].exists)
-        app.buttons["now.title"].tap()
+        app.tabBars.buttons["Home"].tap()
         let about = app.buttons["About FTW"]
         XCTAssertTrue(about.waitForExistence(timeout: 5))
-        shoot(app, "title-menu")
-        XCTAssertTrue(app.buttons["Homes"].exists)
-        XCTAssertTrue(app.buttons["Settings"].exists)
-        XCTAssertTrue(app.buttons["Privacy"].exists)
+        shoot(app, "home-tab")
+        XCTAssertTrue(app.buttons["home.mode"].exists)
+        XCTAssertTrue(app.buttons["Pair a home"].exists)
+        XCTAssertTrue(app.buttons["Privacy"].exists || app.links["Privacy"].exists)
         XCTAssertTrue(app.buttons["Exit demo"].exists)
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'FTW 0.'")).firstMatch.exists, "no build in the menu")
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'FTW 0.'")).firstMatch.exists, "no build on Home")
         about.tap()
         XCTAssertTrue(app.navigationBars["Source & licenses"].waitForExistence(timeout: 5))
     }
 
-    /// What the home saved opens from the home's own view and from the
-    /// title's menu. It fits the screen at the standard size and the
+    /// What the home saved opens from the home's own view and from
+    /// History. It fits the screen at the standard size and the
     /// largest, its periods are in reach, and changing one moves nothing
     /// above the chart.
     @MainActor
-    func testSavingsOpensFromTheHomeAndTheTitleMenuAndFits() throws {
+    func testSavingsOpensFromTheHomeAndHistoryAndFits() throws {
         for text in [Self.standard, Self.largest] {
             let app = launchDemo(text: text)
             app.buttons["now.node.home"].tap()
@@ -136,10 +136,10 @@ final class NowFitsTests: XCTestCase {
             app.terminate()
         }
         let app = launchDemo()
-        let title = app.buttons["now.title"]
-        XCTAssertTrue(title.waitForExistence(timeout: 10))
-        title.tap()
-        let savings = app.buttons["Savings"]
+        let history = app.tabBars.buttons["History"]
+        XCTAssertTrue(history.waitForExistence(timeout: 10))
+        history.tap()
+        let savings = app.buttons["history.savings"]
         XCTAssertTrue(savings.waitForExistence(timeout: 5))
         savings.tap()
         XCTAssertTrue(app.navigationBars["Savings"].waitForExistence(timeout: 5))
@@ -167,10 +167,11 @@ final class NowFitsTests: XCTestCase {
     @MainActor
     func testNowHoldsItsShapeWhileReadingsArrive() throws {
         let app = launchDemo()
-        let ids = ["now.node.solar", "now.node.battery", "now.node.home", "now.node.grid", "now.node.car", "now.plan", "status.line", "now.title"]
-        let before = ids.map { app.buttons[$0].frame }
+        let ids = ["now.node.solar", "now.node.battery", "now.node.home", "now.node.grid", "now.node.car", "now.car", "now.plan", "status.line", "now.title"]
+        func frame(_ id: String) -> CGRect { app.descendants(matching: .any)[id].firstMatch.frame }
+        let before = ids.map(frame)
         Thread.sleep(forTimeInterval: 6)
-        let after = ids.map { app.buttons[$0].frame }
+        let after = ids.map(frame)
         for (id, (a, b)) in zip(ids, zip(before, after)) {
             XCTAssertEqual(a.minX, b.minX, accuracy: 0.5, "\(id) moved")
             XCTAssertEqual(a.minY, b.minY, accuracy: 0.5, "\(id) moved")
@@ -191,7 +192,7 @@ final class NowFitsTests: XCTestCase {
             "-UIPreferredContentSizeCategoryName", Self.standard,
         ]
         app.launch()
-        let title = app.buttons["now.title"]
+        let title = app.staticTexts["now.title"]
         let line = app.buttons["status.line"]
         let mode = app.buttons["now.mode"]
         XCTAssertTrue(title.waitForExistence(timeout: 15))
@@ -282,7 +283,7 @@ final class NowFitsTests: XCTestCase {
         Thread.sleep(forTimeInterval: 3)
         XCTAssertEqual(button.value as? String, "Balanced")
         let frame = button.frame
-        let titleX = app.buttons["now.title"].frame.minX
+        let titleX = app.staticTexts["now.title"].frame.minX
         button.tap()
         let own = app.buttons["mode.choice.self_consumption"]
         XCTAssertTrue(own.waitForExistence(timeout: 5))
@@ -296,7 +297,7 @@ final class NowFitsTests: XCTestCase {
         shoot(app, "mode-confirmed")
         XCTAssertEqual(button.value as? String, "Own use")
         XCTAssertEqual(button.frame.maxX, frame.maxX, accuracy: 0.5, "the mode button moved its trailing edge")
-        XCTAssertEqual(app.buttons["now.title"].frame.minX, titleX, accuracy: 0.5, "the title moved with the receipt")
+        XCTAssertEqual(app.staticTexts["now.title"].frame.minX, titleX, accuracy: 0.5, "the title moved with the receipt")
         let back = NSPredicate(format: "value == 'DEMO · SIMULATED HOME'")
         expectation(for: back, evaluatedWith: line)
         waitForExpectations(timeout: 10)
@@ -508,16 +509,16 @@ final class NowFitsTests: XCTestCase {
         XCTAssertEqual(app.buttons.matching(identifier: "pair.primary").count, 1, "more than one prominent action")
     }
 
-    /// How the home is run, in full: Settings, in the title's menu.
+    /// How the home is run, in full: the mode sheet, from Home.
     @MainActor
     private func openSettings(_ app: XCUIApplication) {
-        let title = app.buttons["now.title"]
-        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        let home = app.tabBars.buttons["Home"]
+        XCTAssertTrue(home.waitForExistence(timeout: 10))
         Thread.sleep(forTimeInterval: 3)
-        title.tap()
-        let settings = app.buttons["Settings"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 5))
-        settings.tap()
+        home.tap()
+        let mode = app.buttons["home.mode"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 5))
+        mode.tap()
     }
 
     @MainActor

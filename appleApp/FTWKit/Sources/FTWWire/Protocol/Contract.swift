@@ -24,6 +24,7 @@ public enum Contract {
         "ftw.logs.read",
         "ftw.config.read",
         "ftw.diag.run",
+        "ftw.setup.write",
         "ftw.dispatch.hold",
         "ftw.goals.request",
         "ftw.update.request",
@@ -65,7 +66,7 @@ public enum Contract {
     ]
     static let agentScopes = [
         "ftw.live.read", "ftw.history.read", "ftw.plan.read", "ftw.health.read", "ftw.events.read",
-        "ftw.logs.read", "ftw.config.read", "ftw.diag.run", "ftw.dispatch.hold", "ftw.goals.request",
+        "ftw.logs.read", "ftw.config.read", "ftw.diag.run", "ftw.setup.write", "ftw.dispatch.hold", "ftw.goals.request",
     ]
 
     /// Each scope's description, from the registry. Words for an owner come
@@ -84,6 +85,7 @@ public enum Contract {
         "ftw.logs.read": "Log excerpts the box redacts",
         "ftw.config.read": "Configuration the box redacts",
         "ftw.diag.run": "Full technical diagnostics and read API",
+        "ftw.setup.write": "Save confirmed system setup and restart to apply it after user confirmation",
         "ftw.dispatch.hold": "Hold energy assets for a capped time",
         "ftw.goals.request": "Ask an owner to change a durable goal",
         "ftw.update.request": "Ask an owner to install a version",
@@ -101,7 +103,7 @@ public enum Contract {
         "cmd.lease", "cmd.precondition", "cmd.readback",
         "der.battery", "der.ev", "der.v2x",
         "plan.dispatch", "net.webrtc", "price.spot", "api.passthrough",
-        "cloud.link", "cloud.tun", "cmd.exchange", "access.agents", "der.car",
+        "cloud.link", "cloud.tun", "cmd.exchange", "access.agents", "access.invites", "der.car",
     ]
 
     public static let capHistory5m = "history.5m"
@@ -120,6 +122,7 @@ public enum Contract {
     /// The box takes agents and answers the agent messages. Absent, the app
     /// offers no Access list.
     public static let capAccessAgents = "access.agents"
+    public static let capAccessInvites = "access.invites"
 
     /// The scopes an FTW Cloud grant may name, and what its data may be
     /// used for: the registry's `cloud_scopes` and `cloud_purposes`.

@@ -26,13 +26,13 @@ public struct NodeReading: Equatable, Sendable, Identifiable {
 }
 
 public enum NowFlow {
-    /// The nodes Now draws, in its order. The grid is always there, because
-    /// a home that cannot see its own meter should see that gap; any other
-    /// node the box sends no field for is left out rather than drawn at zero,
+    /// The nodes Now draws, in its order. Grid and home stay visible so
+    /// a missing meter or qualified load reads as unknown. Any other node
+    /// the box sends no field for is left out rather than drawn at zero,
     /// unless the home is `known` to have it.
     public static func nodes(fields: [Int: Double], hasCar: Bool, known: [EnergyNode] = []) -> [EnergyNode] {
         EnergyNode.allCases.filter { node in
-            node == .grid || fields[node.fid] != nil || (node == .car && hasCar) || known.contains(node)
+            node == .grid || node == .home || fields[node.fid] != nil || (node == .car && hasCar) || known.contains(node)
         }
     }
 
@@ -115,9 +115,8 @@ extension NowFlow {
         let chargeW = Flow.loadpointChargeW(points)
         var fields = site.session.fields
         let wire = fields[Contract.FID.evW]
-        // The car comes off the house only when both are as old: a fresh
-        // read beside the stream, or both from the cache. An old read never
-        // changes a live figure.
+        // The charger can supply its own display reading when fresh, or
+        // alongside a cached stream. It never changes Core's house load.
         if !loadpoints.stale || site.lastFrameAtMs == nil {
             fields = Flow.withLoadpointEV(fields, evW: chargeW)
         }
@@ -134,17 +133,19 @@ extension NowFlow {
     }
 }
 
-/// Where the flow goes on Now, from the height there is: 45 % of the room
+/// Where the flow goes on Now, from the height there is: 72 % of the room
 /// between the bar and the plan, never less than 232 pt and never more
-/// than 340 pt, centred in that room so the ground above and below it
+/// than 420 pt, centred in that room so the ground above and below it
 /// match. The price row of the plan's strip takes 15 % of the ground the
 /// flow leaves, from 20 pt up to 56 pt, so its bars read as a chart. A
 /// function of the screen and the home's shape alone, so nothing on the
 /// page moves when data arrives.
 public struct NowLayout: Equatable, Sendable {
     public static let minFlow: CGFloat = 232
-    public static let maxFlow: CGFloat = 340
-    public static let share: CGFloat = 0.45
+    /// The ring and the four corners around it need the height of the ring
+    /// plus a label above and below it (Ring / Quiet, 24 October 2026).
+    public static let maxFlow: CGFloat = 420
+    public static let share: CGFloat = 0.72
     /// The least ground between the flow and the plan.
     public static let gap: CGFloat = 16
     public static let minPrice: CGFloat = 20
@@ -173,6 +174,63 @@ public struct NowLayout: Equatable, Sendable {
     }
 }
 
+/// The ring's size and place in the flow's frame: the largest ring, up to
+/// 62 % of the width, whose four corner labels clear it by 10 pt, with the
+/// labels in the corners of a box (`box`) just tall enough for that. A label
+/// on the axis above or below needs the most room; a corner label beside
+/// the ring needs less, since the circle leaves the corners free. Where
+/// even the least ring leaves the labels too little height, on the
+/// smallest phones at the largest text, the labels shrink (`labelScale`)
+/// rather than touch it.
+public struct RingGeometry: Equatable, Sendable {
+    public let center: CGPoint
+    /// Through the middle of the arcs.
+    public let diameter: CGFloat
+    public let thickness: CGFloat
+    /// The hub's circle inside it.
+    public let hub: CGFloat
+    /// The height of the box whose corners hold the labels.
+    public let box: CGFloat
+    /// What the labels are drawn at, of their size: 1 unless they would
+    /// touch the least ring.
+    public let labelScale: CGFloat
+
+    /// The least ring: below it the home's figure has no room.
+    public static let least: CGFloat = 120
+    /// The least the labels shrink to; past it they may come closer.
+    public static let leastScale: CGFloat = 0.7
+
+    public init(size: CGSize, label: CGFloat, labelWidth: CGFloat, axis: Bool) {
+        // How far a label's inner edge sits from the middle, sideways: none
+        // for one centred on the axis.
+        let dx = axis ? 0 : max(0, size.width / 2 - labelWidth)
+        func thick(_ d: CGFloat) -> CGFloat { max(7, (d * 0.042).rounded()) }
+        func dy(_ d: CGFloat) -> CGFloat {
+            let reach = d / 2 + thick(d) / 2 + 10
+            return dx < reach ? (reach * reach - dx * dx).squareRoot() : 0
+        }
+        func box(_ d: CGFloat) -> CGFloat { 2 * (dy(d) + label) }
+        var d = min(size.width * 0.62, 300)
+        while d > Self.least, box(d) > size.height { d = max(Self.least, d - 2) }
+        diameter = d
+        thickness = thick(d)
+        hub = d * 0.62
+        // The labels take what height the least ring leaves them.
+        let room = size.height / 2 - dy(d)
+        labelScale = box(d) > size.height && label > 0 ? min(1, max(Self.leastScale, room / label)) : 1
+        self.box = min(size.height, 2 * (dy(d) + label * labelScale))
+        center = CGPoint(x: size.width / 2, y: size.height / 2)
+    }
+
+    public var radius: CGFloat { diameter / 2 }
+
+    /// A corner label's height for its three rows' type sizes, as
+    /// `NodeLabel` lays them out: the name stops at 18 pt.
+    public static func labelHeight(name: CGFloat, figure: CGFloat, word: CGFloat) -> CGFloat {
+        min(name, 18) * 1.3 + figure * 1.2 + word * 1.3 + 2
+    }
+}
+
 /// Where each part of the flow sits, by the box's own rules: the sun top
 /// left, the battery top right, the grid bottom left, the car bottom right,
 /// the home in the middle. A node whose partner across the middle is
@@ -189,19 +247,10 @@ public enum FlowPlan {
         public var onTop: Bool { self == .topLeading || self == .topTrailing || self == .top }
     }
 
-    /// A beam's two ends: at the node, and 8 pt outside the hub's ring.
-    public struct Ends: Equatable, Sendable {
-        public let node: CGPoint
-        public let hub: CGPoint
-        public var length: CGFloat { hypot(node.x - hub.x, node.y - hub.y) }
-    }
-
-    /// From a beam's end to the hub's ring.
+    /// From the ring to a node on the axis, and from a node's text to the
+    /// room it needs, in the axis's least height.
     public static let hubGap: CGFloat = 8
-    /// From a node's text to its beam.
     public static let nodeGap: CGFloat = 4
-    /// A beam shorter than this is not drawn: there is no room for light.
-    public static let shortest: CGFloat = 12
 
     public static func spot(_ node: EnergyNode, among nodes: [EnergyNode]) -> Spot {
         func has(_ n: EnergyNode) -> Bool { nodes.contains(n) }
@@ -215,35 +264,46 @@ public enum FlowPlan {
     }
 
     /// The height a home's shape needs: the four corners fit the floor,
-    /// while a node on the axis stacks over or under the hub with a beam
-    /// between them.
+    /// while a node on the axis stacks over or under the ring.
     public static func least(_ nodes: [EnergyNode], node height: CGFloat = 72, hub: CGFloat = 92) -> CGFloat {
         let axis = nodes.contains { [.top, .bottom].contains(spot($0, among: nodes)) }
         guard axis else { return NowLayout.minFlow }
         return 2 * (height + nodeGap + 24 + hubGap + hub / 2)
     }
 
-    /// Where a node's beam meets it: just past the text on the hub's side,
-    /// a fifth of the way in from its inner edge, or under its middle on
-    /// the axis. Fixed by the node's frame, never by its words, so a beam
-    /// never moves when a figure changes.
-    public static func anchor(_ frame: CGRect, at spot: Spot) -> CGPoint {
-        let inset = frame.width * 0.2
-        let y = spot.onTop ? frame.maxY + nodeGap : frame.minY - nodeGap
-        if spot.leading { return CGPoint(x: frame.maxX - inset, y: y) }
-        if spot.trailing { return CGPoint(x: frame.minX + inset, y: y) }
-        return CGPoint(x: frame.midX, y: y)
+    // MARK: The ring
+
+    /// Degrees left open between two quarters of the ring.
+    public static let ringGap: Double = 14
+
+    /// The middle of a node's arc, in degrees clockwise from three o'clock
+    /// (SwiftUI's angles, y down): the quarter facing the node's corner, or
+    /// straight up or down for a node on the axis.
+    public static func ringAngle(_ spot: Spot) -> Double {
+        switch spot {
+        case .topLeading: return 225
+        case .topTrailing: return 315
+        case .bottomTrailing: return 45
+        case .bottomLeading: return 135
+        case .top: return 270
+        case .bottom: return 90
+        case .center: return 0
+        }
     }
 
-    /// The beam between a node and the hub, straight along the line to the
-    /// hub's centre. Nil when the two sit too close for one.
-    public static func beam(node frame: CGRect, at spot: Spot, hub: CGRect) -> Ends? {
-        let a = anchor(frame, at: spot)
-        let c = CGPoint(x: hub.midX, y: hub.midY)
-        let d = hypot(a.x - c.x, a.y - c.y)
-        let r = hub.width / 2 + hubGap
-        guard d - r >= shortest else { return nil }
-        let k = r / d
-        return Ends(node: a, hub: CGPoint(x: c.x + (a.x - c.x) * k, y: c.y + (a.y - c.y) * k))
+    /// A node's arc: the whole quarter it may light (`track`), and the part
+    /// it lights at `fill`, centred in it, so a stronger flow grows both
+    /// ways and the quarter's middle always faces the node.
+    public struct RingArc: Equatable, Sendable {
+        public let track: ClosedRange<Double>
+        public let lit: ClosedRange<Double>?
+    }
+
+    public static func ringArc(_ spot: Spot, fill: Double) -> RingArc {
+        let mid = ringAngle(spot), half = (90 - ringGap) / 2
+        let track = (mid - half)...(mid + half)
+        let f = min(1, max(0, fill))
+        guard f > 0.001 else { return RingArc(track: track, lit: nil) }
+        return RingArc(track: track, lit: (mid - half * f)...(mid + half * f))
     }
 }

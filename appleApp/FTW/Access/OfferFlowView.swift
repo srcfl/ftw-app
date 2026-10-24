@@ -145,8 +145,18 @@ struct OfferReview: View {
             }
 
             Section(AccessWords.text("It may")) {
-                ForEach(AccessWords.ordered(grant.scopes.filter { !AccessWire.controlScopes.contains($0) }), id: \.self) { scope in
+                ForEach(AccessWords.ordered(grant.scopes.filter { !AccessWire.controlScopes.contains($0) && $0 != AccessWire.scopeSetup }), id: \.self) { scope in
                     Label(AccessWords.scope(scope), systemImage: "eye")
+                }
+            }
+
+            if offer.scopes.contains(AccessWire.scopeSetup) {
+                Section {
+                    Toggle(AccessWords.text("Allow setup"), isOn: $flow.setup)
+                        .tint(Theme.live)
+                        .accessibilityIdentifier("offer.setup")
+                } footer: {
+                    Text(AccessWords.text("Off until you choose it. This includes equipment names and connection settings. Review and confirm the exact draft before it saves, and confirm any restart separately. Equipment settings can affect operation; the box keeps its safety checks."))
                 }
             }
 
@@ -157,7 +167,7 @@ struct OfferReview: View {
                         .accessibilityIdentifier("offer.control")
                 } footer: {
                     let asked = Grant.from(offer, control: true, lengthMs: flow.lengthMs)
-                    Text(flow.control ? AccessWords.control(asked.caps, scopes: asked.scopes) : AccessWords.text("Off: it reads and changes nothing."))
+                    Text(flow.control ? AccessWords.control(asked.caps, scopes: asked.scopes) : AccessWords.text(flow.setup ? "Short control actions are off." : "Off: it reads and changes nothing."))
                 }
                 if flow.control {
                     Section(AccessWords.text("With control it may")) {

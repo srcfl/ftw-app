@@ -42,6 +42,10 @@ struct AccessView: View {
                 Text(AccessWords.text("Assistants such as Claude or ChatGPT reach your home through FTW Cloud, with what you let them. Your box checks every call."))
             }
 
+            if access.invitationsAvailable {
+                Section { NavigationLink { InvitationsView(app:app,access:access) } label: { Label(AccessWords.text("Shared access"),systemImage:"person.2.badge.key") } }
+            }
+
             Section(AccessWords.text("Sourceful support")) {
                 ForEach(access.support) { row in
                     NavigationLink { GrantView(app: app, access: access, id: row.id) } label: { GrantLine(access: access, row: row) }

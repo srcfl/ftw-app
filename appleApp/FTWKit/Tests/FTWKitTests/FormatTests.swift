@@ -84,13 +84,160 @@ import Testing
         #expect(!r.nodes.contains { $0.role == .ev })
         let overlaid = Flow.withLoadpointEV([F.loadW: 9000, F.evW: 0], evW: 7400)
         #expect(overlaid[F.evW] == 7400)
-        #expect(overlaid[F.loadW] == 1600)
+        #expect(overlaid[F.loadW] == 9000)
     }
 
 }
 
-/// The beams on Now: what width, speed and light a reading gives, and how a
-/// beam moves between frames. Light means live: a cache never glows.
+/// The ring on Now (Ring / Quiet): each node's quarter, how much of it a
+/// flow lights, and that its light follows the same rules as a beam's.
+@Suite struct FlowRingTests {
+    func target(_ kw: Double, live: Bool, node: EnergyNode = .solar) -> Flow.BeamTarget {
+        Flow.BeamTarget(node: node, kw: kw, live: live, flowing: kw * 1000 > Flow.idleW, towardHome: true)
+    }
+
+    /// One curve for every node: nothing at rest, a short arc at a few
+    /// hundred watts, half at 1.8 kW, never past the whole quarter.
+    @Test func anArcGrowsWithPowerAndSaturates() {
+        #expect(Flow.ringFill(kw: 0) == 0)
+        #expect(Flow.ringFill(kw: 0.04) == 0)
+        #expect(Flow.ringFill(kw: 0.05) == 0.12)
+        #expect(abs(Flow.ringFill(kw: 0.6) - 0.213) < 0.001)
+        #expect(abs(Flow.ringFill(kw: 1.8) - 0.513) < 0.001)
+        #expect(abs(Flow.ringFill(kw: 6) - 0.909) < 0.001)
+        #expect(Flow.ringFill(kw: 22) <= 1)
+        #expect(Flow.ringFill(kw: -2.4) == Flow.ringFill(kw: 2.4))
+        #expect(Flow.ringFill(kw: .nan) == 0)
+        #expect(Flow.ringFill(kw: .infinity) == 0)
+        var last = 0.0
+        for kw in stride(from: 0.1, through: 12, by: 0.1) {
+            let f = Flow.ringFill(kw: kw)
+            #expect(f >= last)
+            last = f
+        }
+    }
+
+    /// Each node's quarter faces its corner, the quarters never touch, and
+    /// the lit part grows from the quarter's middle and stays inside it.
+    @Test func eachQuarterFacesItsNode() {
+        #expect(FlowPlan.ringAngle(.topLeading) == 225)
+        #expect(FlowPlan.ringAngle(.topTrailing) == 315)
+        #expect(FlowPlan.ringAngle(.bottomTrailing) == 45)
+        #expect(FlowPlan.ringAngle(.bottomLeading) == 135)
+        #expect(FlowPlan.ringAngle(.top) == 270)
+        #expect(FlowPlan.ringAngle(.bottom) == 90)
+        let corners: [FlowPlan.Spot] = [.topLeading, .topTrailing, .bottomTrailing, .bottomLeading]
+        let tracks = corners.map { FlowPlan.ringArc($0, fill: 1).track }
+        for (i, a) in tracks.enumerated() {
+            #expect(abs((a.upperBound - a.lowerBound) - (90 - FlowPlan.ringGap)) < 1e-9)
+            // No quarter crosses three o'clock, so one conic gradient
+            // from its start covers it.
+            #expect(a.lowerBound >= 0 && a.upperBound <= 360)
+            for b in tracks[(i + 1)...] { #expect(!a.overlaps(b)) }
+        }
+        for fill in [0.1, 0.5, 1.0] {
+            let arc = FlowPlan.ringArc(.topTrailing, fill: fill)
+            let lit = try! #require(arc.lit)
+            #expect(abs((lit.lowerBound + lit.upperBound) / 2 - 315) < 1e-9)
+            #expect(arc.track.contains(lit.lowerBound) && arc.track.contains(lit.upperBound))
+        }
+        #expect(FlowPlan.ringArc(.topTrailing, fill: 0).lit == nil)
+        #expect(FlowPlan.ringArc(.topTrailing, fill: 2).lit == FlowPlan.ringArc(.topTrailing, fill: 1).lit)
+    }
+
+    /// An arc drawn from the cache never lights, as a beam never does.
+    @Test func aCachedArcNeverGlows() {
+        var m = Flow.RingMotion(target(3.2, live: false), at: 0)
+        var t = 0.0
+        while t <= 5 {
+            let f = m.step(target(3.2, live: false), at: t, reduceMotion: false)
+            #expect(f.beam.light == 0)
+            #expect(f.beam.phase == 0)
+            #expect(abs(f.fill - Flow.ringFill(kw: 3.2)) < 1e-9)
+            t += 1.0 / 60
+        }
+    }
+
+    /// A new reading grows the arc smoothly, never past the new length, and
+    /// at once under Reduce Motion.
+    @Test func anArcGrowsToANewReadingWithoutOvershoot() {
+        var m = Flow.RingMotion(target(0.6, live: true), at: 0)
+        let goal = Flow.ringFill(kw: 6)
+        var t = 0.0, last = Flow.ringFill(kw: 0.6)
+        // Ten time constants: a critically damped spring is there.
+        while t <= 4 {
+            let f = m.step(target(6, live: true), at: t, reduceMotion: false)
+            #expect(f.fill >= last - 1e-9)
+            #expect(f.fill <= goal + 1e-9)
+            last = f.fill
+            t += 1.0 / 120
+        }
+        #expect(abs(last - goal) < 0.001)
+        var still = Flow.RingMotion(target(0.6, live: true), at: 0)
+        #expect(still.step(target(6, live: true), at: 0.01, reduceMotion: true).fill == goal)
+    }
+
+    /// On every phone from the SE to the Pro Max, at every height Now can
+    /// give the flow and up to the largest standard text, the corner labels
+    /// clear the ring by 10 pt: the ring shrinks first, then the labels, and
+    /// the box never leaves the frame. Only at the labels' least size may
+    /// they come closer.
+    @Test func theCornerLabelsNeverTouchTheRing() {
+        // The flow's width on each phone, less the page's 16 pt sides.
+        for width: CGFloat in [343, 370, 370, 408] {
+            for k: CGFloat in [1, 1.15, 1.35] {
+                let label = RingGeometry.labelHeight(name: 15 * k, figure: 30 * k, word: 14 * k)
+                let labelWidth = min(140, max(92, width * 0.38))
+                for axis in [false, true] { for height in stride(from: NowLayout.minFlow, through: NowLayout.maxFlow, by: 2) {
+                    let g = RingGeometry(size: CGSize(width: width, height: height), label: label, labelWidth: labelWidth, axis: axis)
+                    #expect(g.box <= height + 0.001)
+                    #expect(g.diameter >= RingGeometry.least)
+                    #expect(g.hub == g.diameter * 0.62)
+                    // A top label's inner lower corner, from the ring's
+                    // middle; on the axis, the middle of its foot.
+                    let x = axis ? 0 : width / 2 - labelWidth
+                    let y = g.box / 2 - label * g.labelScale
+                    let clear = (x * x + y * y).squareRoot() - (g.radius + g.thickness / 2)
+                    if g.labelScale > RingGeometry.leastScale {
+                        #expect(clear >= 10 - 0.01, "width \(width) height \(height) text ×\(k): \(clear) pt")
+                    }
+                    if g.labelScale < 1 { #expect(g.diameter == RingGeometry.least) }
+                } }
+            }
+        }
+    }
+
+    /// Where there is room, the labels keep their size.
+    @Test func theLabelsKeepTheirSizeWhereThereIsRoom() {
+        let label = RingGeometry.labelHeight(name: 15, figure: 30, word: 14)
+        let pro = RingGeometry(size: CGSize(width: 370, height: 386), label: label, labelWidth: 140, axis: false)
+        #expect(pro.labelScale == 1)
+        #expect(pro.diameter > 200)
+    }
+
+    /// A reading that went out while nothing was drawn, the phone away or
+    /// the timeline at rest, is dark on the first frame back: a glow that
+    /// cooled unseen never cools on screen. One that goes out on screen
+    /// still cools, and one that comes back still ignites.
+    @Test func aGlowThatWentOutUnseenIsGoneOnTheFirstFrame() {
+        var m = Flow.RingMotion(target(3.2, live: true), at: 0)
+        _ = m.step(target(3.2, live: true), at: 1.0 / 60, reduceMotion: false)
+        let back = m.step(target(3.2, live: false), at: 600, reduceMotion: false)
+        #expect(back.beam.light == 0)
+
+        var seen = Flow.RingMotion(target(3.2, live: true), at: 0)
+        _ = seen.step(target(3.2, live: true), at: 1.0 / 60, reduceMotion: false)
+        let cooling = seen.step(target(3.2, live: false), at: 2.0 / 60, reduceMotion: false)
+        #expect(cooling.beam.light > 0.9)
+
+        var lit = Flow.RingMotion(target(3.2, live: false), at: 0)
+        let first = lit.step(target(3.2, live: true), at: 600, reduceMotion: false)
+        let later = lit.step(target(3.2, live: true), at: 600.2, reduceMotion: false)
+        #expect(first.beam.light < 0.05)
+        #expect(later.beam.light > first.beam.light)
+    }
+}
+
 @Suite struct FlowBeamTests {
     func target(_ kw: Double, live: Bool, node: EnergyNode = .battery) -> Flow.BeamTarget {
         Flow.BeamTarget(node: node, kw: kw, live: live, flowing: kw * 1000 > Flow.idleW, towardHome: true)
@@ -285,36 +432,5 @@ import Testing
         #expect(FlowPlan.least(all) == NowLayout.minFlow)
         #expect(FlowPlan.least(noCar) > NowLayout.minFlow)
         #expect(FlowPlan.least(line) == FlowPlan.least(noCar))
-    }
-
-    @Test func beamsRunStraightFromJustPastTheTextToJustOutsideTheRing() throws {
-        let size = CGSize(width: 343, height: 224), w: CGFloat = 98, h: CGFloat = 70
-        let hub = CGRect(x: size.width / 2 - 46, y: size.height / 2 - 46, width: 92, height: 92)
-        let frames: [FlowPlan.Spot: CGRect] = [
-            .topLeading: CGRect(x: 0, y: 0, width: w, height: h),
-            .topTrailing: CGRect(x: size.width - w, y: 0, width: w, height: h),
-            .bottomLeading: CGRect(x: 0, y: size.height - h, width: w, height: h),
-            .bottomTrailing: CGRect(x: size.width - w, y: size.height - h, width: w, height: h),
-        ]
-        var lengths = [CGFloat]()
-        for (spot, frame) in frames {
-            let ends = try #require(FlowPlan.beam(node: frame, at: spot, hub: hub))
-            // 8 pt outside the ring, on the line to its centre.
-            #expect(abs(hypot(ends.hub.x - hub.midX, ends.hub.y - hub.midY) - (46 + FlowPlan.hubGap)) < 1e-6)
-            // Clear of the node's text, on the hub's side of it.
-            #expect(!frame.contains(ends.node))
-            #expect(spot.onTop ? ends.node.y > frame.maxY : ends.node.y < frame.minY)
-            #expect(ends.length >= FlowPlan.shortest)
-            lengths.append(ends.length)
-        }
-        // All the same length, so the light reads the same on each.
-        #expect((lengths.max() ?? 0) - (lengths.min() ?? 0) < 1e-6)
-        // On the axis the beam is straight down.
-        let top = CGRect(x: size.width / 2 - w / 2, y: 0, width: w, height: 60)
-        let tall = CGRect(x: size.width / 2 - 46, y: 150 - 46, width: 92, height: 92)
-        let axis = try #require(FlowPlan.beam(node: top, at: .top, hub: tall))
-        #expect(abs(axis.node.x - axis.hub.x) < 1e-6)
-        // No room, no beam.
-        #expect(FlowPlan.beam(node: top, at: .top, hub: hub) == nil)
     }
 }

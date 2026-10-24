@@ -174,8 +174,14 @@ private struct PlanSlot: View {
     }
 
     var body: some View {
+        // The car row's place follows the ring's: the car's corner and its
+        // row come and go together, from the same nodes.
+        let hasCar = FlowSection.readings(site: site, loadpoints: home.loadpoints).contains { $0.node == .car }
         ZStack(alignment: .topLeading) {
-            PlanSection(site: site, models: home.nodes, prices: home.prices, loadpoints: home.loadpoints, zoom: zoom)
+            VStack(alignment: .leading, spacing: 18) {
+                if hasCar { NowCarRow(home: home, zoom: zoom) }
+                PlanSection(site: site, models: home.nodes, prices: home.prices, loadpoints: home.loadpoints, zoom: zoom)
+            }
                 .opacity(nothingYet ? 0 : 1)
                 .allowsHitTesting(!nothingYet)
                 .accessibilityHidden(nothingYet)
@@ -185,6 +191,92 @@ private struct PlanSlot: View {
             }
         }
         .animation(Theme.spring, value: nothingYet)
+    }
+}
+
+/// The car under the ring: its goal and its level, and a door into the
+/// car's view. On a box that keeps cars, the car by name; on one that does
+/// not, the charger's car. The row is there whenever the ring has a car,
+/// from the cache on frame one, and holds the shape of its two lines until
+/// the box has said, so the page never moves when the cars arrive.
+private struct NowCarRow: View {
+    let home: HomeModels
+    let zoom: Namespace.ID
+
+    /// What the row says, and where it goes.
+    struct Line: Equatable {
+        var title: String
+        var detail: String
+        /// The level is FTW's assumption or estimate, not the car's.
+        var guessed: Bool
+        var plugged: Bool
+        var route: HomeRoute
+    }
+
+    @MainActor
+    static func line(_ home: HomeModels) -> Line? {
+        let cars = home.cars, chargers = home.loadpoints
+        let now = home.site.minuteMs, zone = chargers.zone
+        let date = Date(timeIntervalSince1970: now / 1000)
+        if cars.keepsCars, let car = cars.ordered.first {
+            let level = cars.level(car)
+            let goal = car.goal.map { CarsModel.schedule($0, nowMs: now, zone: zone) }
+            return Line(
+                title: goal.map { "\(car.shownName) · \(EVText.goal($0, at: date, zone: zone))" } ?? car.shownName,
+                detail: level.map { "\(CarText.percent($0)) · \(CarText.origin($0, nowMs: now, zone: zone))" } ?? C("Level unknown"),
+                guessed: level?.guessed == true,
+                plugged: cars.charger(of: car)?.pluggedIn == true,
+                route: .car(car.id)
+            )
+        }
+        guard let lp = chargers.points.first(where: \.pluggedIn) ?? chargers.points.first else { return nil }
+        let level = chargers.carLevel
+        let guessed = level.map { [.assumed, .estimated, .unconfirmed].contains($0.origin) } ?? false
+        let goal = lp.schedule.map { EVText.goal($0, at: date, zone: zone) } ?? L("No goal")
+        return Line(
+            title: "\(L("Car")) · \(goal)",
+            detail: level.map { "\(guessed ? "≈\u{00A0}" : "")\(AppWords.percent($0.pct)) · \(EVText.originShort($0, zone: zone))" } ?? (lp.pluggedIn ? C("Level unknown") : L("Not plugged in")),
+            guessed: guessed,
+            plugged: lp.pluggedIn,
+            route: .car(lp.id)
+        )
+    }
+
+    var body: some View {
+        let line = Self.line(home)
+        let shown = line ?? Line(title: L("Car"), detail: C("Level unknown"), guessed: false, plugged: false, route: .car(nil))
+        NavigationLink(value: shown.route) {
+            HStack(spacing: 12) {
+                Image(systemName: shown.plugged ? "bolt.car.fill" : "car.side.fill")
+                    .font(.title3)
+                    .foregroundStyle(Theme.car)
+                    .frame(width: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(shown.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.ink)
+                    Text(shown.detail)
+                        .font(.footnote)
+                        .foregroundStyle(shown.guessed ? Theme.ink3 : Theme.ink2)
+                        .monospacedDigit()
+                }
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
+                .redacted(reason: line == nil ? .placeholder : [])
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.ink3)
+            }
+            .frame(minHeight: 48)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(line == nil)
+        .matchedTransitionSource(id: shown.route, in: zoom)
+        .animation(Theme.spring, value: line)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("now.car")
     }
 }
 

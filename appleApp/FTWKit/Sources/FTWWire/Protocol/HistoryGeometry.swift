@@ -13,7 +13,7 @@ public enum HistoryGeometry {
         public let retentionMs: Double
     }
 
-    static let dayMs: Double = 86_400_000
+    package static let dayMs: Double = 86_400_000
 
     /// Mirrors `resolutions` in protocol/registry.yaml.
     public static func spec(_ res: Resolution) -> Spec {

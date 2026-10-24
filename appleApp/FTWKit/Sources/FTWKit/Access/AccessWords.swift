@@ -93,7 +93,8 @@ public enum AccessWords {
         "ftw.events.read": "See events",
         "ftw.logs.read": "Read the box's log, with names taken out",
         "ftw.config.read": "Read the settings, with names and secrets taken out",
-        "ftw.diag.run": "Run checks that change nothing",
+        "ftw.diag.run": "Read full diagnostics, source, logs and backups, which can contain saved credentials",
+        "ftw.setup.write": "Save confirmed setup and restart to apply it when you confirm",
         "ftw.dispatch.hold": "Charge the car for a short while",
         "ftw.goals.request": "Ask you for lasting changes",
     ]
@@ -105,9 +106,21 @@ public enum AccessWords {
         return scopes.sorted { (order.firstIndex(of: $0) ?? 99) < (order.firstIndex(of: $1) ?? 99) }
     }
 
-    /// One line for a grant: "Reads" or "Reads and controls".
+    /// One line for the rights this grant actually holds.
     public static func summary(_ scopes: [String]) -> String {
-        AccessWire.controlScopes.isDisjoint(with: scopes) ? text("Reads") : text("Reads and controls")
+        let setup = scopes.contains(AccessWire.scopeSetup)
+        let control = !AccessWire.controlScopes.isDisjoint(with: scopes)
+        let reads = scopes.contains { $0 != AccessWire.scopeSetup && !AccessWire.controlScopes.contains($0) }
+        switch (reads, setup, control) {
+        case (true, true, true): return text("Reads, setup and control")
+        case (true, true, false): return text("Reads and setup")
+        case (true, false, true): return text("Reads and controls")
+        case (true, false, false): return text("Reads")
+        case (false, true, true): return text("Configures and controls")
+        case (false, true, false): return text("Configures")
+        case (false, false, true): return text("Controls")
+        case (false, false, false): return text("No access")
+        }
     }
 
     /// What control means for these caps: how long and how hard it may
@@ -447,6 +460,47 @@ public enum AccessWords {
     // MARK: Swedish
 
     static let sv: [String: String] = [
+        "Shared access": "Delad åtkomst",
+        "New invitation": "Ny inbjudan",
+        "Create an invitation": "Skapa en inbjudan",
+        "Create an invitation to this home": "Skapa en inbjudan till den här anläggningen",
+        "Guest": "Gäst",
+        "Invitation code": "Inbjudningskod",
+        "Invitation ended": "Inbjudan har upphört",
+        "Waiting for the box's clock": "Väntar på boxens klocka",
+        "Waiting for the box to publish the code. Keep this page open and retry the same invitation.": "Väntar på att boxen ska publicera koden. Behåll sidan öppen och försök igen med samma inbjudan.",
+        "Get the six-character code": "Hämta koden med sex tecken",
+        "Check status and code": "Kontrollera status och kod",
+        "This code has ended. Check status before creating a new invitation.": "Koden har gått ut. Kontrollera status innan du skapar en ny inbjudan.",
+        "The six-character code works once and ends within ten minutes. Access lasts as long as you choose above.": "Koden med sex tecken fungerar en gång och går ut inom tio minuter. Åtkomsten gäller så länge som du väljer ovan.",
+        "Waiting to be used": "Väntar på att användas",
+        "Access is given": "Åtkomst är given",
+        "Use before": "Använd före",
+        "Access ends": "Åtkomsten upphör",
+        "Access lasts": "Åtkomst i",
+        "Use the code within": "Använd koden inom",
+        "1 hour": "1 timme",
+        "24 hours": "24 timmar",
+        "10 minutes": "10 minuter",
+        "Cancel invitation": "Avbryt inbjudan",
+        "Share code": "Dela kod",
+        "View or remove access": "Visa eller ta bort åtkomst",
+        "Who is this for?": "Vem är det till?",
+        "Power limit (W)": "Effektgräns (W)",
+        "Hold limit (seconds)": "Tidsgräns för tillfällig styrning (sekunder)",
+        "Check status": "Kontrollera status",
+        "Create code with %@": "Skapa kod med %@",
+        "Retry the same invitation": "Försök igen med samma inbjudan",
+        "Share a code with someone who will use their own assistant. The first person who uses it gets a separate connection you can remove.": "Dela en kod med någon som använder sin egen assistent. Den första som använder koden får en egen anslutning som du kan ta bort.",
+        "The code cannot be shown again. Cancel this invitation and create a new one if needed.": "Koden går inte att visa igen. Avbryt inbjudan och skapa en ny om det behövs.",
+        "They connect FTW in their assistant, choose ‘I have an invitation code’ on the FTW connection page and paste it. The box must be online when they use it. Anyone with the unused code can claim these rights.": "Mottagaren ansluter FTW i sin assistent, väljer ”I have an invitation code” på FTW:s anslutningssida och klistrar in koden. Boxen måste vara online då. Vem som helst med den oanvända koden kan få de här rättigheterna.",
+        "Access is already given. Open Shared access to remove its connection.": "Åtkomst är redan given. Öppna Delad åtkomst för att ta bort anslutningen.",
+        "This invitation has ended.": "Den här inbjudan har upphört.",
+        "Setup can save equipment and electrical settings. Review and confirm the exact draft before saving and confirm any restart separately.": "Setup kan spara utrustning och elinställningar. Granska och bekräfta det exakta utkastet före sparning och bekräfta en omstart för sig.",
+        "The label does not check the recipient's identity. Technical backups can contain saved credentials. The code appears only while this page stays open.": "Namnet kontrollerar inte mottagarens identitet. Tekniska säkerhetskopior kan innehålla sparade inloggningsuppgifter. Koden visas bara medan den här sidan är öppen.",
+        "Creation is not confirmed. Retry sends the exact same invitation. The Shared access list can show whether it already exists.": "Skapandet är inte bekräftat. Ett nytt försök skickar exakt samma inbjudan. Listan Delad åtkomst kan visa om den redan finns.",
+        "Wait for the box to connect to FTW Cloud before sharing access.": "Vänta tills boxen har anslutit till FTW Cloud innan du delar åtkomst.",
+        "Choose a shorter access time that your box allows.": "Välj en kortare åtkomsttid som boxen tillåter.",
         // Who
         "Sourceful support": "Sourceful support",
         "Assistant %@": "Assistent %@",
@@ -486,6 +540,18 @@ public enum AccessWords {
         "May": "Får",
         "Reads": "Läser",
         "Reads and controls": "Läser och styr",
+        "Configures and controls": "Konfigurerar och styr",
+        "Configures": "Konfigurerar",
+        "Controls": "Styr",
+        "No access": "Ingen åtkomst",
+        "Reads and setup": "Läser och konfigurerar",
+        "Reads, setup and control": "Läser, konfigurerar och styr",
+        "Read full diagnostics, source, logs and backups, which can contain saved credentials": "Läsa full diagnostik, källkod, loggar och säkerhetskopior som kan innehålla sparade inloggningsuppgifter",
+        "Save confirmed setup and restart to apply it when you confirm": "Spara bekräftad konfiguration och starta om när du godkänner det",
+        "Allow setup": "Tillåt konfigurering",
+        "Off until you choose it. This includes equipment names and connection settings. Review and confirm the exact draft before it saves, and confirm any restart separately. Equipment settings can affect operation; the box keeps its safety checks.": "Av tills du väljer det. Det omfattar utrustningens namn och anslutningsinställningar. Granska och bekräfta det exakta utkastet före sparning och godkänn varje omstart för sig. Utrustningens inställningar kan påverka driften; boxens säkerhetskontroller gäller.",
+        "Short control actions are off.": "Tillfälliga styråtgärder är avstängda.",
+
         "Control": "Styra",
         "Also let it control": "Låt den också styra",
         "See live readings": "Se mätvärden just nu",

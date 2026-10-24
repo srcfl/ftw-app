@@ -10,57 +10,77 @@ import SwiftUI
 /// The car's own words; Swedish beside them in `CarWords`.
 func C(_ en: String) -> String { CarWords.text(en) }
 
-/// The car's name over its level, the 10-cell meter, where the level comes
-/// from and how old it is, and the limit the car reported. The level is a
-/// reading, never live: ink, held still, faint when FTW assumes it.
+/// The car's name over its level in a ring, the goal marked on it, where
+/// the level comes from and how old it is, and the limit the car reported.
+/// The level is a reading, never live: violet without glow, held still,
+/// ink when FTW assumes it.
 struct CarHero: View {
     let car: Car
     let cars: CarsModel
     let site: SiteModel
     let zone: TimeZone
-    @ScaledMetric(relativeTo: .largeTitle) private var figureSize: CGFloat = 60
+    @ScaledMetric(relativeTo: .largeTitle) private var ringSize: CGFloat = 196
+    @ScaledMetric(relativeTo: .largeTitle) private var figureSize: CGFloat = 52
 
     var body: some View {
         let level = cars.level(car)
         let faint = level?.guessed ?? true
-        VStack(alignment: .leading, spacing: 4) {
+        let goal = car.goal.map { CarsModel.schedule($0, nowMs: site.minuteMs, zone: zone) }
+        let goalPct = goal.flatMap(CarText.goalPct)
+        // The ring takes at most half the width it has, so a large text
+        // size grows the words, not the ring past the screen.
+        let ring = min(ringSize, 260)
+        VStack(spacing: 12) {
             Text(car.shownName)
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(Theme.ink)
+                .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .accessibilityIdentifier("car.name")
-            Text(level.map(CarText.percent) ?? "—")
-                .font(Theme.figure(figureSize))
-                .tracking(-1)
-                .foregroundStyle(faint ? Theme.ink3 : Theme.ink)
-                .contentTransition(.numericText(value: level?.pct ?? 0))
-                .lineLimit(1)
-                .minimumScaleFactor(0.5)
-                .accessibilityIdentifier("car.level")
-            if let level {
-                CellMeter(pct: level.pct, tint: Theme.car, live: !faint, glows: false)
-                    .frame(width: 120, height: 5)
-                    .padding(.bottom, 4)
+            LevelRing(pct: level?.pct ?? 0, goalPct: goalPct, tint: Theme.car, lit: !faint, glows: false, thickness: max(9, ring * 0.06)) {
+                VStack(spacing: 2) {
+                    Text(level.map(CarText.percent) ?? "—")
+                        .font(Theme.figure(min(figureSize, ring * 0.27)))
+                        .tracking(-1)
+                        .foregroundStyle(faint ? Theme.ink3 : Theme.ink)
+                        .contentTransition(.numericText(value: level?.pct ?? 0))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                        .accessibilityIdentifier("car.level")
+                    if let goalPct {
+                        Text(CarWords.format("Goal %@", AppWords.percent(goalPct)))
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.ink2)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                }
+                .padding(.horizontal, ring * 0.14)
             }
-            Text(level.map { CarText.origin($0, nowMs: site.minuteMs, zone: zone) } ?? C("Level unknown"))
-                .font(.subheadline)
-                .foregroundStyle(Theme.ink2)
-                .contentTransition(.opacity)
-                .accessibilityIdentifier("car.origin")
-            if let limit = CarText.limit(car) {
-                Text(limit)
+            .frame(width: ring, height: ring)
+            VStack(spacing: 4) {
+                Text(level.map { CarText.origin($0, nowMs: site.minuteMs, zone: zone) } ?? C("Level unknown"))
                     .font(.subheadline)
                     .foregroundStyle(Theme.ink2)
+                    .contentTransition(.opacity)
+                    .accessibilityIdentifier("car.origin")
+                if let limit = CarText.limit(car) {
+                    Text(limit)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.ink2)
+                }
+                // The list from the cache or a read that failed says so: the
+                // level is the box's last word, dated.
+                if let note = cars.staleNote {
+                    Text(note)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.alarm)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
-            // The list from the cache or a read that failed says so: the
-            // level is the box's last word, dated.
-            if let note = cars.staleNote {
-                Text(note)
-                    .font(.footnote)
-                    .foregroundStyle(Theme.alarm)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            .multilineTextAlignment(.center)
         }
+        .frame(maxWidth: .infinity)
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
         .accessibilityElement(children: .combine)
     }

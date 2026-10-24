@@ -14,6 +14,25 @@ import Testing
         v = try ApprovalVectors.load().offer
     }
 
+    @Test func grantSummaryNamesOnlyItsRights() {
+        let read = "ftw.live.read"
+        let setup = AccessWire.scopeSetup
+        let control = AccessWire.scopeHold
+        let cases: [([String], String)] = [
+            ([], "No access"), ([setup], "Configures"), ([control], "Controls"),
+            ([setup, control], "Configures and controls"), ([read], "Reads"),
+            ([read, setup], "Reads and setup"), ([read, control], "Reads and controls"),
+            ([read, setup, control], "Reads, setup and control"),
+        ]
+        for (scopes, expected) in cases {
+            #expect(AccessWords.summary(scopes) == AccessWords.text(expected))
+        }
+        #expect(AccessWords.sv["Configures"] == "Konfigurerar")
+        #expect(AccessWords.sv["Configures and controls"] == "Konfigurerar och styr")
+        #expect(AccessWords.sv["Controls"] == "Styr")
+        #expect(AccessWords.sv["No access"] == "Ingen åtkomst")
+    }
+
     var pinned: OfferKeys { OfferKeys(pins: ["\(v.kid):\(Base64url.encode(Bytes(hex: v.pubHex)))"]) }
     var signed: SignedOffer { get throws { try SignedOffer(base64url: Base64url.encode(Bytes(hex: v.signedOfferHex))) } }
 

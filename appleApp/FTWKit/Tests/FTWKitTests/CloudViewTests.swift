@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 import Testing
 @testable import FTWKit
+@testable import FTWWire
 
 // The freshness cases from srcfl/ftw docs/protocol-cloud.md, as
 // go/protocol/cloudwire/view_test.go runs them, against CloudView. Times are

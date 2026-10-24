@@ -91,6 +91,8 @@ public final class AppModel {
 
     @ObservationIgnored public let vault: Vault
     @ObservationIgnored public let sites: SiteList
+    /// This phone's watch on its own: its key, and adding it to the box.
+    public let watch: WatchAccess
     @ObservationIgnored public let pairing: Pairing
     @ObservationIgnored public let passkeys: PasskeyAuthenticator?
     @ObservationIgnored let store: SecureStore
@@ -121,7 +123,8 @@ public final class AppModel {
         cloudEndpoint: CloudEndpoint? = CloudEndpoint.current,
         makeSocket: @escaping WebSocketFactory = URLSessionWebSocket.factory(),
         makeCloudSocket: WebSocketFactory? = nil,
-        demo: DemoCarrier? = nil
+        demo: DemoCarrier? = nil,
+        watchDefaults: UserDefaults = .standard
     ) {
         self.store = store
         self.files = files
@@ -136,6 +139,7 @@ public final class AppModel {
         self.makeCloudSocket = makeCloudSocket ?? makeSocket
         vault = Vault(store: store)
         sites = SiteList(store: store)
+        watch = WatchAccess(defaults: watchDefaults)
         pairing = Pairing(vault: vault, sites: sites, passkeys: passkeys, now: { [scheduler] in scheduler.nowMs })
     }
 
@@ -188,6 +192,13 @@ public final class AppModel {
         recovering = false
         suspended = false
         Task { await connect() }
+    }
+
+    /// The watch's link to the open home, once this phone added it. Nil in
+    /// the demo.
+    public func watchLink() -> WatchLink? {
+        guard !isDemo, let home, let siteId = home.site.siteId, let stored = sites.get(siteId) else { return nil }
+        return watch.link(home, boxKey: stored.boxStaticKey, cloudHome: stored.cloudHome)
     }
 
     func stepUp() async -> StepUpOutcome {
@@ -369,7 +380,7 @@ public final class AppModel {
         site.ceilingW = 11_000
         let models = HomeModels(site: site, cache: shares ? shared.map { CacheReader(sources: [$0]) } : nil)
         if let demoAccess {
-            models.access = AccessModel(site: site, signedFor: AccessModel.demoFor, keyring: demoAccess.keys, wallMs: { [scheduler] in scheduler.nowMs })
+            models.access = AccessModel(site: site, signedFor: AccessModel.demoFor, keyring: demoAccess.keys, wallMs: { [scheduler] in scheduler.nowMs }, invitationLookup: demoAccess.lookup)
         }
         home = models
         isDemo = true

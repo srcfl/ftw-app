@@ -10,14 +10,16 @@ extension View {
         modifier(HomeBar(app: app, home: home, title: title()))
     }
 
-    /// A pushed screen's bar: its name over the status line.
-    func homeBar(app: AppModel, home: HomeModels, title: String) -> some View {
+    /// A screen's bar: its name over the status line. `id` names the title
+    /// for the UI tests.
+    func homeBar(app: AppModel, home: HomeModels, title: String, id: String = "bar.title") -> some View {
         homeBar(app: app, home: home) {
             Text(title)
                 .font(.headline)
                 .foregroundStyle(Theme.ink)
                 .lineLimit(1)
                 .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier(id)
         }
     }
 }

@@ -95,7 +95,8 @@ public final class SimulatedBox {
     /// offers. Registry names only; `ContractTests` checks.
     public nonisolated static let caps = [
         "status.core", "status.drivers", "history.5m", "history.1h", "history.etag", "cmd.lease",
-        "cmd.readback", "der.battery", "der.ev", "plan.dispatch", "price.spot", "api.passthrough", "access.agents",
+        "cmd.readback", "der.battery", "der.ev", "plan.dispatch", "price.spot", "api.passthrough", "access.agents", "access.invites",
+        "cmd.exchange",
     ]
 
     /// Capabilities this box offers beyond `caps`, for a test that needs a
@@ -111,6 +112,11 @@ public final class SimulatedBox {
     /// A box linked to FTW Cloud: hello carries its session information,
     /// with the table of opaque car ids for the cars it keeps then.
     public var linkedToCloud = false
+    /// The key the box names as its own for FTW Cloud, when a demo FTW
+    /// Cloud holds its signed copy; a placeholder otherwise.
+    var cloudKey: Bytes?
+    /// False for a box that never answers `hist.query`, as one going away.
+    var answersHistory = true
     public var statisticsAvailable = true
     private var statisticsOn = false
     private var cloudCopyOn = true
@@ -171,6 +177,7 @@ public final class SimulatedBox {
             guard let from = Self.wholeMs(body["fromMs"]), let to = Self.wholeMs(body["toMs"]) else { return }
             sendBulk(Envelope(t: "price", id: env.id, b: pricesCBOR(from: from, to: to)))
         case "hist.query":
+            guard answersHistory else { return }
             if historyUnavailable { refuse(env.id, "E_UNAVAILABLE", []); return }
             // The box refuses a malformed query by name and answers the rest
             // tile by tile, then once more to say it is done.
@@ -200,7 +207,7 @@ public final class SimulatedBox {
             sendBulk(Envelope(t: "plan", id: env.id, b: sessionPlan().wire))
         case "api.req": onAPI(env.id, body)
         case "cmd": onCommand(body)
-        case AccessWire.msgList, AccessWire.msgAudit, AccessWire.msgKeySet, AccessWire.msgAdd, AccessWire.msgWiden,
+        case InvitationWire.create,InvitationWire.list,InvitationWire.cancel,AccessWire.msgList, AccessWire.msgAudit, AccessWire.msgKeySet, AccessWire.msgAdd, AccessWire.msgWiden,
              AccessWire.msgRevoke, AccessWire.msgConfirm:
             access.receive(env) { [weak self] reply in
                 guard let self else { return }
@@ -913,6 +920,15 @@ public final class LoopbackCarrier: Carrier {
         box.tick()
     }
 
+    /// The box goes away, as the phone sees it.
+    public func drop() {
+        guard !closed else { return }
+        closed = true
+        box.stop()
+        status = .closed(reason: "gone", retryable: true)
+        onStatus(status)
+    }
+
     public func close(reason: String) {
         if closed { return }
         closed = true
@@ -982,7 +998,24 @@ extension SimulatedBox {
         }
         #endif
         current = box
-        return LoopbackCarrier(box: box, scheduler: scheduler)
+        let carrier = LoopbackCarrier(box: box, scheduler: scheduler)
+        #if DEBUG
+        // For pictures of a box that goes away: `-FTWDemoBoxAway YES`
+        // streams for three seconds and sends no history, then goes. FTW
+        // Cloud's copy (`SimulatedCloud`) holds its signed tiles of the 48
+        // hours before.
+        if UserDefaults.standard.bool(forKey: "FTWDemoBoxAway") {
+            let cloud = SimulatedCloud(box: box, scheduler: scheduler)
+            box.linkedToCloud = true
+            box.cloudKey = cloud.pk
+            box.answersHistory = false
+            scheduler.after(3_000) { [weak carrier] in
+                cloud.awayAtMs = scheduler.nowMs
+                carrier?.drop()
+            }
+        }
+        #endif
+        return carrier
     }
 
     /// Plug the demo car in or out.

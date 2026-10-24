@@ -125,7 +125,7 @@ public final class Session {
     public static let cmdValidForMs: Double = 120_000
     public static let cmdAckTimeoutMs: Double = 5_000
     public static let cmdConfirmTimeoutMs: Double = 15_000
-    public nonisolated static let apiMaxBytes = 8 * 1024 * 1024
+    public nonisolated static let apiMaxBytes = APIRequest.maxBytes
 
     public private(set) var state = SessionState() {
         didSet { onChange?(state) }

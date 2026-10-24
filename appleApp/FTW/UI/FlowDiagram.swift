@@ -1,60 +1,66 @@
 import FTWKit
 import SwiftUI
 
-/// The home and what flows through it, laid out as the box's own dashboard
-/// lays it out: the sun top left, the battery top right, the grid bottom
-/// left, the car bottom right, and the home's own use in the ring in the
-/// middle. A node whose partner across the middle is missing moves onto the
-/// middle axis (`FlowPlan`). Each node is text on the ground, with no box,
-/// and a door to its own view that grows out of it.
+/// The home and what flows through it, as the box's own dashboard lays it
+/// out: the sun top left, the battery top right, the grid bottom left, the
+/// car bottom right, and the home's own use in the middle of a ring. A node
+/// whose partner across the middle is missing moves onto the middle axis
+/// (`FlowPlan`). Each node is text on the ground, with no box, and a door to
+/// its own view that grows out of it.
 ///
-/// Between them run straight beams of light. A beam's width says the power
-/// and a soft wave of light runs along it from source to sink, faster with
-/// more power; it glows in the dark. Only a reading the box confirmed live
-/// glows or moves: a cached or quiet beam is a faint still line, and a node
-/// at rest is a still dotted hairline. No dot travels anywhere.
+/// The ring (Ring / Quiet, chosen by Fredrik on 24 October 2026) gives each
+/// node the quarter that faces it. Its arc lights from the quarter's middle
+/// out, longer with more power (`Flow.ringFill`), in the node's colour, and
+/// a soft wave of light runs along it: clockwise for power coming into the
+/// home, the other way for power leaving it. Only a reading the box
+/// confirmed live glows or moves: a cached or quiet arc is a faint still
+/// arc, and a node at rest shows only its quarter's track.
 struct FlowDiagram: View {
     let readings: [NodeReading]
     let zoom: Namespace.ID
     /// Charge now, Pause and Back to the plan, held on the car.
     var car: CarActions?
-    @State private var frames: [EnergyNode: CGRect] = [:]
-    @ScaledMetric(relativeTo: .largeTitle) private var hubSize: CGFloat = 92
+
+    /// The labels' sizes, as `NodeLabel` scales them, for the room they take.
+    @ScaledMetric(relativeTo: .subheadline) private var nameSize: CGFloat = 15
+    @ScaledMetric(relativeTo: .title) private var figureSize: CGFloat = 30
+    @ScaledMetric(relativeTo: .footnote) private var wordSize: CGFloat = 14
 
     var body: some View {
         GeometryReader { geo in
             let nodes = readings.map(\.node)
-            // The ring grows a little with the text, no more: past that it
-            // takes the nodes' room.
-            let ring = min(hubSize, 100)
-            let hub = CGRect(x: geo.size.width / 2 - ring / 2, y: geo.size.height / 2 - ring / 2, width: ring, height: ring)
-            let width = Self.nodeWidth(geo.size.width, hub: ring)
+            let width = Self.nodeWidth(geo.size.width)
+            let label = RingGeometry.labelHeight(name: nameSize, figure: figureSize, word: wordSize)
+            let axis = nodes.contains { [.top, .bottom].contains(FlowPlan.spot($0, among: nodes)) }
+            let ring = RingGeometry(size: geo.size, label: label, labelWidth: width, axis: axis)
             ZStack {
-                FlowBeams(beams: beams(nodes: nodes, hub: hub))
+                FlowRing(arcs: arcs(nodes: nodes), ring: ring)
                     .accessibilityHidden(true)
-                ForEach(readings.filter { $0.node != .home }) { r in
-                    let spot = FlowPlan.spot(r.node, among: nodes)
-                    // The node's place is a fixed frame, so neither a beam
-                    // nor the door moves when a word or a figure changes
-                    // width; the whole frame takes the finger.
-                    door(r) { NodeLabel(reading: r, spot: spot).equatable().frame(width: width, alignment: spot.textAlignment) }
-                        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { frames[r.node] = $0 }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: spot.alignment)
+                // The labels sit in the corners of a box just tall enough
+                // that none of them touches the ring.
+                ZStack {
+                    ForEach(readings.filter { $0.node != .home }) { r in
+                        let spot = FlowPlan.spot(r.node, among: nodes)
+                        // The node's place is a fixed frame, so nothing moves
+                        // when a word or a figure changes width; the whole
+                        // frame takes the finger.
+                        door(r) { NodeLabel(reading: r, spot: spot, scale: ring.labelScale).equatable().frame(width: width, alignment: spot.textAlignment) }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: spot.alignment)
+                    }
                 }
+                .frame(width: geo.size.width, height: ring.box)
+                .position(ring.center)
                 if let home = readings.first(where: { $0.node == .home }) {
-                    door(home) { HubLabel(reading: home, diameter: ring).equatable() }
-                        .position(x: hub.midX, y: hub.midY)
+                    door(home) { HubLabel(reading: home, diameter: ring.hub).equatable() }
+                        .position(ring.center)
                 }
             }
         }
-        .coordinateSpace(.named(Self.space))
     }
 
-    nonisolated static let space = "flow"
-
-    /// As wide as the room beside the hub allows, within reason.
-    static func nodeWidth(_ width: CGFloat, hub: CGFloat) -> CGFloat {
-        min(132, max(88, (width - hub - 40) / 2))
+    /// A corner label's width: 38 % of the flow, from 92 pt to 140 pt.
+    static func nodeWidth(_ width: CGFloat) -> CGFloat {
+        min(140, max(92, width * 0.38))
     }
 
     private func door<Label: View>(_ r: NodeReading, @ViewBuilder label: () -> Label) -> some View {
@@ -65,13 +71,10 @@ struct FlowDiagram: View {
             .accessibilityIdentifier("now.node.\(r.node.rawValue)")
     }
 
-    private func beams(nodes: [EnergyNode], hub: CGRect) -> [FlowBeams.Beam] {
+    private func arcs(nodes: [EnergyNode]) -> [FlowRing.Arc] {
         readings.compactMap { r in
-            guard r.node != .home, let frame = frames[r.node],
-                  let ends = FlowPlan.beam(node: frame, at: FlowPlan.spot(r.node, among: nodes), hub: hub) else { return nil }
-            let target = Flow.BeamTarget(r)
-            let (from, to) = target.towardHome ? (ends.node, ends.hub) : (ends.hub, ends.node)
-            return FlowBeams.Beam(target: target, from: from, to: to, color: Theme.color(r.tone))
+            guard r.node != .home else { return nil }
+            return FlowRing.Arc(target: Flow.BeamTarget(r), spot: FlowPlan.spot(r.node, among: nodes), color: NodeLook.hue(r))
         }
     }
 }
@@ -95,36 +98,36 @@ extension FlowPlan.Spot {
     var horizontal: HorizontalAlignment { leading ? .leading : (trailing ? .trailing : .center) }
 }
 
-/// The beams, in one Canvas inside one `TimelineView`. The light runs at the
-/// display's rate while a beam is live and Now is on screen in an active
+/// The ring, in one Canvas inside one `TimelineView`. The light runs at the
+/// display's rate while an arc is live and Now is on screen in an active
 /// app, at 20 frames a second in Low Power Mode, and for a moment after a
-/// change so a beam can swell, ignite or cool; otherwise the timeline rests
+/// change so an arc can grow, ignite or cool; otherwise the timeline rests
 /// and nothing draws. Under Reduce Motion the light holds still, ignite and
-/// decay are instant, and a still chevron mid-beam says which way it flows.
-private struct FlowBeams: View {
-    struct Beam: Equatable {
+/// decay are instant, and a still chevron on the arc says which way it
+/// flows.
+private struct FlowRing: View {
+    struct Arc: Equatable {
         let target: Flow.BeamTarget
-        /// Source to sink: the light runs this way.
-        let from: CGPoint
-        let to: CGPoint
+        let spot: FlowPlan.Spot
         let color: Color
     }
 
-    let beams: [Beam]
+    let arcs: [Arc]
+    let ring: RingGeometry
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
     @State private var onScreen = false
-    @State private var clock = BeamClock()
-    /// Changes seen, and the last one the beams have settled after.
+    @State private var clock = RingClock()
+    /// Changes seen, and the last one the arcs have settled after.
     @State private var changes = 0
     @State private var settled = 0
 
-    /// Long enough for a width to swell (τ 0.4 s) and a glow to cool.
+    /// Long enough for an arc to grow (τ 0.4 s) and a glow to cool.
     static let settle: Duration = .milliseconds(2_400)
 
     var body: some View {
         let lowPower = PowerState.shared.lowPower
-        let waving = beams.contains { $0.target.live && $0.target.flowing }
+        let waving = arcs.contains { $0.target.live && $0.target.flowing }
         let running = onScreen && scenePhase == .active && !reduceMotion && (waving || changes != settled)
         let still = reduceMotion
         TimelineView(.animation(minimumInterval: lowPower ? 1.0 / 20 : nil, paused: !running)) { tick in
@@ -138,7 +141,7 @@ private struct FlowBeams: View {
         }
         .onAppear { onScreen = true }
         .onDisappear { onScreen = false }
-        .onChange(of: beams.map(\.target)) { changes += 1 }
+        .onChange(of: arcs.map(\.target)) { changes += 1 }
         .task(id: changes) {
             try? await Task.sleep(for: Self.settle)
             guard !Task.isCancelled else { return }
@@ -147,78 +150,110 @@ private struct FlowBeams: View {
     }
 
     private func draw(_ g: inout GraphicsContext, at t: Double, still: Bool) {
-        let px = 1 / max(g.environment.displayScale, 1)
-        for beam in beams {
-            let f = clock.frame(beam.target, at: t, reduceMotion: still)
-            let length = hypot(beam.to.x - beam.from.x, beam.to.y - beam.from.y)
-            guard length > 1 else { continue }
-            var path = Path()
-            path.move(to: beam.from)
-            path.addLine(to: beam.to)
-            // At rest: the still dotted hairline, cross-faded with the beam
-            // as a node starts or stops.
-            if f.idle > 0.01 { TraceInk.dotted(path, px: px, opacity: f.idle, in: g) }
-            let k = 1 - f.idle
-            guard k > 0.01 else { continue }
-            let width = CGFloat(f.width)
-            if TraceInk.glows(live: f.light > 0.004, in: g) {
-                TraceInk.glow(path, color: beam.color, width: width, strength: f.light * k, in: g)
+        let dark = g.environment.colorScheme == .dark
+        let track = Theme.ink.opacity(dark ? 0.13 : 0.09)
+        let style = StrokeStyle(lineWidth: ring.thickness, lineCap: .round)
+        // Each node's quarter, the track its arc lights.
+        for arc in arcs {
+            let a = FlowPlan.ringArc(arc.spot, fill: 1)
+            g.stroke(path(a.track), with: .color(track), style: style)
+        }
+        for arc in arcs {
+            let f = clock.frame(arc.target, at: t, reduceMotion: still)
+            let k = 1 - f.beam.idle
+            guard k > 0.01, let lit = FlowPlan.ringArc(arc.spot, fill: f.fill).lit else { continue }
+            let p = path(lit)
+            if TraceInk.glows(live: f.beam.light > 0.004, in: g) {
+                TraceInk.glow(p, color: arc.color, width: ring.thickness, strength: f.beam.light * k, in: g)
             }
-            let color = beam.color.resolve(in: g.environment)
-            g.stroke(path, with: .linearGradient(Gradient(stops: Self.stops(length: Double(length), f, color, k)), startPoint: beam.from, endPoint: beam.to), style: StrokeStyle(lineWidth: width, lineCap: .round))
-            if still, beam.target.flowing { chevron(beam, width: width, opacity: f.alpha * k, in: g) }
+            // Light means live: the arc's colour while the box confirms it,
+            // ink once it does not, crossing over as the phosphor ignites
+            // or cools.
+            let color = Self.mix(Theme.ink2.resolve(in: g.environment), arc.color.resolve(in: g.environment), f.beam.light)
+            let cap = Double(ring.thickness) / 2 / Double(ring.radius) * 180 / .pi
+            let stops = Self.stops(lit, radius: Double(ring.radius), clockwise: arc.target.towardHome, f.beam, color, k, lead: cap)
+            g.stroke(p, with: .conicGradient(Gradient(stops: stops), center: ring.center, angle: .degrees(lit.lowerBound - cap)), style: style)
+            if still, arc.target.flowing { chevron(lit, clockwise: arc.target.towardHome, opacity: f.beam.alpha * k, in: g) }
         }
     }
 
-    /// The core's brightness along the beam as gradient stops. Inside, the
-    /// stops sit on the wave's own grid, ten to a wavelength, so a crest
-    /// keeps its exact shape as it runs instead of shimmering between
-    /// fixed stops.
-    static func stops(length: Double, _ f: Flow.BeamFrame, _ color: Color.Resolved, _ k: Double) -> [Gradient.Stop] {
-        func stop(_ s: Double) -> Gradient.Stop {
+    /// From `a` at 0 to `b` at 1.
+    static func mix(_ a: Color.Resolved, _ b: Color.Resolved, _ k: Double) -> Color.Resolved {
+        let t = Float(min(1, max(0, k)))
+        func lerp(_ x: Float, _ y: Float) -> Float { x + (y - x) * t }
+        return Color.Resolved(red: lerp(a.red, b.red), green: lerp(a.green, b.green), blue: lerp(a.blue, b.blue), opacity: lerp(a.opacity, b.opacity))
+    }
+
+    /// An arc of the ring between two angles, clockwise as drawn.
+    private func path(_ range: ClosedRange<Double>) -> Path {
+        var p = Path()
+        p.addArc(center: ring.center, radius: ring.radius, startAngle: .degrees(range.lowerBound), endAngle: .degrees(range.upperBound), clockwise: false)
+        return p
+    }
+
+    /// The core's brightness along the arc as stops of a conic gradient that
+    /// starts `lead` degrees before the arc's first angle, so the round cap
+    /// there takes the arc's first colour rather than the gradient's last.
+    /// Inside, the stops sit ten to a wavelength along the arc, close enough
+    /// that a crest running past them keeps its height within 4 %.
+    static func stops(_ lit: ClosedRange<Double>, radius: Double, clockwise: Bool, _ f: Flow.BeamFrame, _ color: Color.Resolved, _ k: Double, lead: Double = 0) -> [Gradient.Stop] {
+        let span = lit.upperBound - lit.lowerBound
+        let perDegree = radius * .pi / 180
+        let length = span * perDegree
+        func stop(_ deg: Double) -> Gradient.Stop {
+            // Points from where the light starts: the arc's first angle when
+            // it runs clockwise, its last when it runs back.
+            let s = (clockwise ? deg : span - deg) * perDegree
             let b = f.alpha * (1 - f.depth * (1 - Flow.wave(s, phase: f.phase))) * k
             var c = color
             c.opacity *= Float(b)
-            return Gradient.Stop(color: Color(c), location: s / length)
+            return Gradient.Stop(color: Color(c), location: (deg + lead) / 360)
         }
-        guard f.depth > 0.001 else { return [stop(0), stop(length)] }
-        let step = Flow.wavelength / 10
-        let q = f.phase * 10 - (f.phase * 10).rounded(.down)
-        var out = [stop(0)]
-        var s = step * q
-        while s < length {
-            if s > 0 { out.append(stop(s)) }
-            s += step
+        var head = stop(0)
+        head.location = 0
+        var out = [head, stop(0)]
+        if f.depth > 0.001, length > 1 {
+            let step = Flow.wavelength / 10 / perDegree
+            var d = step
+            while d < span {
+                out.append(stop(d))
+                d += step
+            }
         }
-        out.append(stop(length))
+        out.append(stop(span))
+        // Past the arc only the end's round cap is drawn; it keeps the
+        // end's colour.
+        var tail = out[out.count - 1]
+        tail.location = 1
+        out.append(tail)
         return out
     }
 
-    /// A still chevron halfway along a beam, pointing the way power flows:
-    /// 6 pt, and wider than a wide beam. A mark of the interface, so in ink.
-    private func chevron(_ beam: Beam, width: CGFloat, opacity: Double, in g: GraphicsContext) {
-        let (a, b) = (beam.from, beam.to)
-        let dx = b.x - a.x, dy = b.y - a.y
-        let length = max(1, hypot(dx, dy))
-        let (ux, uy) = (dx / length, dy / length)
-        let mid = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
-        let size = max(6, width * 0.6 + 3)
+    /// A still chevron at the middle of an arc, pointing the way the light
+    /// would run: 6 pt, in ink, as a mark of the interface.
+    private func chevron(_ lit: ClosedRange<Double>, clockwise: Bool, opacity: Double, in g: GraphicsContext) {
+        let mid = (lit.lowerBound + lit.upperBound) / 2 * .pi / 180
+        let c = CGPoint(x: ring.center.x + ring.radius * cos(mid), y: ring.center.y + ring.radius * sin(mid))
+        // The tangent, clockwise in y-down coordinates.
+        let dir: CGFloat = clockwise ? 1 : -1
+        let (ux, uy) = (-sin(mid) * dir, cos(mid) * dir)
+        let size = max(6, ring.thickness * 0.6 + 3)
         var head = Path()
-        head.move(to: CGPoint(x: mid.x - ux * size - uy * size, y: mid.y - uy * size + ux * size))
-        head.addLine(to: CGPoint(x: mid.x + ux * size * 0.6, y: mid.y + uy * size * 0.6))
-        head.addLine(to: CGPoint(x: mid.x - ux * size + uy * size, y: mid.y - uy * size - ux * size))
+        head.move(to: CGPoint(x: c.x - ux * size - uy * size, y: c.y - uy * size + ux * size))
+        head.addLine(to: CGPoint(x: c.x + ux * size * 0.6, y: c.y + uy * size * 0.6))
+        head.addLine(to: CGPoint(x: c.x - ux * size + uy * size, y: c.y - uy * size - ux * size))
         g.stroke(head, with: .color(Theme.ink.opacity(opacity)), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round))
     }
 }
 
-/// Each beam's motion between frames. Not observed: the Canvas steps it and
+/// Each arc's motion between frames. Not observed: the Canvas steps it and
 /// nothing else reads it, so it redraws nothing.
 @MainActor
-private final class BeamClock {
-    private var motions: [EnergyNode: Flow.BeamMotion] = [:]
+private final class RingClock {
+    private var motions: [EnergyNode: Flow.RingMotion] = [:]
 
-    func frame(_ target: Flow.BeamTarget, at t: Double, reduceMotion: Bool) -> Flow.BeamFrame {
-        var m = motions[target.node] ?? Flow.BeamMotion(target, at: t)
+    func frame(_ target: Flow.BeamTarget, at t: Double, reduceMotion: Bool) -> Flow.RingFrame {
+        var m = motions[target.node] ?? Flow.RingMotion(target, at: t)
         let f = m.step(target, at: t, reduceMotion: reduceMotion)
         motions[target.node] = m
         return f
@@ -299,23 +334,30 @@ private struct Brackets: Shape {
     }
 }
 
-/// One node of the flow, as text on the ground in four fixed rows: the
-/// symbol and name in its energy's colour, the figure, one word for what it
-/// does, and a row for the battery's or the car's level that every node
-/// keeps, so nothing moves when a level arrives. A figure the box has not
-/// confirmed live is drawn in a softer ink; the status line says how old.
+/// One node of the flow, as text on the ground in three fixed rows: the
+/// symbol and name in its energy's colour, the figure, and what it does
+/// with the battery's or the car's level beside it ("Charging · 68 %", "≈
+/// 20 %" for a level FTW assumes). Every row is kept, filled or not, so
+/// nothing moves when a word or a level arrives. Light means live: a node
+/// the box has not confirmed live is ink, its name and symbol too, and
+/// the status line says how old.
 struct NodeLabel: View, Equatable {
     let reading: NodeReading
     let spot: FlowPlan.Spot
-    /// The name stops at the default size; the figure grows on.
-    @ScaledMetric(relativeTo: .caption2) private var scaledName: CGFloat = 11
-    private var name: CGFloat { min(scaledName, 11) }
-    @ScaledMetric(relativeTo: .title2) private var figure: CGFloat = 24
-    @ScaledMetric(relativeTo: .subheadline) private var unit: CGFloat = 14
-    @ScaledMetric(relativeTo: .footnote) private var word: CGFloat = 13
+    /// Of the label's size, where the room is short (`RingGeometry`).
+    var scale: CGFloat = 1
+    /// The name stops at a large size; the figure grows on.
+    @ScaledMetric(relativeTo: .subheadline) private var scaledName: CGFloat = 15
+    private var name: CGFloat { min(scaledName, 18) * scale }
+    @ScaledMetric(relativeTo: .title) private var scaledFigure: CGFloat = 30
+    @ScaledMetric(relativeTo: .subheadline) private var scaledUnit: CGFloat = 15
+    @ScaledMetric(relativeTo: .footnote) private var scaledWord: CGFloat = 14
+    private var figure: CGFloat { scaledFigure * scale }
+    private var unit: CGFloat { scaledUnit * scale }
+    private var word: CGFloat { scaledWord * scale }
     @Environment(\.lockedOn) private var lockedOn
 
-    nonisolated static func == (a: Self, b: Self) -> Bool { a.reading == b.reading && a.spot == b.spot }
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.reading == b.reading && a.spot == b.spot && a.scale == b.scale }
 
     var body: some View {
         let live = reading.freshness.live
@@ -323,30 +365,23 @@ struct NodeLabel: View, Equatable {
         VStack(alignment: spot.horizontal, spacing: 1) {
             // The symbol on the outer side: before the name on the left,
             // after it on the right.
-            HStack(spacing: 4) {
+            HStack(spacing: 5) {
                 if !spot.trailing { symbol }
-                Text(reading.node.caps)
-                    .font(.system(size: name, weight: .medium, design: .monospaced))
-                    .tracking(0.5)
+                Text(reading.node.title)
+                    .font(.system(size: name, weight: .semibold))
                     .minimumScaleFactor(0.75)
                 if spot.trailing { symbol }
             }
-            .foregroundStyle(hue)
+            .foregroundStyle(live ? hue : Theme.ink2)
             .lineLimit(1)
             NodeValue(watts: reading.watts, size: figure, unit: unit)
                 .foregroundStyle(reading.watts == nil || !live ? Theme.ink2 : Theme.ink)
-                .padding(.top, 1)
-            // Every row is kept, filled or not, so a node never changes
-            // height when its word or level arrives.
-            Text(reading.word.isEmpty ? " " : reading.word)
+            Text(NodeLook.doing(reading))
                 .font(.system(size: word))
-                .foregroundStyle(Theme.ink2)
+                .foregroundStyle(live ? Theme.ink2 : Theme.ink3)
+                .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
-            CellMeter(pct: reading.levelPct ?? 0, tint: reading.node == .car ? Theme.car : Theme.stores, live: live && !reading.levelAssumed)
-                .frame(width: 50, height: 4)
-                .padding(.top, 4)
-                .opacity(reading.levelPct == nil ? 0 : 1)
         }
         .overlay { LockOnBrackets(on: lockedOn) }
         .accessibilityElement(children: .ignore)
@@ -364,13 +399,19 @@ extension NodeLabel {
     }
 }
 
-/// The home in the middle, everything it uses right now, in the screen's
-/// only round shape: a thin ring of ink.
+/// The home in the middle of the ring, everything it uses right now: its
+/// symbol, the figure, its unit and its name, inside a thin circle of ink.
+/// The type grows with the text up to what the circle holds, and a small
+/// circle leaves the symbol out, so the figure is never cut.
 struct HubLabel: View, Equatable {
     let reading: NodeReading
     let diameter: CGFloat
-    @ScaledMetric(relativeTo: .largeTitle) private var figure: CGFloat = 34
-    @ScaledMetric(relativeTo: .caption) private var word: CGFloat = 12
+    @ScaledMetric(relativeTo: .largeTitle) private var scaledFigure: CGFloat = 44
+    @ScaledMetric(relativeTo: .caption) private var scaledWord: CGFloat = 13
+    private var figure: CGFloat { min(scaledFigure, diameter * 0.38) }
+    private var word: CGFloat { min(scaledWord, diameter * 0.12) }
+    /// Room for the symbol over the figure.
+    private var symbol: Bool { diameter >= 110 }
     @Environment(\.lockedOn) private var lockedOn
     /// The figure on screen, held on a rounding edge.
     @State private var held: Double?
@@ -382,6 +423,12 @@ struct HubLabel: View, Equatable {
         let shown = reading.watts.map { Flow.quantised($0, holding: held) }
         let parts = shown.map(PowerFormat.parts)
         VStack(spacing: 0) {
+            if symbol {
+                Image(systemName: "house.fill")
+                    .font(.system(size: word + 3, weight: .semibold))
+                    .foregroundStyle(Theme.ink2)
+                    .padding(.bottom, 2)
+            }
             Text(parts.map { AppWords.decimal($0.text) } ?? "—")
                 .font(Theme.figure(figure))
                 .tracking(-1)
@@ -391,7 +438,10 @@ struct HubLabel: View, Equatable {
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .onChange(of: shown, initial: true) { _, now in held = now }
-            Text(NodeWords.format("%@ · home", parts?.unit ?? "W"))
+            Text(parts?.unit ?? "W")
+                .font(.system(size: word, weight: .medium))
+                .foregroundStyle(Theme.ink2)
+            Text(EnergyNode.home.title)
                 .font(.system(size: word))
                 .foregroundStyle(Theme.ink2)
                 .lineLimit(1)
@@ -399,7 +449,7 @@ struct HubLabel: View, Equatable {
         }
         .padding(.horizontal, 10)
         .frame(width: diameter, height: diameter)
-        .background(Circle().strokeBorder(Theme.ink.opacity(0.28), lineWidth: 1))
+        .background(Circle().strokeBorder(Theme.ink.opacity(0.16), lineWidth: 1))
         .overlay { LockOnBrackets(on: lockedOn) }
         .contentShape(Circle())
         .accessibilityElement(children: .ignore)
@@ -464,6 +514,18 @@ enum NodeLook {
         }
     }
 
+    /// What a node does, as Now writes it under its figure: the word with a
+    /// capital, and the battery's or the car's level after it, "Charging ·
+    /// 68 %", or "≈ 20 %" for a car level FTW assumes, as the car row and
+    /// the car view write it. A space when there is nothing yet, so the row
+    /// keeps its height.
+    static func doing(_ r: NodeReading) -> String {
+        let word = r.word.prefix(1).uppercased() + r.word.dropFirst()
+        guard let level = r.levelPct else { return word.isEmpty ? " " : word }
+        let pct = (r.levelAssumed ? "≈\u{00A0}" : "") + AppWords.percent(level)
+        return word.isEmpty ? pct : "\(word) · \(pct)"
+    }
+
     /// "2 min ago", or that the box cannot say.
     static func age(_ f: NodeFreshness) -> String {
         if f.srcState == .never { return L("no reading") }
@@ -477,7 +539,9 @@ enum NodeLook {
         var parts = [String]()
         if let w = r.watts { parts.append(AppWords.power(w)) }
         parts.append(r.word)
-        if let level = r.levelPct { parts.append(AppWords.percent(level)) }
+        if let level = r.levelPct {
+            parts.append(r.levelAssumed ? NodeWords.format("about %@", AppWords.percent(level)) : AppWords.percent(level))
+        }
         parts.append(r.freshness.live ? L("live") : age(r.freshness))
         return parts.joined(separator: ", ")
     }

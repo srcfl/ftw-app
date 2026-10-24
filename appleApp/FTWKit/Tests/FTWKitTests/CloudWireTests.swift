@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 import Testing
 @testable import FTWKit
+@testable import FTWWire
 
 /// srcfl/ftw `go/protocol/cloudwire/testdata/cloud-vectors.json`, copied
 /// unchanged: fixed keys, every message type and the exact bytes Go makes.
