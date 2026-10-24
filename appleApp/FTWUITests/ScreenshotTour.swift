@@ -61,12 +61,6 @@ final class ScreenshotTour: XCTestCase {
             door.tap()
             Thread.sleep(forTimeInterval: 3)
             shoot(app, node)
-            let ahead = app.segmentedControls["node.period"].buttons.element(boundBy: 2)
-            if ahead.exists {
-                ahead.tap()
-                Thread.sleep(forTimeInterval: 2)
-                shoot(app, "\(node)-ahead")
-            }
             if node == "battery", app.buttons["node.mode.change"].exists {
                 app.buttons["node.mode.change"].tap()
                 Thread.sleep(forTimeInterval: 2)

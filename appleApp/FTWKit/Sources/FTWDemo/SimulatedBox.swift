@@ -34,6 +34,9 @@ public final class SimulatedBox {
     /// then sends it, as a slow box would: the app bridges the gap with an
     /// estimate meanwhile and the data grows into it. 0 sends all at once.
     public var holdTileMs: Double = 0
+    /// History-only failures for native UI checks. Live keeps running.
+    public var historyOnlyMissing = false
+    public var historyUnavailable = false
     private var heldTile = false
     /// The plan as last made, with the quarter and revision it was made
     /// for. Core plans each quarter and sends the same plan until the next.
@@ -175,6 +178,7 @@ public final class SimulatedBox {
             sendBulk(Envelope(t: "price", id: env.id, b: pricesCBOR(from: from, to: to)))
         case "hist.query":
             guard answersHistory else { return }
+            if historyUnavailable { refuse(env.id, "E_UNAVAILABLE", []); return }
             // The box refuses a malformed query by name and answers the rest
             // tile by tile, then once more to say it is done.
             guard let q = HistQuery(cbor: body), !q.series.isEmpty, q.toMs > q.fromMs else {
@@ -963,6 +967,11 @@ extension SimulatedBox {
         #if DEBUG
         // For recordings: `-FTWDemoGap YES` holds a tile back for 2 s.
         if UserDefaults.standard.bool(forKey: "FTWDemoGap") { box.holdTileMs = 2_000 }
+        if let state = UserDefaults.standard.string(forKey: "FTWDemoHistory") {
+            box.historyOnlyMissing = state == "empty"
+            box.historyUnavailable = state == "unavailable"
+            if state == "waiting" { box.holdTileMs = 15_000 }
+        }
         // For the grid widget: `-FTWDemoSunny YES` makes today a long
         // summer's day that sells more than it buys, and
         // `-FTWDemoPartial YES` leaves a fifth of it unpriced.

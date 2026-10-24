@@ -198,7 +198,7 @@ extension SimulatedBox {
                         }
                         if let v = house.bucket(at, nowMs: now)?.value(series) { sum += v; n += 1 }
                     }
-                    column.append(n > 0 ? Int32(max(Double(Int32.min) + 1, min(Double(Int32.max), (sum / n).rounded()))) : missingSample)
+                    column.append(!historyOnlyMissing && n > 0 ? Int32(max(Double(Int32.min) + 1, min(Double(Int32.max), (sum / n).rounded()))) : missingSample)
                 }
                 columns.append(column)
             }

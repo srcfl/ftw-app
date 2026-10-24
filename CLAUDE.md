@@ -180,19 +180,36 @@ native, and smooth enough to impress.
   longer one, or one the box confirms empty, breaks the line, and no
   "no data" ever sits over a joined span. What this phone did not see
   live is drawn in ink on the same curve. No dot travels along a line.
-- **Every chart takes a finger.** The point under it is marked, and the
-  line under the chart says what was there. Two fingers give the span.
-- **History sits small and grows** (Fredrik, 14 Oct 2026). A node's chart
-  is compact, so the view never scrolls for it; a tap opens it on the
-  whole screen, growing out of the small one. Chips add or take away
-  series, kept per viewer; the last one stays, and a hidden series never
-  changes what the others say.
-- **One material for every power trace** (Fredrik, 14 Oct 2026). Live,
-  Today and 48 h, small and enlarged, draw through `TraceInk` (band,
-  body, line, glow only while live), `ChartAxes`, `LockOn` and
-  `SlidingSurface` (a slide of 0.25 s, a spring of 0.35 s), and the hero
-  follows the finger on each. Going from Live to Today changes the time,
-  never the material. A new chart starts from these.
+- **A node has one timeline** (Fredrik, 18 and 24 Oct 2026). No
+  Live/Today/48 h/Ahead picker. It opens on today, midnight to midnight
+  on the household's clock, from the phone's cached box history; the live
+  readings build on that history at now, and the box's plan or forecast
+  carries on after it. Drag to move through time (two days back, one
+  ahead), pinch around the fingers to zoom (5 min to 72 h), and hold to
+  read: the finger runs on across now into the plan. A window with now in
+  it follows now, so a view pinched in on the last minutes is live; one
+  dragged off now stays put while data lands; "Today" goes back. Under it,
+  two lines: what the window shows ("Today", "Yesterday 18:00 – Today
+  06:00") and what its past adds up to. Compact and enlarged share it,
+  and the car view draws the car on it too, opening on the six hours
+  behind and eighteen ahead, since the night's charge is the point there.
+- **Keep the evidence distinct.** Closed history means keep the interval
+  the box returned; the car's ledger means stay hourly. An unfinished bucket is not
+  instantaneous power: wait for it to close, with actual source readings
+  drawn beside the stored past. A lone live point hides no history, source
+  silences and confirmed history holes stay open, and fetched means never
+  become synthetic second-by-second values. Only a fresh observed head
+  glows. A forecast stays dashed and a plan stays ghost bars after now.
+- **Visible energy follows visible time.** Sum only closed recorded
+  intervals in the shown past; never add live and forecast energy to it.
+  A cut through a stored interval is an estimate, and missing or unfinished
+  time is explicit. A held point names its source granularity.
+- **History sits small and grows.** A node's chart is compact; a tap opens
+  it on the whole screen. Chips keep the chosen series per viewer; the
+  last one stays, and a hidden series changes no other series' values.
+- **One material for every power trace.** The node timeline uses
+  `TraceInk`, `ChartAxes` and `LockOn`. Other charts keep their own scrub
+  and two-finger span where those describe the data they show.
 - **Charts draw on the engine.** Geometry is a value built once per data
   change (`FTWShared/Charts`, tested). A chart is one Canvas
   (`ChartSurface`) that never sees the finger and a small `ScrubOverlay`

@@ -58,7 +58,7 @@ public struct RingBuffer<Element: Sendable>: Sendable {
 /// rule records nothing, and the curve breaks there rather than drawing a
 /// line across.
 ///
-/// The last five minutes are sealed as `ring-<site>` with the home's other
+/// The last fifteen minutes are sealed as `ring-<site>` with the home's other
 /// files, so after a kill a node's curve opens with what the app saw
 /// before. Those points are marked `restored`: drawn in ink, never as live,
 /// and `resumed` dates the time the app missed.
@@ -88,13 +88,15 @@ public final class LiveTrace {
         }
     }
 
-    /// What a node's live curve shows.
-    public nonisolated static let windowMs: Double = 5 * 60_000
-    /// Five minutes at the box's fastest: through FTW Cloud it sends each
-    /// reading as it lands, at most five frames a second. A slower stream
-    /// fills the same room more slowly, and the window still shows only the
-    /// last five minutes.
-    nonisolated static let capacity = 1_500
+    /// The readings a node's timeline draws past its last closed history
+    /// interval: long enough to cover the five minutes still filling and a
+    /// late tile, so the live line always builds on the history.
+    public nonisolated static let windowMs: Double = 15 * 60_000
+    /// Fifteen minutes at the box's fastest: through FTW Cloud it sends
+    /// each reading as it lands, at most five frames a second. A slower
+    /// stream fills the same room more slowly, and the window still keeps
+    /// only the last fifteen minutes.
+    nonisolated static let capacity = 4_500
     /// A value the ring already holds, read again within this, adds no
     /// point: a frame that carries another device's reading is not a new
     /// reading of this one. A slow device still repeats once a second, as
@@ -184,7 +186,7 @@ public final class LiveTrace {
 
     // MARK: The sealed ring
 
-    /// The last five minutes of every ring, as the file keeps them.
+    /// The last fifteen minutes of every ring, as the file keeps them.
     var file: RingFile? {
         guard let newest = rings.values.compactMap({ $0.last?.t }).max() else { return nil }
         var lanes = [String: RingFile.Lane]()

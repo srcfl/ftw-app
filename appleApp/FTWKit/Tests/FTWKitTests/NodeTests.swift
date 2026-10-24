@@ -836,6 +836,17 @@ import FTWShared
 // MARK: Words
 
 @Suite struct NodeWordsTests {
+    @Test func timelineNamesTheReturnedHistoryResolution() {
+        AppWords.$language.withValue(.en) {
+            #expect(NodeWords.timelineMaterial(sampleMs: 300_000, planned: false) == "History: closed 5-minute means · live: source readings · dashed: forecast")
+            #expect(NodeWords.timelineMaterial(sampleMs: 3_600_000, planned: true) == "History: closed 1-hour means · live: source readings · future bars: plan")
+            #expect(NodeWords.timelineMaterial(sampleMs: 7_200_000, planned: false) == "History: closed 2-hour means · live: source readings · dashed: forecast")
+        }
+        AppWords.$language.withValue(.sv) {
+            #expect(NodeWords.timelineMaterial(sampleMs: 1_800_000, planned: false) == "Historik: avslutade 30-minutersmedel · live: källvärden · streckat: prognos")
+        }
+    }
+
     /// Every sentence Now and the nodes' views hand to `L`, `NodeWords` or
     /// `AppWords` has a Swedish entry. Read from the source, so a new
     /// sentence cannot slip through.
@@ -846,14 +857,14 @@ import FTWShared
             "appleApp/FTW/UI/PlanStrip.swift", "appleApp/FTW/UI/PlanView.swift", "appleApp/FTWKit/Sources/FTWKit/State/PlanShare.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/EnergyNode.swift", "appleApp/FTWKit/Sources/FTWKit/State/NowFlow.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/ModeModel.swift", "appleApp/FTWKit/Sources/FTWKit/State/PlanModel.swift",
-            "appleApp/FTWKit/Sources/FTWKit/State/HistoryModel.swift", "appleApp/FTW/UI/PairView.swift",
+            "appleApp/FTWKit/Sources/FTWKit/State/HistoryModel.swift", "appleApp/FTW/UI/PairView.swift", "appleApp/FTW/UI/NodeTimeline.swift",
             "appleApp/FTW/UI/RootView.swift", "appleApp/FTWKit/Sources/FTWKit/State/PairModel.swift",
             "appleApp/FTW/Car/CarView.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/ChartWords.swift", "appleApp/FTW/UI/PriceView.swift",
             "appleApp/FTW/UI/StatusLine.swift", "appleApp/FTW/UI/ControlSheet.swift", "appleApp/FTW/UI/ModeMenu.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/StatusLine.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/GridPhases.swift", "appleApp/FTW/UI/GridPhasesRow.swift",
-            "appleApp/FTW/UI/HistoryTab.swift", "appleApp/FTW/UI/HomeTab.swift", "appleApp/FTWKit/Sources/FTWKit/State/HomeTab.swift",
+            "appleApp/FTW/UI/HistoryTab.swift", "appleApp/FTW/UI/HomeTab.swift", "appleApp/FTWKit/Sources/FTWKit/Format/TimelineLabel.swift", "appleApp/FTWKit/Sources/FTWKit/State/HomeTab.swift",
         ]
         let pattern = #/(?:\bL|NodeWords\.(?:text|format)|AppWords\.(?:text|format))\("((?:[^"\\]|\\.)*)"/#
         var english = Set<String>()
@@ -1017,6 +1028,36 @@ final class DemoRig {
         AppWords.$language.withValue(.sv) {
             #expect(CarText.originAndGoal("antaget vid inkoppling", goalPct: 80) == "antaget vid inkoppling · mål 80\u{00A0}%")
         }
+    }
+
+    /// A timeline names what it shows as a person says it.
+    @Test func aTimelineNamesItsWindow() {
+        let clock = ZoneClock.of(TimeZone(identifier: "Europe/Stockholm")!)
+        func local(_ day: Int, _ hour: Int, _ minute: Int = 0) -> Double {
+            clock.calendar.date(from: DateComponents(year: 2026, month: 10, day: day, hour: hour, minute: minute))!.timeIntervalSince1970 * 1000
+        }
+        let now = local(24, 15, 13)
+        let today = TimelineWindow.today(nowMs: now, clock: clock)
+        AppWords.$language.withValue(.en) {
+            #expect(TimelineLabel.window(today, nowMs: now, clock: clock) == "Today")
+            let yesterday = today.transformed(anchor: 0, destination: 1, magnification: 1, nowMs: now)
+            #expect(TimelineLabel.window(yesterday, nowMs: now, clock: clock) == "Yesterday")
+            let hour = TimelineWindow(nowMs: local(24, 15, 0), spanMs: 3_600_000).transformed(anchor: 0, destination: 0, magnification: 1, nowMs: now)
+            #expect(TimelineLabel.window(hour, nowMs: now, clock: clock) == "Today 14:09–15:09")
+            let evening = today.transformed(anchor: 0.75, destination: 0, magnification: 4, nowMs: now)
+            #expect(TimelineLabel.window(evening, nowMs: now, clock: clock) == "Today 18:00–24:00")
+            let across = today.transformed(anchor: 0, destination: 0.5, magnification: 2, nowMs: now)
+            #expect(TimelineLabel.window(across, nowMs: now, clock: clock) == "Yesterday 18:00 – Today 06:00")
+            let older = TimelineWindow(nowMs: local(22, 12), spanMs: 3_600_000)
+            // Another day in the language's own short form, "Thu, Oct 22".
+            let named = TimelineLabel.window(older, nowMs: now, clock: clock)
+            #expect(named.contains("Thu") && named.contains("Oct") && named.contains("22") && named.contains("11:09–12:09"))
+        }
+        AppWords.$language.withValue(.sv) {
+            #expect(TimelineLabel.window(today, nowMs: now, clock: clock) == "I dag")
+            #expect(TimelineLabel.window(today.transformed(anchor: 0, destination: 1, magnification: 1, nowMs: now), nowMs: now, clock: clock) == "I går")
+        }
+        #expect(DayWords.line(.battery, inWh: 1_900, outWh: 300).hasPrefix("Charged") || AppWords.language == .sv)
     }
 
     /// A day the phone has not been told is not zero: nothing since

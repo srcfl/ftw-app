@@ -393,12 +393,8 @@ final class NowFitsTests: XCTestCase {
         let app = launchDemo()
         app.buttons["now.node.battery"].tap()
         XCTAssertTrue(app.navigationBars["Battery"].waitForExistence(timeout: 5))
-        // The view opens on the timebase this phone chose last; Live is one tap.
-        app.segmentedControls["node.period"].buttons["Live"].tap()
-        XCTAssertTrue(app.descendants(matching: .any)["node.live.chart"].waitForExistence(timeout: 5))
-        let ahead = app.segmentedControls["node.period"].buttons["Ahead"]
-        XCTAssertTrue(ahead.isHittable)
-        ahead.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["node.timeline.chart"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.segmentedControls["node.period"].exists)
         XCTAssertTrue(app.buttons["node.mode.change"].isHittable)
         // The node's view fits too: its last control is where it stands.
         XCTAssertTrue(app.windows.firstMatch.frame.contains(app.buttons["node.mode.change"].frame))
@@ -412,8 +408,8 @@ final class NowFitsTests: XCTestCase {
     func testEveryNodeViewKeepsItsControlsAtTheFoot() throws {
         for text in [Self.standard, Self.largest] {
             for node in ["solar", "battery", "home", "grid", "car"] {
-                let app = launchDemo(text: text, more: ["-FTWNode", node, "-FTWPeriod", "today"])
-                let picker = app.segmentedControls["node.period"]
+                let app = launchDemo(text: text, more: ["-FTWNode", node, "-FTWTimelineHours", "24"])
+                let picker = app.descendants(matching: .any)["node.timeline.chart"].firstMatch
                 XCTAssertTrue(picker.waitForExistence(timeout: 15), "\(node) never opened at \(text)")
                 let footer = app.staticTexts["node.footer"]
                 XCTAssertTrue(footer.waitForExistence(timeout: 5))
@@ -422,15 +418,10 @@ final class NowFitsTests: XCTestCase {
                 XCTAssertEqual(app.scrollViews.count, 0, "\(node) scrolls at \(text)")
                 XCTAssertTrue(window.contains(footer.frame), "\(node)'s footer is off screen at \(text)")
                 XCTAssertFalse(app.staticTexts["node.status"].exists, "\(node) has a second status line")
-                // The foot: the picker and what sits under it take the lower
-                // part of the screen, and nothing but the footer is under them.
-                XCTAssertGreaterThan(picker.frame.minY, window.height * 0.55, "\(node)'s picker floats at \(text)")
-                XCTAssertLessThan(window.maxY - footer.frame.maxY, 60, "\(node) leaves ground under its footer at \(text)")
+                // A pan or zoom changes time, not the surrounding layout.
                 let top = picker.frame.minY
-                for period in ["Live", "48 h", "Today"] {
-                    picker.buttons[period].tap()
-                    XCTAssertEqual(picker.frame.minY, top, accuracy: 0.5, "\(node)'s picker moved on \(period) at \(text)")
-                }
+                picker.pinch(withScale: 0.8, velocity: -1)
+                XCTAssertEqual(picker.frame.minY, top, accuracy: 0.5)
                 if node == "battery" { shoot(app, "battery-\(text)") }
                 app.terminate()
             }
@@ -441,7 +432,7 @@ final class NowFitsTests: XCTestCase {
     /// and closes as a sheet does.
     @MainActor
     func testTheNodeChartEnlargesAndCloses() throws {
-        let app = launchDemo(more: ["-FTWNode", "battery", "-FTWPeriod", "today"])
+        let app = launchDemo(more: ["-FTWNode", "battery", "-FTWTimelineHours", "24"])
         let enlarge = app.buttons["node.chart.enlarge"]
         XCTAssertTrue(enlarge.waitForExistence(timeout: 15))
         XCTAssertTrue(enlarge.isHittable)

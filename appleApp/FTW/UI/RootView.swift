@@ -36,7 +36,7 @@ enum HomeRoute: Hashable {
     case car(String?)
     /// Live, history, plan and mode for one node of the flow.
     case node(EnergyNode)
-    /// One node's view open on today, from History.
+    /// One node's view from History's row, which it zooms out of.
     case day(EnergyNode)
     /// The plan ahead, from Now's plan card.
     case plan
@@ -214,7 +214,9 @@ private struct TabStack<Root: View>: View {
         case .node(let node):
             NodeView(app: app, home: home, node: node, zoom: zoom)
         case .day(let node):
-            NodeView(app: app, home: home, node: node, zoom: zoom, opening: .today)
+            // Every node opens on today; from History the same, zooming
+            // out of its row.
+            NodeView(app: app, home: home, node: node, zoom: zoom)
         case .plan:
             PlanView(app: app, home: home)
         case .price:
