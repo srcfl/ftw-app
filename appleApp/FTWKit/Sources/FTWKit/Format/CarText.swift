@@ -83,6 +83,7 @@ public enum CarWords {
         "Limit %@": "Laddgräns %@",
         // The goal's level, inside the car's ring.
         "Goal %@": "Mål %@",
+        "goal %@": "mål %@",
         "On %@ · %@ max": "På %@ · max %@",
         "On %@": "På %@",
         "Not plugged in": "Inte inkopplad",
@@ -130,6 +131,19 @@ public enum CarWords {
 
 /// The car's sentences, from what the box said and nothing more.
 public enum CarText {
+    /// The level a goal marks on the car's ring: none when the goal is the
+    /// car's own limit, which FTW does not know as a number.
+    public static func goalPct(_ s: Loadpoint.Schedule) -> Double? {
+        s.finishAtVehicleLimit ? nil : min(100, max(0, s.socPct))
+    }
+
+    /// "assumed at plug-in · goal 80 %": where the level comes from, and
+    /// the goal the ring marks, so the mark has words.
+    public static func originAndGoal(_ origin: String, goalPct: Double?) -> String {
+        guard let goalPct else { return origin }
+        return origin + " · " + CarWords.format("goal %@", AppWords.percent(goalPct))
+    }
+
     /// "72 %", or "≈ 22 %" for an estimate.
     public static func percent(_ l: CarLevel) -> String {
         (l.estimate ? "≈\u{00A0}" : "") + AppWords.percent(l.pct)

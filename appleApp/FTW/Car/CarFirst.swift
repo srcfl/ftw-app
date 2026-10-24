@@ -26,7 +26,7 @@ struct CarHero: View {
         let level = cars.level(car)
         let faint = level?.guessed ?? true
         let goal = car.goal.map { CarsModel.schedule($0, nowMs: site.minuteMs, zone: zone) }
-        let goalPct = goal.flatMap { $0.finishAtVehicleLimit ? nil : $0.socPct }
+        let goalPct = goal.flatMap(CarText.goalPct)
         // The ring takes at most half the width it has, so a large text
         // size grows the words, not the ring past the screen.
         let ring = min(ringSize, 260)

@@ -39,8 +39,9 @@ struct LevelRing<Middle: View>: View {
             }
             middle
         }
-        // The stroke stays inside the frame it is given.
-        .padding(thickness / 2 + (goalPct == nil ? 0 : 2))
+        // The stroke and a goal's mark stay inside the frame it is given,
+        // and the ring keeps its size whether a goal comes or goes.
+        .padding(thickness + 1)
         .animation(Theme.spring, value: pct)
         .animation(Theme.spring, value: goalPct)
     }

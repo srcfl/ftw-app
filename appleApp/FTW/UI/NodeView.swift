@@ -432,19 +432,22 @@ struct SecondFact: View {
                 // phone or the box last gave it, with where from and how old.
                 // On a box that keeps cars, the car's own, plugged in or not;
                 // none for a plugged-in car the box cannot name.
+                // The ring and its line are there whether a level is known
+                // or not, so the hero keeps its height when one comes.
+                let zone = home.loadpoints.zone
                 if home.cars.keepsCars, let car = home.cars.shownCar, let level = home.cars.level(car) {
-                    let goal = car.goal.map { CarsModel.schedule($0, nowMs: site.minuteMs, zone: home.loadpoints.zone) }
-                    levelRing(level.pct, text: CarText.percent(level), tint: Theme.car, lit: !level.guessed, glows: false, goal: goal.flatMap(Self.goalPct))
-                    Text(CarText.origin(level, nowMs: site.minuteMs, zone: home.loadpoints.zone))
-                        .font(.footnote)
-                        .foregroundStyle(Theme.ink2)
+                    let goal = car.goal.map { CarsModel.schedule($0, nowMs: site.minuteMs, zone: zone) }.flatMap(CarText.goalPct)
+                    levelRing(level.pct, text: CarText.percent(level), tint: Theme.car, lit: !level.guessed, glows: false, goal: goal)
+                    carLine(CarText.originAndGoal(CarText.origin(level, nowMs: site.minuteMs, zone: zone), goalPct: goal))
                 } else if let level = home.loadpoints.carLevel {
                     let guessed = level.origin == .assumed || level.origin == .unconfirmed
                     let lp = home.loadpoints.points.first(where: \.pluggedIn) ?? home.loadpoints.points.first
-                    levelRing(level.pct, text: (guessed ? "≈\u{00A0}" : "") + AppWords.percent(level.pct), tint: Theme.car, lit: !guessed, glows: false, goal: lp?.schedule.flatMap(Self.goalPct))
-                    Text(EVText.originAged(level, nowMs: site.minuteMs, zone: home.loadpoints.zone))
-                        .font(.footnote)
-                        .foregroundStyle(Theme.ink2)
+                    let goal = lp?.schedule.flatMap(CarText.goalPct)
+                    levelRing(level.pct, text: (guessed ? "≈\u{00A0}" : "") + AppWords.percent(level.pct), tint: Theme.car, lit: !guessed, glows: false, goal: goal)
+                    carLine(CarText.originAndGoal(EVText.originAged(level, nowMs: site.minuteMs, zone: zone), goalPct: goal))
+                } else {
+                    levelRing(0, text: "—", tint: Theme.car, lit: false, glows: false, goal: nil)
+                    carLine(C("Level unknown"))
                 }
             case .grid:
                 let price = currentPrice
@@ -512,9 +515,13 @@ extension SecondFact {
         .frame(width: ringSize, height: ringSize)
     }
 
-    /// The goal's level, unless the goal is the car's own limit.
-    static func goalPct(_ s: Loadpoint.Schedule) -> Double? {
-        s.finishAtVehicleLimit ? nil : s.socPct
+    /// Where the car's level comes from, and its goal, on one line.
+    func carLine(_ text: String) -> some View {
+        Text(text)
+            .font(.footnote)
+            .foregroundStyle(Theme.ink2)
+            .lineLimit(1)
+            .minimumScaleFactor(0.8)
     }
 }
 
