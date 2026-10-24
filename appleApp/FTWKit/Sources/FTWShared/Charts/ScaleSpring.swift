@@ -26,9 +26,10 @@ public struct ScaleSpring: Sendable {
     }
 
     /// A new scale at `t` seconds. True when the scale will move to it.
+    /// A scale that is not a number, or a time that is not, changes nothing.
     @discardableResult
     public mutating func target(_ domain: YDomain, at t: Double, still: Bool) -> Bool {
-        guard domain != to else { return false }
+        guard domain != to, domain.lower.isFinite, domain.upper.isFinite, t.isFinite else { return false }
         guard to != nil, !still else {
             to = domain
             lower = End(x: domain.lower)
@@ -48,6 +49,7 @@ public struct ScaleSpring: Sendable {
     /// earlier than one seen before moves nothing.
     public mutating func shown(at t: Double) -> YDomain? {
         guard let to else { return nil }
+        guard t.isFinite else { return resting ? to : YDomain(lower: lower.x, upper: upper.x) }
         let dt = max(0, t - (last ?? t))
         last = max(last ?? t, t)
         guard !resting else { return to }
