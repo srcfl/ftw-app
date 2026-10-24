@@ -88,6 +88,15 @@ private struct HistorySavings: View {
                         .foregroundStyle(Theme.ink2)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
+                    // `AS OF 14:32`, or saved on this phone: the figure is
+                    // the box's last word, dated.
+                    Text(glance.footer.isEmpty ? " " : glance.footer)
+                        .font(Theme.mono())
+                        .tracking(0.5)
+                        .foregroundStyle(Theme.ink3)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .padding(.top, 2)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")
@@ -101,15 +110,35 @@ private struct HistorySavings: View {
         .matchedTransitionSource(id: HomeRoute.savings, in: zoom)
         .animation(Theme.spring, value: r)
         .dynamicTypeSize(...DynamicTypeSize.accessibility2)
-        .accessibilityElement(children: .combine)
+        .modifier(NotReadYet(placeholder: glance.placeholder, label: L("Savings")))
         .accessibilityHint(L("Opens what your home saved."))
         .accessibilityIdentifier("history.savings")
     }
 }
 
+/// One element for VoiceOver: what it says, or while it holds only the
+/// shape of what will come, its name and that it is not read yet.
+private struct NotReadYet: ViewModifier {
+    let placeholder: Bool
+    let label: String
+
+    func body(content: Content) -> some View {
+        if placeholder {
+            content
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(label)
+                .accessibilityValue(L("Not read yet"))
+        } else {
+            content.accessibilityElement(children: .combine)
+        }
+    }
+}
+
 /// A row per node of the home, in the order a day is told: what the sun
 /// made, what the home used, what the battery stored and gave, what the
-/// grid sold and bought, what the car took.
+/// grid sold and bought, what the car took. This view reads the stream
+/// only for which nodes the home has; the rows below it redraw when the
+/// tiles, the car's ledger or the minute move, never on a reading.
 private struct DayRows: View {
     let home: HomeModels
     let zoom: Namespace.ID
@@ -118,13 +147,30 @@ private struct DayRows: View {
 
     var body: some View {
         let site = home.site
-        let history = home.nodes.history
         let nodes = NowFlow.nodes(fields: site.session.fields, hasCar: !home.loadpoints.points.isEmpty, known: site.kept?.nodes ?? [])
-        let shown = Self.order.filter { nodes.contains($0) }
+        if home.nodes.history.available {
+            DayList(nodes: Self.order.filter { nodes.contains($0) }, home: home, zoom: zoom)
+                .equatable()
+        } else {
+            Hint(L("Your box keeps no history."))
+                .padding(.vertical, 12)
+        }
+    }
+}
+
+private struct DayList: View, Equatable {
+    let nodes: [EnergyNode]
+    let home: HomeModels
+    let zoom: Namespace.ID
+
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.nodes == b.nodes }
+
+    var body: some View {
+        let history = home.nodes.history
         let midnight = history.midnightMs
-        let now = site.minuteMs
+        let now = home.site.minuteMs
         VStack(spacing: 0) {
-            ForEach(Array(shown.enumerated()), id: \.element) { i, node in
+            ForEach(Array(nodes.enumerated()), id: \.element) { i, node in
                 if i > 0 { Divider().overlay(Theme.line).padding(.leading, DayRow.indent) }
                 NavigationLink(value: HomeRoute.day(node)) {
                     DayRow(day: Self.day(node, history: history, car: home.nodes.carEnergy, midnight: midnight, nowMs: now))
@@ -139,18 +185,25 @@ private struct DayRows: View {
         }
     }
 
-    /// One row's values, made once per change of tiles or minute.
+    /// One row's values, made once per change of tiles or minute. A row
+    /// is known once something since midnight is: until then it holds its
+    /// shape, redacted, and a tile on its way never counts as missing, so a
+    /// day the phone has not been told yet never reads as zero.
     @MainActor
     static func day(_ node: EnergyNode, history: HistoryModel, car: CarEnergyModel, midnight: Double, nowMs: Double) -> DayRow.Day {
         let elapsed = min(1, max(0, (nowMs - midnight) / 86_400_000))
         if node == .car {
-            guard car.loaded else { return .waiting(node) }
+            guard car.loaded else {
+                return car.problem.map { DayRow.Day(node: node, line: $0, note: nil, known: true, spark: .none, elapsed: elapsed) } ?? .waiting(node)
+            }
             let hours = car.hours.filter { $0.startMs + $0.lenMs > midnight }
             let bars = hours.map { DayRow.Bar(at: ($0.startMs - midnight) / 86_400_000, width: $0.lenMs / 86_400_000, wh: $0.wh) }
             return DayRow.Day(node: node, line: DayWords.car(wh: car.wh(sinceMs: midnight)), note: nil, known: true, spark: .bars(bars), elapsed: elapsed)
         }
+        // Nothing told since midnight: the box has not been asked, or its
+        // answer is on its way.
         guard let e = history.today(node) else {
-            return history.problem.map { DayRow.Day(node: node, line: $0, note: nil, known: false, spark: .none, elapsed: elapsed) } ?? .waiting(node)
+            return history.problem.map { DayRow.Day(node: node, line: $0, note: nil, known: true, spark: .none, elapsed: elapsed) } ?? .waiting(node)
         }
         let samples = history.samples(node, fromMs: midnight)
         let line = samples.map { s in s.watts.map { DayRow.Point(at: (s.startMs - midnight) / 86_400_000, w: $0) } }
@@ -235,7 +288,8 @@ private struct DayRow: View, Equatable {
         .animation(Theme.spring, value: day.line)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(day.node.title)
-        .accessibilityValue([day.line, day.note].compactMap { $0 }.joined(separator: ", "))
+        // The redacted shape is not a value.
+        .accessibilityValue(day.known ? [day.line, day.note].compactMap { $0 }.joined(separator: ", ") : L("Not read yet"))
         .accessibilityHint(L("Opens this day's chart."))
         .accessibilityAddTraits(.isButton)
     }
@@ -352,7 +406,10 @@ private struct DayFoot: View {
     var body: some View {
         // The five minutes still filling end after now; the tiles reach no
         // further than the clock.
-        let text = history.cloudNote(nowMs: minuteMs) ?? history.problem ?? end.map { NodeWords.format("AS OF %@", Clock.time(min($0, minuteMs))) }
+        let text = history.cloudNote(nowMs: minuteMs) ?? history.problem ?? end.map { at in
+            let t = min(at, minuteMs)
+            return NodeWords.format("AS OF %@", t < history.midnightMs ? Clock.dayAndTime(t).uppercased() : Clock.time(t))
+        }
         Text(text ?? " ")
             .font(Theme.mono())
             .tracking(0.5)

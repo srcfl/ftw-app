@@ -1001,6 +1001,29 @@ final class DemoRig {
         }
     }
 
+    /// A day the phone has not been told is not zero: nothing since
+    /// midnight and the answer on its way, or never asked, gives nothing;
+    /// once the box has answered, its holes are what it recorded.
+    @Test func aDayNotToldIsNotZero() {
+        let step = 300_000.0
+        func day(_ watts: Double?, fetching: Bool) -> [HistorySample] {
+            (0..<12).map { HistorySample(startMs: Double($0) * step, stepMs: step, watts: watts, fetching: fetching) }
+        }
+        #expect(HistoryModel.told(day(nil, fetching: true), fromMs: 0, answered: false) == nil)
+        #expect(HistoryModel.told(day(nil, fetching: false), fromMs: 0, answered: false) == nil)
+        #expect(HistoryModel.told(day(nil, fetching: true), fromMs: 0, answered: true) == nil)
+        #expect(HistoryModel.told([], fromMs: 0, answered: true) == nil)
+        let empty = HistoryModel.told(day(nil, fetching: false), fromMs: 0, answered: true)
+        #expect(empty?.inWh == 0)
+        #expect(empty?.missingMs == 12 * step)
+        // Something told: its sum, and a tile on its way is not missing.
+        var some = day(nil, fetching: true)
+        some[0] = HistorySample(startMs: 0, stepMs: step, watts: 1_200)
+        let partial = HistoryModel.told(some, fromMs: 0, answered: false)
+        #expect(partial?.inWh == 100)
+        #expect(partial?.missingMs == 0)
+    }
+
     /// Each row says what its node did, in both directions where power
     /// runs both ways, and a gap only once it is ten minutes.
     @Test func aDayInEachNodesWords() {

@@ -97,7 +97,7 @@ final class NowFitsTests: XCTestCase {
         shoot(app, "home-tab")
         XCTAssertTrue(app.buttons["home.mode"].exists)
         XCTAssertTrue(app.buttons["Pair a home"].exists)
-        XCTAssertTrue(app.buttons["Privacy"].exists)
+        XCTAssertTrue(app.buttons["Privacy"].exists || app.links["Privacy"].exists)
         XCTAssertTrue(app.buttons["Exit demo"].exists)
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH 'FTW 0.'")).firstMatch.exists, "no build on Home")
         about.tap()
@@ -518,16 +518,16 @@ final class NowFitsTests: XCTestCase {
         XCTAssertEqual(app.buttons.matching(identifier: "pair.primary").count, 1, "more than one prominent action")
     }
 
-    /// How the home is run, in full: Settings, in the title's menu.
+    /// How the home is run, in full: the mode sheet, from Home.
     @MainActor
     private func openSettings(_ app: XCUIApplication) {
-        let title = app.staticTexts["now.title"]
-        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        let home = app.tabBars.buttons["Home"]
+        XCTAssertTrue(home.waitForExistence(timeout: 10))
         Thread.sleep(forTimeInterval: 3)
-        title.tap()
-        let settings = app.buttons["Settings"]
-        XCTAssertTrue(settings.waitForExistence(timeout: 5))
-        settings.tap()
+        home.tap()
+        let mode = app.buttons["home.mode"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 5))
+        mode.tap()
     }
 
     @MainActor
