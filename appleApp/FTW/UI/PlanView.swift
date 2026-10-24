@@ -299,12 +299,14 @@ private struct Legend: View {
         if kinds.contains(.cheap) { item(.cheap, L("Cheapest")) }
         if level {
             HStack(spacing: 4) {
+                // Two whole dashes at any weight.
+                let sample = (TraceInk.ghostDash.reduce(0, +) * 2).rounded(.up)
                 Path { p in
-                    p.move(to: CGPoint(x: 0, y: 3))
-                    p.addLine(to: CGPoint(x: 12, y: 3))
+                    p.move(to: CGPoint(x: TraceInk.ghost / 2, y: 3))
+                    p.addLine(to: CGPoint(x: sample, y: 3))
                 }
-                .stroke(Theme.ink2, style: StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round, dash: [3, 3]))
-                .frame(width: 12, height: 6)
+                .stroke(Theme.ink2, style: StrokeStyle(lineWidth: TraceInk.ghost, lineCap: .round, lineJoin: .round, dash: TraceInk.ghostDash))
+                .frame(width: sample, height: 6)
                 Text(L("battery level")).lineLimit(1)
             }
         }
@@ -611,7 +613,7 @@ struct PlanLanes: View, Equatable {
             ForEach(moment.levels.filter { $0.ms >= from && $0.ms <= to }, id: \.ms) { p in
                 LineMark(x: .value("Time", date(p.ms)), y: .value("Level", p.pct / 100), series: .value("Series", "level"))
                     .foregroundStyle(grey ? Theme.fgMuted : Theme.ink2)
-                    .lineStyle(StrokeStyle(lineWidth: 1.25, lineCap: .round, lineJoin: .round, dash: [3, 4]))
+                    .lineStyle(StrokeStyle(lineWidth: TraceInk.ghost, lineCap: .round, lineJoin: .round, dash: TraceInk.ghostDash))
             }
             RuleMark(x: .value("Now", date(from)))
                 .foregroundStyle(Theme.accentFill)

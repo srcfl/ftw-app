@@ -217,9 +217,9 @@ struct DialGeometry {
     var tickWidth: CGFloat { max(0.9, side * (size == .app ? 0.0085 : 0.012)) }
     var carRadius: CGFloat { inner - unit * (size == .app ? 1.6 : 1.4) }
     var dot: CGFloat { max(1.4, side * 0.012) }
-    var sunWidth: CGFloat { size == .app ? 2 : max(1.2, side * 0.015) }
+    var sunWidth: CGFloat { size == .app ? 2 * TraceInk.weight : max(1.2, side * 0.015) }
     /// The forecast's dash: short enough to read as a guess at any size.
-    var sunDash: [CGFloat] { size == .app ? [4, 3] : [max(1.5, side * 0.02), max(1.2, side * 0.016)] }
+    var sunDash: [CGFloat] { size == .app ? [4 * TraceInk.weight, 3 * TraceInk.weight] : [max(1.5, side * 0.02), max(1.2, side * 0.016)] }
     /// The hours' and the car goal's mono size.
     var label: CGFloat { max(9, (side * 0.03).rounded()) }
 
