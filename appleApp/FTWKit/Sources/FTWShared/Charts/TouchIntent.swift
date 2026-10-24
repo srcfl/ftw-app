@@ -98,3 +98,16 @@ public enum RingIntent {
         return along >= across && abs(dx) >= abs(dy) ? .scrub : .pass
     }
 }
+
+/// A finger on the plan's lanes, inside the plan's scroll: the lanes run
+/// left to right, so a move that is mostly sideways scrubs, and so does a
+/// finger that rests 0.1 s; a move that is mostly up or down is the
+/// page's, and it scrolls.
+public enum LaneIntent {
+    public static func decide(start: CGPoint, now: CGPoint, heldMs: Double) -> RingIntent.Decision? {
+        if heldMs >= RingIntent.holdMs { return .scrub }
+        let dx = now.x - start.x, dy = now.y - start.y
+        guard hypot(dx, dy) >= TouchIntent.slop else { return nil }
+        return abs(dx) >= abs(dy) ? .scrub : .pass
+    }
+}

@@ -68,7 +68,7 @@ struct PlanDialCard: View {
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { finger.frame = $0 }
         .onChange(of: dial, initial: true) { _, now in finger.dial = now }
         .onAppear {
-            touch.changed = { value in
+            touch.take(finger, changed: { value in
                 // A new touch has a new start; one the system took away
                 // never ended.
                 if finger.startAt != value.startLocation {
@@ -76,12 +76,10 @@ struct PlanDialCard: View {
                     start(value)
                 }
                 move(value)
-            }
-            touch.ended = { end() }
+            }, ended: { end() })
         }
         .onDisappear {
-            touch.changed = nil
-            touch.ended = nil
+            touch.release(finger)
             end()
         }
         .accessibilityElement(children: .ignore)
@@ -245,12 +243,28 @@ private final class Finger {
     var dial: PlanDial?
 }
 
-/// The plan page's touches, handed to the dial: the page holds the one
-/// gesture, beside its scroll, and the dial says what each touch is.
+/// The plan page's touches, handed to the dial or the lanes, whichever is
+/// on screen: the page holds the one gesture, beside its scroll, and the
+/// chart says what each touch is. `owner` is the chart that set the
+/// handlers, so one leaving after the other came does not take them away.
 @MainActor
 final class DialTouch {
     var changed: ((DragGesture.Value) -> Void)?
     var ended: (() -> Void)?
+    var owner: AnyObject?
+
+    func take(_ owner: AnyObject, changed: @escaping (DragGesture.Value) -> Void, ended: @escaping () -> Void) {
+        self.owner = owner
+        self.changed = changed
+        self.ended = ended
+    }
+
+    func release(_ owner: AnyObject) {
+        guard self.owner === owner else { return }
+        self.owner = nil
+        changed = nil
+        ended = nil
+    }
 }
 
 private enum DialLog {

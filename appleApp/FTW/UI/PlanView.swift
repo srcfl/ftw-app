@@ -175,8 +175,7 @@ private struct PlanBody: View {
                         MovedLine(text: moved)
                     }
                     VStack(alignment: .leading, spacing: 6) {
-                        PlanLanes(moment: moment)
-                            .equatable()
+                        PlanLanesCard(moment: moment, dial: dials.dial(models.planShare.entry, nowMs: minute), holds: $dialHolds, touch: dialTouch)
                             .frame(height: 140)
                         Legend(kinds: Set(moment.events.map(\.kind)), level: !moment.levels.isEmpty)
                     }
@@ -559,6 +558,13 @@ private extension String {
 struct PlanLanes: View, Equatable {
     let moment: PlanGlance.Moment
     var compact = false
+    /// The finger on the plan view's lanes, and the dial whose quarters it
+    /// reads; none on Now's strip.
+    fileprivate var finger: LaneFinger? = nil
+    fileprivate var scrub: ScrubModel? = nil
+    fileprivate var dial: PlanDial? = nil
+
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.moment == b.moment && a.compact == b.compact }
 
     private static let car = 0.68...0.96
     private static let battery = 0.34...0.62
@@ -613,6 +619,11 @@ struct PlanLanes: View, Equatable {
         }
         .chartXScale(domain: date(from)...date(to))
         .chartYScale(domain: 0...1)
+        .chartOverlay { proxy in
+            if let finger, let scrub, let dial {
+                LanesMark(proxy: proxy, scrub: scrub, dial: dial, finger: finger, fromMs: from, toMs: to)
+            }
+        }
         .chartYAxis(.hidden)
         .chartXAxis {
             AxisMarks(preset: .aligned, values: .stride(by: .hour, count: 3)) { value in
@@ -640,6 +651,155 @@ struct PlanLanes: View, Equatable {
     }
 
     private func date(_ ms: Double) -> Date { Date(timeIntervalSince1970: ms / 1000) }
+}
+
+/// The lanes with a finger on them. Like the dial, the lanes have no
+/// gesture of their own inside the plan's scroll: any there held the page
+/// still for every swipe that started on them. The page hands each touch
+/// here (`DialTouch`), and the lanes scrub only once the finger moves
+/// mostly sideways or rests 0.1 s (`LaneIntent`); up or down scrolls the
+/// page, and while it scrubs the page holds still. The quarter under the
+/// finger reads as the dial's does, in the dial's words: its time, its
+/// price and what the box does then. A tick marks each new quarter.
+private struct PlanLanesCard: View {
+    let moment: PlanGlance.Moment
+    let dial: PlanDial
+    @Binding var holds: Bool
+    let touch: DialTouch
+    @State private var scrub = ScrubModel()
+    @State private var finger = LaneFinger()
+
+    var body: some View {
+        PlanLanes(moment: moment, finger: finger, scrub: scrub, dial: dial)
+            .equatable()
+            .sensoryFeedback(.selection, trigger: scrub.ticks)
+            .sensoryFeedback(.impact(weight: .light), trigger: scrub.bumps)
+            .onChange(of: dial, initial: true) { _, now in finger.dial = now }
+            .onAppear {
+                touch.take(finger, changed: { value in
+                    if finger.startAt != value.startLocation {
+                        end()
+                        start(value)
+                    }
+                    move(value)
+                }, ended: { end() })
+            }
+            .onDisappear {
+                touch.release(finger)
+                end()
+            }
+            .accessibilityIdentifier("plan.lanes")
+    }
+
+    /// The lanes take a touch only inside their plot, and never within
+    /// 20 pt of the screen's leading edge, where the back swipe starts.
+    private func start(_ v: DragGesture.Value) {
+        finger.startAt = v.startLocation
+        finger.startMs = ProcessInfo.processInfo.systemUptime * 1000
+        finger.decision = nil
+        guard v.startLocation.x >= EdgeRule.edge, finger.plot.insetBy(dx: 0, dy: -8).contains(v.startLocation) else {
+            finger.decision = .pass
+            return
+        }
+        finger.hold = Task {
+            try? await Task.sleep(for: .milliseconds(Int(RingIntent.holdMs)))
+            guard !Task.isCancelled, finger.decision == nil, let at = finger.last else { return }
+            decide(.scrub, at: at)
+        }
+    }
+
+    private func move(_ v: DragGesture.Value) {
+        finger.last = v.location
+        guard finger.decision == nil else {
+            if finger.decision == .scrub { follow(v.location) }
+            return
+        }
+        let held = ProcessInfo.processInfo.systemUptime * 1000 - (finger.startMs ?? 0)
+        if let decision = LaneIntent.decide(start: v.startLocation, now: v.location, heldMs: held) {
+            decide(decision, at: v.location)
+        }
+    }
+
+    private func decide(_ decision: RingIntent.Decision, at p: CGPoint) {
+        finger.decision = decision
+        finger.hold?.cancel()
+        guard decision == .scrub else { return }
+        holds = true
+        follow(p)
+    }
+
+    /// The quarter under the finger, clamped to the lanes.
+    private func follow(_ p: CGPoint) {
+        let plot = finger.plot
+        guard plot.width > 0, let dial = finger.dial, finger.toMs > finger.fromMs else { return }
+        let f = Double(min(max((p.x - plot.minX) / plot.width, 0), 1))
+        let ms = finger.fromMs + f * (finger.toMs - finger.fromMs)
+        guard let i = dial.grid.index(atMs: ms), i != scrub.index else { return }
+        scrub.move(to: i, landmark: dial.landmarks.contains(i))
+    }
+
+    private func end() {
+        guard finger.startMs != nil else { return }
+        finger.hold?.cancel()
+        finger.hold = nil
+        finger.startAt = nil
+        finger.startMs = nil
+        finger.decision = nil
+        finger.last = nil
+        if holds { holds = false }
+        if scrub.isDown { withAnimation(Theme.spring) { scrub.lift() } }
+    }
+}
+
+/// The rule and the tag over the quarter under the finger, the only marks
+/// that move with it: the lanes themselves never redraw for a finger.
+private struct LanesMark: View {
+    let proxy: ChartProxy
+    let scrub: ScrubModel
+    let dial: PlanDial
+    let finger: LaneFinger
+    let fromMs: Double
+    let toMs: Double
+
+    var body: some View {
+        GeometryReader { geo in
+            let plot = proxy.plotFrame.map { geo[$0] } ?? CGRect(origin: .zero, size: geo.size)
+            Canvas { g, size in
+                guard let i = scrub.index, toMs > fromMs else { return }
+                let mid = dial.grid.startMs(i) + PlanDial.quarterMs / 2
+                let x = plot.minX + CGFloat((mid - fromMs) / (toMs - fromMs)) * plot.width
+                let px = 1 / max(1, g.environment.displayScale)
+                LockOn.rule(at: x, plot: plot, px: px, in: &g)
+                let words = [dial.time(i), dial.price(i), dial.what(i)].filter { !$0.isEmpty }.joined(separator: " · ")
+                LockOn.tag(words, over: x, plot: plot, size: 10, in: &g, canvas: size)
+            }
+            .allowsHitTesting(false)
+            .onChange(of: plot, initial: true) { _, now in finger.plotLocal = now }
+            .onChange(of: fromMs, initial: true) { _, now in
+                finger.fromMs = now
+                finger.toMs = toMs
+            }
+        }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { finger.overlay = $0 }
+    }
+}
+
+/// Where the lanes' plot is on the screen, what the touch is and the dial
+/// it reads: a plain reference, so a touch or a scroll writes nothing
+/// SwiftUI watches.
+@MainActor
+private final class LaneFinger {
+    var startAt: CGPoint?
+    var startMs: Double?
+    var decision: RingIntent.Decision?
+    var last: CGPoint?
+    var hold: Task<Void, Never>?
+    var overlay: CGRect = .zero
+    var plotLocal: CGRect = .zero
+    var plot: CGRect { plotLocal.offsetBy(dx: overlay.minX, dy: overlay.minY) }
+    var dial: PlanDial?
+    var fromMs = 0.0
+    var toMs = 0.0
 }
 
 /// "15", on the 24-hour clock FTW uses in both languages: an English phone
