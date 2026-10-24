@@ -62,71 +62,21 @@ struct TimelineDrawing: ChartDrawing {
     }
 }
 
-/// The timeline's scale on its way to a new one: a pan or a pinch that
-/// brings a higher peak into view moves the lines, the plan and the live
-/// trace on a critically damped spring that settles in about
-/// `TraceInk.spring`. Its ends keep their speed when the target moves
-/// again mid-way, so a pinch through several steps of scale glides on
-/// rather than slowing at each, and it lands on the target without a
-/// last step. Under Reduce Motion it changes at once. Not observed: the
-/// timeline steps it and nothing else reads it.
+/// The timeline's scale on its way to a new one (`ScaleSpring`, settling
+/// in about `TraceInk.spring`). Not observed: the timeline steps it while
+/// it moves and nothing else reads it, so a step redraws no other view.
 @MainActor
 final class ScaleMotion {
-    private var lower = Spring()
-    private var upper = Spring()
-    private(set) var to: YDomain?
-    private var last: Double?
+    private var spring = ScaleSpring(settle: TraceInk.spring)
 
-    private struct Spring {
-        var x = 0.0
-        var v = 0.0
-        /// One step of a critically damped spring toward `target`.
-        mutating func step(toward target: Double, dt: Double, omega: Double) {
-            let a = -omega * omega * (x - target) - 2 * omega * v
-            v += a * dt
-            x += v * dt
-        }
-        /// Within a thousandth of the scale and nearly still: done.
-        func near(_ target: Double, span: Double) -> Bool { abs(x - target) <= span * 0.001 && abs(v) <= span * 0.01 }
-    }
-
-    private static let omega = 7.5 / TraceInk.spring
+    var resting: Bool { spring.resting }
 
     /// A new scale at `t`. True when the scale will move to it.
     @discardableResult
     func target(_ domain: YDomain, at t: Double, still: Bool) -> Bool {
-        guard domain != to else { return false }
-        guard to != nil, !still else {
-            to = domain
-            lower = Spring(x: domain.lower)
-            upper = Spring(x: domain.upper)
-            last = t
-            return false
-        }
-        // On from where the ends are now, at the speed they have.
-        _ = shown(at: t)
-        to = domain
-        return true
+        spring.target(domain, at: t, still: still)
     }
 
     /// The scale on screen at `t`; nil before the first.
-    func shown(at t: Double) -> YDomain? {
-        guard let to else { return nil }
-        var left = min(max(0, t - (last ?? t)), 1)
-        last = t
-        while left > 0 {
-            let dt = min(left, 1.0 / 240)
-            lower.step(toward: to.lower, dt: dt, omega: Self.omega)
-            upper.step(toward: to.upper, dt: dt, omega: Self.omega)
-            left -= dt
-        }
-        let span = max(1, abs(to.upper - to.lower))
-        if lower.near(to.lower, span: span), upper.near(to.upper, span: span) {
-            lower = Spring(x: to.lower)
-            upper = Spring(x: to.upper)
-            return to
-        }
-        return YDomain(lower: lower.x, upper: upper.x)
-    }
-
+    func shown(at t: Double) -> YDomain? { spring.shown(at: t) }
 }

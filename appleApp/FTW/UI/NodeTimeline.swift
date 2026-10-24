@@ -17,7 +17,7 @@ struct TimelineChartArea: View {
     @State private var shown: YDomain?
     @State private var interacting = false
     /// The scale on screen moving to a new one, and the changes seen and
-    /// settled: the drawing runs at the display's rate only between them.
+    /// rested on: the timeline runs at the display's rate only between.
     @State private var motion = ScaleMotion()
     @State private var scaleChanges = 0
     @State private var scaleSettled = 0
@@ -119,13 +119,6 @@ struct TimelineChartArea: View {
             // under Reduce Motion, are there at once.
             if motion.target(picture.domain, at: Date.timeIntervalSinceReferenceDate, still: reduceMotion) { scaleChanges += 1 }
         }
-        .task(id: scaleChanges) {
-            // The spring rests within its time; a little longer covers a
-            // late frame, and the next change restarts the wait.
-            try? await Task.sleep(for: .seconds(TraceInk.spring * 1.6))
-            guard !Task.isCancelled else { return }
-            scaleSettled = scaleChanges
-        }
         .modifier(TimelineAccessibility(node: node, window: $window, shown: shownWindow, nowMs: site.nowMs,
             empty: empty, history: picture, observations: traces[node.rawValue]?.readings ?? [],
             sampleMs: data.first(where: { $0.node == node })?.stepMs ?? 300_000))
@@ -148,21 +141,26 @@ struct TimelineChartArea: View {
 
     private func chart(_ data: [Input], picture: HistoryPicture, traces: [String: LiveSeries], frame: ChartFrame, looks: [String: TraceLook], live: Set<String>, empty: String?) -> some View {
         ZStack {
-            // A new scale springs in from the one on screen; between
-            // changes the timeline rests and the surface draws on data.
+            // A new scale springs in from the one on screen and the timeline
+            // runs until it rests on it; between changes the timeline rests
+            // and the surface draws on data. The lines and the finger's dot
+            // read the same scale on every frame.
             let moving = scaleSettled != scaleChanges
             TimelineView(.animation(paused: !moving)) { tick in
-                let t = (moving ? tick.date : Date()).timeIntervalSinceReferenceDate
-                ChartSurface(drawing: TimelineDrawing(history: picture, traces: traces, looks: looks, frame: frame, liveKeys: live, nowMs: site.nowMs, shown: motion.shown(at: t), axis: axis, words: ChartLabels(fetching: L("Waiting for history"), now: L("NOW"))))
-                    .equatable()
+                let scale = motion.shown(at: (moving ? tick.date : Date()).timeIntervalSinceReferenceDate)
+                ZStack {
+                    ChartSurface(drawing: TimelineDrawing(history: picture, traces: traces, looks: looks, frame: frame, liveKeys: live, nowMs: site.nowMs, shown: scale, axis: axis, words: ChartLabels(fetching: L("Waiting for history"), now: L("NOW"))))
+                        .equatable()
+                    TimelineTouchOverlay(window: $window, shown: shownWindow, nowMs: site.nowMs, frame: frame, domain: scale ?? picture.domain, scrub: scrub, text: text, node: node,
+                        reading: { ms in
+                            // The own series, or the first chosen when its chip is
+                            // off; the words and the colour are that series'.
+                            guard let own = data.first(where: { $0.node == node }) ?? data.first else { return (node, .missing) }
+                            return (own.node, TimelineReading.at(ms, history: own.history, sampleMs: own.stepMs, observations: own.observations, gapMs: own.gapMs, nowMs: site.nowMs, ahead: own.ahead))
+                        }, onTap: onTap, touchingChanged: { interacting = $0 })
+                }
+                .onChange(of: tick.date) { if motion.resting { scaleSettled = scaleChanges } }
             }
-            TimelineTouchOverlay(window: $window, shown: shownWindow, nowMs: site.nowMs, frame: frame, domain: motion.shown(at: Date.timeIntervalSinceReferenceDate) ?? picture.domain, scrub: scrub, text: text, node: node,
-                reading: { ms in
-                    // The own series, or the first chosen when its chip is
-                    // off; the words and the colour are that series'.
-                    guard let own = data.first(where: { $0.node == node }) ?? data.first else { return (node, .missing) }
-                    return (own.node, TimelineReading.at(ms, history: own.history, sampleMs: own.stepMs, observations: own.observations, gapMs: own.gapMs, nowMs: site.nowMs, ahead: own.ahead))
-                }, onTap: onTap, touchingChanged: { interacting = $0 })
             if let message = empty {
                 Text(message).font(.footnote).foregroundStyle(Theme.ink2)
                     .multilineTextAlignment(.center).padding(.horizontal, 28)
