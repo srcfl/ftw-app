@@ -101,6 +101,8 @@ final class PeriodText {
         var watts: Double?
         var signed: Double
         var word: String
+        /// The series the value came from, when it is not the view's own.
+        var node: EnergyNode? = nil
     }
 
     private(set) var slots: [String] = []

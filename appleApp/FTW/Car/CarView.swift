@@ -233,7 +233,7 @@ struct CarPlan: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline) {
-                Kicker(TimelineLabel.window(window, nowMs: home.site.minuteMs, clock: .of(.current)))
+                Kicker(TimelineLabel.window(window.following(nowMs: home.site.nowMs, clock: .of(.current)), nowMs: home.site.minuteMs, clock: .of(.current)))
                 Spacer(minLength: 8)
                 if !atOpening {
                     Button {

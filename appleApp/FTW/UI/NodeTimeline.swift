@@ -29,6 +29,7 @@ struct TimelineChartArea: View {
     }
 
     private func inputs() -> [Input] {
+        let shownWindow = self.shownWindow
         _ = home.nodes.live.revision
         return series.map { n in
             let points = home.nodes.live.samples(n, sinceMs: site.nowMs - LiveTrace.windowMs)
@@ -54,6 +55,7 @@ struct TimelineChartArea: View {
     }
 
     private func picture(_ inputs: [Input], size: CGSize) -> HistoryPicture {
+        let shownWindow = self.shownWindow
         let values = inputs.flatMap { $0.observations.filter { $0.t >= shownWindow.fromMs && $0.t <= min(shownWindow.toMs, site.nowMs) }.map(\.v) }
         let extent = values.min().flatMap { lo in values.max().map { lo...$0 } }
         let words = ReadoutWords(value: { AppWords.power(abs($0)) }, range: { "\(AppWords.power(abs($0)))–\(AppWords.power(abs($1)))" }, none: L("no data"))
@@ -128,12 +130,14 @@ struct TimelineChartArea: View {
 
     private func chart(_ data: [Input], picture: HistoryPicture, traces: [String: LiveSeries], frame: ChartFrame, looks: [String: TraceLook], live: Set<String>, empty: String?) -> some View {
         ZStack {
-            ChartSurface(drawing: TimelineDrawing(history: picture, traces: traces, looks: looks, frame: frame, liveKeys: live, axis: axis, words: ChartLabels(fetching: L("Waiting for history"), now: L("NOW"))))
+            ChartSurface(drawing: TimelineDrawing(history: picture, traces: traces, looks: looks, frame: frame, liveKeys: live, nowMs: site.nowMs, axis: axis, words: ChartLabels(fetching: L("Waiting for history"), now: L("NOW"))))
                 .equatable()
             TimelineTouchOverlay(window: $window, shown: shownWindow, nowMs: site.nowMs, frame: frame, domain: picture.domain, scrub: scrub, text: text, node: node,
                 reading: { ms in
-                    guard let own = data.first(where: { $0.node == node }) ?? data.first else { return .missing }
-                    return TimelineReading.at(ms, history: own.history, sampleMs: own.stepMs, observations: own.observations, gapMs: own.gapMs, nowMs: site.nowMs, ahead: own.ahead)
+                    // The own series, or the first chosen when its chip is
+                    // off; the words and the colour are that series'.
+                    guard let own = data.first(where: { $0.node == node }) ?? data.first else { return (node, .missing) }
+                    return (own.node, TimelineReading.at(ms, history: own.history, sampleMs: own.stepMs, observations: own.observations, gapMs: own.gapMs, nowMs: site.nowMs, ahead: own.ahead))
                 }, onTap: onTap, touchingChanged: { interacting = $0 })
             if let message = empty {
                 Text(message).font(.footnote).foregroundStyle(Theme.ink2)
@@ -144,6 +148,7 @@ struct TimelineChartArea: View {
     }
 
     private func emptyMessage(_ inputs: [Input]) -> String? {
+        let shownWindow = self.shownWindow
         guard let own = inputs.first(where: { $0.node == node }) else { return nil }
         let end = min(shownWindow.toMs, site.nowMs)
         if shownWindow.fromMs >= site.nowMs {
@@ -214,7 +219,7 @@ private struct TimelineTouchOverlay: View {
     let scrub: ScrubModel
     let text: PeriodText
     let node: EnergyNode
-    let reading: (Double) -> TimelineReading
+    let reading: (Double) -> (node: EnergyNode, value: TimelineReading)
     var onTap: (() -> Void)?
     var touchingChanged: (Bool) -> Void
     @State private var size = CGSize.zero
@@ -240,10 +245,10 @@ private struct TimelineTouchOverlay: View {
             let x = plot.minX + CGFloat((selectedMs - window.fromMs) / window.spanMs) * plot.width
             let px = 1 / max(1, g.environment.displayScale)
             LockOn.rule(at: x, plot: plot, px: px, in: &g)
-            let value = reading(selectedMs)
+            let (from, value) = reading(selectedMs)
             if let watts = value.watts {
                 let y = plot.minY + YMap(domain: domain, height: plot.height).y(watts)
-                LockOn.dot(at: CGPoint(x: x, y: y), color: NodeChartLook.color(node), in: &g)
+                LockOn.dot(at: CGPoint(x: x, y: y), color: NodeChartLook.color(from), in: &g)
             }
             LockOn.tag(TimelineWords.reading(value, atMs: selectedMs), over: x, plot: plot, size: 10, in: &g, canvas: size)
         }
@@ -259,8 +264,9 @@ private struct TimelineTouchOverlay: View {
                     // A changed finger count keeps the gesture from being a
                     // tap, so a pinch never ends by opening the full screen.
                     let acted = start != nil || positions.count >= 2
-                    window = shown
-                    start = Touch(window: shown, positions: positions, began: Date(), lastX: positions[0], acted: acted)
+                    let from = start == nil ? shown : window
+                    window = from
+                    start = Touch(window: from, positions: positions, began: Date(), lastX: positions[0], acted: acted)
                     return
                 }
                 guard var saved = start else { return }
@@ -307,10 +313,10 @@ private struct TimelineTouchOverlay: View {
         let fraction = Double(min(max(x / max(1, size.width - frame.trailing), 0), 1))
         let ms = window.time(at: fraction)
         selectedMs = ms
-        let value = reading(ms)
+        let (from, value) = reading(ms)
         let words = TimelineWords.reading(value, atMs: ms)
         let watts = value.watts
-        text.set([words], spans: { _ in words }, heroes: [.init(watts: watts.map(abs), signed: watts ?? 0, word: TimelineWords.when(value, node: node, atMs: ms))])
+        text.set([words], spans: { _ in words }, heroes: [.init(watts: watts.map(abs), signed: watts ?? 0, word: TimelineWords.when(value, node: from, atMs: ms), node: from)])
         scrub.move(to: 0, landmark: false)
     }
 

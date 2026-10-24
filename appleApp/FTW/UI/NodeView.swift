@@ -201,7 +201,7 @@ struct NodeHero: View {
         let under = followsChart ? text.hero(scrub) : nil
         let watts = under.map(\.watts) ?? reading?.watts.map(Flow.quantised)
         let word = under?.word ?? reading?.word ?? L("Your box sends no reading for this.")
-        let tone = under.map { Readouts.tone(node, $0.signed) } ?? reading?.tone ?? .muted
+        let tone = under.map { Readouts.tone($0.node ?? node, $0.signed) } ?? reading?.tone ?? .muted
 
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {

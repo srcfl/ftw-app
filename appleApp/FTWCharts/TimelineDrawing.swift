@@ -12,6 +12,9 @@ struct TimelineDrawing: ChartDrawing {
     let looks: [String: TraceLook]
     let frame: ChartFrame
     let liveKeys: Set<String>
+    /// The clock, for the head's freshness; the picture's now steps by a
+    /// point of the plot.
+    var nowMs: Double? = nil
     var axis: CGFloat = 10
     var words = ChartLabels()
 
@@ -37,11 +40,14 @@ struct TimelineDrawing: ChartDrawing {
                 TraceInk.body(Path(trace.body.cgPath).applying(transform), look: look, ink: !live, baseline: base, height: plot.height, above: above, below: below, in: p)
                 TraceInk.body(Path(trace.bodyUnseen.cgPath).applying(transform), look: look, ink: true, baseline: base, height: plot.height, above: above, below: below, in: p)
             }
-            TraceInk.band(Path(trace.band.cgPath).applying(transform), look: look, above: above, below: below, in: p)
+            // The band spans the whole run; it takes colour only when every
+            // reading in it was seen live.
+            let bandLook = trace.readings.allSatisfy(\.seen) ? look : ink
+            TraceInk.band(Path(trace.band.cgPath).applying(transform), look: bandLook, above: above, below: below, in: p)
             TraceInk.line(Path(trace.line.cgPath).applying(transform), look: look, width: width, glows: false, above: above, below: below, in: p)
             TraceInk.line(Path(trace.lineUnseen.cgPath).applying(transform), look: ink, width: width, glows: false, above: above, below: below, in: p)
             if own, liveKeys.contains(layer.key), let last = trace.last, last.seen,
-               let now = history.nowMs, now - last.t <= trace.gapMs {
+               let now = nowMs ?? history.nowMs, now - last.t <= trace.gapMs {
                 let point = CGPoint(x: trace.x(last.t), y: YMap(domain: history.domain, height: plot.height).y(last.v))
                 let color = last.v >= 0 ? look.up : look.down
                 if TraceInk.glows(live: true, in: g) {
