@@ -19,7 +19,8 @@ final class HistoryTour: XCTestCase {
         let initial = chart.value as? String
         chart.coordinate(withNormalizedOffset: .init(dx: 0.2, dy: 0.5)).press(forDuration: 0.02,
             thenDragTo: chart.coordinate(withNormalizedOffset: .init(dx: 0.8, dy: 0.5)), withVelocity: .slow, thenHoldForDuration: 0)
-        let now = app.buttons["timeline.now"]
+        // "Today" goes back to the window a node opens on.
+        let now = app.buttons["timeline.today"]
         XCTAssertTrue(now.waitForExistence(timeout: 3))
         XCTAssertTrue(now.isEnabled)
         let panned = chart.value as? String
