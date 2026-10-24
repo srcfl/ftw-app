@@ -136,8 +136,8 @@ extension NowFlow {
 /// Where the flow goes on Now, from the height there is: 72 % of the room
 /// between the bar and the plan, never less than 232 pt and never more
 /// than 420 pt, centred in that room so the ground above and below it
-/// match. The price row of the plan's strip takes 15 % of the ground the
-/// flow leaves, from 20 pt up to 56 pt, so its bars read as a chart. A
+/// match. The price row of the plan's strip takes 35 % of the ground the
+/// flow leaves, from 20 pt up to 72 pt, so its bars read as a chart. A
 /// function of the screen and the home's shape alone, so nothing on the
 /// page moves when data arrives.
 public struct NowLayout: Equatable, Sendable {
@@ -149,8 +149,11 @@ public struct NowLayout: Equatable, Sendable {
     /// The least ground between the flow and the plan.
     public static let gap: CGFloat = 16
     public static let minPrice: CGFloat = 20
-    public static let maxPrice: CGFloat = 56
-    public static let priceShare: CGFloat = 0.15
+    /// The strip takes a third of the ground the flow leaves, so on a
+    /// phone with room the plan and its prices read as a chart (Fredrik,
+    /// 24 October 2026: there was much room above for the rest).
+    public static let maxPrice: CGFloat = 72
+    public static let priceShare: CGFloat = 0.35
 
     public let flow: CGFloat
     /// From the top of the room to the top of the flow.

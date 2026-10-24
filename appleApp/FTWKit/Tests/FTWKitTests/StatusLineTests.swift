@@ -317,14 +317,15 @@ import FTWShared
         }
     }
 
-    /// What the flow leaves, the price row takes 15 % of, from 20 pt to
-    /// 56 pt, and never the gap the flow keeps from the plan.
+    /// What the flow leaves, the price row takes 35 % of, from 20 pt to
+    /// 72 pt, and never the gap the flow keeps from the plan.
     @Test func thePriceRowGrowsWithTheGround() {
         let pm = NowLayout(room: 731)
-        #expect(abs(pm.price - (731 - 420) * 0.15) < 0.001)
-        #expect(NowLayout(room: 444).price == 20)
-        #expect(NowLayout(room: 2_000).price == 56)
-        #expect(NowLayout(room: 300).price == 20)
+        #expect(pm.price == 72)
+        let se = NowLayout(room: 444)
+        #expect(abs(se.price - (444 - se.flow) * 0.35) < 0.001)
+        #expect(NowLayout(room: 2_000).price == 72)
+        #expect(abs(NowLayout(room: 300).price - (300 - 232) * 0.35) < 0.001)
         #expect(NowLayout(room: 240).price == 20)
         #expect(NowLayout(room: 240).grow == 0)
     }
