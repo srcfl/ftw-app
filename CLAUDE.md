@@ -149,6 +149,15 @@ native, and smooth enough to impress.
   (`RingGeometry`), and the car's goal and level are one row under it.
   The live curve glides over each second, except under Reduce Motion or
   in Low Power Mode.
+- **Four tabs** (Ring / Quiet step 3, 24 Oct 2026), the system's
+  `TabView`: Now, Plan, History and Home (`HomeTab`). Each keeps its own
+  stack, and a second tap on a tab takes it to its top. History tells
+  today: the savings, then a row per node with its energy in words and
+  its day drawn midnight to midnight on one shared axis, each into that
+  node's view on Today. Home holds what the title's menu and the
+  settings sheet held: the mode, the cars, assistants, the watch, the
+  homes, this phone and About. Now's title is the home's name and opens
+  nothing; the mode sheet opens from Now's mode button and from Home.
 - **No layout jumps.** Reserve room for receipts, labels and pending
   marks, so a row never moves under the finger. Freshness and state
   changes cross-fade, and a transition can be interrupted.

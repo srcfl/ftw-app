@@ -52,7 +52,8 @@ final class AccessRemoveTests: XCTestCase {
         ]
         app.launch()
 
-        XCTAssertTrue(app.buttons["mode.close"].waitForExistence(timeout: 15))
+        // `-FTWSheet settings` opens Home, which holds Access.
+        XCTAssertTrue(app.buttons["home.mode"].waitForExistence(timeout: 15))
         let access = reveal(app, app.buttons["settings.access"])
         XCTAssertTrue(access.waitForExistence(timeout: 5))
         access.tap()

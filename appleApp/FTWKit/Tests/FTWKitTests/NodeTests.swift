@@ -853,6 +853,7 @@ import FTWShared
             "appleApp/FTW/UI/StatusLine.swift", "appleApp/FTW/UI/ControlSheet.swift", "appleApp/FTW/UI/ModeMenu.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/StatusLine.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/GridPhases.swift", "appleApp/FTW/UI/GridPhasesRow.swift",
+            "appleApp/FTW/UI/HistoryTab.swift", "appleApp/FTW/UI/HomeTab.swift", "appleApp/FTWKit/Sources/FTWKit/State/HomeTab.swift",
         ]
         let pattern = #/(?:\bL|NodeWords\.(?:text|format)|AppWords\.(?:text|format))\("((?:[^"\\]|\\.)*)"/#
         var english = Set<String>()
@@ -981,5 +982,65 @@ final class DemoRig {
         #expect(again.record.readAtMs > first.record.readAtMs)
         #expect(wakes.count == writes + 1)
         plan.deactivate()
+    }
+}
+
+// MARK: Tabs and History's day
+
+@Suite struct HomeTabTests {
+    /// The tab bar reads Now, Plan, History, Home, and Swedish says Hem
+    /// for the tab where Now says Hemmet for the node.
+    @Test func theTabsInBothLanguages() {
+        #expect(HomeTab.allCases == [.now, .plan, .history, .home])
+        AppWords.$language.withValue(.en) {
+            #expect(HomeTab.allCases.map(\.title) == ["Now", "Plan", "History", "Home"])
+        }
+        AppWords.$language.withValue(.sv) {
+            #expect(HomeTab.allCases.map(\.title) == ["Nu", "Plan", "Historik", "Hem"])
+            #expect(EnergyNode.home.title != HomeTab.home.title)
+        }
+    }
+
+    /// A day the phone has not been told is not zero: nothing since
+    /// midnight and the answer on its way, or never asked, gives nothing;
+    /// once the box has answered, its holes are what it recorded.
+    @Test func aDayNotToldIsNotZero() {
+        let step = 300_000.0
+        func day(_ watts: Double?, fetching: Bool) -> [HistorySample] {
+            (0..<12).map { HistorySample(startMs: Double($0) * step, stepMs: step, watts: watts, fetching: fetching) }
+        }
+        #expect(HistoryModel.told(day(nil, fetching: true), fromMs: 0, answered: false) == nil)
+        #expect(HistoryModel.told(day(nil, fetching: false), fromMs: 0, answered: false) == nil)
+        #expect(HistoryModel.told(day(nil, fetching: true), fromMs: 0, answered: true) == nil)
+        #expect(HistoryModel.told([], fromMs: 0, answered: true) == nil)
+        let empty = HistoryModel.told(day(nil, fetching: false), fromMs: 0, answered: true)
+        #expect(empty?.inWh == 0)
+        #expect(empty?.missingMs == 12 * step)
+        // Something told: its sum, and a tile on its way is not missing.
+        var some = day(nil, fetching: true)
+        some[0] = HistorySample(startMs: 0, stepMs: step, watts: 1_200)
+        let partial = HistoryModel.told(some, fromMs: 0, answered: false)
+        #expect(partial?.inWh == 100)
+        #expect(partial?.missingMs == 0)
+    }
+
+    /// Each row says what its node did, in both directions where power
+    /// runs both ways, and a gap only once it is ten minutes.
+    @Test func aDayInEachNodesWords() {
+        let e = EnergyToday(inWh: 5_000, outWh: 4_200, missingMs: 0)
+        AppWords.$language.withValue(.en) {
+            #expect(DayWords.line(.solar, e) == "Made 5.0\u{00A0}kWh")
+            #expect(DayWords.line(.battery, e) == "Charged 5.0\u{00A0}kWh · gave 4.2\u{00A0}kWh")
+            #expect(DayWords.line(.grid, e) == "Bought 5.0\u{00A0}kWh · sold 4.2\u{00A0}kWh")
+            #expect(DayWords.line(.home, e) == "Used 5.0\u{00A0}kWh")
+            #expect(DayWords.car(wh: 33_000) == "Charged 33\u{00A0}kWh")
+            #expect(DayWords.missing(e) == nil)
+            #expect(DayWords.missing(EnergyToday(inWh: 0, outWh: 0, missingMs: 540_000)) == nil)
+            #expect(DayWords.missing(EnergyToday(inWh: 0, outWh: 0, missingMs: 2_400_000)) == "40 min not recorded")
+        }
+        AppWords.$language.withValue(.sv) {
+            #expect(DayWords.line(.battery, e) == "Laddat 5,0\u{00A0}kWh · gett 4,2\u{00A0}kWh")
+            #expect(DayWords.shape(.solar) == "Producerat 0,0\u{00A0}kWh")
+        }
     }
 }

@@ -11,23 +11,16 @@ import SwiftUI
 /// what the new plan moved.
 struct ModeSheet: View {
     let mode: ModeModel
-    /// Opened as the home's settings, from the title's menu: the same
-    /// choices, with this phone's own settings under them.
-    var app: AppModel?
     /// The plan, to say what a change of style moved.
     var plan: PlanShare?
-    /// The owner's cars, on a box that keeps them.
-    var cars: CarsModel?
     /// The change the sheet opened on, which is not its own to close for:
     /// a sheet opened again just after a mode was applied stays open.
     @State private var openedOn: ModeModel.Change?
     @Environment(\.dismiss) private var dismiss
 
-    init(mode: ModeModel, app: AppModel? = nil, plan: PlanShare? = nil, cars: CarsModel? = nil) {
+    init(mode: ModeModel, plan: PlanShare? = nil) {
         self.mode = mode
-        self.app = app
         self.plan = plan
-        self.cars = cars
         _openedOn = State(initialValue: mode.change)
     }
     /// The sheet's height for its content, measured once laid out.
@@ -39,26 +32,6 @@ struct ModeSheet: View {
             List {
                 planSection
                 manualSection
-                if app != nil, let cars, cars.keepsCars {
-                    Section {
-                        NavigationLink { CarsSettingsView(cars: cars) } label: {
-                            LabeledContent {
-                                Text(cars.cars.map(\.shownName).joined(separator: ", "))
-                                    .lineLimit(1)
-                            } label: {
-                                Label(C("Cars"), systemImage: "car.side")
-                            }
-                        }
-                        .accessibilityIdentifier("settings.cars")
-                    }
-                }
-                if let app, let access = app.home?.access {
-                    AccessSettingsSection(app: app, access: access)
-                }
-                if let app, let home = app.home, app.watch.canAdd(home) {
-                    WatchSettingsSection(app: app, home: home)
-                }
-                phoneSection
             }
             .listStyle(.insetGrouped)
             .safeAreaBar(edge: .bottom) { ReceiptBar(mode: mode) }
@@ -70,7 +43,7 @@ struct ModeSheet: View {
             }
             .animation(Theme.spring, value: mode.pending)
             .animation(Theme.spring, value: mode.shown)
-            .navigationTitle(app == nil ? L("Mode") : L("Settings"))
+            .navigationTitle(L("Mode"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -160,23 +133,6 @@ struct ModeSheet: View {
                 Text(L("Manual"))
             } footer: {
                 Text(L("A manual mode runs until you choose another. FTW does not plan meanwhile."))
-            }
-        }
-    }
-
-    /// FTW Cloud and removing this phone, for a paired home. The demo has
-    /// neither.
-    @ViewBuilder private var phoneSection: some View {
-        if let app, !app.isDemo {
-            Section(AboutWords.text("This phone")) {
-                NavigationLink { CloudSettingsView(app: app) } label: {
-                    Label(CloudWords.text("FTW Cloud"), systemImage: "cloud")
-                }
-                if AboutView.canRemove(app) {
-                    NavigationLink { RemovePhoneView(app: app) { dismiss() } } label: {
-                        Text(AboutWords.text("Remove this phone")).foregroundStyle(Theme.alarm)
-                    }
-                }
             }
         }
     }
