@@ -254,5 +254,7 @@ import Testing
         #expect(LaneIntent.decide(start: at, now: CGPoint(x: 112, y: 104), heldMs: 30) == .scrub)
         #expect(LaneIntent.decide(start: at, now: CGPoint(x: 102, y: 120), heldMs: 30) == .pass)
         #expect(LaneIntent.decide(start: at, now: at, heldMs: RingIntent.holdMs) == .scrub)
+        // A swipe up whose first event comes after a stall still scrolls.
+        #expect(LaneIntent.decide(start: at, now: CGPoint(x: 101, y: 40), heldMs: 400) == .pass)
     }
 }

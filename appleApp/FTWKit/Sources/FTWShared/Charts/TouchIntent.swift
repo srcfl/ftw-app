@@ -104,10 +104,11 @@ public enum RingIntent {
 /// finger that rests 0.1 s; a move that is mostly up or down is the
 /// page's, and it scrolls.
 public enum LaneIntent {
+    /// A move decides first, so a swipe whose first event comes late, after
+    /// a stall, still scrolls when it runs up or down.
     public static func decide(start: CGPoint, now: CGPoint, heldMs: Double) -> RingIntent.Decision? {
-        if heldMs >= RingIntent.holdMs { return .scrub }
         let dx = now.x - start.x, dy = now.y - start.y
-        guard hypot(dx, dy) >= TouchIntent.slop else { return nil }
-        return abs(dx) >= abs(dy) ? .scrub : .pass
+        if hypot(dx, dy) >= TouchIntent.slop { return abs(dx) >= abs(dy) ? .scrub : .pass }
+        return heldMs >= RingIntent.holdMs ? .scrub : nil
     }
 }

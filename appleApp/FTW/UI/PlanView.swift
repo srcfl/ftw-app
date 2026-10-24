@@ -668,6 +668,7 @@ private struct PlanLanesCard: View {
     let touch: DialTouch
     @State private var scrub = ScrubModel()
     @State private var finger = LaneFinger()
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         PlanLanes(moment: moment, finger: finger, scrub: scrub, dial: dial)
@@ -688,6 +689,9 @@ private struct PlanLanesCard: View {
                 touch.release(finger)
                 end()
             }
+            // A touch the system took (a call, Control Center, a switch of
+            // app) may never end: the page is not left held.
+            .onChange(of: scenePhase) { _, phase in if phase != .active { end() } }
             .accessibilityIdentifier("plan.lanes")
     }
 
@@ -770,7 +774,11 @@ private struct LanesMark: View {
                 let x = plot.minX + CGFloat((mid - fromMs) / (toMs - fromMs)) * plot.width
                 let px = 1 / max(1, g.environment.displayScale)
                 LockOn.rule(at: x, plot: plot, px: px, in: &g)
-                let words = [dial.time(i), dial.price(i), dial.what(i)].filter { !$0.isEmpty }.joined(separator: " · ")
+                // The time, the price and what the battery does, with its
+                // level: what fits one line. The car and the cheap hours
+                // are the lanes' own to show.
+                let what = dial.what(i).components(separatedBy: " · ").prefix(2).joined(separator: " · ")
+                let words = [dial.time(i), dial.price(i), what].filter { !$0.isEmpty }.joined(separator: " · ")
                 LockOn.tag(words, over: x, plot: plot, size: 10, in: &g, canvas: size)
             }
             .allowsHitTesting(false)
