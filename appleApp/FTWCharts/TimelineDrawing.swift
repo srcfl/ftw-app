@@ -63,30 +63,70 @@ struct TimelineDrawing: ChartDrawing {
 }
 
 /// The timeline's scale on its way to a new one: a pan or a pinch that
-/// brings a higher peak into view moves the axis, the lines and the plan
-/// over `TraceInk.spring`, critically damped, from wherever it was, so a
-/// second change mid-way carries on without a jump. Under Reduce Motion
-/// it changes at once. Not observed: the timeline steps it and nothing
-/// else reads it.
+/// brings a higher peak into view moves the lines, the plan and the live
+/// trace on a critically damped spring that settles in about
+/// `TraceInk.spring`. Its ends keep their speed when the target moves
+/// again mid-way, so a pinch through several steps of scale glides on
+/// rather than slowing at each, and it lands on the target without a
+/// last step. Under Reduce Motion it changes at once. Not observed: the
+/// timeline steps it and nothing else reads it.
 @MainActor
 final class ScaleMotion {
-    private var from: YDomain?
+    private var lower = Spring()
+    private var upper = Spring()
     private(set) var to: YDomain?
-    private var since: Double = 0
+    private var last: Double?
 
-    /// A new scale at `t`, from the one on screen then.
-    func target(_ domain: YDomain, at t: Double, still: Bool) {
-        guard domain != to else { return }
-        from = still ? nil : to.map { _ in shown(at: t) ?? domain }
+    private struct Spring {
+        var x = 0.0
+        var v = 0.0
+        /// One step of a critically damped spring toward `target`.
+        mutating func step(toward target: Double, dt: Double, omega: Double) {
+            let a = -omega * omega * (x - target) - 2 * omega * v
+            v += a * dt
+            x += v * dt
+        }
+        /// Within a thousandth of the scale and nearly still: done.
+        func near(_ target: Double, span: Double) -> Bool { abs(x - target) <= span * 0.001 && abs(v) <= span * 0.01 }
+    }
+
+    private static let omega = 7.5 / TraceInk.spring
+
+    /// A new scale at `t`. True when the scale will move to it.
+    @discardableResult
+    func target(_ domain: YDomain, at t: Double, still: Bool) -> Bool {
+        guard domain != to else { return false }
+        guard to != nil, !still else {
+            to = domain
+            lower = Spring(x: domain.lower)
+            upper = Spring(x: domain.upper)
+            last = t
+            return false
+        }
+        // On from where the ends are now, at the speed they have.
+        _ = shown(at: t)
         to = domain
-        since = t
+        return true
     }
 
     /// The scale on screen at `t`; nil before the first.
     func shown(at t: Double) -> YDomain? {
         guard let to else { return nil }
-        guard let from else { return to }
-        let k = TraceInk.ease(t - since, TraceInk.spring)
-        return k >= 1 ? to : TraceInk.between(from, to, k)
+        var left = min(max(0, t - (last ?? t)), 1)
+        last = t
+        while left > 0 {
+            let dt = min(left, 1.0 / 240)
+            lower.step(toward: to.lower, dt: dt, omega: Self.omega)
+            upper.step(toward: to.upper, dt: dt, omega: Self.omega)
+            left -= dt
+        }
+        let span = max(1, abs(to.upper - to.lower))
+        if lower.near(to.lower, span: span), upper.near(to.upper, span: span) {
+            lower = Spring(x: to.lower)
+            upper = Spring(x: to.upper)
+            return to
+        }
+        return YDomain(lower: lower.x, upper: upper.x)
     }
+
 }

@@ -115,11 +115,14 @@ struct TimelineChartArea: View {
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
         .onChange(of: picture.domain, initial: true) {
             shown = picture.domain
-            motion.target(picture.domain, at: Date.timeIntervalSinceReferenceDate, still: reduceMotion)
-            scaleChanges += 1
+            // Only a scale that moves runs the timeline: the first, and any
+            // under Reduce Motion, are there at once.
+            if motion.target(picture.domain, at: Date.timeIntervalSinceReferenceDate, still: reduceMotion) { scaleChanges += 1 }
         }
         .task(id: scaleChanges) {
-            try? await Task.sleep(for: .seconds(TraceInk.spring + 0.05))
+            // The spring rests within its time; a little longer covers a
+            // late frame, and the next change restarts the wait.
+            try? await Task.sleep(for: .seconds(TraceInk.spring * 1.6))
             guard !Task.isCancelled else { return }
             scaleSettled = scaleChanges
         }
@@ -153,7 +156,7 @@ struct TimelineChartArea: View {
                 ChartSurface(drawing: TimelineDrawing(history: picture, traces: traces, looks: looks, frame: frame, liveKeys: live, nowMs: site.nowMs, shown: motion.shown(at: t), axis: axis, words: ChartLabels(fetching: L("Waiting for history"), now: L("NOW"))))
                     .equatable()
             }
-            TimelineTouchOverlay(window: $window, shown: shownWindow, nowMs: site.nowMs, frame: frame, domain: picture.domain, scrub: scrub, text: text, node: node,
+            TimelineTouchOverlay(window: $window, shown: shownWindow, nowMs: site.nowMs, frame: frame, domain: motion.shown(at: Date.timeIntervalSinceReferenceDate) ?? picture.domain, scrub: scrub, text: text, node: node,
                 reading: { ms in
                     // The own series, or the first chosen when its chip is
                     // off; the words and the colour are that series'.
