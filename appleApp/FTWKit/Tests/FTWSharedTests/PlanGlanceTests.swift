@@ -139,6 +139,19 @@ import Testing
         #expect(moments.allSatisfy { $0.atMs <= at(12, 20, 5) + PlanGlance.horizonMs })
     }
 
+    /// A plan from a box this phone cannot reach is old at once, however
+    /// fresh: the box may have planned again since. Grey, dated, no "now".
+    @Test func aPlanFromABoxOutOfReachIsOldAtOnce() {
+        let made = at(12, 20)
+        let reached = PlanGlance.kept(night(), readAtMs: made, nowMs: at(12, 20, 5), calendar: calendar)
+        #expect(reached.state == .plan)
+        let away = PlanGlance.kept(night(), readAtMs: made, nowMs: at(12, 20, 5), unreachable: true, calendar: calendar)
+        #expect(away.state == .old)
+        #expect(away.isGrey)
+        #expect(away.nextWhen == nil)
+        #expect(away.summary.contains("now") == false)
+    }
+
     @Test func aPlanTheBoxCouldNotMakeIsSaidAsSuch() {
         var entry = night()
         entry.boxStale = true

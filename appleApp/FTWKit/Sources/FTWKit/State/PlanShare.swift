@@ -98,10 +98,16 @@ public final class PlanShare {
     /// every quarter and not only the events.
     public func shown(nowMs: Double) -> (entry: PlanEntry, moment: PlanGlance.Moment) {
         let entry = self.entry
+        // A box this phone cannot reach may have planned again since: what
+        // is on screen is the last plan known, dated and grey.
+        let away = site.freshness(noCarrier: false).tone == .lost
         if let s = plan.stamped {
-            return (entry, s.fromCache ? PlanGlance.kept(entry, readAtMs: s.asOfMs, nowMs: nowMs) : PlanGlance.live(entry, nowMs: nowMs))
+            // Dated by when the plan came, as Plan, the widget and the watch
+            // date it: a plan sent again keeps its first stamp.
+            let came = s.fromCache ? s.asOfMs : (plan.receivedAtMs ?? s.asOfMs)
+            return (entry, s.fromCache || away ? PlanGlance.kept(entry, readAtMs: came, nowMs: nowMs, unreachable: away) : PlanGlance.live(entry, nowMs: nowMs))
         }
-        if let kept { return (kept.value, PlanGlance.kept(kept.value, readAtMs: kept.record.readAtMs, nowMs: nowMs)) }
+        if let kept { return (kept.value, PlanGlance.kept(kept.value, readAtMs: kept.record.readAtMs, nowMs: nowMs, unreachable: away)) }
         return (entry, PlanGlance.waiting(entry, nowMs: nowMs, note: plan.problem))
     }
 

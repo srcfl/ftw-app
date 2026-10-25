@@ -18,8 +18,10 @@ enum SeriesChoice {
 }
 
 /// Quiet chips for the series a history can show: on, a series speaks in
-/// its colour with a small dot; off, it is ink. A tap adds or takes away a
-/// series, and the last one stays.
+/// its colour with a short stroke, the line it draws; off, it is ink with
+/// an empty stroke. Never a dot: a filled or hollow dot is the status line's
+/// word for live and not live. A tap adds or takes away a series, and the
+/// last one stays.
 struct SeriesChips: View {
     let own: EnergyNode
     let available: [EnergyNode]
@@ -39,10 +41,10 @@ struct SeriesChips: View {
                     taps += 1
                 } label: {
                     HStack(spacing: 4) {
-                        Circle()
+                        Capsule()
                             .fill(on ? NodeChartLook.color(node) : Color.clear)
                             .strokeBorder(on ? Color.clear : Theme.ink3, lineWidth: 1)
-                            .frame(width: 6, height: 6)
+                            .frame(width: 10, height: 3)
                         Text(node.caps)
                             .font(.system(size: size, weight: .medium, design: .monospaced))
                             .tracking(0.5)

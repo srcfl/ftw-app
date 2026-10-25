@@ -99,6 +99,9 @@ public final class SiteModel {
     /// Called after every write to `shared`, so the app can wake its widgets.
     @ObservationIgnored public var sharedWritten: (@MainActor () -> Void)?
     @ObservationIgnored private var attemptStartedAtMs: Double
+    /// The app went to the background: the next return starts a new
+    /// attempt (`returned()`).
+    @ObservationIgnored private var suspended = false
     @ObservationIgnored private var clock: Cancellable?
     @ObservationIgnored private var resumeTimer: Cancellable?
     @ObservationIgnored private var resumeWaiting = false
@@ -265,9 +268,21 @@ public final class SiteModel {
             carrier.close(reason: "superseded connection")
             return false
         }
+        returned()
         core.connect(carrier)
         if documentVisible { beginResume(wake: false) }
         return true
+    }
+
+    /// Back from the background: a new attempt starts now. The wait the
+    /// band counts is this visit's, not the time the app spent hidden,
+    /// which said "can't reach" and greyed the plan on every return until
+    /// the first frame. Once per return: a reconnect loop while on screen
+    /// keeps its clock, so a real outage is still said as one.
+    private func returned() {
+        guard suspended else { return }
+        suspended = false
+        if relay.phase != .streaming { attemptStartedAtMs = scheduler.nowMs }
     }
 
     public func destroy() {
@@ -290,6 +305,7 @@ public final class SiteModel {
     /// again.
     public func suspend() {
         guard !destroyed else { return }
+        suspended = true
         core.close()
         closeCloud()
         // After the close, so no last change of rate goes out on the wire.
@@ -305,6 +321,7 @@ public final class SiteModel {
     /// Match the stream's cadence to whether anyone can see it: this app on
     /// screen, or an Apple Watch looking through it.
     public func setVisible(_ visible: Bool) {
+        if visible { returned() }
         appVisible = visible
         if !visible { persistNow() }
         follow()

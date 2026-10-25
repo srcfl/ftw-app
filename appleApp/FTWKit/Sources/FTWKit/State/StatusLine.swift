@@ -21,6 +21,9 @@ public struct StatusLine: Equatable, Sendable {
         /// What stands between this part and the one before it: a dot, or
         /// a space between the steps of a receipt.
         public var joiner = " · "
+        /// A part the line may leave out when the bar has no room: the
+        /// hollow dot and the clock time still say it (NOT LIVE).
+        public var spare = false
     }
 
     /// Where a tap on the line leads.
@@ -34,6 +37,13 @@ public struct StatusLine: Equatable, Sendable {
     public let dot: Dot
     public let parts: [Part]
     public let opens: Opens
+
+    /// The same line without its spare parts, for a bar too narrow for
+    /// the whole line; nil when it has none.
+    public var shorter: StatusLine? {
+        guard parts.contains(where: \.spare) else { return nil }
+        return StatusLine(dot: dot, parts: parts.filter { !$0.spare }, opens: opens)
+    }
 
     /// The line as one string, for VoiceOver and a test.
     public var text: String {
@@ -102,6 +112,11 @@ public struct StatusLine: Equatable, Sendable {
         var dot = Dot.hollow
         var opens = Opens.control
         let asOf = f.asOfMs.map { ink(NodeWords.format("AS OF %@", AppWords.clock($0, zone: f.zone))) }
+        // An old reading's time alone reads as now when it is a minute
+        // old: where the rest of the line does not say what is wrong, it
+        // says NOT LIVE first.
+        let alarmed: Bool = { if case .paused = f.control { return true }; if case .quiet = f.control { return true }; return false }()
+        let notLive = f.asOfMs == nil || alarmed ? nil : Part(text: NodeWords.text("NOT LIVE"), tone: .ink, spare: true)
         // Whether the second half says who controls the home: only when the
         // first half is about the readings, not about reaching the box.
         var says = true
@@ -113,18 +128,18 @@ public struct StatusLine: Equatable, Sendable {
             dot = .lit
             parts.append(ink(NodeWords.text("DEMO")))
         case .demoQuiet:
-            parts += [ink(NodeWords.text("DEMO")), asOf].compactMap { $0 }
+            parts += [ink(NodeWords.text("DEMO")), notLive, asOf].compactMap { $0 }
             says = false
         case .settled:
             // Connected with nothing read yet is still connecting.
-            if let asOf { parts.append(asOf) } else {
+            if let asOf { parts += [notLive, asOf].compactMap { $0 } } else {
                 parts.append(ink(NodeWords.text("CONNECTING…")))
                 says = false
             }
         case .connecting:
             // With a cache on screen, the cache is the news; the handshake
             // is normal and needs no word.
-            if let asOf { parts.append(asOf) } else {
+            if let asOf { parts += [notLive, asOf].compactMap { $0 } } else {
                 parts.append(ink(NodeWords.text("CONNECTING…")))
                 says = false
             }

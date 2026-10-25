@@ -33,8 +33,8 @@ import FTWShared
         AppWords.$language.withValue(.en) {
             let cached = line(.connecting, asOf: Self.t + 5 * 60_000 + 40_000)
             #expect(cached.dot == .hollow)
-            #expect(cached.text == "AS OF 10:05 · FTW IN CONTROL")
-            #expect(line(.settled, asOf: Self.t).text == "AS OF 10:00 · FTW IN CONTROL")
+            #expect(cached.text == "NOT LIVE · AS OF 10:05 · FTW IN CONTROL")
+            #expect(line(.settled, asOf: Self.t).text == "NOT LIVE · AS OF 10:00 · FTW IN CONTROL")
             // Nothing on screen yet: connecting says only that.
             #expect(line(.connecting, asOf: nil).text == "CONNECTING…")
             #expect(line(.settled, asOf: nil).text == "CONNECTING…")
@@ -43,6 +43,16 @@ import FTWShared
 
     @Test func outOfReachSaysSoAndOpensHelp() {
         AppWords.$language.withValue(.en) {
+            // Where the second half says what is wrong, NOT LIVE would only
+            // make the line longer.
+            #expect(!line(.cantReach, asOf: Self.t).text.contains("NOT LIVE"))
+            #expect(!line(.offline, asOf: Self.t).text.contains("NOT LIVE"))
+            #expect(!line(.live).text.contains("NOT LIVE"))
+            // A bar too narrow for the whole line drops NOT LIVE, which the
+            // hollow dot and the clock time still say.
+            #expect(line(.settled, asOf: Self.t).shorter?.text == "AS OF 10:00 · FTW IN CONTROL")
+            #expect(line(.live).shorter == nil)
+            #expect(line(.cantReach, asOf: Self.t).shorter == nil)
             let lost = line(.cantReach, asOf: Self.t)
             #expect(lost.text == "AS OF 10:00 · CAN'T REACH THE BOX ›")
             #expect(lost.opens == .help)
@@ -64,6 +74,8 @@ import FTWShared
             #expect(paused.dot == .lit)
             #expect(line(.live, .quiet(1)).text == "LIVE · ▲ 1 DEVICE QUIET")
             #expect(line(.settled, .quiet(2), asOf: Self.t).text == "AS OF 10:00 · ▲ 2 DEVICES QUIET")
+            // ▲ says what is wrong; NOT LIVE before it only makes the line longer.
+            #expect(line(.settled, .paused, asOf: Self.t).text.hasPrefix("AS OF 10:00 · ▲"))
         }
     }
 
@@ -109,20 +121,20 @@ import FTWShared
         AppWords.$language.withValue(.en) {
             let quiet = line(.demoQuiet, asOf: Self.t + 5 * 60_000)
             #expect(quiet.dot == .hollow)
-            #expect(quiet.text == "DEMO · AS OF 10:05")
-            #expect(line(.demoQuiet, receipt: .sent, asOf: Self.t).text == "DEMO · AS OF 10:00 · SENT ▸")
+            #expect(quiet.text == "DEMO · NOT LIVE · AS OF 10:05")
+            #expect(line(.demoQuiet, receipt: .sent, asOf: Self.t).text == "DEMO · NOT LIVE · AS OF 10:00 · SENT ▸")
         }
     }
 
     @Test func inSwedish() {
         AppWords.$language.withValue(.sv) {
             #expect(line(.live).text == "LIVE · FTW STYR")
-            #expect(line(.settled, asOf: Self.t).text == "PER 10:00 · FTW STYR")
+            #expect(line(.settled, asOf: Self.t).text == "INTE LIVE · PER 10:00 · FTW STYR")
             #expect(line(.live, .paused).text == "LIVE · ▲ PAUSAD · MÄTAREN TYST")
             // The receipt in the receipt log's words, which follow the
             // phone's language: SKICKAT ▸ BEKRÄFTAT on a Swedish phone.
             #expect(line(.live, receipt: .confirmed).text == "LIVE · \(ReceiptLog.word(.sent)) ▸ \(ReceiptLog.word(.confirmed))")
-            #expect(line(.demoQuiet, asOf: Self.t).text == "DEMO · PER 10:00")
+            #expect(line(.demoQuiet, asOf: Self.t).text == "DEMO · INTE LIVE · PER 10:00")
             #expect(line(.cantReach).text == "NÅR INTE BOXEN ›")
             #expect(line(.demo).text == "DEMO · SIMULERAT HEM")
         }
@@ -227,7 +239,7 @@ import FTWShared
         box.mute = true
         await rig.run(5_000)
         #expect(now().dot == .hollow)
-        #expect(["DEMO · AS OF 11:59", "DEMO · AS OF 12:00"].contains(now().text))
+        #expect(["DEMO · NOT LIVE · AS OF 11:59", "DEMO · NOT LIVE · AS OF 12:00"].contains(now().text))
         box.mute = false
         await rig.run(3_000)
         #expect(now().text == "DEMO · SIMULATED HOME")
@@ -253,7 +265,7 @@ import FTWShared
         #expect(quiet.dot == .hollow)
         // The oldest reading on screen: the box read its devices a moment
         // before the last frame, which left at 12:00:03.
-        #expect(["AS OF 11:59 · FTW IN CONTROL", "AS OF 12:00 · FTW IN CONTROL"].contains(quiet.text))
+        #expect(["NOT LIVE · AS OF 11:59 · FTW IN CONTROL", "NOT LIVE · AS OF 12:00 · FTW IN CONTROL"].contains(quiet.text))
         await rig.run(20_000)
         #expect(now() == quiet)
         box.mute = false

@@ -76,6 +76,11 @@ public enum NodeWords {
         "CALCULATED": "BERÄKNAD",
         "NO READING YET": "INGEN MÄTNING ÄN",
         "NOT LIVE": "INTE LIVE",
+        // The control sheet's legend: the rule every screen keeps.
+        "Light means live": "Ljus betyder live",
+        "Lit and moving means live: your box read it just now.": "Tänt och i rörelse betyder live: boxen läste det nyss.",
+        "Grey is the last reading your box sent. The status line says when.": "Grått är det senaste boxen skickade. Statusraden säger när.",
+        "Pale colour is the plan: what FTW means to do.": "Blek färg är planen: det FTW tänker göra.",
         "AS OF %@": "PER %@",
         "VIA RELAY": "VIA RELÄ",
         "VIA DIRECT LINK": "VIA DIREKTLÄNK",

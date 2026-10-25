@@ -25,6 +25,7 @@ struct ControlSheet: View {
         NavigationStack {
             List {
                 homeSection
+                legend
                 if let help = app.connectHelp {
                     Section {
                         Text(help)
@@ -58,6 +59,23 @@ struct ControlSheet: View {
         // Asked when the sheet opens, and again when the stream says
         // something that changes the answer. Never on a timer.
         .task(id: check.key) { await check.read() }
+    }
+
+    /// What light, grey and pale mean, said once near the top, with the
+    /// status line's own dots: the rule every screen keeps.
+    private var legend: some View {
+        Section {
+            Label { Text(L("Lit and moving means live: your box read it just now.")) } icon: { StatusDot(lit: true) }
+            Label { Text(L("Grey is the last reading your box sent. The status line says when.")) } icon: { StatusDot(lit: false) }
+            Label { Text(L("Pale colour is the plan: what FTW means to do.")) } icon: {
+                Capsule().fill(Theme.stores.opacity(0.75)).frame(width: 10, height: 4).frame(width: StatusDot.side, height: StatusDot.side)
+            }
+        } header: {
+            Text(L("Light means live"))
+        }
+        .font(.subheadline)
+        .foregroundStyle(Theme.ink2)
+        .listRowBackground(Theme.raised)
     }
 
     // Rows in the palette's raised role on the ground, as every sheet will
