@@ -234,16 +234,20 @@ final class WatchBridge: NSObject {
         let time = BackgroundTime("FTW watch command")
         defer { time.end() }
         let started = ContinuousClock.now
-        let end = await runner?.hold { [weak self] home in
-            await WatchShare.run(command, home: home, nowMs: Date.now.timeIntervalSince1970 * 1000) { step in
-                self?.send(news: .receipt(step))
+        let end: WatchReceipt? = if let answer = WatchShare.answerAtOnce(command) {
+            answer
+        } else {
+            await runner?.hold { [weak self] home in
+                await WatchShare.run(command, home: home, nowMs: Date.now.timeIntervalSince1970 * 1000) { step in
+                    self?.send(news: .receipt(step))
+                }
             }
         }
         let receipt = end ?? WatchReceipt(commandID: command.id, op: command.op, sent: .failed, accepted: .waiting, confirmed: .waiting, text: ChargeNowActivity.openAndRetry, tone: .failed)
         Self.log.info("watch command \(String(describing: command.op), privacy: .public): \(receipt.tone.rawValue, privacy: .public) in \((ContinuousClock.now - started) / .milliseconds(1), format: .fixed(precision: 0), privacy: .public) ms")
         lastReceipt = receipt
         send(news: .receipt(receipt))
-        // The car or the mode moved: the context carries the end and the
+        // The car moved: the context carries the end and the
         // new state for a watch that looks later.
         await app?.site?.flushShared()
         send()

@@ -25,18 +25,10 @@ final class WatchModel {
     private(set) var lit = false
     /// Commands can leave now.
     private(set) var canSend = false
-    /// The phone can be reached: the mode and which car need it.
+    /// The phone can be reached: which car needs it.
     private(set) var phoneReachable = false
-    /// The receipt of the last command for each target: a charger's id, or
-    /// `modeTarget`.
-    private(set) var receipts: [String: WatchReceipt] = [:] {
-        didSet { if receipts[Self.modeTarget] != oldValue[Self.modeTarget] { showModeReceipt() } }
-    }
-    /// The mode's receipt while it takes Now's status line: from the tap
-    /// until `WatchGlance.receiptShownMs` after the box answered.
-    private(set) var lineReceipt: WatchReceipt?
-
-    static let modeTarget = "mode"
+    /// The receipt of the last command for each target: a charger's id.
+    private(set) var receipts: [String: WatchReceipt] = [:]
 
     /// Now's live trace, fed by the frames the phone passes on.
     let trace = WatchTrace(node: WatchModel.heroNode)
@@ -63,7 +55,6 @@ final class WatchModel {
     /// On screen, so the phone should be sending Now.
     @ObservationIgnored private var looking = false
     @ObservationIgnored private var askedAtMs: Double = 0
-    @ObservationIgnored private var lineClearing: Task<Void, Never>?
 
     private var nowMs: Double { Date.now.timeIntervalSince1970 * 1000 }
 
@@ -254,7 +245,8 @@ final class WatchModel {
     static func target(_ op: WatchCommand.Op) -> String {
         switch op {
         case .chargeNow(let id), .pause(let id), .backToPlan(let id), .chooseCar(let id, _, _): return id
-        case .mode: return modeTarget
+        // The watch sends no mode: it changes in Plan on the iPhone.
+        case .mode: return "mode"
         }
     }
 
@@ -266,7 +258,7 @@ final class WatchModel {
     /// Leaving the car page lets its settled receipts go, so the page shows
     /// the car's state on return. A command still under way keeps its receipt.
     func leaveCars() {
-        receipts = receipts.filter { $0.key == Self.modeTarget || !$0.value.settled }
+        receipts = receipts.filter { !$0.value.settled }
     }
 
     /// The receipt shows at once; every mark after "sending" is the box's
@@ -289,18 +281,5 @@ final class WatchModel {
         let target = Self.target(r.op)
         guard let mine = receipts[target], let next = mine.taking(r) else { return }
         receipts[target] = next
-    }
-
-    /// The mode's receipt on Now's line while the box answers, and for a
-    /// moment after: one wait, no ticking timer.
-    private func showModeReceipt() {
-        lineClearing?.cancel()
-        lineReceipt = receipts[Self.modeTarget]
-        guard let r = lineReceipt, r.settled else { return }
-        lineClearing = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(Int(WatchGlance.receiptShownMs)))
-            guard !Task.isCancelled else { return }
-            self?.lineReceipt = nil
-        }
     }
 }

@@ -50,9 +50,9 @@ public struct WatchRoute: Sendable {
         case nowhere
     }
 
-    /// FTW Cloud carries the charger's commands alone. The mode and which
-    /// car is on a charger need an owner's session, which only the phone
-    /// has.
+    /// FTW Cloud carries the charger's commands alone. Which car is on a
+    /// charger needs an owner's session, which only the phone has; the
+    /// mode changes in Plan on the phone, never from the watch.
     public static func cloudCarries(_ c: WatchCommand) -> Bool {
         switch c.op {
         case .chargeNow, .pause, .backToPlan: return true

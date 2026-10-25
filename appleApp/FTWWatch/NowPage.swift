@@ -7,7 +7,7 @@ import WatchKit
 /// on a small one makes it the traced one; a drag across the trace reads
 /// it. The trace opens whole, in ink, and glows only while the phone
 /// passes on live frames; anything else is ink with the minute it was
-/// read. How the home is run sits behind the toolbar's button, by name.
+/// read. How the home is run stands in the toolbar's corner, by name.
 struct NowPage: View {
     let model: WatchModel
     /// Always On redraws once a minute: a figure lit then would show an old
@@ -23,7 +23,7 @@ struct NowPage: View {
         let traced = figures.first { $0.node == model.trace.node } ?? figures.first
         let hero = held.map { WatchGlance.figure(model.trace.node, at: $0) } ?? traced
         let rest = figures.filter { $0.node != traced?.node }
-        let status = WatchGlance.status(model.now, lit: lit, demo: model.context?.isDemo == true, zone: model.zone, receipt: model.lineReceipt)
+        let status = WatchGlance.status(model.now, lit: lit, demo: model.context?.isDemo == true, zone: model.zone)
         OnePage {
             VStack(alignment: .leading, spacing: Self.compact ? 2 : 4) {
                 StatusLine(status: status)
@@ -48,7 +48,7 @@ struct NowPage: View {
         .onChange(of: figures.map(\.node), initial: true) { _, nodes in
             if known, let first = nodes.first, !nodes.contains(model.trace.node) { model.trace.follow(first) }
         }
-        .toolbar { modeButton }
+        .toolbar { modeLabel }
     }
 
     /// The lowest screens (40 mm, 197 pt): a smaller large figure and
@@ -56,33 +56,28 @@ struct NowPage: View {
     /// 30 pt.
     static let compact = WKInterfaceDevice.current().screenBounds.height < 205
 
-    @ToolbarContentBuilder private var modeButton: some ToolbarContent {
+    /// How the home is run, by name, to read: the mode changes in Plan on
+    /// the iPhone alone (Fredrik, 25 October 2026).
+    @ToolbarContentBuilder private var modeLabel: some ToolbarContent {
         if let modes = model.context?.modes, let name = modeName(modes) {
             ToolbarItem(placement: .topBarLeading) {
-                NavigationLink {
-                    ModeList(model: model, modes: modes)
-                } label: {
-                    Text(name)
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Theme.ink)
-                        .lineLimit(1)
-                        .contentTransition(.opacity)
-                }
-                .animation(Theme.spring, value: name)
-                .accessibilityLabel(WatchWord.mode.text)
-                .accessibilityValue(name)
-                .accessibilityIdentifier("watch.mode")
+                Text(name)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(Theme.ink2)
+                    .lineLimit(1)
+                    .contentTransition(.opacity)
+                    .animation(Theme.spring, value: name)
+                    .accessibilityLabel(WatchWord.mode.text)
+                    .accessibilityValue(name)
+                    .accessibilityIdentifier("watch.mode")
             }
         }
     }
 
-    /// The mode by name, as the phone's button says it: "Plan" while the
-    /// planner runs the home, else the manual mode's name. A choice on its
-    /// way shows at once; the status line carries the box's receipt.
+    /// The mode by name: "Plan" while the planner runs the home, else the
+    /// manual mode's name.
     private func modeName(_ modes: WatchModes) -> String? {
-        var key = modes.shown
-        if let r = model.receipt(for: WatchModel.modeTarget), !r.settled, case .mode(let asked) = r.op { key = asked }
-        guard let key, let mode = modes.modes.first(where: { $0.key == key }) else { return modes.label }
+        guard let key = modes.shown, let mode = modes.modes.first(where: { $0.key == key }) else { return modes.label }
         return mode.isPlan ? WatchWord.planTitle.text : mode.name
     }
 }

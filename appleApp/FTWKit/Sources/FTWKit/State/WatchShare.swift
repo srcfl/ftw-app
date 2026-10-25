@@ -169,6 +169,19 @@ public enum WatchShare {
 
     // MARK: Commands
 
+    /// The phone's answer to a command it refuses without the box, or nil.
+    /// The mode and the planning style change in Plan alone (Fredrik, 25
+    /// October 2026): the watch no longer asks, and an older build that
+    /// does is told where before anything wakes the session.
+    public static func answerAtOnce(_ c: WatchCommand) -> WatchReceipt? {
+        guard case .mode = c.op else { return nil }
+        return refused(c, WatchWord.modeInPlan.text)
+    }
+
+    static func refused(_ c: WatchCommand, _ text: String) -> WatchReceipt {
+        WatchReceipt(commandID: c.id, op: c.op, sent: .failed, accepted: .waiting, confirmed: .waiting, text: text, tone: .failed)
+    }
+
     /// How long a command from the watch waits for the session to stream.
     /// The app may have been woken for it with no session open.
     public static let streamWaitMs: Double = LoadpointsModel.remoteStreamWaitMs
@@ -178,9 +191,7 @@ public enum WatchShare {
     /// phone's own receipt for the command, so CONFIRMED means the box's
     /// `cmd.result` said applied.
     public static func run(_ c: WatchCommand, home: HomeModels, nowMs: Double, step: @escaping @MainActor (WatchReceipt) -> Void) async -> WatchReceipt {
-        func refused(_ text: String) -> WatchReceipt {
-            WatchReceipt(commandID: c.id, op: c.op, sent: .failed, accepted: .waiting, confirmed: .waiting, text: text, tone: .failed)
-        }
+        func refused(_ text: String) -> WatchReceipt { Self.refused(c, text) }
         guard c.home == homeKey(home) else { return refused(WatchWord.otherHome.text) }
         guard WatchCommand.isID(c.id) else { return refused(AppWords.text("That did not go through. Try again.")) }
         guard nowMs <= c.notValidAfterMs else { return refused(WatchWord.tooLate.text) }
@@ -229,27 +240,9 @@ public enum WatchShare {
             guard let done = cars.choice[id] else { return refused(AppWords.text("That did not go through. Try again.")) }
             return receipt(cars.choiceOutcome(done), c)
 
-        case .mode(let key):
-            let mode = home.nodes.mode
-            guard mode.mayControl else { return refused(WatchWord.cannotChangeMode.text) }
-            guard await streaming(home.site, within: streamWaitMs) else {
-                return refused(AppWords.text("Not connected to FTW right now. Try again when the connection is back."))
-            }
-            if mode.actual == key {
-                // The box already reports it: its own word, not a command's.
-                return WatchReceipt(commandID: c.id, op: c.op, sent: .waiting, accepted: .waiting, confirmed: .done, text: mode.label ?? ModeWords.name(mode.info(key)), tone: .done)
-            }
-            let since = Since(mode.change)
-            let follower = Follower(read: {
-                guard let change = since.fresh(mode.change), change.ask == .mode(key), let o = mode.outcome else { return nil }
-                return receipt(o, c)
-            }, step: step)
-            defer { follower.stop() }
-            await mode.set(key, cmdId: c.id)
-            guard let o = mode.outcome, mode.change?.ask == .mode(key) else {
-                return refused(AppWords.text("That did not go through. Try again."))
-            }
-            return receipt(o, c)
+        case .mode:
+            // As answerAtOnce: the mode changes in Plan alone.
+            return refused(WatchWord.modeInPlan.text)
         }
     }
 

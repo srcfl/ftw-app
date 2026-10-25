@@ -70,62 +70,6 @@ private struct NoHome: View {
     }
 }
 
-/// The box's modes, as the phone last read them. A choice asks once more,
-/// goes through the phone and returns to Now, whose status line carries
-/// the box's receipt for its time; the receipt also stays under the list.
-struct ModeList: View {
-    let model: WatchModel
-    let modes: WatchModes
-    @State private var asking: WatchModes.Mode?
-    @State private var sent = false
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        List {
-            Section {
-                ForEach(modes.modes) { m in
-                    Button {
-                        asking = m
-                    } label: {
-                        HStack {
-                            Text(m.name).foregroundStyle(Theme.ink)
-                            Spacer(minLength: 0)
-                            if m.key == modes.shown {
-                                Image(systemName: "checkmark").foregroundStyle(Theme.ink2)
-                            }
-                        }
-                    }
-                    .disabled(!modes.mayControl || !model.phoneReachable || model.sending(WatchModel.modeTarget) || m.key == modes.shown)
-                    .accessibilityIdentifier("watch.mode.\(m.key)")
-                }
-            } footer: {
-                VStack(alignment: .leading, spacing: 4) {
-                    // The mode goes through the phone alone: a watch on its
-                    // own may charge, never change how the home is run.
-                    if !model.phoneReachable {
-                        Text(WatchWord.phoneUnreachable.text).foregroundStyle(Theme.ink2)
-                    } else if !modes.mayControl {
-                        Text(WatchWord.cannotChangeMode.text).foregroundStyle(Theme.ink2)
-                    }
-                    if let r = model.receipt(for: WatchModel.modeTarget) {
-                        ReceiptLine(receipt: r)
-                    }
-                }
-                .font(.footnote)
-            }
-        }
-        .navigationTitle(WatchWord.mode.text)
-        .sheet(item: $asking, onDismiss: {
-            if sent { dismiss() }
-        }) { m in
-            Confirm(question: WatchWord.modeAsk.format(m.name), action: m.name) {
-                model.send(.mode(m.key))
-                sent = true
-            }
-        }
-    }
-}
-
 /// One more question before a command, with the double tap on the yes.
 struct Confirm: View {
     let question: String

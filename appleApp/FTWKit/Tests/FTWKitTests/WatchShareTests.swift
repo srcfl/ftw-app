@@ -69,7 +69,9 @@ import FTWShared
         }
     }
 
-    @Test func theModeFromTheWatchGoesWithItsId() async throws {
+    /// The mode changes in Plan on the iPhone alone. A watch that still
+    /// asks, an older build, is told where, and nothing goes to the box.
+    @Test func theModeFromAWatchIsChangedInPlan() async throws {
         try await AppWords.$language.withValue(.en) {
             let rig = Rig()
             _ = try rig.start()
@@ -78,9 +80,11 @@ import FTWShared
             let modes = try #require(WatchShare.context(home, isDemo: true, nowMs: rig.scheduler.nowMs).modes)
             let manual = try #require(modes.modes.first { !$0.isPlan && $0.key != modes.shown })
             let (end, _) = try await run(.mode(manual.key), rig)
-            #expect(rig.wire?.commands.last?.op == Contract.opSetMode)
-            #expect(rig.wire?.commands.last?.cmdId == end.commandID)
-            #expect(end.confirmed == .done)
+            #expect(end.text == WatchWord.modeInPlan.text)
+            #expect(end.sent == .failed && end.tone == .failed)
+            #expect(WatchShare.answerAtOnce(WatchCommand(op: .mode(manual.key), home: "s1", sentAtMs: 0)) != nil)
+            #expect(WatchShare.answerAtOnce(WatchCommand(op: .pause(loadpointID: "lp1"), home: "s1", sentAtMs: 0)) == nil)
+            #expect(rig.wire?.commands.contains { $0.op == Contract.opSetMode } != true)
         }
     }
 

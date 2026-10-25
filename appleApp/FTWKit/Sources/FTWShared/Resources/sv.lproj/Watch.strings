@@ -11,16 +11,13 @@
 "SENT" = "SKICKAT";
 "ACCEPTED" = "MOTTAGET";
 "CONFIRMED" = "BEKRÄFTAT";
-"SENDING…" = "SKICKAR…";
-"▲ NOT CONFIRMED" = "▲ EJ BEKRÄFTAT";
-"▲ NOT SENT" = "▲ INTE SKICKAT";
 "Sending to your iPhone…" = "Skickar till din iPhone …";
 "Your iPhone is sending it to your box…" = "Din iPhone skickar det till boxen …";
 "Your iPhone can't be reached. Nothing was sent." = "Din iPhone nås inte. Inget skickades.";
 "No answer from your iPhone yet. Check FTW there." = "Inget svar från din iPhone än. Titta i FTW där.";
 "That came too late, so it was not sent. Try again." = "Det kom för sent och skickades inte. Försök igen.";
 "That was for another home. Nothing was sent." = "Det gällde ett annat hem. Inget skickades.";
-"This phone may not change how the home is run." = "Den här telefonen får inte ändra hur hemmet körs.";
+"Change the mode in Plan on your iPhone." = "Byt läge under Plan i din iPhone.";
 "Sending…" = "Skickar …";
 "Sending to your box…" = "Skickar till boxen …";
 "Your box is working on it…" = "Boxen arbetar med det …";
@@ -82,7 +79,6 @@
 "Start charging at once, until you go back to the plan?" = "Börja ladda direkt, tills du går tillbaka till planen?";
 "Stop charging until you go back to the plan?" = "Sluta ladda tills du går tillbaka till planen?";
 "Let FTW decide when to charge again?" = "Låta FTW bestämma när det laddar igen?";
-"Run the home as %@?" = "Köra hemmet som %@?";
 "Cancel" = "Avbryt";
 
 "Price now" = "Pris nu";
