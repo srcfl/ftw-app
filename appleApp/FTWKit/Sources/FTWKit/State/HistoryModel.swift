@@ -44,9 +44,9 @@ public final class HistoryModel {
     /// Where FTW Cloud's copy ends: the end of the newest five minutes with
     /// a value. Nil unless what is shown came from it.
     public private(set) var cloudUpToMs: Double?
-    /// Where the box's tile still filling stops holding values: the steps
-    /// from here on are on their way, not holes, until the box sends them.
-    public private(set) var onTheirWayFromMs: Double?
+    /// The steps `withoutFillingSteps` took from the box's tile still
+    /// filling: on their way, not holes, until the box sends them closed.
+    public private(set) var stillFilling: Range<Double>?
 
     @ObservationIgnored private unowned let site: SiteModel
     @ObservationIgnored private var ask: LiveAsk?
@@ -149,7 +149,10 @@ public final class HistoryModel {
             drawing = nil
             // Tiles that fell out of the window are not kept.
             tiles = tiles.filter { id, _ in plan.tiles.contains { $0.tileId == id } }
-            if let o = open, !plan.tiles.contains(where: { $0.tileId == o.tileId }) { open = nil }
+            if let o = open, !plan.tiles.contains(where: { $0.tileId == o.tileId }) {
+                open = nil
+                stillFilling = nil
+            }
             show(plan, from, to)
             gaps = end.gaps
             loaded = true
@@ -169,11 +172,16 @@ public final class HistoryModel {
         try await site.core.history(query) { [weak self] chunk in
             guard let self, mine == self.token else { return }
             if chunk.partial {
-                self.open = Self.withoutFillingSteps(chunk, receivedAtMs: self.site.nowMs)
+                let now = self.site.nowMs
+                self.open = Self.withoutFillingSteps(chunk, receivedAtMs: now)
+                self.stillFilling = Self.fillingSteps(chunk, receivedAtMs: now)
             } else {
                 self.tiles[chunk.tileId] = chunk
                 self.fromCopy.remove(chunk.tileId)
-                if self.open?.tileId == chunk.tileId { self.open = nil }
+                if self.open?.tileId == chunk.tileId {
+                    self.open = nil
+                    self.stillFilling = nil
+                }
             }
             // Drawn as the tiles arrive, a display frame at a time: a tile
             // still on its way is a bridge the next one grows into.
@@ -224,6 +232,7 @@ public final class HistoryModel {
             if c.partial {
                 guard tiles[c.tileId] == nil, Self.reach(c) > open.map(Self.reach) ?? -.infinity else { continue }
                 open = c
+                stillFilling = nil
             } else {
                 if let held = tiles[c.tileId] {
                     // The box's own tile wins over the copy's.
@@ -231,7 +240,10 @@ public final class HistoryModel {
                 }
                 tiles[c.tileId] = c
                 fromCopy.insert(c.tileId)
-                if open?.tileId == c.tileId { open = nil }
+                if open?.tileId == c.tileId {
+                    open = nil
+                    stillFilling = nil
+                }
             }
             took = true
         }
@@ -270,6 +282,17 @@ public final class HistoryModel {
         return out
     }
 
+    /// The steps `withoutFillingSteps` takes from `c`, start to end, or nil.
+    nonisolated static func fillingSteps(_ c: HistChunk, receivedAtMs: Double) -> Range<Double>? {
+        let columns = HistoryGeometry.unpack(c.data, seriesCount: c.series.count)
+        let points = columns.map(\.count).max() ?? 0
+        let cut = (0..<points).filter { i in
+            c.startMs + Double(i + 1) * c.stepMs > receivedAtMs && columns.contains { i < $0.count && $0[i] != missingSample }
+        }
+        guard let first = cut.first, let last = cut.last else { return nil }
+        return (c.startMs + Double(first) * c.stepMs)..<(c.startMs + Double(last + 1) * c.stepMs)
+    }
+
     /// Where a tile's values end: the end of its newest step with a value
     /// in any series, or its start.
     nonisolated static func reach(_ c: HistChunk) -> Double {
@@ -302,7 +325,6 @@ public final class HistoryModel {
         var have = tiles.filter { id, _ in plan.tiles.contains { $0.tileId == id } }
         if let open, have[open.tileId] == nil, plan.tiles.contains(where: { $0.tileId == open.tileId }) { have[open.tileId] = open }
         var assembled = HistoryGeometry.assemble(plan, names: Self.series, tiles: have)
-        var tail: Double?
         if let open, have[open.tileId] == open, let index = plan.tiles.firstIndex(where: { $0.tileId == open.tileId }) {
             let perTile = plan.tiles.first?.points ?? 0
             let base = index * perTile
@@ -311,9 +333,7 @@ public final class HistoryModel {
             }.max() ?? (base - 1)
             let end = min(assembled.arrived.count, base + perTile)
             if filled + 1 < end { for i in (filled + 1)..<end { assembled.arrived[i] = false } }
-            tail = !fromCloud ? assembled.startMs + Double(filled + 1) * assembled.stepMs : nil
         }
-        onTheirWayFromMs = tail
         let next = HistoryGeometry.clip(assembled, fromMs: from, toMs: to)
         if next != frame { frame = next }
     }
@@ -338,7 +358,7 @@ public final class HistoryModel {
     /// with a hole where the box recorded nothing.
     public func samples(_ node: EnergyNode, fromMs: Double) -> [HistorySample] {
         guard let frame else { return [] }
-        return Self.samples(frame, node: node, fromMs: fromMs, untilMs: cloudUpToMs, fetching: pending, onTheirWayFromMs: onTheirWayFromMs)
+        return Self.samples(frame, node: node, fromMs: fromMs, untilMs: cloudUpToMs, fetching: pending, stillFilling: stillFilling)
     }
 
     /// A tile not here yet is on its way: while the box or FTW Cloud is
@@ -346,12 +366,12 @@ public final class HistoryModel {
     var pending: Bool { loading || cloudAsking || (!loaded && problem == nil && !cloudAnswered) }
 
     /// `fetching`: a hole whose tile has not arrived is on its way, not
-    /// known to be empty. `onTheirWayFromMs`: past the box's tile still
-    /// filling, steps not arrived are on their way however the ask went.
+    /// known to be empty. `stillFilling`: the steps taken from the box's
+    /// tile still filling are on their way however the ask went.
     /// `untilMs`: where FTW Cloud's copy ends. What follows is not in the
     /// copy, which says nothing about whether the box recorded it, so it is
     /// left out rather than counted as a hole.
-    nonisolated static func samples(_ frame: HistoryGeometry.Frame, node: EnergyNode, fromMs: Double, untilMs: Double? = nil, fetching: Bool = false, onTheirWayFromMs: Double? = nil) -> [HistorySample] {
+    nonisolated static func samples(_ frame: HistoryGeometry.Frame, node: EnergyNode, fromMs: Double, untilMs: Double? = nil, fetching: Bool = false, stillFilling: Range<Double>? = nil) -> [HistorySample] {
         guard frame.names.contains(node.series) else { return [] }
         var out = [HistorySample]()
         out.reserveCapacity(frame.points)
@@ -359,7 +379,7 @@ public final class HistoryModel {
             let t = frame.time(at: i)
             guard t + frame.stepMs > fromMs, t < untilMs ?? .infinity else { continue }
             let watts = frame.value(node.series, at: i).map { node.shown(Double($0)) }
-            let onItsWay = fetching || onTheirWayFromMs.map { t >= $0 } ?? false
+            let onItsWay = fetching || stillFilling?.contains(t) == true
             out.append(HistorySample(startMs: t, stepMs: frame.stepMs, watts: watts, fetching: watts == nil && onItsWay && !frame.hasArrived(i)))
         }
         return out
@@ -374,7 +394,7 @@ public final class HistoryModel {
     /// until the phone has been told any of today (`told`).
     public func today(_ node: EnergyNode) -> EnergyToday? {
         guard let frame, frame.names.contains(node.series) else { return nil }
-        let samples = Self.samples(frame, node: node, fromMs: midnightMs, untilMs: cloudUpToMs, fetching: pending, onTheirWayFromMs: onTheirWayFromMs)
+        let samples = Self.samples(frame, node: node, fromMs: midnightMs, untilMs: cloudUpToMs, fetching: pending, stillFilling: stillFilling)
         return Self.told(samples, fromMs: midnightMs, answered: (loaded || cloudAnswered) && !pending)
     }
 

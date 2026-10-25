@@ -469,6 +469,22 @@ import FTWShared
         #expect(kept(2 * step - 3_000) == [[100, missingSample, missingSample], [-1, missingSample, missingSample]])
         // Every step closed: nothing changes.
         #expect(HistoryModel.withoutFillingSteps(tile, receivedAtMs: 3 * step) == tile)
+        // What is taken is what goes on its way.
+        #expect(HistoryModel.fillingSteps(tile, receivedAtMs: 2.5 * step) == (2 * step)..<(3 * step))
+        #expect(HistoryModel.fillingSteps(tile, receivedAtMs: 3 * step) == nil)
+    }
+
+    /// Only the steps taken are on their way: a gap the box confirmed before
+    /// them stays a hole once the box has answered.
+    @Test func aConfirmedGapIsStillAHole() {
+        let step = 300_000.0
+        let frame = HistoryGeometry.Frame(
+            startMs: 0, stepMs: step, points: 4, names: ["pv_w"],
+            columns: [[-100, missingSample, missingSample, missingSample]],
+            arrived: [true, false, false, false]
+        )
+        let samples = HistoryModel.samples(frame, node: .solar, fromMs: 0, fetching: false, stillFilling: (2 * step)..<(3 * step))
+        #expect(samples.map(\.fetching) == [false, false, true, false])
     }
 
     /// While history is asked for, the box is asked each five minutes, so
