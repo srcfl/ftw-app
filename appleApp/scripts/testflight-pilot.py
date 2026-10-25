@@ -167,8 +167,10 @@ def main():
     group = one(call("GET", "/betaGroups", query={"filter[app]": app_id, "filter[name]": GROUP})["data"], f"group {GROUP}")
     if group["attributes"].get("isInternalGroup"):
         fail(f"{GROUP} is an internal group; the public beta needs the external one.")
-    groups = {g["id"] for g in call("GET", f"/builds/{build_id}/betaGroups")["data"]}
-    if group["id"] not in groups:
+    # A build cannot list its groups (GET_RELATED is refused), so ask the
+    # group for its builds instead.
+    builds = {b["id"] for b in call("GET", f"/betaGroups/{group['id']}/builds", query={"limit": "200", "fields[builds]": "version"})["data"]}
+    if build_id not in builds:
         call("POST", f"/betaGroups/{group['id']}/relationships/builds", {"data": [{"type": "builds", "id": build_id}]})
     print(f"{version} ({build}) is in {GROUP}")
 
