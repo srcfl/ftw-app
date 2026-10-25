@@ -54,8 +54,8 @@ struct ModeSheet: View {
         }
         .presentationDetents([.height(fitted), .large], selection: $detent)
         .presentationDragIndicator(.visible)
-        // A command answers once, when the box says what it did.
-        .sensoryFeedback(trigger: mode.outcome?.tone) { _, tone in Self.feedback(tone) }
+        // The haptic for the box's answer plays on Plan, which holds this
+        // sheet, so it plays once with the sheet open or closed.
         .task(id: mode.change?.result) { await closeOnceApplied() }
         .onAppear { mode.activate() }
         .onDisappear { mode.deactivate() }
