@@ -11,6 +11,7 @@ struct ControlSheet: View {
     let home: HomeModels
     @State private var check: ControlCheck
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorSchemeContrast) private var contrast
 
     init(app: AppModel, home: HomeModels) {
         self.app = app
@@ -68,7 +69,7 @@ struct ControlSheet: View {
             Label { Text(L("Lit and moving means live: your box read it just now.")) } icon: { StatusDot(lit: true) }
             Label { Text(L("Grey is the last reading your box sent. The status line says when.")) } icon: { StatusDot(lit: false) }
             Label { Text(L("Pale colour is the plan: what FTW means to do.")) } icon: {
-                Capsule().fill(Theme.stores.opacity(0.75)).frame(width: 10, height: 4).frame(width: StatusDot.side, height: StatusDot.side)
+                Capsule().fill(Theme.stores.opacity(Theme.plan(contrast))).frame(width: 10, height: 4).frame(width: StatusDot.side, height: StatusDot.side)
             }
         } header: {
             Text(L("Light means live"))

@@ -6,12 +6,15 @@ import WidgetKit
 /// quarter, its height the price in eight levels and its colour what the
 /// battery does (cyan stores, ink gives, ink3 waits), the car's charging as
 /// dots under it. A quarter with no price yet is a stub. Still paths, one
-/// fill each, for a complication.
+/// fill each, for a complication. A plan, so in full colour its hues are a
+/// ghost at `Theme.plan`, as on the dial.
 struct DialStrip: View {
     let dial: PlanDial
     /// How many quarters to draw: 48 is twelve hours.
     var quarters = 48
     var grey = false
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.widgetRenderingMode) private var renderingMode
 
     var body: some View {
         GeometryReader { geo in
@@ -19,14 +22,15 @@ struct DialStrip: View {
             let dotRow: CGFloat = dial.quarters.prefix(n).contains(where: \.car) ? 3 : 0
             let h = geo.size.height - dotRow - (dotRow > 0 ? 1 : 0)
             let w = geo.size.width / CGFloat(max(n, 1))
+            let plan = renderingMode == .fullColor ? Theme.plan(contrast) : 1
             ZStack(alignment: .topLeading) {
-                bars(.waits, n: n, w: w, h: h).fill(grey ? Theme.ink3.opacity(0.45) : Theme.ink3.opacity(0.6))
-                bars(.gives, n: n, w: w, h: h).fill(grey ? Theme.ink3.opacity(0.45) : Theme.ink)
-                bars(.stores, n: n, w: w, h: h).fill(grey ? Theme.ink3.opacity(0.45) : Theme.stores)
+                bars(.waits, n: n, w: w, h: h).fill(grey ? Theme.oldPlan : Theme.ink3.opacity(0.6))
+                bars(.gives, n: n, w: w, h: h).fill(grey ? Theme.oldPlan : Theme.ink.opacity(plan))
+                bars(.stores, n: n, w: w, h: h).fill(grey ? Theme.oldPlan : Theme.stores.opacity(plan))
                     .widgetAccentable()
                 stubs(n: n, w: w, h: h).fill(Theme.ink3.opacity(0.5))
                 if dotRow > 0 {
-                    carDots(n: n, w: w, y: geo.size.height - dotRow / 2).fill(grey ? Theme.ink3 : Theme.car)
+                    carDots(n: n, w: w, y: geo.size.height - dotRow / 2).fill(grey ? Theme.ink3 : Theme.car.opacity(plan))
                         .widgetAccentable()
                 }
             }

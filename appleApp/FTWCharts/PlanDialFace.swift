@@ -16,7 +16,8 @@ import WidgetKit
 /// the phone moves it without redrawing the face.
 ///
 /// Every mark is a still path filled once. Nothing glows: a plan is intent,
-/// not a reading.
+/// not a reading, so in full colour every hue is a ghost at `Theme.plan`,
+/// as on Now's strip. A tinted or clear face is one colour already.
 struct PlanDialFace: View, Equatable {
     enum Size: Equatable {
         /// The phone's plan view and the watch app: rim, hours, and the
@@ -30,10 +31,15 @@ struct PlanDialFace: View, Equatable {
     /// The plan is old or the box could not plan: every tick in ink3.
     var grey = false
     var size: Size = .app
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.dial == b.dial && a.grey == b.grey && a.size == b.size }
 
     var body: some View {
         GeometryReader { geo in
             let g = DialGeometry(side: min(geo.size.width, geo.size.height), size: size)
+            let plan = renderingMode == .fullColor ? Theme.plan(contrast) : 1
             ZStack {
                 if size == .app {
                     rim(g).stroke(Theme.ink.opacity(0.18), style: StrokeStyle(lineWidth: 0.5, lineCap: .butt, lineJoin: .round))
@@ -41,13 +47,13 @@ struct PlanDialFace: View, Equatable {
                 }
                 // The sun is the box's forecast, a guess: dashed, where the
                 // prices it plans on are drawn solid.
-                sun(g).stroke(grey ? Theme.ink3 : Theme.solar, style: StrokeStyle(lineWidth: g.sunWidth, lineCap: .butt, lineJoin: .round, dash: g.sunDash))
-                ticks(g, .waits).fill(grey ? Theme.ink3.opacity(0.45) : Theme.ink3.opacity(0.6))
-                ticks(g, .gives).fill(grey ? Theme.ink3.opacity(0.45) : Theme.ink)
-                ticks(g, .stores).fill(grey ? Theme.ink3.opacity(0.45) : Theme.stores)
+                sun(g).stroke(grey ? Theme.ink3 : Theme.solar.opacity(plan), style: StrokeStyle(lineWidth: g.sunWidth, lineCap: .butt, lineJoin: .round, dash: g.sunDash))
+                ticks(g, .waits).fill(grey ? Theme.oldPlan : Theme.ink3.opacity(0.6))
+                ticks(g, .gives).fill(grey ? Theme.oldPlan : Theme.ink.opacity(plan))
+                ticks(g, .stores).fill(grey ? Theme.oldPlan : Theme.stores.opacity(plan))
                     .widgetAccentable()
                 stubs(g).fill(Theme.ink3.opacity(0.5))
-                carDots(g).fill(grey ? Theme.ink3 : Theme.car)
+                carDots(g).fill(grey ? Theme.ink3 : Theme.car.opacity(plan))
                     .widgetAccentable()
                 // The goal sits inside the car's arc. On a watch that is
                 // where the hand's time and price are, so it shows only on
