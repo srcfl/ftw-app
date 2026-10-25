@@ -21,8 +21,6 @@ struct TimelineChartArea: View {
     @State private var motion = ScaleMotion()
     @State private var scaleChanges = 0
     @State private var scaleSettled = 0
-    /// The car's ledger is asked for while its series is drawn.
-    @State private var carAsked = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ScaledMetric(relativeTo: .caption2) private var axis: CGFloat = 10
     @ScaledMetric(relativeTo: .caption) private var tag: CGFloat = 11
@@ -115,18 +113,6 @@ struct TimelineChartArea: View {
         let empty = emptyMessage(data)
         chart(data, picture: picture, traces: traces, frame: frame, looks: looks, live: live, empty: empty)
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
-        // On screen, the box is asked again each five minutes, as the
-        // History tab asks: without it a node opened from Now kept the step
-        // that filled at launch, and read it as that step's mean once closed.
-        .onAppear {
-            home.nodes.history.activate()
-            askCar(series.contains(.car))
-        }
-        .onDisappear {
-            home.nodes.history.deactivate()
-            askCar(false)
-        }
-        .onChange(of: series.contains(.car)) { _, want in askCar(want) }
         .onChange(of: picture.domain, initial: true) {
             shown = picture.domain
             // Only a scale that moves runs the timeline: the first, and any
@@ -136,12 +122,6 @@ struct TimelineChartArea: View {
         .modifier(TimelineAccessibility(node: node, window: $window, shown: shownWindow, nowMs: site.nowMs,
             empty: empty, history: picture, observations: traces[node.rawValue]?.readings ?? [],
             sampleMs: data.first(where: { $0.node == node })?.stepMs ?? 300_000))
-    }
-
-    private func askCar(_ want: Bool) {
-        guard want != carAsked else { return }
-        carAsked = want
-        if want { home.nodes.carEnergy.activate() } else { home.nodes.carEnergy.deactivate() }
     }
 
     /// The window as drawn: the stored one while a finger is on it, else

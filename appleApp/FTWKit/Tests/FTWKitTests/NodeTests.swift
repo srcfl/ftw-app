@@ -439,14 +439,40 @@ import FTWShared
         // The step before it closed and has its mean.
         let before = history.samples(.solar, fromMs: Self.step - 300_000).first { $0.startMs == Self.step - 300_000 }
         #expect((before?.watts ?? 0) > 100)
-        // Past its end with no new answer it stays on its way.
+        // Past its end with no new answer it stays on its way: not a
+        // value, and not five minutes the box did not record.
         history.deactivate()
         await rig.run(5 * 60_000, step: 1_000)
         #expect(sample(history)?.watts == nil)
+        #expect(sample(history)?.fetching == true)
+        let today = try #require(history.today(.solar))
+        #expect(today.missingMs == 0)
     }
 
-    /// A timeline on screen keeps the box asked each five minutes, so the
-    /// step lands closed soon after it ends.
+    /// Only steps that had not closed when the tile came go: on a
+    /// five-minute boundary the step that just closed stays.
+    @Test func onlyStepsStillFillingGo() throws {
+        let step = 300_000.0
+        let data = HistoryGeometry.pack([[100, 200, 7], [-1, -2, -3]])
+        let tile = HistChunk(tileId: "t", etag: HistoryGeometry.etag(data), res: .fiveMinutes, startMs: 0, stepMs: step, series: ["pv_w", "grid_w"], data: data, partial: true)
+        func kept(_ atMs: Double) -> [[Int32]] {
+            let c = HistoryModel.withoutFillingSteps(tile, receivedAtMs: atMs)
+            #expect(c.etag == HistoryGeometry.etag(c.data))
+            return HistoryGeometry.unpack(c.data, seriesCount: 2)
+        }
+        // Half way through the third step.
+        #expect(kept(2.5 * step) == [[100, 200, missingSample], [-1, -2, missingSample]])
+        // On the boundary: the second step has just closed.
+        #expect(kept(2 * step) == [[100, 200, missingSample], [-1, -2, missingSample]])
+        // A phone a few seconds behind the box asks before the boundary:
+        // the second step goes too, and comes closed on the next ask.
+        #expect(kept(2 * step - 3_000) == [[100, missingSample, missingSample], [-1, missingSample, missingSample]])
+        // Every step closed: nothing changes.
+        #expect(HistoryModel.withoutFillingSteps(tile, receivedAtMs: 3 * step) == tile)
+    }
+
+    /// While history is asked for, the box is asked each five minutes, so
+    /// the step lands closed soon after it ends.
     @MainActor
     @Test func theClosedStepLandsOnTheNextAsk() async throws {
         let rig = DemoRig(nowMs: Self.step + 60_000)
