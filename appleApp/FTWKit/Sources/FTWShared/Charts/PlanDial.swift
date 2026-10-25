@@ -219,7 +219,8 @@ public struct PlanDial: Equatable, Sendable {
 
     /// The sun's spans as distances round the turn from the seam, 0 to 2π.
     /// A span under way now starts at 0, never a whole turn on, and one
-    /// that runs to the end of the turn ends at 2π.
+    /// that runs to the end of the turn ends at 2π. Like the ticks, the
+    /// ends follow the household's clock.
     public var sunAlong: [ClosedRange<Double>] {
         sun.map { span in
             let a = along(span.lowerBound)

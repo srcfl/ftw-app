@@ -66,13 +66,14 @@ enum Theme {
     }
 
     /// A plan's marks, wherever it is drawn: their hue at this strength,
-    /// never the full one that says live; nearer full with Increase
+    /// weaker than the full one that says live; nearer full with Increase
     /// Contrast. 3:1 or more on the ground in both themes. Words keep full
     /// strength, so they stay easy to read.
     static func plan(_ contrast: ColorSchemeContrast) -> Double { contrast == .increased ? 0.9 : 0.75 }
     /// The sun's forecast on the dial, a thin dashed arc: stronger than the
     /// other plan marks, since at their strength it falls under 3:1 in
-    /// light (3.8:1 here; 4.6:1 with Increase Contrast).
+    /// light (3.8:1 here). Full with Increase Contrast (4.6:1), where its
+    /// dashes still say it is a guess.
     static func planSun(_ contrast: ColorSchemeContrast) -> Double { contrast == .increased ? 1 : 0.9 }
     /// An old plan's marks, or one the box could not make: ink3, weaker
     /// than a plan's.
