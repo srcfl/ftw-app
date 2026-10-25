@@ -207,11 +207,13 @@ struct Age: View {
 /// gives), an idle lane as a faint hairline, the price as bars in eight
 /// levels by thirds, the hours under it, and now as a rule at the left.
 ///
-/// Tinted and clear home screens draw in one colour: the runs solid and
-/// marked for the accent, the prices faint.
+/// In full colour the runs are a ghost at `Theme.plan`: a plan, not a
+/// reading. Tinted and clear home screens draw in one colour: the runs
+/// solid and marked for the accent, the prices faint.
 struct PlanLanes: View {
     let moment: PlanGlance.Moment
     @Environment(\.widgetRenderingMode) private var renderingMode
+    @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.displayScale) private var displayScale
 
     static let lane: CGFloat = 6
@@ -235,7 +237,7 @@ struct PlanLanes: View {
                 Self.idle(y: carY + Self.lane / 2, width: w, px: px).stroke(ink.opacity(0.08), lineWidth: px)
                 Self.idle(y: batteryY + Self.lane / 2, width: w, px: px).stroke(ink.opacity(0.08), lineWidth: px)
                 ForEach(lanes(x: x, carY: carY, batteryY: batteryY)) { run in
-                    run.path.fill(full ? run.color : Color.primary)
+                    run.path.fill(full ? run.color.opacity(Theme.plan(contrast)) : Color.primary)
                         .opacity(fade)
                         .widgetAccentable()
                 }

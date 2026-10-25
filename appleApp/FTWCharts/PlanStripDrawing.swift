@@ -55,18 +55,12 @@ struct PlanStripLayout: Equatable {
 /// where a lane has nothing, 48 price bars in eight levels by ink third,
 /// the now rule across lanes and bars, and the hours. Equal neighbours are
 /// one shape, so no run shows a seam. The lanes are a plan, so they are a
-/// ghost: their colour at `ghost`, never the full strength that says live.
-/// A plan that is old, that the box could not make, or from a box this
-/// phone cannot reach, is ink3 throughout. It never sees a finger.
+/// ghost: their colour at `Theme.plan`, never the full strength that says
+/// live. A plan that is old, that the box could not make, or from a box
+/// this phone cannot reach, is ink3 throughout. It never sees a finger.
 struct PlanStripDrawing: ChartDrawing {
     let strip: PlanStrip
     var layout = PlanStripLayout()
-    /// How strong a lane's colour is: a plan, not a reading. 3:1 or more on
-    /// the ground in both themes; nearer full with Increase Contrast.
-    static let ghost = 0.75
-    static let ghostIncreased = 0.9
-    /// An old plan's lanes: weaker than the ghost, as the dial draws it.
-    static let old = 0.45
 
     func draw(in g: inout GraphicsContext, size: CGSize) {
         let layout = self.layout.fitting(size.height)
@@ -76,8 +70,8 @@ struct PlanStripDrawing: ChartDrawing {
         let width = size.width
         let grid = strip.grid
         let grey = strip.grey
-        let ghost = g.environment.colorSchemeContrast == .increased ? Self.ghostIncreased : Self.ghost
-        let oldInk = Theme.ink3.opacity(Self.old)
+        let ghost = Theme.plan(g.environment.colorSchemeContrast)
+        let oldInk = Theme.oldPlan
 
         // A lane with nothing keeps a hairline, so a run never appears out
         // of nothing.

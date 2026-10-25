@@ -284,6 +284,7 @@ private final class DialMemo {
 private struct Legend: View {
     let kinds: Set<PlanGlance.Kind>
     var level = false
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -315,7 +316,7 @@ private struct Legend: View {
 
     private func item(_ kind: PlanGlance.Kind, _ text: String) -> some View {
         HStack(spacing: 4) {
-            RoundedRectangle(cornerRadius: 2).fill(PlanLanes.color(kind)).frame(width: 10, height: 6)
+            RoundedRectangle(cornerRadius: 2).fill(PlanLanes.color(kind).opacity(Theme.plan(contrast))).frame(width: 10, height: 6)
             Text(text).lineLimit(1)
         }
     }
@@ -329,6 +330,7 @@ private struct Events: View {
     let entry: PlanEntry
     let loadpoints: LoadpointsModel
     let style: PlanStyle
+    @Environment(\.colorSchemeContrast) private var contrast
 
     var body: some View {
         VStack(spacing: 0) {
@@ -355,9 +357,9 @@ private struct Events: View {
     }
 
     /// On the dial gold is the sun's, so the battery giving power is ink
-    /// there; the lanes keep gold.
+    /// there; the lanes keep gold. A ghost, as the plan draws it.
     private func color(_ kind: PlanGlance.Kind) -> Color {
-        style == .dial && kind == .discharge ? Theme.ink : PlanLanes.color(kind)
+        (style == .dial && kind == .discharge ? Theme.ink : PlanLanes.color(kind)).opacity(Theme.plan(contrast))
     }
 
     private func row(_ e: PlanGlance.Event) -> some View {
@@ -569,7 +571,8 @@ private extension String {
 /// The hours ahead as lanes: the car's charging on top, the battery under
 /// it (charging one colour, giving power another), the cheapest hours as a
 /// thin mark, and the prices as a low strip along the bottom. The price is
-/// the ground the plan stands on, not the subject.
+/// the ground the plan stands on, not the subject. The lanes are a plan,
+/// so their colours are a ghost at `Theme.plan`, as on Now's strip.
 struct PlanLanes: View, Equatable {
     let moment: PlanGlance.Moment
     var compact = false
@@ -578,6 +581,7 @@ struct PlanLanes: View, Equatable {
     fileprivate var finger: LaneFinger? = nil
     fileprivate var scrub: ScrubModel? = nil
     fileprivate var dial: PlanDial? = nil
+    @Environment(\.colorSchemeContrast) private var contrast
 
     nonisolated static func == (a: Self, b: Self) -> Bool { a.moment == b.moment && a.compact == b.compact }
 
@@ -611,7 +615,7 @@ struct PlanLanes: View, Equatable {
                     yStart: .value("Low", lane.lowerBound),
                     yEnd: .value("High", lane.upperBound)
                 )
-                .foregroundStyle(grey ? Theme.fgMuted : Self.color(e.kind))
+                .foregroundStyle(grey ? Theme.fgMuted : Self.color(e.kind).opacity(Theme.plan(contrast)))
                 .cornerRadius(5)
                 .annotation(position: .overlay, alignment: .center) {
                     if !compact || e.endMs - e.startMs >= 90 * 60_000, let pct = e.targetPct, e.kind == .car {
