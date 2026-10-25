@@ -209,6 +209,21 @@ import Testing
         #expect(beforeNow.isEmpty)
     }
 
+    /// An hourly forecast is one stepped line: each hour at its own mean,
+    /// joined where the hours meet, and broken where the forecast is.
+    @Test func anHourlyForecastIsOneSteppedLine() {
+        let domain = YDomain(lower: 0, upper: 4_000)
+        let marks = [AheadPicture.Mark(startMs: 0, endMs: 3_600_000, watts: 2_000),
+                     AheadPicture.Mark(startMs: 3_600_000, endMs: 7_200_000, watts: 1_000),
+                     AheadPicture.Mark(startMs: 10_800_000, endMs: 14_400_000, watts: 3_000)]
+        let path = AheadPicture.forecastLine(marks, fromMs: 0, toMs: 14_400_000, domain: domain, size: .init(width: 400, height: 100), intervalMeans: true)
+        #expect(path.elements == [
+            .move(.init(x: 0, y: 50)), .line(.init(x: 100, y: 50)),
+            .line(.init(x: 100, y: 75)), .line(.init(x: 200, y: 75)),
+            .move(.init(x: 300, y: 25)), .line(.init(x: 400, y: 25)),
+        ])
+    }
+
     @Test func aFutureWindowScalesOnlyItsVisiblePlan() {
         let marks = [AheadPicture.Mark(startMs: 0, endMs: 3_600_000, watts: 20_000),
                      AheadPicture.Mark(startMs: 3_600_000, endMs: 7_200_000, watts: 1_000)]
