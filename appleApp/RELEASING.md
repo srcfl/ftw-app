@@ -351,12 +351,14 @@ Other countries, checked for a free 4+ utility that is not a game:
    - Marketing URL and Privacy Policy URL: from `store/<lang>/`.
    - Beta App Review Information: contact, "Sign-in required" off, and
      `store/review-notes.txt` as notes.
-2. **External Testing → (+)**: group `Beta`. An internal group must exist
+2. **External Testing → (+)**: group `Pilot`, which has the public link. An internal group must exist
    first. Add the build, then **Submit for Review**. Apple reviews the
    first build; later builds of the same version usually go out at once.
    Invite by email or turn on a public link (Open to Anyone, or Filter by
    Criteria, with a tester limit). Up to 10,000 testers.
 3. For each build, **What to Test**: `store/<lang>/release-notes.txt`.
+   The *iOS public beta* workflow writes it and does steps 2 and 3 for the
+   group `Pilot` ([Each release](#each-release)).
 
 ### 8. The App Store version
 
@@ -395,7 +397,11 @@ and the car view.
 
 3. Watch the *iOS release* run. When it reports the upload, the build
    appears in TestFlight, usually within an hour.
-4. Write What to Test, then hand the build to the groups.
+4. Run **Actions → iOS public beta → Run workflow** with the version and
+   build the release run reported. It waits for Apple to process the
+   build, writes What to Test from `store/<lang>/release-notes.txt`, adds
+   the build to the external group `Pilot` (the public link) and submits it
+   for Beta App Review. Internal testers get it once it is processed.
 
 ## When the upload fails
 

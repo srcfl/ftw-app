@@ -1,0 +1,57 @@
+name: iOS public beta
+
+# Gives a build that "iOS release" sent to TestFlight to the Pilot group,
+# FTW's public beta (https://testflight.apple.com/join/E4Japad7): What to
+# Test from appleApp/store/*/release-notes.txt, then Beta App Review. Run it
+# with the version and build that the release run reported. It waits for
+# Apple to process the build, so it may start right after the upload.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version, as in "Version 0.5.0, build 16"
+        required: true
+      build:
+        description: Build number
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-pilot
+  cancel-in-progress: false
+
+jobs:
+  pilot:
+    name: Give the build to Pilot
+    runs-on: ubuntu-latest
+    timeout-minutes: 100
+    # The same key as "iOS release" (appleApp/RELEASING.md).
+    environment: app-store
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Give it to Pilot and submit it for review
+        # bash with pipefail, so tee cannot hide a failure.
+        shell: bash
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          VERSION: ${{ inputs.version }}
+          BUILD: ${{ inputs.build }}
+        run: |
+          export ASC_KEY_PATH=$RUNNER_TEMP/AuthKey.p8
+          (umask 077; printf '%s\n' "$ASC_KEY_P8" > "$ASC_KEY_PATH")
+          pip install --quiet pyjwt cryptography
+          python3 -u appleApp/scripts/testflight-pilot.py "$VERSION" "$BUILD" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8"
