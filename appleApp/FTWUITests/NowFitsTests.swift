@@ -162,8 +162,8 @@ final class NowFitsTests: XCTestCase {
         shoot(app, "now-xxxl")
     }
 
-    /// Nothing on Now moves or changes size while it runs: every node, the
-    /// plan and the mode keep their frames from the first live seconds on,
+    /// Nothing on Now moves or changes size while it runs: every node and
+    /// the plan keep their frames from the first live seconds on,
     /// whatever the readings say.
     @MainActor
     func testNowHoldsItsShapeWhileReadingsArrive() throws {
@@ -181,9 +181,7 @@ final class NowFitsTests: XCTestCase {
     }
 
     /// The bar holds still from the first frame: the title and the status
-    /// line keep one leading edge whatever the line or the mode button
-    /// says, and the button never says "Mode" or "Plan" on its way to the
-    /// style's name.
+    /// line keep one leading edge whatever the line says.
     @MainActor
     func testTheBarHoldsStillFromTheFirstFrame() throws {
         let app = XCUIApplication()
@@ -336,7 +334,10 @@ final class NowFitsTests: XCTestCase {
         expectation(for: NSPredicate(format: "value BEGINSWITH 'Balanced.'"), evaluatedWith: scale)
         waitForExpectations(timeout: 10)
         app.buttons["mode.close"].tap()
-        XCTAssertTrue(button.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["mode.close"].waitForNonExistence(timeout: 5), "the sheet stayed open")
+        let inline = app.descendants(matching: .any).matching(identifier: "plan.style.scale").firstMatch
+        expectation(for: NSPredicate(format: "value BEGINSWITH 'Balanced.'"), evaluatedWith: inline)
+        waitForExpectations(timeout: 10)
     }
 
     /// At the largest accessibility size the drawing gives way to a row

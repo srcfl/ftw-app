@@ -3,8 +3,8 @@ import SwiftUI
 
 /// Now, the first screen, read at a glance and never scrolled: the energy
 /// flowing through the home right now, and what comes next. The title is
-/// the home's name, the status line under it says whether this is now and
-/// who controls the home, and the mode sits beside it. Every node of the
+/// the home's name, and the status line under it says whether this is now
+/// and who controls the home; the mode changes in Plan. Every node of the
 /// flow opens its own view; the plan opens the plan, and its price the
 /// price.
 ///

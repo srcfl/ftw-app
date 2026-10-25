@@ -36,8 +36,7 @@ private struct HomeBar<Title: View>: ViewModifier {
                 // One item as wide as the bar allows, its lines at the
                 // leading edge. The bar centres a title that fits and moves
                 // one that does not to the edge, so a title as wide as its
-                // words jumped each time the line or the mode button changed
-                // width.
+                // words jumped each time the line changed width.
                 ToolbarItem(placement: .title) {
                     VStack(alignment: .leading, spacing: 1) {
                         title
