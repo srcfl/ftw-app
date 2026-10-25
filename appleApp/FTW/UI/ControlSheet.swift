@@ -39,6 +39,7 @@ struct ControlSheet: View {
                 ForEach(check.rows) { row in
                     DeviceSection(row: row, live: check.live, zone: zone)
                 }
+                legend
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
@@ -58,6 +59,21 @@ struct ControlSheet: View {
         // Asked when the sheet opens, and again when the stream says
         // something that changes the answer. Never on a timer.
         .task(id: check.key) { await check.read() }
+    }
+
+    /// What light and grey mean, said once, with the status line's own
+    /// dots: the rule every screen keeps.
+    private var legend: some View {
+        Section {
+            Label { Text(L("Colour means live: your box read it just now.")) } icon: { StatusDot(lit: true) }
+            Label { Text(L("Grey is the last reading your box sent. The line says when.")) } icon: { StatusDot(lit: false) }
+        } header: {
+            Text(L("Light means live"))
+        }
+        .font(.subheadline)
+        .foregroundStyle(Theme.ink2)
+        .listRowBackground(Theme.raised)
+        .accessibilityElement(children: .combine)
     }
 
     // Rows in the palette's raised role on the ground, as every sheet will

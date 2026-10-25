@@ -102,6 +102,10 @@ public struct StatusLine: Equatable, Sendable {
         var dot = Dot.hollow
         var opens = Opens.control
         let asOf = f.asOfMs.map { ink(NodeWords.format("AS OF %@", AppWords.clock($0, zone: f.zone))) }
+        // An old reading's time alone reads as now when it is a minute
+        // old: where the rest of the line does not say what is wrong, it
+        // says NOT LIVE first.
+        let notLive = f.asOfMs == nil ? nil : ink(NodeWords.text("NOT LIVE"))
         // Whether the second half says who controls the home: only when the
         // first half is about the readings, not about reaching the box.
         var says = true
@@ -113,18 +117,18 @@ public struct StatusLine: Equatable, Sendable {
             dot = .lit
             parts.append(ink(NodeWords.text("DEMO")))
         case .demoQuiet:
-            parts += [ink(NodeWords.text("DEMO")), asOf].compactMap { $0 }
+            parts += [ink(NodeWords.text("DEMO")), notLive, asOf].compactMap { $0 }
             says = false
         case .settled:
             // Connected with nothing read yet is still connecting.
-            if let asOf { parts.append(asOf) } else {
+            if let asOf, let notLive { parts += [notLive, asOf] } else {
                 parts.append(ink(NodeWords.text("CONNECTING…")))
                 says = false
             }
         case .connecting:
             // With a cache on screen, the cache is the news; the handshake
             // is normal and needs no word.
-            if let asOf { parts.append(asOf) } else {
+            if let asOf, let notLive { parts += [notLive, asOf] } else {
                 parts.append(ink(NodeWords.text("CONNECTING…")))
                 says = false
             }

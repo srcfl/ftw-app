@@ -171,7 +171,10 @@ private struct FlowRing: View {
             // or cools.
             let color = Self.mix(Theme.ink2.resolve(in: g.environment), arc.color.resolve(in: g.environment), f.beam.light)
             let cap = Double(ring.thickness) / 2 / Double(ring.radius) * 180 / .pi
-            let stops = Self.stops(lit, radius: Double(ring.radius), clockwise: arc.target.towardHome, f.beam, color, k, lead: cap)
+            // In light mode there is no glow, so full-strength colour says
+            // live alone: the wave runs shallower and the arc keeps its
+            // colour between crests.
+            let stops = Self.stops(lit, radius: Double(ring.radius), clockwise: arc.target.towardHome, f.beam, color, k, lead: cap, depth: dark ? 1 : 0.35)
             g.stroke(p, with: .conicGradient(Gradient(stops: stops), center: ring.center, angle: .degrees(lit.lowerBound - cap)), style: style)
             if still, arc.target.flowing { chevron(lit, clockwise: arc.target.towardHome, opacity: f.beam.alpha * k, in: g) }
         }
@@ -196,7 +199,7 @@ private struct FlowRing: View {
     /// there takes the arc's first colour rather than the gradient's last.
     /// Inside, the stops sit ten to a wavelength along the arc, close enough
     /// that a crest running past them keeps its height within 4 %.
-    static func stops(_ lit: ClosedRange<Double>, radius: Double, clockwise: Bool, _ f: Flow.BeamFrame, _ color: Color.Resolved, _ k: Double, lead: Double = 0) -> [Gradient.Stop] {
+    static func stops(_ lit: ClosedRange<Double>, radius: Double, clockwise: Bool, _ f: Flow.BeamFrame, _ color: Color.Resolved, _ k: Double, lead: Double = 0, depth scale: Double = 1) -> [Gradient.Stop] {
         let span = lit.upperBound - lit.lowerBound
         let perDegree = radius * .pi / 180
         let length = span * perDegree
@@ -204,7 +207,7 @@ private struct FlowRing: View {
             // Points from where the light starts: the arc's first angle when
             // it runs clockwise, its last when it runs back.
             let s = (clockwise ? deg : span - deg) * perDegree
-            let b = f.alpha * (1 - f.depth * (1 - Flow.wave(s, phase: f.phase))) * k
+            let b = f.alpha * (1 - f.depth * scale * (1 - Flow.wave(s, phase: f.phase))) * k
             var c = color
             c.opacity *= Float(b)
             return Gradient.Stop(color: Color(c), location: (deg + lead) / 360)
@@ -212,7 +215,7 @@ private struct FlowRing: View {
         var head = stop(0)
         head.location = 0
         var out = [head, stop(0)]
-        if f.depth > 0.001, length > 1 {
+        if f.depth * scale > 0.001, length > 1 {
             let step = Flow.wavelength / 10 / perDegree
             var d = step
             while d < span {

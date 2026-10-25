@@ -306,9 +306,11 @@ public enum PlanGlance {
     }
 
     /// A plan this phone kept from an earlier launch, inside the app until
-    /// the box answers: dated "Planned 14:05", and grey once old.
-    public static func kept(_ entry: PlanEntry, readAtMs: Double, nowMs: Double, calendar: Calendar? = nil) -> Moment {
-        let state: State = entry.boxStale ? .boxStale : (nowMs - readAtMs >= staleAfterMs ? .old : .plan)
+    /// the box answers: dated "Planned 14:05", and grey once old. From a box
+    /// this phone cannot reach, it is old at once: the box may have planned
+    /// again since.
+    public static func kept(_ entry: PlanEntry, readAtMs: Double, nowMs: Double, unreachable: Bool = false, calendar: Calendar? = nil) -> Moment {
+        let state: State = entry.boxStale ? .boxStale : (unreachable || nowMs - readAtMs >= staleAfterMs ? .old : .plan)
         return moment(entry, state: state, readAtMs: readAtMs, atMs: nowMs, calendar: calendar ?? .household(entry.timeZone), inApp: true)
     }
 
