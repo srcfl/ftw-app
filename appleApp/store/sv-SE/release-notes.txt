@@ -1,3 +1,5 @@
+Nytt i 0.5.2: solprognosen framåt är en sammanhängande trappa, timme för timme, i stället för lösa streck. Med nästa uppdatering av boxen visar historiken för sol, nät och batteri den uppmätta effekten i stället för att hoppa mellan noll och 1,2 kW.
+
 Nytt i 0.5.1: i en nods tidslinje faller värdet under fingret inte längre mot noll där kurvan ligger högre. De fem minuter som boxen fortfarande räknar väntar nu på boxen i stället för att läsas som ett färdigt medelvärde.
 
 Ett nytt utseende. Nu visar flödet som en ring av ljus, och batteriets och bilens nivåer som ringar. Fyra flikar: Nu, Plan, Historik och Hem. Historik, liveavläsningar och planen delar en tidslinje som öppnar på i dag.
