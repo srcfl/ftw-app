@@ -351,7 +351,7 @@ Other countries, checked for a free 4+ utility that is not a game:
    - Marketing URL and Privacy Policy URL: from `store/<lang>/`.
    - Beta App Review Information: contact, "Sign-in required" off, and
      `store/review-notes.txt` as notes.
-2. **External Testing → (+)**: group `Beta`. An internal group must exist
+2. **External Testing → (+)**: group `Pilot`, which has the public link. An internal group must exist
    first. Add the build, then **Submit for Review**. Apple reviews the
    first build; later builds of the same version usually go out at once.
    Invite by email or turn on a public link (Open to Anyone, or Filter by

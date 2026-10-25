@@ -28,6 +28,14 @@ GROUP = "Pilot"
 STORE = Path(__file__).resolve().parent.parent / "store"
 # Apple processes most builds within the hour.
 WAIT_S = 90 * 60
+# Beta review states that need nothing more from this script.
+SUBMITTED = ("WAITING_FOR_BETA_REVIEW", "IN_BETA_REVIEW", "BETA_APPROVED", "READY_FOR_BETA_TESTING", "IN_BETA_TESTING")
+
+
+def fail(message):
+    """Stop with a reason the run's summary shows too."""
+    print(message)
+    sys.exit(1)
 
 
 def token():
@@ -38,24 +46,34 @@ def token():
 
 
 def call(method, path, body=None, query=None):
+    """One API call. A busy or unreachable API is tried three more times."""
     url = API + path + ("?" + urllib.parse.urlencode(query) if query else "")
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(url, data=data, method=method)
-    req.add_header("Authorization", "Bearer " + token())
-    if data is not None:
-        req.add_header("Content-Type", "application/json")
-    try:
-        with urllib.request.urlopen(req, timeout=60) as r:
-            raw = r.read()
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode(errors="replace")
-        sys.exit(f"{method} {path}: HTTP {e.code}\n{detail}")
-    return json.loads(raw) if raw else None
+    for attempt in range(4):
+        req = urllib.request.Request(url, data=data, method=method)
+        req.add_header("Authorization", "Bearer " + token())
+        if data is not None:
+            req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                raw = r.read()
+            return json.loads(raw) if raw else None
+        except urllib.error.HTTPError as e:
+            detail = e.read().decode(errors="replace")
+            if (e.code == 429 or e.code >= 500) and attempt < 3:
+                time.sleep(10 * 2 ** attempt)
+                continue
+            fail(f"{method} {path}: HTTP {e.code}\n{detail}")
+        except (urllib.error.URLError, TimeoutError) as e:
+            if attempt < 3:
+                time.sleep(10 * 2 ** attempt)
+                continue
+            fail(f"{method} {path}: {e}")
 
 
 def one(rows, what):
     if len(rows) != 1:
-        sys.exit(f"Expected one {what}, found {len(rows)}.")
+        fail(f"Expected one {what}, found {len(rows)}.")
     return rows[0]
 
 
@@ -67,6 +85,8 @@ def processed_build(app_id, version, build):
             "filter[app]": app_id,
             "filter[version]": build,
             "filter[preReleaseVersion.version]": version,
+            # Without it a refused build may never show.
+            "filter[processingState]": "PROCESSING,FAILED,INVALID,VALID",
             "fields[builds]": "processingState,version",
         })["data"]
         if rows:
@@ -75,12 +95,12 @@ def processed_build(app_id, version, build):
             if state == "VALID":
                 return b["id"]
             if state in ("FAILED", "INVALID"):
-                sys.exit(f"Apple refused {version} ({build}): {state}. GET /v1/apps/{app_id}/buildUploads gives the reason.")
+                fail(f"Apple refused {version} ({build}): {state}. GET /v1/apps/{app_id}/buildUploads gives the reason.")
             print(f"{version} ({build}): {state}, waiting")
         else:
             print(f"{version} ({build}) is not in App Store Connect yet, waiting")
         if time.time() > deadline:
-            sys.exit(f"{version} ({build}) was not processed within {WAIT_S // 60} minutes.")
+            fail(f"{version} ({build}) was not processed within {WAIT_S // 60} minutes.")
         time.sleep(60)
 
 
@@ -94,8 +114,26 @@ def store_dir(locale):
     return next((d for d in sorted(STORE.iterdir()) if d.is_dir() and d.name.split("-")[0] == language), None)
 
 
+def beta_state(build_id, deadline):
+    """The build's external beta state once TestFlight has finished with it."""
+    while True:
+        state = call("GET", f"/builds/{build_id}/buildBetaDetail")["data"]["attributes"]["externalBuildState"]
+        if state != "PROCESSING":
+            return state
+        if time.time() > deadline:
+            fail(f"TestFlight was still processing the build after {WAIT_S // 60} minutes.")
+        print("TestFlight: PROCESSING, waiting")
+        time.sleep(30)
+
+
 def write_what_to_test(app_id, build_id):
     locales = [r["attributes"]["locale"] for r in call("GET", f"/apps/{app_id}/betaAppLocalizations")["data"]]
+    if not locales:
+        fail("The app has no TestFlight Test Information, so What to Test has nowhere to go (RELEASING.md, External TestFlight).")
+    matched = {store_dir(locale) for locale in locales}
+    for folder in sorted(STORE.iterdir()):
+        if folder.is_dir() and (folder / "release-notes.txt").is_file() and folder not in matched:
+            print(f"What to Test: {folder.name}/release-notes.txt has no language in Test Information, skipped")
     have = {r["attributes"]["locale"]: r["id"] for r in call("GET", f"/builds/{build_id}/betaBuildLocalizations")["data"]}
     for locale in locales:
         folder = store_dir(locale)
@@ -118,28 +156,32 @@ def main():
     if len(sys.argv) != 3:
         sys.exit(__doc__)
     version, build = sys.argv[1:3]
-    if not re.fullmatch(r"\d+(\.\d+){0,2}", version) or not re.fullmatch(r"\d+(\.\d+)?", build):
-        sys.exit(f"'{version}' ({build}) is not a version and build App Store Connect uses.")
+    if not re.fullmatch(r"[0-9]+(\.[0-9]+){0,2}", version) or not re.fullmatch(r"[0-9]+(\.[0-9]+)?", build):
+        fail(f"'{version}' ({build}) is not a version and build App Store Connect uses.")
 
+    deadline = time.time() + WAIT_S
     app_id = one(call("GET", "/apps", query={"filter[bundleId]": BUNDLE_ID})["data"], f"app {BUNDLE_ID}")["id"]
     build_id = processed_build(app_id, version, build)
     write_what_to_test(app_id, build_id)
 
     group = one(call("GET", "/betaGroups", query={"filter[app]": app_id, "filter[name]": GROUP})["data"], f"group {GROUP}")
     if group["attributes"].get("isInternalGroup"):
-        sys.exit(f"{GROUP} is an internal group; the public beta needs the external one.")
-    call("POST", f"/betaGroups/{group['id']}/relationships/builds", {"data": [{"type": "builds", "id": build_id}]})
+        fail(f"{GROUP} is an internal group; the public beta needs the external one.")
+    groups = {g["id"] for g in call("GET", f"/builds/{build_id}/betaGroups")["data"]}
+    if group["id"] not in groups:
+        call("POST", f"/betaGroups/{group['id']}/relationships/builds", {"data": [{"type": "builds", "id": build_id}]})
     print(f"{version} ({build}) is in {GROUP}")
 
-    state = call("GET", f"/builds/{build_id}/buildBetaDetail")["data"]["attributes"]["externalBuildState"]
-    if state in ("WAITING_FOR_BETA_REVIEW", "IN_BETA_REVIEW", "READY_FOR_BETA_TESTING", "IN_BETA_TESTING", "BETA_APPROVED"):
+    state = beta_state(build_id, deadline)
+    if state in SUBMITTED:
         print(f"Beta App Review: {state}, nothing to submit")
-    else:
+    elif state == "READY_FOR_BETA_SUBMISSION":
         call("POST", "/betaAppReviewSubmissions", {"data": {
             "type": "betaAppReviewSubmissions",
             "relationships": {"build": {"data": {"type": "builds", "id": build_id}}}}})
-        state = call("GET", f"/builds/{build_id}/buildBetaDetail")["data"]["attributes"]["externalBuildState"]
-        print(f"Submitted for Beta App Review: {state}")
+        print(f"Submitted for Beta App Review: {beta_state(build_id, deadline)}")
+    else:
+        fail(f"Beta App Review: the build is {state}, which this script does not submit. App Store Connect → TestFlight shows why.")
 
 
 if __name__ == "__main__":
