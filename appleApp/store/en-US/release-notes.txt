@@ -1,3 +1,5 @@
+New in 0.5.1: in a node's timeline, the reading under your finger no longer drops toward zero where the curve is higher. The five minutes the box is still counting now wait for the box instead of reading as a finished mean.
+
 A new look. Now shows the flow as a ring of light, and the battery's and the car's levels as rings. Four tabs: Now, Plan, History and Home. History, live readings and the plan share one timeline that opens on today.
 
 Light means live: only a reading your box sent just now glows or moves. The plan is drawn pale everywhere, on Now, the dial, the Plan tab, the widgets and the watch. Tap the status line to see what each look means.
