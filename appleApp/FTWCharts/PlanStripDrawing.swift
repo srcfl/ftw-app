@@ -61,8 +61,12 @@ struct PlanStripLayout: Equatable {
 struct PlanStripDrawing: ChartDrawing {
     let strip: PlanStrip
     var layout = PlanStripLayout()
-    /// How strong a lane's colour is: a plan, not a reading.
-    static let ghost = 0.55
+    /// How strong a lane's colour is: a plan, not a reading. 3:1 or more on
+    /// the ground in both themes; nearer full with Increase Contrast.
+    static let ghost = 0.75
+    static let ghostIncreased = 0.9
+    /// An old plan's lanes: weaker than the ghost, as the dial draws it.
+    static let old = 0.45
 
     func draw(in g: inout GraphicsContext, size: CGSize) {
         let layout = self.layout.fitting(size.height)
@@ -72,6 +76,8 @@ struct PlanStripDrawing: ChartDrawing {
         let width = size.width
         let grid = strip.grid
         let grey = strip.grey
+        let ghost = g.environment.colorSchemeContrast == .increased ? Self.ghostIncreased : Self.ghost
+        let oldInk = Theme.ink3.opacity(Self.old)
 
         // A lane with nothing keeps a hairline, so a run never appears out
         // of nothing.
@@ -93,8 +99,8 @@ struct PlanStripDrawing: ChartDrawing {
             let p = capsule(run.first, run.last, y: PlanStripLayout.batteryY)
             if run.value == .stores { stores.addPath(p) } else { gives.addPath(p) }
         }
-        g.fill(stores, with: .color(grey ? Theme.ink3 : Theme.stores.opacity(Self.ghost)))
-        g.fill(gives, with: .color(grey ? Theme.ink3 : Theme.gives.opacity(Self.ghost)))
+        g.fill(stores, with: .color(grey ? oldInk : Theme.stores.opacity(ghost)))
+        g.fill(gives, with: .color(grey ? oldInk : Theme.gives.opacity(ghost)))
 
         var car = Path()
         for run in strip.carRuns { car.addPath(capsule(run.first, run.last, y: PlanStripLayout.carY)) }
@@ -103,7 +109,7 @@ struct PlanStripDrawing: ChartDrawing {
             let s = PlanStripLayout.span(first: i, last: i, grid: grid, width: width, scale: scale)
             car.addRect(CGRect(x: s.x1 - 2, y: PlanStripLayout.carY - 2, width: 2, height: PlanStripLayout.lane + 4))
         }
-        g.fill(car, with: .color(grey ? Theme.ink3 : Theme.car.opacity(Self.ghost)))
+        g.fill(car, with: .color(grey ? oldInk : Theme.car.opacity(ghost)))
 
         // The price: a bar per stretch of equal level, ink by third.
         var thirds: [PriceChart.Third: Path] = [:]

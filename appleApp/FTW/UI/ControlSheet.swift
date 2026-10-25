@@ -25,6 +25,7 @@ struct ControlSheet: View {
         NavigationStack {
             List {
                 homeSection
+                legend
                 if let help = app.connectHelp {
                     Section {
                         Text(help)
@@ -39,7 +40,6 @@ struct ControlSheet: View {
                 ForEach(check.rows) { row in
                     DeviceSection(row: row, live: check.live, zone: zone)
                 }
-                legend
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
@@ -61,19 +61,21 @@ struct ControlSheet: View {
         .task(id: check.key) { await check.read() }
     }
 
-    /// What light and grey mean, said once, with the status line's own
-    /// dots: the rule every screen keeps.
+    /// What light, grey and pale mean, said once near the top, with the
+    /// status line's own dots: the rule every screen keeps.
     private var legend: some View {
         Section {
-            Label { Text(L("Colour means live: your box read it just now.")) } icon: { StatusDot(lit: true) }
-            Label { Text(L("Grey is the last reading your box sent. The line says when.")) } icon: { StatusDot(lit: false) }
+            Label { Text(L("Lit and moving means live: your box read it just now.")) } icon: { StatusDot(lit: true) }
+            Label { Text(L("Grey is the last reading your box sent. The status line says when.")) } icon: { StatusDot(lit: false) }
+            Label { Text(L("Pale colour is the plan: what FTW means to do.")) } icon: {
+                Capsule().fill(Theme.stores.opacity(0.75)).frame(width: 10, height: 4).frame(width: StatusDot.side, height: StatusDot.side)
+            }
         } header: {
             Text(L("Light means live"))
         }
         .font(.subheadline)
         .foregroundStyle(Theme.ink2)
         .listRowBackground(Theme.raised)
-        .accessibilityElement(children: .combine)
     }
 
     // Rows in the palette's raised role on the ground, as every sheet will

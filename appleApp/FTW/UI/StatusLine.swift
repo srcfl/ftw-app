@@ -106,37 +106,63 @@ struct StatusLineView: View {
     /// The width the bar gives the line, and the line's own at full size.
     @State private var room: CGFloat?
     @State private var natural: CGFloat?
+    @State private var naturalShort: CGFloat?
 
     var body: some View {
+        let shown = self.shown
         HStack(spacing: Self.gap) {
-            StatusDot(lit: line.dot == .lit)
-            words(size: size * scale)
-                .animation(.easeIn(duration: 0.18), value: line)
+            StatusDot(lit: shown.dot == .lit)
+            words(shown, size: size * scale(shown == line ? natural : naturalShort))
+                .animation(.easeIn(duration: 0.18), value: shown)
         }
         .background(alignment: .leading) {
-            // The line at full size, never drawn: what it would need.
-            HStack(spacing: Self.gap) {
-                Color.clear.frame(width: StatusDot.side, height: 1)
-                words(size: size)
+            // The line at full size, and without its spare parts, never
+            // drawn: what each would need.
+            ZStack(alignment: .leading) {
+                measure(line) { natural = $0 }
+                if let short = line.shorter { measure(short) { naturalShort = $0 } }
             }
-            .fixedSize()
             .hidden()
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { natural = $0 }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { room = $0 }
     }
 
     private static let gap: CGFloat = 6
+    private static let least: CGFloat = 0.75
+    /// Below this the whole line gives way to the shorter one, if it has
+    /// one: small letters to keep a spare word are the worse trade.
+    private static let keepsSpare: CGFloat = 0.9
 
-    private var scale: CGFloat {
-        guard let room, let natural, natural > room else { return 1 }
-        let fixed = StatusDot.side + Self.gap
-        // A point to spare, so rounding never cuts the last word.
-        return max(0.75, (room - fixed - 1) / max(1, natural - fixed))
+    /// The whole line while it fits at 90 % size or more; else the line
+    /// without its spare parts (NOT LIVE), which the hollow dot and the
+    /// clock time still say.
+    private var shown: StatusLine {
+        guard let short = line.shorter, let room, let natural else { return line }
+        return Self.fit(room: room, natural: natural) < Self.keepsSpare ? short : line
     }
 
-    private func words(size: CGFloat) -> some View {
+    private func scale(_ natural: CGFloat?) -> CGFloat {
+        guard let room, let natural, natural > room else { return 1 }
+        return max(Self.least, Self.fit(room: room, natural: natural))
+    }
+
+    private static func fit(room: CGFloat, natural: CGFloat) -> CGFloat {
+        let fixed = StatusDot.side + Self.gap
+        // A point to spare, so rounding never cuts the last word.
+        return natural > room ? (room - fixed - 1) / max(1, natural - fixed) : 1
+    }
+
+    private func measure(_ line: StatusLine, _ width: @escaping (CGFloat) -> Void) -> some View {
+        HStack(spacing: Self.gap) {
+            Color.clear.frame(width: StatusDot.side, height: 1)
+            words(line, size: size)
+        }
+        .fixedSize()
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width($0) }
+    }
+
+    private func words(_ line: StatusLine, size: CGFloat) -> some View {
         HStack(spacing: 0) {
             ForEach(Self.pieces(line), id: \.id) { piece in
                 piece.text
@@ -144,7 +170,9 @@ struct StatusLineView: View {
             }
         }
         .font(.system(size: size, weight: .medium, design: .monospaced))
-        .tracking(0.5)
+        // The spacing shrinks with the letters, or a shrunk line comes out
+        // wider than measured and its last word is cut.
+        .tracking(0.5 * size / self.size)
         .lineLimit(1)
     }
 

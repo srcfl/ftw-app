@@ -48,6 +48,11 @@ import FTWShared
             #expect(!line(.cantReach, asOf: Self.t).text.contains("NOT LIVE"))
             #expect(!line(.offline, asOf: Self.t).text.contains("NOT LIVE"))
             #expect(!line(.live).text.contains("NOT LIVE"))
+            // A bar too narrow for the whole line drops NOT LIVE, which the
+            // hollow dot and the clock time still say.
+            #expect(line(.settled, asOf: Self.t).shorter?.text == "AS OF 10:00 · FTW IN CONTROL")
+            #expect(line(.live).shorter == nil)
+            #expect(line(.cantReach, asOf: Self.t).shorter == nil)
             let lost = line(.cantReach, asOf: Self.t)
             #expect(lost.text == "AS OF 10:00 · CAN'T REACH THE BOX ›")
             #expect(lost.opens == .help)
@@ -68,7 +73,9 @@ import FTWShared
             #expect(paused.parts.map(\.tone) == [.ink, .alarm, .alarm])
             #expect(paused.dot == .lit)
             #expect(line(.live, .quiet(1)).text == "LIVE · ▲ 1 DEVICE QUIET")
-            #expect(line(.settled, .quiet(2), asOf: Self.t).text == "NOT LIVE · AS OF 10:00 · ▲ 2 DEVICES QUIET")
+            #expect(line(.settled, .quiet(2), asOf: Self.t).text == "AS OF 10:00 · ▲ 2 DEVICES QUIET")
+            // ▲ says what is wrong; NOT LIVE before it only makes the line longer.
+            #expect(line(.settled, .paused, asOf: Self.t).text.hasPrefix("AS OF 10:00 · ▲"))
         }
     }
 

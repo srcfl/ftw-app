@@ -247,9 +247,11 @@ private struct NowCarRow: View {
         let shown = line ?? Line(title: L("Car"), detail: C("Level unknown"), guessed: false, plugged: false, route: .car(nil))
         NavigationLink(value: shown.route) {
             HStack(spacing: 12) {
+                // Light means live: the car's colour while the home is live,
+                // ink once it is not, as the ring's nodes do.
                 Image(systemName: shown.plugged ? "bolt.car.fill" : "car.side.fill")
                     .font(.title3)
-                    .foregroundStyle(Theme.car)
+                    .foregroundStyle(home.site.isLive ? Theme.car : Theme.ink3)
                     .frame(width: 32)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(shown.title)

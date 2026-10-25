@@ -171,10 +171,11 @@ private struct FlowRing: View {
             // or cools.
             let color = Self.mix(Theme.ink2.resolve(in: g.environment), arc.color.resolve(in: g.environment), f.beam.light)
             let cap = Double(ring.thickness) / 2 / Double(ring.radius) * 180 / .pi
-            // In light mode there is no glow, so full-strength colour says
-            // live alone: the wave runs shallower and the arc keeps its
-            // colour between crests.
-            let stops = Self.stops(lit, radius: Double(ring.radius), clockwise: arc.target.towardHome, f.beam, color, k, lead: cap, depth: dark ? 1 : 0.35)
+            // With no glow (light mode, or Reduce Transparency), full-strength
+            // colour says live alone: the wave runs shallower and the arc
+            // keeps its colour between crests.
+            let glows = dark && !g.environment.accessibilityReduceTransparency
+            let stops = Self.stops(lit, radius: Double(ring.radius), clockwise: arc.target.towardHome, f.beam, color, k, lead: cap, depth: glows ? 1 : 0.35)
             g.stroke(p, with: .conicGradient(Gradient(stops: stops), center: ring.center, angle: .degrees(lit.lowerBound - cap)), style: style)
             if still, arc.target.flowing { chevron(lit, clockwise: arc.target.towardHome, opacity: f.beam.alpha * k, in: g) }
         }

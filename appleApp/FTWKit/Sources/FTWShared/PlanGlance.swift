@@ -215,7 +215,8 @@ public enum PlanGlance {
         case nothing
         /// A plan this recent says what happens now.
         case plan
-        /// The plan is older than `staleAfterMs`: grey, dated, no "now".
+        /// The plan is older than `staleAfterMs`, or from a box this phone
+        /// cannot reach: grey, dated, no "now".
         case old
         /// The box itself could not plan.
         case boxStale
