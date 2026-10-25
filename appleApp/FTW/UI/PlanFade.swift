@@ -91,9 +91,10 @@ struct QuarterWedges: Shape {
         func at(_ a: Double) -> CGPoint { CGPoint(x: c.x + r * sin(a), y: c.y - r * cos(a)) }
         var p = Path()
         for i in quarters {
+            // One quarter wide from its start: on the night the clocks go
+            // back, a quarter's end on the wall clock comes before its start.
             let a0 = dial.angle(dial.grid.startMs(i))
-            var a1 = dial.angle(dial.grid.endMs(i))
-            if a1 < a0 { a1 += 2 * .pi }
+            let a1 = a0 + 2 * .pi / Double(PlanDial.count)
             // A hair wider, so two wedges side by side leave no seam.
             p.move(to: c)
             p.addLine(to: at(a0 - 0.004))

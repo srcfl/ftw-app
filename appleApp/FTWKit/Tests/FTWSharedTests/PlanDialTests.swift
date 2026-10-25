@@ -64,6 +64,23 @@ import Testing
         ])
         let d = dial(daylight: day)
         #expect(d.sun == [at(14, 12)...at(14, 17, 30), at(15, 7, 45)...at(15, 12)])
+        // Round the turn: this afternoon's sun starts at the seam, not a
+        // whole turn on, and tomorrow morning's runs to the end.
+        let quarter = 2 * Double.pi / 96
+        #expect(d.sunAlong.count == 2)
+        #expect(near(d.sunAlong[0].lowerBound, 0) && d.sunAlong[0].lowerBound < quarter)
+        #expect(abs(d.sunAlong[0].upperBound - 22 * quarter) < 1e-9)
+        #expect(abs(d.sunAlong[1].lowerBound - 79 * quarter) < 1e-9)
+        #expect(abs(d.sunAlong[1].upperBound - 2 * .pi) < 1e-9)
+        // With the seam at 18:00: tomorrow's sun sits 55 to 93 quarters on.
+        let evening = dial(at: at(14, 18, 7), daylight: day)
+        #expect(evening.sunAlong.count == 1)
+        #expect(abs(evening.sunAlong[0].lowerBound - 55 * quarter) < 1e-9)
+        #expect(abs(evening.sunAlong[0].upperBound - 93 * quarter) < 1e-9)
+        // A sun that never sets fills the turn.
+        let polar = PlanEntry.Daylight(covered: .init(fromMs: at(14, 0), toMs: at(16, 0)), sun: [.init(fromMs: at(14, 0), toMs: at(16, 0))])
+        let whole = dial(at: at(14, 18, 7), daylight: polar).sunAlong
+        #expect(whole.count == 1 && whole[0].lowerBound == 0 && abs(whole[0].upperBound - 2 * .pi) < 1e-9)
         // No forecast, no sky.
         #expect(dial().sun.isEmpty)
         // A forecast that has run out draws none either.
