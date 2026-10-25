@@ -861,7 +861,7 @@ import FTWShared
             "appleApp/FTW/UI/RootView.swift", "appleApp/FTWKit/Sources/FTWKit/State/PairModel.swift",
             "appleApp/FTW/Car/CarView.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/ChartWords.swift", "appleApp/FTW/UI/PriceView.swift",
-            "appleApp/FTW/UI/StatusLine.swift", "appleApp/FTW/UI/ControlSheet.swift", "appleApp/FTW/UI/ModeMenu.swift",
+            "appleApp/FTW/UI/StatusLine.swift", "appleApp/FTW/UI/ControlSheet.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/StatusLine.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/GridPhases.swift", "appleApp/FTW/UI/GridPhasesRow.swift",
             "appleApp/FTW/UI/HistoryTab.swift", "appleApp/FTW/UI/HomeTab.swift", "appleApp/FTWKit/Sources/FTWKit/Format/TimelineLabel.swift", "appleApp/FTWKit/Sources/FTWKit/State/HomeTab.swift",

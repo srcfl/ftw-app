@@ -20,6 +20,9 @@ struct StyleScale: View {
     /// "New plan 16:53: …", after a change, until the next plan.
     var moved: String?
     var look: Look = .chosen
+    /// `style.scale` in the mode sheet; the one under Plan's rows has its
+    /// own, so a test finds the one it means while the sheet covers Plan.
+    var id = "style.scale"
     #if DEBUG
     /// With `-FTWStyleScrub YES`, this scale moves itself a few stops and
     /// lets go, for recordings. `reveal` scrolls it into view first, and
@@ -106,7 +109,7 @@ struct StyleScale: View {
             guard Self.styles.indices.contains(to) else { return }
             send(to)
         }
-        .accessibilityIdentifier("style.scale")
+        .accessibilityIdentifier(id)
         #if DEBUG
         .task { await drive() }
         #endif

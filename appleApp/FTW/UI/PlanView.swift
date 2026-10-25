@@ -75,6 +75,9 @@ struct PlanView: View {
             models.mode.deactivate()
             home.prices.deactivate()
         }
+        // A command answers once, when the box says what it did: here, so it
+        // plays with the mode sheet open or closed, and only here.
+        .sensoryFeedback(trigger: models.mode.outcome?.tone) { _, tone in ModeSheet.feedback(tone) }
         .sheet(isPresented: $choosingMode) {
             ModeSheet(mode: models.mode, plan: models.planShare)
         }
@@ -485,20 +488,32 @@ private struct Levers: View {
                 Divider().overlay(Theme.hairline)
             }
             if let label {
-                Button(action: choose) {
-                    row(L("Mode"), value: label, tint: mode.mayControl ? Theme.accent : Theme.ink, symbol: mode.mayControl ? "chevron.up.chevron.down" : nil)
+                // The one place the mode changes. While a change is on its
+                // way the row says what the box answered, a refusal's reason
+                // too; a phone that may not change the mode reads a plain row.
+                let value = mode.outcome?.text ?? label
+                if mode.mayControl {
+                    Button(action: choose) {
+                        row(L("Mode"), value: value, tint: Theme.accent, symbol: "chevron.up.chevron.down")
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!mode.canControl)
+                    .accessibilityHint(L("Change mode"))
+                    .accessibilityIdentifier("plan.mode")
+                    .animation(Theme.spring, value: mode.outcome)
+                } else {
+                    row(L("Mode"), value: value, tint: Theme.ink, symbol: nil)
+                        .accessibilityElement(children: .combine)
+                        .accessibilityIdentifier("plan.mode")
                 }
-                .buttonStyle(.plain)
-                .disabled(!mode.canControl)
-                .accessibilityIdentifier("plan.mode")
             }
             if showsScale {
                 #if DEBUG
-                StyleScale(mode: mode, drives: true, reveal: reveal)
+                StyleScale(mode: mode, id: "plan.style.scale", drives: true, reveal: reveal)
                     .padding(.top, 6)
                     .padding(.bottom, 12)
                 #else
-                StyleScale(mode: mode)
+                StyleScale(mode: mode, id: "plan.style.scale")
                     .padding(.top, 6)
                     .padding(.bottom, 12)
                 #endif
