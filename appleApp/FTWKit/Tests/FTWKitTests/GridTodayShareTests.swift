@@ -79,7 +79,10 @@ import FTWShared
         // of the evening still to come.
         #expect(e.quarters.count == 71)
         #expect(e.quarters.first?.startMs == e.dayStartMs)
-        #expect(e.quarters.allSatisfy { $0.measured })
+        // Every closed quarter is measured; the one still filling is
+        // measured only from its closed five minutes, never from the step
+        // the box is still filling.
+        #expect(e.quarters.dropLast().allSatisfy { $0.measured })
         #expect((e.quarters.last?.startMs ?? 0) <= s.nowMs)
 
         // The totals and the chart are one day: the quarters add up to what

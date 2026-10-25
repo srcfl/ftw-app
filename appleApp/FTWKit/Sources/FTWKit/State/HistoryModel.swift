@@ -165,7 +165,7 @@ public final class HistoryModel {
         try await site.core.history(query) { [weak self] chunk in
             guard let self, mine == self.token else { return }
             if chunk.partial {
-                self.open = chunk
+                self.open = Self.withoutFillingSteps(chunk, receivedAtMs: self.site.nowMs)
             } else {
                 self.tiles[chunk.tileId] = chunk
                 self.fromCopy.remove(chunk.tileId)
@@ -243,6 +243,27 @@ public final class HistoryModel {
             if let reach, reach >= end { fromCloud = true }
         }
         cloudUpToMs = fromCloud ? frame.flatMap(Self.dataEndMs) : nil
+    }
+
+    /// The box's tile still filling, less the steps that had not closed when
+    /// it came: the box sends such a step as energy so far over the whole
+    /// step, so a fifth of its mean one minute in. Those steps are on their
+    /// way until the box sends them closed, never read as their mean. FTW
+    /// Cloud's copy holds closed steps only and is taken as it is.
+    nonisolated static func withoutFillingSteps(_ c: HistChunk, receivedAtMs: Double) -> HistChunk {
+        var columns = HistoryGeometry.unpack(c.data, seriesCount: c.series.count)
+        var changed = false
+        for s in columns.indices {
+            for i in columns[s].indices where columns[s][i] != missingSample && c.startMs + Double(i + 1) * c.stepMs > receivedAtMs {
+                columns[s][i] = missingSample
+                changed = true
+            }
+        }
+        guard changed else { return c }
+        var out = c
+        out.data = HistoryGeometry.pack(columns)
+        out.etag = HistoryGeometry.etag(out.data)
+        return out
     }
 
     /// Where a tile's values end: the end of its newest step with a value

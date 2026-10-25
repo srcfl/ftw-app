@@ -415,6 +415,49 @@ import FTWShared
     }
 }
 
+/// The step the box is still filling: energy so far over the whole five
+/// minutes, so a fifth of the sun one minute in. It is on its way until the
+/// box sends it closed, never read as the step's mean.
+@Suite struct OpenStepTests {
+    static let step = CarTextTests.t
+
+    @MainActor
+    func sample(_ history: HistoryModel) -> HistorySample? {
+        history.samples(.solar, fromMs: Self.step - 300_000).first { $0.startMs == Self.step }
+    }
+
+    @MainActor
+    @Test func aStepAskedForWhileFillingHasNoValue() async throws {
+        let rig = DemoRig(nowMs: Self.step + 60_000)
+        rig.app.startDemo()
+        let history = try #require(rig.app.home).nodes.history
+        history.activate()
+        await rig.run(3_000)
+        #expect(history.loaded)
+        #expect(sample(history) != nil)
+        #expect(sample(history)?.watts == nil)
+        // The step before it closed and has its mean.
+        let before = history.samples(.solar, fromMs: Self.step - 300_000).first { $0.startMs == Self.step - 300_000 }
+        #expect((before?.watts ?? 0) > 100)
+        // Past its end with no new answer it stays on its way.
+        history.deactivate()
+        await rig.run(5 * 60_000, step: 1_000)
+        #expect(sample(history)?.watts == nil)
+    }
+
+    /// A timeline on screen keeps the box asked each five minutes, so the
+    /// step lands closed soon after it ends.
+    @MainActor
+    @Test func theClosedStepLandsOnTheNextAsk() async throws {
+        let rig = DemoRig(nowMs: Self.step + 60_000)
+        rig.app.startDemo()
+        let history = try #require(rig.app.home).nodes.history
+        history.activate()
+        await rig.run(4 * 60_000 + 10_000, step: 1_000)
+        #expect((sample(history)?.watts ?? 0) > 100)
+    }
+}
+
 /// What a chart says under the finger.
 @Suite struct ReadoutTests {
     static let step = 300_000.0
