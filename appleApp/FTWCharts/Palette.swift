@@ -66,9 +66,11 @@ enum Theme {
     }
 
     /// A plan's marks, wherever it is drawn: their hue at this strength,
-    /// never the full one that says live. 3:1 or more on the ground in both
-    /// themes; nearer full with Increase Contrast. Words keep full strength,
-    /// so they stay easy to read.
+    /// never the full one that says live; nearer full with Increase
+    /// Contrast. The battery's and the car's keep 3:1 on the ground in both
+    /// themes; the sun's falls just under it in light, where it is the
+    /// dial's dashed arc. Words keep full strength, so they stay easy to
+    /// read.
     static func plan(_ contrast: ColorSchemeContrast) -> Double { contrast == .increased ? 0.9 : 0.75 }
     /// An old plan's marks, or one the box could not make: ink3, weaker
     /// than a plan's.

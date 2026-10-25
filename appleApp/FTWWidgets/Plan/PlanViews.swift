@@ -208,8 +208,9 @@ struct Age: View {
 /// levels by thirds, the hours under it, and now as a rule at the left.
 ///
 /// In full colour the runs are a ghost at `Theme.plan`: a plan, not a
-/// reading. Tinted and clear home screens draw in one colour: the runs
-/// solid and marked for the accent, the prices faint.
+/// reading; an old plan's are ink3, as on Now. Tinted and clear home
+/// screens draw in one colour: the runs solid and marked for the accent,
+/// the prices faint.
 struct PlanLanes: View {
     let moment: PlanGlance.Moment
     @Environment(\.widgetRenderingMode) private var renderingMode
@@ -237,7 +238,7 @@ struct PlanLanes: View {
                 Self.idle(y: carY + Self.lane / 2, width: w, px: px).stroke(ink.opacity(0.08), lineWidth: px)
                 Self.idle(y: batteryY + Self.lane / 2, width: w, px: px).stroke(ink.opacity(0.08), lineWidth: px)
                 ForEach(lanes(x: x, carY: carY, batteryY: batteryY)) { run in
-                    run.path.fill(full ? run.color.opacity(Theme.plan(contrast)) : Color.primary)
+                    run.path.fill(!full ? Color.primary : moment.isGrey ? Theme.ink3 : run.color.opacity(Theme.plan(contrast)))
                         .opacity(fade)
                         .widgetAccentable()
                 }

@@ -582,6 +582,7 @@ struct PlanLanes: View, Equatable {
     fileprivate var scrub: ScrubModel? = nil
     fileprivate var dial: PlanDial? = nil
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.colorScheme) private var scheme
 
     nonisolated static func == (a: Self, b: Self) -> Bool { a.moment == b.moment && a.compact == b.compact }
 
@@ -619,9 +620,11 @@ struct PlanLanes: View, Equatable {
                 .cornerRadius(5)
                 .annotation(position: .overlay, alignment: .center) {
                     if !compact || e.endMs - e.startMs >= 90 * 60_000, let pct = e.targetPct, e.kind == .car {
+                        // On the pale car bar: ink in light, where the
+                        // ground's colour would fall under 4.5:1.
                         Text(AppWords.percent(pct))
                             .font(.system(size: 9, weight: .bold).monospacedDigit())
-                            .foregroundStyle(Theme.ground)
+                            .foregroundStyle(scheme == .light ? Theme.ink : Theme.ground)
                     }
                 }
             }
