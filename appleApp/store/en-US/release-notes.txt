@@ -1,1 +1,9 @@
-FTW now reaches your box only through FTW Cloud. If an older pairing needs it, open Settings → FTW app on your updated box and scan a new QR. Readings keep their age while the connection recovers.
+A new look. Now shows the flow as a ring of light, and the battery's and the car's levels as rings. Four tabs: Now, Plan, History and Home. History, live readings and the plan share one timeline that opens on today.
+
+Light means live: only a reading your box sent just now glows or moves. The plan is drawn pale everywhere, on Now, the dial, the Plan tab, the widgets and the watch. Tap the status line to see what each look means.
+
+Change the mode and the planning style in Plan. The watch shows the mode.
+
+Share assistant access from the iPhone with a short code.
+
+Two things need the next box update: the Apple Watch on its own through FTW Cloud, and FTW Cloud's last 48 hours of history while your box is away.
