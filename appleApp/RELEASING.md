@@ -357,6 +357,8 @@ Other countries, checked for a free 4+ utility that is not a game:
    Invite by email or turn on a public link (Open to Anyone, or Filter by
    Criteria, with a tester limit). Up to 10,000 testers.
 3. For each build, **What to Test**: `store/<lang>/release-notes.txt`.
+   The *iOS public beta* workflow writes it and does steps 2 and 3 for the
+   group `Pilot` ([Each release](#each-release)).
 
 ### 8. The App Store version
 
@@ -395,7 +397,11 @@ and the car view.
 
 3. Watch the *iOS release* run. When it reports the upload, the build
    appears in TestFlight, usually within an hour.
-4. Write What to Test, then hand the build to the groups.
+4. Run **Actions → iOS public beta → Run workflow** with the version and
+   build the release run reported. It waits for Apple to process the
+   build, writes What to Test from `store/<lang>/release-notes.txt`, adds
+   the build to the external group `Pilot` (the public link) and submits it
+   for Beta App Review. Internal testers get it once it is processed.
 
 ## When the upload fails
 
