@@ -229,27 +229,11 @@ public enum WatchShare {
             guard let done = cars.choice[id] else { return refused(AppWords.text("That did not go through. Try again.")) }
             return receipt(cars.choiceOutcome(done), c)
 
-        case .mode(let key):
-            let mode = home.nodes.mode
-            guard mode.mayControl else { return refused(WatchWord.cannotChangeMode.text) }
-            guard await streaming(home.site, within: streamWaitMs) else {
-                return refused(AppWords.text("Not connected to FTW right now. Try again when the connection is back."))
-            }
-            if mode.actual == key {
-                // The box already reports it: its own word, not a command's.
-                return WatchReceipt(commandID: c.id, op: c.op, sent: .waiting, accepted: .waiting, confirmed: .done, text: mode.label ?? ModeWords.name(mode.info(key)), tone: .done)
-            }
-            let since = Since(mode.change)
-            let follower = Follower(read: {
-                guard let change = since.fresh(mode.change), change.ask == .mode(key), let o = mode.outcome else { return nil }
-                return receipt(o, c)
-            }, step: step)
-            defer { follower.stop() }
-            await mode.set(key, cmdId: c.id)
-            guard let o = mode.outcome, mode.change?.ask == .mode(key) else {
-                return refused(AppWords.text("That did not go through. Try again."))
-            }
-            return receipt(o, c)
+        case .mode:
+            // The mode and the planning style change in Plan alone (Fredrik,
+            // 25 October 2026). The watch no longer asks; an older build
+            // that does is told where.
+            return refused(WatchWord.modeInPlan.text)
         }
     }
 

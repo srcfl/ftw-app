@@ -57,30 +57,16 @@ final class WatchTour: XCTestCase {
         shoot("charge-now-receipt")
     }
 
-    /// Now, the modes behind its toolbar button, and a change of mode with
-    /// its receipt.
-    func testNowAndMode() throws {
+    /// Now, with how the home is run by name in its corner, to read: the
+    /// mode changes in Plan on the iPhone alone.
+    func testNowReadsTheMode() throws {
         let app = launch("now")
         XCTAssertTrue(app.staticTexts.firstMatch.waitForExistence(timeout: 15))
         sleep(4)
         shoot("now")
-        let mode = app.buttons["watch.mode"]
+        let mode = app.descendants(matching: .any)["watch.mode"]
         XCTAssertTrue(mode.waitForExistence(timeout: 5))
-        mode.tap()
-        sleep(2)
-        shoot("modes")
-        let idle = app.buttons["watch.mode.idle"]
-        if !idle.isHittable { app.swipeUp() }
-        XCTAssertTrue(idle.waitForExistence(timeout: 5))
-        idle.tap()
-        let yes = app.buttons["watch.confirm"]
-        XCTAssertTrue(yes.waitForExistence(timeout: 5))
-        shoot("mode-ask")
-        yes.tap()
-        sleep(6)
-        app.swipeUp()
-        sleep(1)
-        shoot("mode-receipt")
+        XCTAssertFalse(app.buttons["watch.mode"].exists, "the mode is a button on the watch")
     }
 
     /// The four pages one after another, as a wrist moves through them,
@@ -113,40 +99,6 @@ final class WatchTour: XCTestCase {
         app = launch("plan")
         sleep(5)
         shoot("plan")
-    }
-
-    /// A change of mode from the toolbar's button returns to Now, whose
-    /// status line carries the box's receipt for its time.
-    func testModeReceiptOnNow() throws {
-        let app = launch("now")
-        let mode = app.buttons["watch.mode"].firstMatch
-        XCTAssertTrue(mode.waitForExistence(timeout: 30))
-        sleep(4)
-        shoot("mode-before")
-        mode.tap()
-        let idle = app.buttons["watch.mode.idle"]
-        XCTAssertTrue(idle.waitForExistence(timeout: 5))
-        if !idle.isHittable { app.swipeUp() }
-        idle.tap()
-        let yes = app.buttons["watch.confirm"]
-        XCTAssertTrue(yes.waitForExistence(timeout: 5))
-        yes.tap()
-        // Back on Now, with no tap of the person's own.
-        let line = app.descendants(matching: .any)["watch.status"]
-        XCTAssertTrue(line.waitForExistence(timeout: 5))
-        XCTAssertTrue(mode.waitForExistence(timeout: 5))
-        shoot("mode-receipt-now")
-        sleep(2)
-        shoot("mode-receipt-later")
-        // Put the home back on the plan for the next test.
-        mode.tap()
-        let plan = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'watch.mode.planner_'")).firstMatch
-        if plan.waitForExistence(timeout: 5) {
-            if !plan.isHittable { app.swipeDown() }
-            plan.tap()
-            if yes.waitForExistence(timeout: 5) { yes.tap() }
-        }
-        sleep(6)
     }
 
     /// A drag across the trace reads it and leaves the page where it is; a

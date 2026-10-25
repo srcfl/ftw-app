@@ -45,8 +45,10 @@ in M1 may depend on it.
 
 **Apple Watch (`appleApp/FTWWatch*`).** W1, asked for by Fredrik on
 2026-10-14: Now, the plan dial (the Crown steps it by quarter hour), the car
-and the price, Charge now, Pause, Back to the plan and the mode, and
-complications. watchOS 26 is the minimum. watchOS gives an ordinary app no
+and the price, Charge now, Pause and Back to the plan, and complications.
+The watch shows how the home is run but does not change it: the mode and
+the planning style change in Plan on the iPhone alone (Fredrik, 25 October
+2026). watchOS 26 is the minimum. watchOS gives an ordinary app no
 WebSocket (TN3135), so the watch reads and commands through the iPhone
 (`WatchBridge`, WatchConnectivity) when it can. The app stands alone
 (`WKRunsIndependentlyOfCompanionApp`): it opens on its own cache, makes its
@@ -58,8 +60,8 @@ HTTPS request (srcfl/ftw ADR 0009, "Through FTW Cloud"). Their rules
 live in the package with tests: `WatchRoute` (FTWShared) picks the path,
 and `WatchCommander` (FTWWire) runs a command through FTW Cloud. An owner's phone
 adds the watch to the box by its key first (`WatchAccess`). FTW Cloud
-carries the exchange and reads none of it; the box decides. The mode and
-"Which car?" go through the phone alone. An unlocked watch on the wrist
+carries the exchange and reads none of it; the box decides. "Which car?"
+goes through the phone alone. An unlocked watch on the wrist
 counts as unlocked for commands.
 
 **Android (`androidApp/`, `shared/`).** Pair + Now, shipped on `main` as of

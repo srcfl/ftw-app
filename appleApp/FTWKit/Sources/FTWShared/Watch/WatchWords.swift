@@ -29,7 +29,7 @@ public enum WatchWord: String, CaseIterable, Sendable {
     case noAnswerCheckPhone = "No answer from your iPhone yet. Check FTW there."
     case tooLate = "That came too late, so it was not sent. Try again."
     case otherHome = "That was for another home. Nothing was sent."
-    case cannotChangeMode = "This phone may not change how the home is run."
+    case modeInPlan = "Change the mode in Plan on your iPhone."
     case sendingNow = "Sending…"
     case sendingToBox = "Sending to your box…"
     case boxWorking = "Your box is working on it…"
@@ -103,7 +103,6 @@ public enum WatchWord: String, CaseIterable, Sendable {
     case chargeNowAsk = "Start charging at once, until you go back to the plan?"
     case pauseAsk = "Stop charging until you go back to the plan?"
     case backToPlanAsk = "Let FTW decide when to charge again?"
-    case modeAsk = "Run the home as %@?"
     case cancel = "Cancel"
 
     // The price.
