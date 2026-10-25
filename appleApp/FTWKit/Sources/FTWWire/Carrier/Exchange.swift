@@ -106,9 +106,9 @@ extension ExchangeSession {
     }
 
     /// The hold's arguments, or nil when the watch may only send `c`
-    /// through its phone: the mode and which car is on a charger need what
-    /// only an owner's session holds, and Charge now needs the phone's
-    /// power for that charger.
+    /// through its phone: which car is on a charger needs what only an
+    /// owner's session holds, Charge now needs the phone's power for that
+    /// charger, and the mode changes in Plan on the phone alone.
     public static func args(_ c: WatchCommand, link: WatchLink) -> [(String, CBOR)]? {
         switch c.op {
         case .chargeNow(let id):

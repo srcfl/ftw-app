@@ -269,40 +269,8 @@ import Testing
                 #expect(WatchGlance.status(now(readAtMs: t), lit: lit, demo: demo, zone: zone).text.count <= WatchGlance.statusChars)
             }
         }
-        // So do the line before the first reading and a receipt on its way.
+        // So does the line before the first reading.
         #expect(WatchGlance.status(nil, lit: false, demo: false, zone: zone).text.count <= WatchGlance.statusChars)
-        let c = WatchCommand(op: .mode("idle"), home: "s1", sentAtMs: t)
-        for accepted in [WatchReceipt.Mark.waiting, .done] {
-            let r = WatchReceipt(commandID: c.id, op: c.op, sent: .done, accepted: accepted, confirmed: .waiting, text: "", tone: .working)
-            #expect(WatchGlance.status(now(readAtMs: t), lit: true, demo: false, zone: zone, receipt: r).text.count <= WatchGlance.statusChars)
-        }
-    }
-
-    /// After a change of mode the box's receipt takes the line for its
-    /// time, mark by mark, and never a mark the box has not given.
-    @Test func theReceiptTakesTheLineMarkByMark() {
-        let t = at(14, 10)
-        let zone = TimeZone(identifier: Self.zone)!
-        let c = WatchCommand(op: .mode("idle"), home: "s1", sentAtMs: t)
-        func line(_ r: WatchReceipt) -> WatchGlance.Status {
-            WatchGlance.status(now(readAtMs: t), lit: true, demo: false, zone: zone, receipt: r)
-        }
-        #expect(line(.tapped(c)).text == "SENDING…")
-        var r = WatchReceipt(commandID: c.id, op: c.op, sent: .done, accepted: .waiting, confirmed: .waiting, text: "", tone: .working)
-        #expect(line(r).text == "SENT ▸")
-        r.accepted = .done
-        #expect(line(r).text == "SENT ▸ ACCEPTED ▸")
-        r.confirmed = .done
-        r.tone = .done
-        #expect(line(r).text == "SENT ▸ CONFIRMED" && line(r).parts.first?.tone == .live)
-        #expect(line(.unreachable(c)).text == "▲ NOT SENT" && line(.unreachable(c)).alarm)
-        #expect(line(WatchReceipt.tapped(c).noAnswer()).text == "▲ NOT CONFIRMED")
-        r.sent = .done
-        r.confirmed = .failed
-        r.tone = .failed
-        #expect(line(r).text == "▲ REFUSED")
-        // The dot still says whether Now is live.
-        #expect(line(r).lit)
     }
 
     // MARK: Now's figures

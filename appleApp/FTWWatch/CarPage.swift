@@ -139,7 +139,7 @@ private struct CarBlock: View {
             // One room for what the car does or, after a command, the box's
             // receipt, so nothing moves when the receipt lands.
             ZStack(alignment: .topLeading) {
-                ReceiptLine(receipt: WatchReceipt(commandID: "", op: .mode(""), sent: .waiting, accepted: .waiting, confirmed: .waiting, text: "\n", tone: .working))
+                ReceiptLine(receipt: WatchReceipt(commandID: "", op: .pause(loadpointID: ""), sent: .waiting, accepted: .waiting, confirmed: .waiting, text: "\n", tone: .working))
                     .hidden()
                     .accessibilityHidden(true)
                 if let r = model.receipt(for: car.loadpointID) {

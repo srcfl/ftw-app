@@ -66,7 +66,8 @@ final class WatchTour: XCTestCase {
         shoot("now")
         let mode = app.descendants(matching: .any)["watch.mode"]
         XCTAssertTrue(mode.waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["watch.mode"].exists, "the mode is a button on the watch")
+        XCTAssertEqual(mode.label, "Mode")
+        XCTAssertFalse(app.buttons["watch.mode"].exists, "the mode is plain text")
     }
 
     /// The four pages one after another, as a wrist moves through them,

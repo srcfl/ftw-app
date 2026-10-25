@@ -169,6 +169,19 @@ public enum WatchShare {
 
     // MARK: Commands
 
+    /// The phone's answer to a command it refuses without the box, or nil.
+    /// The mode and the planning style change in Plan alone (Fredrik, 25
+    /// October 2026): the watch no longer asks, and an older build that
+    /// does is told where before anything wakes the session.
+    public static func answerAtOnce(_ c: WatchCommand) -> WatchReceipt? {
+        guard case .mode = c.op else { return nil }
+        return refused(c, WatchWord.modeInPlan.text)
+    }
+
+    static func refused(_ c: WatchCommand, _ text: String) -> WatchReceipt {
+        WatchReceipt(commandID: c.id, op: c.op, sent: .failed, accepted: .waiting, confirmed: .waiting, text: text, tone: .failed)
+    }
+
     /// How long a command from the watch waits for the session to stream.
     /// The app may have been woken for it with no session open.
     public static let streamWaitMs: Double = LoadpointsModel.remoteStreamWaitMs
@@ -178,9 +191,7 @@ public enum WatchShare {
     /// phone's own receipt for the command, so CONFIRMED means the box's
     /// `cmd.result` said applied.
     public static func run(_ c: WatchCommand, home: HomeModels, nowMs: Double, step: @escaping @MainActor (WatchReceipt) -> Void) async -> WatchReceipt {
-        func refused(_ text: String) -> WatchReceipt {
-            WatchReceipt(commandID: c.id, op: c.op, sent: .failed, accepted: .waiting, confirmed: .waiting, text: text, tone: .failed)
-        }
+        func refused(_ text: String) -> WatchReceipt { Self.refused(c, text) }
         guard c.home == homeKey(home) else { return refused(WatchWord.otherHome.text) }
         guard WatchCommand.isID(c.id) else { return refused(AppWords.text("That did not go through. Try again.")) }
         guard nowMs <= c.notValidAfterMs else { return refused(WatchWord.tooLate.text) }
@@ -230,9 +241,7 @@ public enum WatchShare {
             return receipt(cars.choiceOutcome(done), c)
 
         case .mode:
-            // The mode and the planning style change in Plan alone (Fredrik,
-            // 25 October 2026). The watch no longer asks; an older build
-            // that does is told where.
+            // As answerAtOnce: the mode changes in Plan alone.
             return refused(WatchWord.modeInPlan.text)
         }
     }

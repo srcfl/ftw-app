@@ -7,7 +7,7 @@ import WatchKit
 /// on a small one makes it the traced one; a drag across the trace reads
 /// it. The trace opens whole, in ink, and glows only while the phone
 /// passes on live frames; anything else is ink with the minute it was
-/// read. How the home is run sits behind the toolbar's button, by name.
+/// read. How the home is run stands in the toolbar's corner, by name.
 struct NowPage: View {
     let model: WatchModel
     /// Always On redraws once a minute: a figure lit then would show an old
@@ -48,7 +48,7 @@ struct NowPage: View {
         .onChange(of: figures.map(\.node), initial: true) { _, nodes in
             if known, let first = nodes.first, !nodes.contains(model.trace.node) { model.trace.follow(first) }
         }
-        .toolbar { modeButton }
+        .toolbar { modeLabel }
     }
 
     /// The lowest screens (40 mm, 197 pt): a smaller large figure and
@@ -58,7 +58,7 @@ struct NowPage: View {
 
     /// How the home is run, by name, to read: the mode changes in Plan on
     /// the iPhone alone (Fredrik, 25 October 2026).
-    @ToolbarContentBuilder private var modeButton: some ToolbarContent {
+    @ToolbarContentBuilder private var modeLabel: some ToolbarContent {
         if let modes = model.context?.modes, let name = modeName(modes) {
             ToolbarItem(placement: .topBarLeading) {
                 Text(name)

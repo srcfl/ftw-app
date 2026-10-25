@@ -11,9 +11,6 @@
 "SENT" = "SKICKAT";
 "ACCEPTED" = "MOTTAGET";
 "CONFIRMED" = "BEKRÄFTAT";
-"SENDING…" = "SKICKAR…";
-"▲ NOT CONFIRMED" = "▲ EJ BEKRÄFTAT";
-"▲ NOT SENT" = "▲ INTE SKICKAT";
 "Sending to your iPhone…" = "Skickar till din iPhone …";
 "Your iPhone is sending it to your box…" = "Din iPhone skickar det till boxen …";
 "Your iPhone can't be reached. Nothing was sent." = "Din iPhone nås inte. Inget skickades.";

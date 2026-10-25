@@ -81,7 +81,9 @@ import FTWShared
             let manual = try #require(modes.modes.first { !$0.isPlan && $0.key != modes.shown })
             let (end, _) = try await run(.mode(manual.key), rig)
             #expect(end.text == WatchWord.modeInPlan.text)
-            #expect(end.confirmed != .done)
+            #expect(end.sent == .failed && end.tone == .failed)
+            #expect(WatchShare.answerAtOnce(WatchCommand(op: .mode(manual.key), home: "s1", sentAtMs: 0)) != nil)
+            #expect(WatchShare.answerAtOnce(WatchCommand(op: .pause(loadpointID: "lp1"), home: "s1", sentAtMs: 0)) == nil)
             #expect(rig.wire?.commands.contains { $0.op == Contract.opSetMode } != true)
         }
     }
