@@ -1,1 +1,9 @@
-FTW når nu boxen via FTW Cloud. Om en äldre parkoppling behöver göras om öppnar du Settings → FTW app på den uppdaterade boxen och skannar en ny QR-kod. Värden visar sin ålder medan anslutningen återhämtar sig.
+Ett nytt utseende. Nu visar flödet som en ring av ljus, och batteriets och bilens nivåer som ringar. Fyra flikar: Nu, Plan, Historik och Hem. Historik, liveavläsningar och planen delar en tidslinje som öppnar på i dag.
+
+Ljus betyder live: bara en avläsning som boxen skickade just nu lyser eller rör sig. Planen ritas blek överallt, på Nu, dialen, Plan-fliken, widgetarna och klockan. Tryck på statusraden för att se vad varje utseende betyder.
+
+Byt läge och planeringsstil under Plan. Klockan visar läget.
+
+Dela assistentåtkomst från iPhone med en kort kod.
+
+Två saker kräver nästa uppdatering av boxen: Apple Watch på egen hand genom FTW Cloud, och FTW Clouds senaste 48 timmar av historik medan boxen är borta.
