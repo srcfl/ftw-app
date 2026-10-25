@@ -138,11 +138,17 @@ public struct AheadPicture: Equatable, Sendable {
             // A zoomed window can fit inside a single forecast interval.
             // Draw that interval's own value, clipped at now, rather than
             // losing it because its midpoint lies outside the viewport.
+            // Intervals that meet join in one stepped line, so an hourly
+            // forecast that moves hour to hour reads as one shape, not as
+            // dashes adrift; a gap in the forecast stays a gap.
+            var end: Double?
             for m in marks.sorted(by: { $0.startMs < $1.startMs }) {
                 let a = max(m.startMs, fromMs, notBeforeMs ?? fromMs)
                 let b = min(m.endMs, toMs)
                 guard b > a, m.watts.isFinite else { continue }
-                line.elements += [.move(CGPoint(x: x(a), y: map.y(m.watts))), .line(CGPoint(x: x(b), y: map.y(m.watts)))]
+                let start = CGPoint(x: x(a), y: map.y(m.watts))
+                line.elements += [end.map { abs($0 - a) <= 1 } == true ? .line(start) : .move(start), .line(CGPoint(x: x(b), y: map.y(m.watts)))]
+                end = b
             }
             return line
         }
