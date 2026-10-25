@@ -40,6 +40,7 @@ struct PlanDialFace: View, Equatable {
         GeometryReader { geo in
             let g = DialGeometry(side: min(geo.size.width, geo.size.height), size: size)
             let plan = renderingMode == .fullColor ? Theme.plan(contrast) : 1
+            let sunPlan = renderingMode == .fullColor ? Theme.planSun(contrast) : 1
             ZStack {
                 if size == .app {
                     rim(g).stroke(Theme.ink.opacity(0.18), style: StrokeStyle(lineWidth: 0.5, lineCap: .butt, lineJoin: .round))
@@ -47,7 +48,7 @@ struct PlanDialFace: View, Equatable {
                 }
                 // The sun is the box's forecast, a guess: dashed, where the
                 // prices it plans on are drawn solid.
-                sun(g).stroke(grey ? Theme.ink3 : Theme.solar.opacity(plan), style: StrokeStyle(lineWidth: g.sunWidth, lineCap: .butt, lineJoin: .round, dash: g.sunDash))
+                sun(g).stroke(grey ? Theme.ink3 : Theme.solar.opacity(sunPlan), style: StrokeStyle(lineWidth: g.sunWidth, lineCap: .butt, lineJoin: .round, dash: g.sunDash))
                 ticks(g, .waits).fill(grey ? Theme.oldPlan : Theme.ink3.opacity(0.6))
                 ticks(g, .gives).fill(grey ? Theme.oldPlan : Theme.ink.opacity(plan))
                 ticks(g, .stores).fill(grey ? Theme.oldPlan : Theme.stores.opacity(plan))
@@ -76,13 +77,9 @@ struct PlanDialFace: View, Equatable {
     /// clear of the seam.
     private func sun(_ g: DialGeometry) -> Path {
         var p = Path()
-        let lo = dial.seam + DialGeometry.gap, hi = dial.seam + 2 * .pi - DialGeometry.gap
-        for span in dial.sun {
-            // Each end as a distance along the turn from the seam.
-            var a = dial.angle(span.lowerBound), b = dial.angle(span.upperBound)
-            while a < lo { a += 2 * .pi }
-            while b <= a { b += 2 * .pi }
-            p.addPath(g.arc(from: max(a, lo), to: min(b, hi), radius: g.rim))
+        for span in dial.sunAlong {
+            let a = max(span.lowerBound, DialGeometry.gap), b = min(span.upperBound, 2 * .pi - DialGeometry.gap)
+            p.addPath(g.arc(from: dial.seam + a, to: dial.seam + b, radius: g.rim))
         }
         return p
     }

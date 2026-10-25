@@ -64,6 +64,14 @@ import Testing
         ])
         let d = dial(daylight: day)
         #expect(d.sun == [at(14, 12)...at(14, 17, 30), at(15, 7, 45)...at(15, 12)])
+        // Round the turn: this afternoon's sun starts at the seam, not a
+        // whole turn on, and tomorrow morning's runs to the end.
+        let quarter = 2 * Double.pi / 96
+        #expect(d.sunAlong.count == 2)
+        #expect(near(d.sunAlong[0].lowerBound, 0) && d.sunAlong[0].lowerBound < quarter)
+        #expect(abs(d.sunAlong[0].upperBound - 22 * quarter) < 1e-9)
+        #expect(abs(d.sunAlong[1].lowerBound - 79 * quarter) < 1e-9)
+        #expect(abs(d.sunAlong[1].upperBound - 2 * .pi) < 1e-9)
         // No forecast, no sky.
         #expect(dial().sun.isEmpty)
         // A forecast that has run out draws none either.

@@ -217,6 +217,24 @@ public struct PlanDial: Equatable, Sendable {
     /// Where the turn begins and ends: +24 h meets now.
     public var seam: Double { angle(grid.firstMs) }
 
+    /// The sun's spans as distances round the turn from the seam, 0 to 2π.
+    /// A span under way now starts at 0, never a whole turn on, and one
+    /// that runs to the end of the turn ends at 2π.
+    public var sunAlong: [ClosedRange<Double>] {
+        sun.map { span in
+            let a = along(span.lowerBound)
+            var b = along(span.upperBound)
+            if b <= a { b += 2 * .pi }
+            return a...b
+        }
+    }
+
+    /// How far round the turn from the seam `ms` sits, 0 up to 2π.
+    private func along(_ ms: Double) -> Double {
+        let a = (angle(ms) - seam).truncatingRemainder(dividingBy: 2 * .pi)
+        return a < 0 ? a + 2 * .pi : a
+    }
+
     /// Where the hand points: now, or the start of the quarter chosen.
     public func handAngle(selected: Int?) -> Double {
         guard let i = selected, i > 0 else { return angle(nowMs) }
