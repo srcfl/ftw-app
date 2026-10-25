@@ -87,7 +87,8 @@ final class NowFitsTests: XCTestCase {
         for node in ["solar", "battery", "home", "grid", "car"] {
             XCTAssertTrue(app.buttons["now.node.\(node)"].isHittable, "\(node) cannot be tapped")
         }
-        XCTAssertTrue(app.buttons["now.mode"].isHittable)
+        // The mode and the planning style are changed in Plan alone.
+        XCTAssertFalse(app.buttons["now.mode"].exists)
         XCTAssertTrue(app.buttons["status.line"].isHittable)
         // About, Privacy and the build live on the Home tab.
         XCTAssertFalse(app.buttons["Source & licenses"].exists)
@@ -95,7 +96,7 @@ final class NowFitsTests: XCTestCase {
         let about = app.buttons["About FTW"]
         XCTAssertTrue(about.waitForExistence(timeout: 5))
         shoot(app, "home-tab")
-        XCTAssertTrue(app.buttons["home.mode"].exists)
+        XCTAssertFalse(app.buttons["home.mode"].exists)
         XCTAssertTrue(app.buttons["Pair a home"].exists)
         XCTAssertTrue(app.buttons["Privacy"].exists || app.links["Privacy"].exists)
         XCTAssertTrue(app.buttons["Exit demo"].exists)
@@ -194,21 +195,17 @@ final class NowFitsTests: XCTestCase {
         app.launch()
         let title = app.staticTexts["now.title"]
         let line = app.buttons["status.line"]
-        let mode = app.buttons["now.mode"]
         XCTAssertTrue(title.waitForExistence(timeout: 15))
         let x = title.frame.minX
         let lineX = line.frame.minX
-        var names = Set<String>()
         var lines = Set<String>()
         let end = Date().addingTimeInterval(4)
         while Date() < end {
             XCTAssertEqual(title.frame.minX, x, accuracy: 0.5, "the title moved")
             XCTAssertEqual(line.frame.minX, lineX, accuracy: 0.5, "the status line moved")
-            names.insert(mode.value as? String ?? "")
             lines.insert(line.value as? String ?? "")
         }
         XCTAssertEqual(lineX, x, accuracy: 0.5, "the title and the line have two edges")
-        XCTAssertTrue(names.isSubset(of: ["", "Balanced"]), "the mode button said \(names)")
         XCTAssertTrue(lines.contains("DEMO · SIMULATED HOME"), "\(lines)")
     }
 
@@ -270,20 +267,14 @@ final class NowFitsTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Are we in control?"].waitForNonExistence(timeout: 5))
     }
 
-    /// A mode from the button beside the title: its sheet closes once the
-    /// box applied it, the button names it, the status line walks the box's
-    /// receipt, and then returns.
+    /// A mode from Plan's mode row: its sheet closes once the box applied
+    /// it, the row names it, the status line walks the box's receipt, and
+    /// then returns.
     @MainActor
-    func testTheModeMenuChangesTheModeAndTheLineFollowsTheBox() throws {
+    func testPlansModeRowChangesTheModeAndTheLineFollowsTheBox() throws {
         let app = launchDemo()
-        let button = app.buttons["now.mode"]
+        let button = planMode(app)
         let line = app.buttons["status.line"]
-        XCTAssertTrue(button.waitForExistence(timeout: 10))
-        // The button rests until the box has spoken.
-        Thread.sleep(forTimeInterval: 3)
-        XCTAssertEqual(button.value as? String, "Balanced")
-        let frame = button.frame
-        let titleX = app.staticTexts["now.title"].frame.minX
         button.tap()
         let own = app.buttons["mode.choice.self_consumption"]
         XCTAssertTrue(own.waitForExistence(timeout: 5))
@@ -295,9 +286,7 @@ final class NowFitsTests: XCTestCase {
         waitForExpectations(timeout: 10)
         XCTAssertTrue(own.waitForNonExistence(timeout: 5), "the sheet stayed open after the box applied the mode")
         shoot(app, "mode-confirmed")
-        XCTAssertEqual(button.value as? String, "Own use")
-        XCTAssertEqual(button.frame.maxX, frame.maxX, accuracy: 0.5, "the mode button moved its trailing edge")
-        XCTAssertEqual(app.staticTexts["now.title"].frame.minX, titleX, accuracy: 0.5, "the title moved with the receipt")
+        XCTAssertTrue(button.label.contains("Own use"), button.label)
         let back = NSPredicate(format: "value == 'DEMO · SIMULATED HOME'")
         expectation(for: back, evaluatedWith: line)
         waitForExpectations(timeout: 10)
@@ -309,17 +298,14 @@ final class NowFitsTests: XCTestCase {
         XCTAssertTrue(plan.waitForNonExistence(timeout: 10))
     }
 
-    /// The planning style from Now's button: a finger drags the scale two
-    /// stops and lets go, one command goes, the box confirms it, the sheet
-    /// stays and says what the new plan moved. A second drag goes back.
+    /// The planning style from Plan's mode sheet: a finger drags the scale
+    /// two stops and lets go, one command goes, the box confirms it, the
+    /// sheet stays and says what the new plan moved. A second drag goes back.
     @MainActor
     func testTheStyleScaleSendsOnceWhenTheFingerLetsGo() throws {
         let app = launchDemo()
-        let button = app.buttons["now.mode"]
+        let button = planMode(app)
         let line = app.buttons["status.line"]
-        XCTAssertTrue(button.waitForExistence(timeout: 10))
-        Thread.sleep(forTimeInterval: 3)
-        XCTAssertEqual(button.value as? String, "Balanced")
         button.tap()
         let scale = app.descendants(matching: .any).matching(identifier: "style.scale").firstMatch
         XCTAssertTrue(scale.waitForExistence(timeout: 5))
@@ -350,8 +336,7 @@ final class NowFitsTests: XCTestCase {
         expectation(for: NSPredicate(format: "value BEGINSWITH 'Balanced.'"), evaluatedWith: scale)
         waitForExpectations(timeout: 10)
         app.buttons["mode.close"].tap()
-        expectation(for: NSPredicate(format: "value == 'Balanced'"), evaluatedWith: button)
-        waitForExpectations(timeout: 10)
+        XCTAssertTrue(button.waitForExistence(timeout: 5))
     }
 
     /// At the largest accessibility size the drawing gives way to a row
@@ -389,15 +374,18 @@ final class NowFitsTests: XCTestCase {
     }
 
     @MainActor
-    func testANodeOpensItsLiveHistoryPlanAndMode() throws {
+    func testANodeOpensItsLiveHistoryAndPlan() throws {
         let app = launchDemo()
         app.buttons["now.node.battery"].tap()
         XCTAssertTrue(app.navigationBars["Battery"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.descendants(matching: .any)["node.timeline.chart"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.segmentedControls["node.period"].exists)
-        XCTAssertTrue(app.buttons["node.mode.change"].isHittable)
-        // The node's view fits too: its last control is where it stands.
-        XCTAssertTrue(app.windows.firstMatch.frame.contains(app.buttons["node.mode.change"].frame))
+        // The mode is changed in Plan alone.
+        XCTAssertFalse(app.buttons["node.mode.change"].exists)
+        // The node's view fits too: its footer is where it stands.
+        let footer = app.staticTexts["node.footer"]
+        XCTAssertTrue(footer.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.windows.firstMatch.frame.contains(footer.frame))
     }
 
     /// Every node's view is one page at the standard size and the largest:
@@ -456,9 +444,9 @@ final class NowFitsTests: XCTestCase {
         // second, and the turning mark keeps it busy that long.
         let app = launchDemo(more: ["-FTWDemoResultDelayMs", "2500"])
         XCTAssertTrue(app.buttons["now.node.home"].waitForExistence(timeout: 15), "Now never drew the home")
-        let button = app.buttons["now.mode"]
         // The choices rest until the stream is up.
         openSettings(app)
+        let button = app.buttons["plan.mode"]
         let plan = app.buttons["mode.choice.plan"]
         XCTAssertTrue(plan.waitForExistence(timeout: 5))
         Thread.sleep(forTimeInterval: 1.5)
@@ -478,9 +466,9 @@ final class NowFitsTests: XCTestCase {
         XCTAssertTrue(plan.isSelected, "the box's mode lost its tick before the box answered")
         XCTAssertEqual(idle.frame.minY, top, accuracy: 1, "the row moved under the finger")
         shoot(app, "mode-sending")
-        // Applied: the sheet goes, and Now names the box's new mode.
+        // Applied: the sheet goes, and Plan's row names the box's new mode.
         XCTAssertTrue(plan.waitForNonExistence(timeout: 10), "the sheet stayed open after the box applied the mode")
-        XCTAssertEqual(button.value as? String, "Stop batteries")
+        XCTAssertTrue(button.label.contains("Stop batteries"), button.label)
         shoot(app, "mode-applied")
     }
 
@@ -509,16 +497,23 @@ final class NowFitsTests: XCTestCase {
         XCTAssertEqual(app.buttons.matching(identifier: "pair.primary").count, 1, "more than one prominent action")
     }
 
-    /// How the home is run, in full: the mode sheet, from Home.
+    /// How the home is run, in full: the mode sheet, from Plan, the one
+    /// place it opens.
     @MainActor
     private func openSettings(_ app: XCUIApplication) {
-        let home = app.tabBars.buttons["Home"]
-        XCTAssertTrue(home.waitForExistence(timeout: 10))
+        planMode(app).tap()
+    }
+
+    /// Plan's mode row, once the box has spoken: the row rests until then.
+    @MainActor
+    private func planMode(_ app: XCUIApplication) -> XCUIElement {
+        let tab = app.tabBars.buttons["Plan"]
+        XCTAssertTrue(tab.waitForExistence(timeout: 10))
         Thread.sleep(forTimeInterval: 3)
-        home.tap()
-        let mode = app.buttons["home.mode"]
+        tab.tap()
+        let mode = app.buttons["plan.mode"]
         XCTAssertTrue(mode.waitForExistence(timeout: 5))
-        mode.tap()
+        return mode
     }
 
     @MainActor

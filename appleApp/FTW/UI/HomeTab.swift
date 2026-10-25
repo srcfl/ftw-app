@@ -1,8 +1,8 @@
 import FTWKit
 import SwiftUI
 
-/// Home, the fourth tab: the home itself, in the system's own list. How it
-/// is run, its cars, its assistants and the watch; then the homes on this
+/// Home, the fourth tab: the home itself, in the system's own list. Its
+/// cars, its assistants and the watch; then the homes on this
 /// phone, this phone's own settings, and what FTW is. What the title's
 /// menu and the settings sheet held before the tabs, in one place a
 /// newcomer finds.
@@ -29,36 +29,13 @@ struct HomeTabView: View {
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(Theme.ground)
-        .onAppear { home.nodes.mode.activate() }
-        .onDisappear { home.nodes.mode.deactivate() }
     }
 
-    /// The home's name over how it is run, which opens the mode sheet, the
-    /// same sheet as the button beside Now's title, and its cars.
-    private var thisHome: some View {
-        let mode = home.nodes.mode
-        return Section {
-            Button { sheet = .mode } label: {
-                LabeledContent {
-                    HStack(spacing: 6) {
-                        Text(mode.buttonName ?? " ")
-                            .foregroundStyle(Theme.ink2)
-                            .redacted(reason: mode.buttonName == nil ? .placeholder : [])
-                        if mode.opens {
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(Theme.ink3)
-                        }
-                    }
-                } label: {
-                    Label(L("Mode"), systemImage: "slider.horizontal.3")
-                        .foregroundStyle(Theme.ink)
-                }
-            }
-            .disabled(!(mode.opens && mode.canControl))
-            .accessibilityHint(mode.mayControl ? L("Change mode") : "")
-            .accessibilityIdentifier("home.mode")
-            if home.cars.keepsCars {
+    /// The home's name over its cars. How it is run is changed in Plan, the
+    /// one place for the mode and the planning style.
+    @ViewBuilder private var thisHome: some View {
+        if home.cars.keepsCars {
+            Section {
                 NavigationLink { CarsSettingsView(cars: home.cars) } label: {
                     LabeledContent {
                         Text(home.cars.cars.map(\.shownName).joined(separator: ", "))
@@ -68,9 +45,9 @@ struct HomeTabView: View {
                     }
                 }
                 .accessibilityIdentifier("settings.cars")
+            } header: {
+                Text(app.homeName)
             }
-        } header: {
-            Text(app.homeName)
         }
     }
 

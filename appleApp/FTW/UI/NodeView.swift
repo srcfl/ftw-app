@@ -11,7 +11,6 @@ struct NodeView: View {
     let node: EnergyNode
     let zoom: Namespace.ID
     @State private var scrub = ScrubModel()
-    @State private var choosingMode = false
     /// Every node opens on today; a drag or a pinch moves from there.
     @State private var window = TimelineWindow.today(nowMs: Date().timeIntervalSince1970 * 1000, clock: .of(.current))
     @State private var text = PeriodText()
@@ -62,7 +61,6 @@ struct NodeView: View {
             // The same window can pan from stored history into the box's
             // plan or forecast.
             models.plan.activate(forecast: true)
-            models.mode.activate()
             models.sources.activate(node)
             home.prices.activate()
             if node == .car { models.carEnergy.activate() }
@@ -72,14 +70,10 @@ struct NodeView: View {
         .onDisappear {
             models.history.deactivate()
             models.plan.deactivate(forecast: true)
-            models.mode.deactivate()
             models.sources.deactivate(node)
             home.prices.deactivate()
             if node == .car { models.carEnergy.deactivate() }
             if node == .home { home.savings.deactivate() }
-        }
-        .sheet(isPresented: $choosingMode) {
-            ModeSheet(mode: models.mode, plan: models.planShare)
         }
         .fullScreenCover(isPresented: $enlarged) {
             TimelineFullScreen(site: site, node: node, home: home, window: $window, series: $series)
@@ -129,11 +123,7 @@ struct NodeView: View {
                 TimelineControls(site: site, node: node, home: home, window: $window, scrub: scrub, text: text)
                     .padding(.horizontal, 20)
                     .padding(.top, 12)
-                if node == .battery {
-                    ModeRow(mode: models.mode, choose: { choosingMode = true })
-                        .padding(.horizontal, 20)
-                        .padding(.top, 4)
-                } else if node == .car {
+                if node == .car {
                     CarRow(home: home, zoom: zoom)
                         .padding(.horizontal, 20)
                         .padding(.top, 4)
@@ -442,58 +432,6 @@ struct NodeFooter: View {
         .tracking(0.5)
         .foregroundStyle(Theme.ink3)
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
-    }
-}
-
-/// The battery's one extra row: `Mode · Balanced`, with the chevrons of a
-/// row that opens a sheet.
-private struct ModeRow: View {
-    let mode: ModeModel
-    let choose: () -> Void
-
-    var body: some View {
-        if mode.mayControl {
-            Button(action: choose) {
-                HStack(spacing: 6) {
-                    Text(L("Mode")).foregroundStyle(Theme.ink2)
-                    Text(verbatim: "·").foregroundStyle(Theme.ink3)
-                    Text(mode.outcome?.text ?? mode.label ?? "—")
-                        .foregroundStyle(Theme.ink)
-                        .contentTransition(.opacity)
-                    // It opens a sheet, not a page.
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(Theme.ink3)
-                    Spacer(minLength: 0)
-                }
-                .font(.subheadline)
-                .lineLimit(2)
-                .frame(minHeight: 44)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .disabled(!mode.canControl)
-            .accessibilityIdentifier("node.mode.change")
-            .animation(Theme.spring, value: mode.outcome)
-            .sensoryFeedback(trigger: mode.outcome?.tone) { _, tone in Self.feedback(tone) }
-        } else if let label = mode.label {
-            HStack(spacing: 6) {
-                Text(L("Mode")).foregroundStyle(Theme.ink2)
-                Text(verbatim: "·").foregroundStyle(Theme.ink3)
-                Text(label).foregroundStyle(Theme.ink)
-            }
-            .font(.subheadline)
-            .frame(minHeight: 44, alignment: .leading)
-        }
-    }
-
-    static func feedback(_ tone: EVText.Outcome.Tone?) -> SensoryFeedback? {
-        switch tone {
-        case .done?: return .success
-        case .warning?: return .warning
-        case .failed?: return .error
-        default: return nil
-        }
     }
 }
 

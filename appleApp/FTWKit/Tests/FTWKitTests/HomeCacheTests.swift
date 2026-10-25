@@ -168,35 +168,31 @@ final class KeptHome {
         #expect(cold.nodes.mode.canControl)
     }
 
-    /// The mode button opens on the name the last launch kept, before the
+    /// Plan's mode row opens on the style the last launch kept, before the
     /// box has spoken, and stays inert. With nothing kept it has no word
-    /// yet, never "Mode"; and "Plan" only for a box that gave no style.
-    @Test func theModeButtonOpensOnTheKeptName() async throws {
+    /// yet, never "Mode".
+    @Test func plansModeRowOpensOnTheKeptStyle() async throws {
         let w = KeptHome()
         let fresh = w.launch()
-        #expect(fresh.nodes.mode.buttonName == nil)
-        #expect(fresh.nodes.mode.opens)
+        #expect(fresh.nodes.mode.label == nil)
         fresh.site.destroy()
 
         _ = try await w.liveThenKilled()
         let cold = w.launch()
         let style = try #require(cold.nodes.mode.shownStyle)
-        #expect(cold.nodes.mode.buttonName == NodeWords.text(style.name))
-        #expect(cold.nodes.mode.opens)
+        #expect(cold.nodes.mode.label == "\(NodeWords.text("Plan")) · \(NodeWords.text(style.name))")
         #expect(!cold.nodes.mode.canControl)
         cold.site.destroy()
 
-        // A home file with no style in it: no word until the box is asked,
-        // and the plan's name once it gave none.
+        // A home file with no style in it: no style until the box is asked,
+        // and the box's answer that it gave none.
         var kept = try #require(w.files.readJSON(HomeCache.self, "home-home"))
         kept.prefs = nil
         w.files.writeJSON("home-home", kept)
         let bare = w.launch()
         #expect(bare.nodes.mode.shownStyle == nil)
-        #expect(bare.nodes.mode.buttonName == nil)
         try? await bare.nodes.mode.loadPrefs()
         #expect(bare.nodes.mode.prefsMissing)
-        #expect(bare.nodes.mode.buttonName == ModeWords.name(bare.nodes.mode.info(bare.nodes.mode.shown)))
     }
 
     /// Hello names the box's uptime now. The cached readings were taken

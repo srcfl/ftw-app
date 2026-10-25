@@ -250,26 +250,7 @@ public final class ModeModel {
         key.flatMap { k in site.session.modes.first { $0.key == k } }
     }
 
-    /// The name on the mode button beside Now's title: the planning style
-    /// while the plan runs, else the manual mode's name. Nil until it is
-    /// known, from the cache or the box, so the button holds its shape
-    /// rather than saying "Mode", then "Plan", then "Balanced". "Plan" only
-    /// for a box that gives no planning style.
-    public var buttonName: String? {
-        guard let key = shown else { return nil }
-        guard ModeWords.isPlan(key) else { return ModeWords.name(info(key)) }
-        if let style = shownStyle { return NodeWords.text(style.name) }
-        return prefsMissing ? ModeWords.name(info(key)) : nil
-    }
-
-    /// Whether the mode button opens the sheet, drawn with its chevron:
-    /// a phone the box lets change the mode, and, before the box has said
-    /// so, a phone that has kept nothing that says otherwise.
-    public var opens: Bool {
-        mayControl || (!site.heardFromBox && site.session.caps.isEmpty)
-    }
-
-    /// The label on Now: "Plan · Balanced", or a manual mode's name.
+    /// The label on Plan's mode row: "Plan · Balanced", or a manual mode's name.
     public var label: String? {
         guard let key = shown else { return nil }
         if ModeWords.isPlan(key), let style = shownStyle {

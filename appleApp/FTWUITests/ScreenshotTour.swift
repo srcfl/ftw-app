@@ -61,14 +61,6 @@ final class ScreenshotTour: XCTestCase {
             door.tap()
             Thread.sleep(forTimeInterval: 3)
             shoot(app, node)
-            if node == "battery", app.buttons["node.mode.change"].exists {
-                app.buttons["node.mode.change"].tap()
-                Thread.sleep(forTimeInterval: 2)
-                shoot(app, "mode")
-                let close = app.buttons["mode.close"]
-                if close.exists { close.tap() } else { app.swipeDown(velocity: .fast) }
-                Thread.sleep(forTimeInterval: 1)
-            }
             app.navigationBars.buttons.element(boundBy: 0).tap()
             Thread.sleep(forTimeInterval: 1.5)
         }

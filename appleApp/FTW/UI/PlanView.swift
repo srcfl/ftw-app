@@ -491,6 +491,10 @@ private struct Levers: View {
                 .buttonStyle(.plain)
                 .disabled(!mode.canControl)
                 .accessibilityIdentifier("plan.mode")
+                // A command answers once, when the box says what it did, also
+                // when the sheet was closed first. With the sheet open the two
+                // play as one.
+                .sensoryFeedback(trigger: mode.outcome?.tone) { _, tone in ModeSheet.feedback(tone) }
             }
             if showsScale {
                 #if DEBUG

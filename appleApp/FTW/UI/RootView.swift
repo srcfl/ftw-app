@@ -107,11 +107,6 @@ struct HomeView: View {
                 TabStack(app: app, home: home, path: path(.now)) { zoom in
                     NowView(app: app, home: home, zoom: zoom)
                         .homeBar(app: app, home: home, title: app.homeName, id: "now.title")
-                        .toolbar {
-                            ToolbarItem(placement: .topBarTrailing) {
-                                ModeMenu(mode: home.nodes.mode) { sheet = .mode }
-                            }
-                        }
                 }
             }
             Tab(HomeTab.plan.title, systemImage: HomeTab.plan.symbol, value: HomeTab.plan) {
@@ -135,7 +130,6 @@ struct HomeView: View {
         }
         .sheet(item: $sheet) { which in
             switch which {
-            case .mode: ModeSheet(mode: home.nodes.mode, plan: home.nodes.planShare)
             case .about(let start): AboutView(app: app, start: start)
             }
         }
@@ -232,10 +226,9 @@ private struct TabStack<Root: View>: View {
     }
 }
 
-/// What opens over a home: the mode sheet, from Now's mode button and
-/// Home, and Source & licenses.
+/// What opens over a home: Source & licenses. The mode and the planning
+/// style are changed in one place, Plan (Fredrik, 25 October 2026).
 enum HomeSheet: Hashable, Identifiable {
-    case mode
     case about(AboutView.Start)
     var id: Self { self }
 }
