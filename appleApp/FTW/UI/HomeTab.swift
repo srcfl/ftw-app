@@ -12,6 +12,7 @@ struct HomeTabView: View {
     @Binding var sheet: HomeSheet?
     /// Back to the tab's root, after this phone is removed.
     let popToRoot: () -> Void
+    @AppStorage(Appearance.key) private var appearance = Appearance.standard
 
     var body: some View {
         List {
@@ -24,6 +25,7 @@ struct HomeTabView: View {
             }
             homes
             phone
+            look
             about
         }
         .listStyle(.insetGrouped)
@@ -87,6 +89,21 @@ struct HomeTabView: View {
                     }
                 }
             }
+        }
+    }
+
+    /// Dark, light or the iPhone's own setting, for this app on this phone.
+    private var look: some View {
+        Section {
+            Picker(selection: $appearance) {
+                ForEach(Appearance.allCases) { Text($0.title).tag($0) }
+            } label: {
+                Label(L("Appearance"), systemImage: "circle.lefthalf.filled")
+                    .foregroundStyle(Theme.ink)
+            }
+            .accessibilityIdentifier("settings.appearance")
+        } footer: {
+            Text(L("Widgets and the watch follow the iPhone."))
         }
     }
 

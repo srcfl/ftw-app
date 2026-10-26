@@ -228,8 +228,13 @@ native, and smooth enough to impress.
   box's receipt (`cmd.ack`), then the outcome (`cmd.result`). The outcome
   alone plays a haptic, once: `.success`, `.warning` or `.error`. Show the
   intent at once; never show a result the box has not confirmed.
-- **The largest text size and dark mode** look as good as the default.
-  Review all three in the simulator.
+- **The app opens dark** (Fredrik, 26 Oct 2026). Home's Appearance row
+  picks Light or Match iPhone, kept on this phone; the launch screen is
+  dark in both looks to match. The widgets and the watch follow the
+  iPhone. **The largest text size and light mode** look as good as the
+  default: review all three in the simulator, with `-appearance light`
+  (or `system`) as a launch argument. The screenshot scripts pass
+  `-appearance system`, so the simulator's look applies.
 - **Evidence for feel work:** a screen recording, and an Animation Hitches
   measurement from a device.
 

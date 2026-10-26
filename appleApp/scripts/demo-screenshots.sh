@@ -25,7 +25,8 @@ shoot() {
   local name=$1 look=$2
   shift 2
   xcrun simctl ui "$udid" appearance "$look"
-  xcrun simctl launch --terminate-running-process "$udid" energy.ftw.app "$@" >/dev/null
+  # The app opens dark by its own setting; `system` lets the look above decide.
+  xcrun simctl launch --terminate-running-process "$udid" energy.ftw.app -appearance system "$@" >/dev/null
   sleep 8
   xcrun simctl io "$udid" screenshot "$out/$name.png" >/dev/null
   echo "$out/$name.png"

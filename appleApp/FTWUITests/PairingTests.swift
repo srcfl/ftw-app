@@ -22,8 +22,10 @@ final class PairingTests: XCTestCase {
         XCUIDevice.shared.appearance = appearance == "Dark" ? .dark : .light
         defer { XCUIDevice.shared.appearance = originalAppearance }
         let app = XCUIApplication()
+        // The app opens dark by its own setting; this test picks the look.
         app.launchArguments = ["-AppleLanguages", "(sv)", "-AppleLocale", "sv_SE",
-                               "-UIPreferredContentSizeCategoryName", text]
+                               "-UIPreferredContentSizeCategoryName", text,
+                               "-appearance", appearance == "Dark" ? "dark" : "light"]
         app.launch()
         let enter = app.buttons["pair.enterCode"]
         guard enter.waitForExistence(timeout: 10) else { throw XCTSkip("This simulator already holds a paired home.") }
