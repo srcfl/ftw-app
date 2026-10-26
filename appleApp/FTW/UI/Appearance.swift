@@ -7,8 +7,13 @@ import SwiftUI
 enum Appearance: String, CaseIterable, Identifiable {
     case dark, light, system
 
-    /// Where the choice is kept, on this phone only.
+    /// Where the choice is kept, on this phone only. A launch argument
+    /// `-appearance light|dark|system` stands in for it, for screenshots
+    /// and tests.
     static let key = "appearance"
+
+    /// What the app opens in until the person picks.
+    static let standard = Appearance.dark
 
     var id: String { rawValue }
 

@@ -38,8 +38,9 @@ shoot() {
   local dir=$1 lang=$2 name=$3
   shift 3
   mkdir -p "$out/$dir"
+  # The app opens dark by its own setting; `system` lets FTW_STORE_LOOK decide.
   xcrun simctl launch --terminate-running-process "$udid" energy.ftw.app \
-    -AppleLanguages "($lang)" -AppleLocale "${dir/-/_}" "$@" >/dev/null
+    -AppleLanguages "($lang)" -AppleLocale "${dir/-/_}" -appearance system "$@" >/dev/null
   sleep 12
   xcrun simctl io "$udid" screenshot "$out/$dir/$name.png" >/dev/null 2>&1
   echo "$out/$dir/$name.png $(sips -g pixelWidth -g pixelHeight "$out/$dir/$name.png" | awk '/pixel/ {printf "%s ", $2}')"

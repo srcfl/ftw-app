@@ -108,12 +108,14 @@ import Testing
         }
     }
 
-    /// The system tint is ink and the launch screen is the ground, in the
-    /// app's own catalog, which the system reads before any view.
-    @Test func theTintIsInkAndTheLaunchIsTheGround() throws {
+    /// The system tint is ink, in the app's own catalog, which the system
+    /// reads before any view. The launch screen is the dark ground in both
+    /// looks: the app opens dark unless the person picks otherwise, and the
+    /// system draws the launch screen before the app can say which.
+    @Test func theTintIsInkAndTheLaunchIsTheDarkGround() throws {
         for look in [Look.light, .dark] {
             #expect(try color("", look, in: "appleApp/FTW/Assets.xcassets/AccentColor.colorset/Contents.json") == color("ink", look))
-            #expect(try color("", look, in: "appleApp/FTW/Assets.xcassets/LaunchBackground.colorset/Contents.json") == color("ground", look))
+            #expect(try color("", look, in: "appleApp/FTW/Assets.xcassets/LaunchBackground.colorset/Contents.json") == color("ground", .dark))
         }
     }
 

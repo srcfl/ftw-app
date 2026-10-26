@@ -9,7 +9,7 @@ import WidgetKit
 struct FTWApp: App {
     @State private var app: AppModel
     /// Dark unless the person picks otherwise in Home.
-    @AppStorage(Appearance.key) private var appearance: Appearance = .dark
+    @AppStorage(Appearance.key) private var appearance = Appearance.standard
     @Environment(\.scenePhase) private var scenePhase
     /// Only for what SwiftUI has no door for: the push token, and buttons
     /// on a notification. It starts after `init`, so the runner is there.

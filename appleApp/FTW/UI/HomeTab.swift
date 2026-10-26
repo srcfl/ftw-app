@@ -12,7 +12,7 @@ struct HomeTabView: View {
     @Binding var sheet: HomeSheet?
     /// Back to the tab's root, after this phone is removed.
     let popToRoot: () -> Void
-    @AppStorage(Appearance.key) private var appearance: Appearance = .dark
+    @AppStorage(Appearance.key) private var appearance = Appearance.standard
 
     var body: some View {
         List {
@@ -102,6 +102,8 @@ struct HomeTabView: View {
                     .foregroundStyle(Theme.ink)
             }
             .accessibilityIdentifier("settings.appearance")
+        } footer: {
+            Text(L("Widgets and the watch follow the iPhone."))
         }
     }
 

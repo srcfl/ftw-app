@@ -419,6 +419,7 @@ public enum NodeWords {
         "Dark": "Mörkt",
         "Light": "Ljust",
         "Match iPhone": "Som iPhone",
+        "Widgets and the watch follow the iPhone.": "Widgetarna och klockan följer iPhonen.",
     ]
 }
 
