@@ -123,7 +123,9 @@ native, and smooth enough to impress.
   minute unless the second matters.
 - **Modern Swift.** Swift 6 strict concurrency, `@Observable`,
   async/await and structured concurrency. No Combine, no GCD, no
-  `ObservableObject`, and no UIKit except the camera. Colours live in
+  `ObservableObject`, and no UIKit except the camera and `ChartPinchGuard`,
+  which keeps a pinch on a chart from the zoom transition's own gesture
+  (SwiftUI has no say over that gesture). Colours live in
   one asset catalog, not in code (see The look).
 - **iOS 26's design.** System components (`List`, `Form`,
   `NavigationStack`, system button styles), so Liquid Glass appears where
