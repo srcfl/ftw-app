@@ -8,6 +8,8 @@ import WidgetKit
 @main
 struct FTWApp: App {
     @State private var app: AppModel
+    /// Dark unless the person picks otherwise in Home.
+    @AppStorage(Appearance.key) private var appearance: Appearance = .dark
     @Environment(\.scenePhase) private var scenePhase
     /// Only for what SwiftUI has no door for: the push token, and buttons
     /// on a notification. It starts after `init`, so the runner is there.
@@ -90,6 +92,7 @@ struct FTWApp: App {
     var body: some Scene {
         WindowGroup {
             RootView(app: app)
+                .preferredColorScheme(appearance.scheme)
                 // A pairing QR scanned with the iOS camera arrives as a
                 // universal link to https://app.ftw.energy/p#…, and takes the
                 // same path as any other pairing link. An assistant's consent

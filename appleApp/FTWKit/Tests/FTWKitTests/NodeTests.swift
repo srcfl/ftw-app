@@ -950,6 +950,7 @@ import FTWShared
             "appleApp/FTWKit/Sources/FTWKit/State/StatusLine.swift",
             "appleApp/FTWKit/Sources/FTWKit/State/GridPhases.swift", "appleApp/FTW/UI/GridPhasesRow.swift",
             "appleApp/FTW/UI/HistoryTab.swift", "appleApp/FTW/UI/HomeTab.swift", "appleApp/FTWKit/Sources/FTWKit/Format/TimelineLabel.swift", "appleApp/FTWKit/Sources/FTWKit/State/HomeTab.swift",
+            "appleApp/FTW/UI/Appearance.swift",
         ]
         let pattern = #/(?:\bL|NodeWords\.(?:text|format)|AppWords\.(?:text|format))\("((?:[^"\\]|\\.)*)"/#
         var english = Set<String>()

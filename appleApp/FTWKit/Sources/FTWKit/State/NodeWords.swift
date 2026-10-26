@@ -413,6 +413,12 @@ public enum NodeWords {
         "Settings": "Inställningar",
         "About FTW": "Om FTW",
         "Homes, settings and about.": "Hem, inställningar och om appen.",
+
+        // How the app looks
+        "Appearance": "Utseende",
+        "Dark": "Mörkt",
+        "Light": "Ljust",
+        "Match iPhone": "Som iPhone",
     ]
 }
 
