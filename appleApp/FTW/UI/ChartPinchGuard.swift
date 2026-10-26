@@ -1,27 +1,37 @@
 import SwiftUI
 import UIKit
 
-/// Keeps a two-finger pinch on a chart for the chart.
+/// Keeps a pinch on a chart for the chart.
 ///
 /// A view that zooms in from its source (`navigationTransition(.zoom)`)
 /// can be pinched closed by the system, and on a chart that pinch closed
-/// the whole view instead of zooming time (Fredrik, 26 October 2026). This
-/// recognizer only watches and never acts. It recognises a pinch together
-/// with the chart's own gesture, and the system's pinch above it waits for
-/// it to fail, which it does when no second finger lands. A back swipe and
-/// a scroll keep their own way, and a pinch outside the chart still
-/// closes the view.
+/// the whole view instead of zooming time (Fredrik, 26 October 2026). While
+/// a finger is on the chart this turns the transition's gesture off, and
+/// on again when the last finger lifts. On iOS 26 that gesture is a private
+/// transform recognizer on the navigation stack's hosting view, the same
+/// view SwiftUI hangs this recognizer on (seen in the simulator), and it
+/// cannot be made to wait for another, so it is switched off instead. The
+/// back swipe from the edge, on the navigation controller's own view, and
+/// a pinch outside the chart keep their way.
 ///
 /// The one UIKit piece outside the camera: SwiftUI has no say over the
 /// transition's own gesture.
 struct ChartPinchGuard: UIGestureRecognizerRepresentable {
+    /// A finger is on the chart, as the chart's own gesture knows it.
+    var touching: Bool
+
     func makeUIGestureRecognizer(context: Context) -> UIPinchGestureRecognizer {
-        let pinch = UIPinchGestureRecognizer()
-        pinch.cancelsTouchesInView = false
-        pinch.delaysTouchesBegan = false
-        pinch.delaysTouchesEnded = false
-        pinch.delegate = context.coordinator
-        return pinch
+        // Only watches: it sees each touch land and never takes one.
+        let watch = UIPinchGestureRecognizer()
+        watch.cancelsTouchesInView = false
+        watch.delaysTouchesBegan = false
+        watch.delaysTouchesEnded = false
+        watch.delegate = context.coordinator
+        return watch
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: UIPinchGestureRecognizer, context: Context) {
+        if !touching { context.coordinator.release() }
     }
 
     func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
@@ -29,19 +39,44 @@ struct ChartPinchGuard: UIGestureRecognizerRepresentable {
     }
 
     @MainActor final class Coordinator: NSObject, UIGestureRecognizerDelegate {
+        /// The transition gestures this switched off, to switch on again.
+        private var held: [WeakRecognizer] = []
+
+        func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            hold(above: g.view)
+            return true
+        }
+
         func gestureRecognizer(_ g: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-            !Self.closes(other, above: g)
+            true
         }
 
-        func gestureRecognizer(_ g: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
-            Self.closes(other, above: g)
+        /// Switch off every transition gesture on this view and those above.
+        private func hold(above view: UIView?) {
+            var v = view
+            while let here = v {
+                for r in here.gestureRecognizers ?? [] where Self.closesTheView(r) && r.isEnabled {
+                    r.isEnabled = false
+                    held.append(WeakRecognizer(r))
+                }
+                v = here.superview
+            }
         }
 
-        /// A pinch on a view that holds the chart: the transition's, which
-        /// would close the view.
-        static func closes(_ other: UIGestureRecognizer, above g: UIGestureRecognizer) -> Bool {
-            guard other is UIPinchGestureRecognizer, let mine = g.view, let theirs = other.view, mine !== theirs else { return false }
-            return mine.isDescendant(of: theirs)
+        func release() {
+            for h in held { h.recognizer?.isEnabled = true }
+            held.removeAll()
         }
+
+        /// The zoom transition's pinch to close: a pinch, or iOS 26's
+        /// private transform recognizer.
+        static func closesTheView(_ r: UIGestureRecognizer) -> Bool {
+            r is UIPinchGestureRecognizer || String(describing: type(of: r)).contains("TransformGesture")
+        }
+    }
+
+    @MainActor struct WeakRecognizer {
+        weak var recognizer: UIGestureRecognizer?
+        init(_ r: UIGestureRecognizer) { recognizer = r }
     }
 }

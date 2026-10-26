@@ -327,7 +327,7 @@ private struct TimelineTouchOverlay: View {
         })
         // Two fingers here zoom time; the view's zoom transition may not
         // take them to pinch the view closed.
-        .gesture(ChartPinchGuard())
+        .gesture(ChartPinchGuard(touching: touching))
         .onChange(of: touching) { _, down in
             // Held from where it was drawn, so nothing moves under the finger.
             if down { window = shown }
