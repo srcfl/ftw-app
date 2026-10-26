@@ -1,3 +1,5 @@
+New in 0.6.0: the app opens dark, since light means live and the glow shows best on the dark ground. Pick Light or Match iPhone under Home, Appearance. A pinch on a chart now zooms its time instead of closing the view, in a node's view and on the full screen.
+
 New in 0.5.2: the solar forecast ahead is one stepped line, hour by hour, instead of loose dashes. With the next box update, the history for solar, grid and battery shows the measured power instead of jumping between zero and 1.2 kW.
 
 New in 0.5.1: in a node's timeline, the reading under your finger no longer drops toward zero where the curve is higher. The five minutes the box is still counting now wait for the box instead of reading as a finished mean.

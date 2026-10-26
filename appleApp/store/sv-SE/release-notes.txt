@@ -1,3 +1,5 @@
+Nytt i 0.6.0: appen öppnar mörk, eftersom ljus betyder live och glöden syns bäst på mörk botten. Välj Ljust eller Som iPhone under Hem, Utseende. En nypning i ett diagram zoomar nu tiden i stället för att stänga vyn, både i nodens vy och i helskärm.
+
 Nytt i 0.5.2: solprognosen framåt är en sammanhängande trappa, timme för timme, i stället för lösa streck. Med nästa uppdatering av boxen visar historiken för sol, nät och batteri den uppmätta effekten i stället för att hoppa mellan noll och 1,2 kW.
 
 Nytt i 0.5.1: i en nods tidslinje faller värdet under fingret inte längre mot noll där kurvan ligger högre. De fem minuter som boxen fortfarande räknar väntar nu på boxen i stället för att läsas som ett färdigt medelvärde.
