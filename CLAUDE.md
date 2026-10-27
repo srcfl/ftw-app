@@ -283,6 +283,13 @@ The rules below put these into practice.
   (violet). The home is ink. `live` and `alarm` are states, never levels.
   A price is ink by its level, never red and green. No orange anywhere;
   the system tint is ink.
+- **Gold on a chart is the sun's.** The sun's curve and the battery giving
+  power are both warm, and a tester read one as the other, so the battery
+  runs in cyan both ways wherever a trace is drawn, as the grid runs in
+  magenta both ways: the side of zero and the word say which way it goes.
+  Gold keeps the battery on Now's ring and strip, the plan's lanes and the
+  widgets, where no sun curve is drawn beside it, and the dial has given
+  it ink since 13 Oct 2026.
 - **Space, not boxes.** No cards and no borders: 24 to 32 pt between
   groups, and a hairline only where two lists meet. `Card` keeps its
   spacing and draws nothing.

@@ -68,6 +68,12 @@ struct SeriesChips: View {
 }
 
 /// One colour pair per node, for every chart of it.
+///
+/// On a chart gold is the sun's, as it is on the dial. The sun's curve and
+/// the battery giving power are both warm, and a tester read one as the
+/// other, so the battery runs in cyan both ways here, as the grid runs in
+/// magenta both ways: the side of zero and the word say which way it goes.
+/// Now's ring and strip keep gold, where no sun curve is drawn beside it.
 enum NodeChartLook {
     static func color(_ node: EnergyNode) -> Color {
         switch node {
@@ -82,7 +88,7 @@ enum NodeChartLook {
     static func look(_ node: EnergyNode) -> TraceLook {
         let words = node.directions
         switch node {
-        case .battery: return TraceLook(up: Theme.stores, down: Theme.gives, upWord: words.map { "↑ " + $0.up.uppercased() }, downWord: words.map { "↓ " + $0.down.uppercased() })
+        case .battery: return TraceLook(up: Theme.stores, down: Theme.stores, upWord: words.map { "↑ " + $0.up.uppercased() }, downWord: words.map { "↓ " + $0.down.uppercased() })
         case .grid: return TraceLook(up: Theme.grid, down: Theme.grid, upWord: words.map { "↑ " + $0.up.uppercased() }, downWord: words.map { "↓ " + $0.down.uppercased() })
         default: return TraceLook(up: color(node), down: color(node))
         }
