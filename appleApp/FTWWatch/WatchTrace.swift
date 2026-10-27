@@ -132,12 +132,13 @@ final class WatchTrace {
         frame = keepScale ? TraceFrame(series: series, after: frame, arrivedAt: now) : TraceFrame(series: series, previous: nil, arrivedAt: now)
     }
 
-    /// Each node's colours, as on the phone: one hue each side of zero; the
-    /// battery stores in cyan and gives in gold; the home is ink.
+    /// Each node's colours, as on the phone: one hue each side of zero. The
+    /// battery runs in cyan both ways, since gold on a chart is the sun's;
+    /// the home is ink.
     static func look(_ node: WatchNow.Node) -> TraceLook {
         switch node {
         case .solar: return TraceLook(up: Theme.solar, down: Theme.solar)
-        case .battery: return TraceLook(up: Theme.stores, down: Theme.gives)
+        case .battery: return TraceLook(up: Theme.stores, down: Theme.stores)
         case .home: return TraceLook(up: Theme.ink, down: Theme.ink)
         case .grid: return TraceLook(up: Theme.grid, down: Theme.grid)
         case .car: return TraceLook(up: Theme.car, down: Theme.car)
