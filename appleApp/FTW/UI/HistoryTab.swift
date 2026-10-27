@@ -152,8 +152,17 @@ private struct DayRows: View {
             DayList(nodes: Self.order.filter { nodes.contains($0) }, home: home, zoom: zoom)
                 .equatable()
         } else {
-            Hint(L("Your box keeps no history."))
-                .padding(.vertical, 12)
+            // A box that keeps no history can still serve prices: the
+            // market's day is not the home's record.
+            VStack(alignment: .leading, spacing: 0) {
+                Hint(L("Your box keeps no history."))
+                    .padding(.vertical, 12)
+                if home.prices.available {
+                    Divider().overlay(Theme.line).padding(.leading, DayRow.indent)
+                    PriceDayLink(home: home, zoom: zoom)
+                    DayAxis().padding(.leading, DayRow.indent)
+                }
+            }
         }
     }
 }
@@ -179,6 +188,12 @@ private struct DayList: View, Equatable {
                 .buttonStyle(.plain)
                 .matchedTransitionSource(id: HomeRoute.day(node), in: zoom)
                 .accessibilityIdentifier("history.node.\(node.rawValue)")
+            }
+            // What the day cost, last: the nodes tell what the home did,
+            // the price what it did it at.
+            if home.prices.available {
+                Divider().overlay(Theme.line).padding(.leading, DayRow.indent)
+                PriceDayLink(home: home, zoom: zoom)
             }
             DayAxis()
                 .padding(.leading, DayRow.indent)
@@ -366,6 +381,178 @@ private struct DaySpark: View {
                     s.fill(body, with: .color(color.opacity(scheme == .dark ? 0.22 : 0.14)))
                     s.stroke(line, with: .color(color), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
                 }
+            }
+            // Where the day has got to.
+            if elapsed > 0, elapsed < 1 {
+                let x = elapsed * size.width
+                var tick = Path()
+                tick.move(to: CGPoint(x: x, y: base - 3))
+                tick.addLine(to: CGPoint(x: x, y: base + 3))
+                g.stroke(tick, with: .color(Theme.ink3), lineWidth: 1)
+            }
+        }
+    }
+}
+
+/// History's price row and the door it opens: the price screen on this
+/// same day. Reads the minute and the prices, and hands the row a value,
+/// so a reading redraws nothing here.
+private struct PriceDayLink: View {
+    let home: HomeModels
+    let zoom: Namespace.ID
+
+    var body: some View {
+        let clock = ZoneClock.of(.current)
+        let today = TimelineWindow.today(nowMs: home.site.minuteMs, clock: clock)
+        let prices = home.prices
+        // Today's prices are in the window Now already asked for; the days
+        // behind are the price screen's own read.
+        let shown = prices.window == nil
+            ? PriceDayRow.Shown.waiting(currency: prices.currency)
+            : PriceDayRow.Shown(
+                day: prices.day(fromMs: today.fromMs, toMs: today.toMs, clock: clock),
+                elapsed: min(1, max(0, (home.site.minuteMs - today.fromMs) / today.spanMs))
+            )
+        NavigationLink(value: HomeRoute.price(today.fromMs)) {
+            PriceDayRow(shown: shown)
+                .equatable()
+        }
+        .buttonStyle(.plain)
+        .matchedTransitionSource(id: HomeRoute.price(today.fromMs), in: zoom)
+        .accessibilityIdentifier("history.price")
+    }
+}
+
+/// What power cost today, in the nodes' own shape and on their axis: the
+/// price tag in ink, the day's average and its cheapest slot in words, and
+/// the day drawn midnight to midnight as bars by level.
+///
+/// The figure is the total, what the household pays, as every other price
+/// in the app is; the price screen this row opens says what the total
+/// holds. A slot the box has no price for draws nothing and is said in
+/// words, never drawn as nothing to pay.
+private struct PriceDayRow: View, Equatable {
+    struct Shown: Equatable {
+        var line: String
+        var note: String?
+        var bars: [PriceDay.Bar]
+        /// The box said; false holds the row's shape before it does.
+        var known: Bool
+        /// How far the day has got, 0 to 1.
+        var elapsed: Double
+
+        init(day: PriceDay, elapsed: Double) {
+            line = day.line
+            note = day.note
+            bars = day.bars
+            known = true
+            self.elapsed = elapsed
+        }
+
+        init(line: String, note: String?, bars: [PriceDay.Bar], known: Bool, elapsed: Double) {
+            self.line = line
+            self.note = note
+            self.bars = bars
+            self.known = known
+            self.elapsed = elapsed
+        }
+
+        /// The shape the row holds until the box has said anything.
+        static func waiting(currency: String) -> Shown {
+            Shown(line: PriceDay.shape(currency: currency), note: nil, bars: [], known: false, elapsed: 0)
+        }
+    }
+
+    let shown: Shown
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "tag.fill")
+                .font(.title3)
+                .foregroundStyle(Theme.ink2)
+                .dynamicTypeSize(...DynamicTypeSize.large)
+                .frame(width: DayRow.indent - 12, height: 24)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(L("Electricity price"))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Theme.ink)
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(Theme.ink3)
+                }
+                Text(shown.line)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.ink2)
+                    .monospacedDigit()
+                    .lineLimit(2)
+                    .redacted(reason: shown.known ? [] : .placeholder)
+                    .contentTransition(.numericText())
+                if let note = shown.note {
+                    Text(note)
+                        .font(.footnote)
+                        .foregroundStyle(Theme.ink3)
+                }
+                PriceSpark(bars: shown.bars, elapsed: shown.elapsed)
+                    .frame(height: 30)
+                    .padding(.top, 4)
+                    .accessibilityHidden(true)
+            }
+        }
+        .padding(.vertical, 12)
+        .contentShape(Rectangle())
+        .animation(Theme.spring, value: shown.line)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(L("Electricity price"))
+        .accessibilityValue(shown.known ? [shown.line, shown.note].compactMap { $0 }.joined(separator: ", ") : L("Not read yet"))
+        .accessibilityHint(L("Opens this day's prices."))
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// The day's prices, small: a hairline day, the same quarter marks as the
+/// nodes' strips, and a bar per slot in ink by its level — the dearer, the
+/// stronger — as the price chart draws them. A slot with no price leaves a
+/// gap. No glow: a price is never live.
+private struct PriceSpark: View {
+    let bars: [PriceDay.Bar]
+    let elapsed: Double
+    @Environment(\.colorScheme) private var scheme
+
+    private static let ink: [PriceChart.Third: Double] = [.cheap: 0.32, .middle: 0.5, .dear: 0.8]
+
+    var body: some View {
+        Canvas { g, size in
+            // Below zero exists in this market: the day's bars hang from
+            // where nothing costs anything.
+            let lo = min(0, bars.map(\.minor).min() ?? 0)
+            let hi = max(0, bars.map(\.minor).max() ?? 0)
+            let reach = size.height - 2
+            let base = hi > lo ? 1 + reach * hi / (hi - lo) : size.height - 1
+            var axis = Path()
+            axis.move(to: CGPoint(x: 0, y: base))
+            axis.addLine(to: CGPoint(x: size.width, y: base))
+            g.stroke(axis, with: .color(Theme.ink.opacity(scheme == .dark ? 0.16 : 0.12)), lineWidth: 1)
+            for quarter in 1...3 {
+                let x = size.width * CGFloat(quarter) / 4
+                var hour = Path()
+                hour.move(to: CGPoint(x: x, y: 0))
+                hour.addLine(to: CGPoint(x: x, y: size.height))
+                g.stroke(hour, with: .color(Theme.ink.opacity(scheme == .dark ? 0.08 : 0.06)), style: StrokeStyle(lineWidth: 1, dash: [1, 3]))
+            }
+            let span = hi - lo
+            for bar in bars where bar.minor != 0 {
+                let height = span > 0 ? reach * abs(bar.minor) / span : 0
+                guard height > 0 else { continue }
+                let h = max(1.5, height)
+                let rect = CGRect(
+                    x: bar.at * size.width,
+                    y: bar.minor > 0 ? base - h : base,
+                    width: max(1, bar.width * size.width - 0.5),
+                    height: h
+                )
+                g.fill(Path(roundedRect: rect, cornerRadius: 1), with: .color(Theme.ink.opacity(Self.ink[bar.third] ?? 0.5)))
             }
             // Where the day has got to.
             if elapsed > 0, elapsed < 1 {

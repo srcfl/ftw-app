@@ -59,12 +59,12 @@ struct PlanStripView: View, Equatable {
             .matchedTransitionSource(id: HomeRoute.plan, in: zoom)
             .accessibilityIdentifier("now.plan")
             if let priceNow {
-                NavigationLink(value: HomeRoute.price) {
+                NavigationLink(value: HomeRoute.price(nil)) {
                     StripPrice(strip: strip, now: priceNow, unit: unit, model: scrub, figure: figure, mono: mono)
                         .contentShape(Rectangle().inset(by: -8))
                 }
                 .buttonStyle(.plain)
-                .matchedTransitionSource(id: HomeRoute.price, in: zoom)
+                .matchedTransitionSource(id: HomeRoute.price(nil), in: zoom)
                 .accessibilityLabel(L("Price now"))
                 .accessibilityValue("\(priceNow) \(unit.lowercased())")
                 .accessibilityHint(L("Opens the price ahead."))
@@ -243,8 +243,11 @@ private struct StripSentence: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .hidden()
                 .overlay(alignment: .topLeading) {
+                    // By place, never by the words: a shorter form that
+                    // equals the sentence would give two candidates one
+                    // id, which `ViewThatFits` refuses.
                     ViewThatFits(in: .vertical) {
-                        ForEach([sentence] + shorter, id: \.self) { form in
+                        ForEach(Array(([sentence] + shorter).enumerated()), id: \.offset) { _, form in
                             Text(form).font(.subheadline)
                         }
                     }

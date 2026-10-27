@@ -420,6 +420,12 @@ public enum NodeWords {
         "Light": "Ljust",
         "Match iPhone": "Som iPhone",
         "Widgets and the watch follow the iPhone.": "Widgetarna och klockan följer iPhonen.",
+
+        // History's price row, and the price screen behind now
+        "Opens this day's prices.": "Visar dygnets priser.",
+        "%@ · average": "%@ · snitt",
+        "No prices for this time.": "Inga priser för den tiden.",
+        "Drag to move through time.": "Dra för att flytta i tiden.",
     ]
 }
 
