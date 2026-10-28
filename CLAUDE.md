@@ -158,12 +158,15 @@ native, and smooth enough to impress.
   stack, and a second tap on a tab takes it to its top. History tells
   today: the savings, then a row per node with its energy in words and
   its day drawn midnight to midnight on one shared axis, each into that
-  node's view on Today. Home holds what the title's menu and the
-  settings sheet held: the cars, assistants, the watch, the homes, this
-  phone and About. Now's title is the home's name and opens nothing. The
-  mode and the planning style change in Plan alone (Fredrik, 25 October
-  2026): its mode row opens the mode sheet, and its scale runs from
-  Careful to Bold.
+  node's view on Today. Hold a row and drag it to read the day in your
+  own order; this phone keeps it and the box is never asked, since the
+  box is the record of what the home did, not of the order someone cares
+  to read it in (Fredrik, 27 October 2026). Home holds what the title's
+  menu and the settings sheet held: the cars, assistants, the watch, the
+  homes, this phone and About. Now's title is the home's name and opens
+  nothing. The mode and the planning style change in Plan alone
+  (Fredrik, 25 October 2026): its mode row opens the mode sheet, and its
+  scale runs from Careful to Bold.
   In their own views the battery's and the car's levels are rings
   (`LevelRing`): lit clockwise from twelve to the level, in the node's
   colour only while live (the car's level is a fact, violet without

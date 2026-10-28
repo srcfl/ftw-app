@@ -11,8 +11,14 @@ import SwiftUI
 struct HistoryTabView: View {
     let home: HomeModels
     let zoom: Namespace.ID
+    @Binding var path: [HomeRoute]
     @State private var visible = false
     @State private var carAsked = false
+    /// Read here for one reason: whether anyone has moved a row yet.
+    @AppStorage(HistoryOrder.key) private var order = ""
+    /// Which row is in hand, held here because the day does not scroll
+    /// under one.
+    @State private var hold = DayHold()
 
     private var hasCharger: Bool { !home.loadpoints.points.isEmpty }
 
@@ -21,9 +27,21 @@ struct HistoryTabView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HistorySavings(home: home, zoom: zoom)
                     .padding(.bottom, 24)
-                Kicker(L("Today"))
-                    .padding(.bottom, 2)
-                DayRows(home: home, zoom: zoom)
+                HStack(spacing: 8) {
+                    Kicker(L("Today"))
+                    // How to move a row, while nobody has moved one.
+                    if order.isEmpty, home.nodes.history.available {
+                        Spacer(minLength: 0)
+                        Text(L("Hold to move").uppercased())
+                            .font(Theme.mono())
+                            .tracking(0.5)
+                            .foregroundStyle(Theme.ink3)
+                            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .padding(.bottom, 2)
+                DayRows(home: home, zoom: zoom, hold: hold, path: $path)
                 DayFoot(history: home.nodes.history, minuteMs: home.site.minuteMs)
                     .padding(.top, 10)
             }
@@ -33,6 +51,7 @@ struct HistoryTabView: View {
             .frame(maxWidth: .infinity)
         }
         .scrollBounceBehavior(.basedOnSize)
+        .scrollDisabled(hold.row != nil)
         .background(Theme.ground)
         .onAppear {
             home.nodes.history.activate()
@@ -134,22 +153,27 @@ private struct NotReadYet: ViewModifier {
     }
 }
 
-/// A row per node of the home, in the order a day is told: what the sun
-/// made, what the home used, what the battery stored and gave, what the
-/// grid sold and bought, what the car took. This view reads the stream
+/// A row per node of the home and one for what power cost, in the order a
+/// day is told until someone holds a row and moves it: what the sun made,
+/// what the home used, what the battery stored and gave, what the grid sold
+/// and bought, what the car took, what it cost. This view reads the stream
 /// only for which nodes the home has; the rows below it redraw when the
 /// tiles, the car's ledger or the minute move, never on a reading.
 private struct DayRows: View {
     let home: HomeModels
     let zoom: Namespace.ID
-
-    static let order: [EnergyNode] = [.solar, .home, .battery, .grid, .car]
+    let hold: DayHold
+    @Binding var path: [HomeRoute]
+    /// The order this phone was left in, empty until someone moves a row.
+    @AppStorage(HistoryOrder.key) private var order = ""
 
     var body: some View {
         let site = home.site
         let nodes = NowFlow.nodes(fields: site.session.fields, hasCar: !home.loadpoints.points.isEmpty, known: site.kept?.nodes ?? [])
         if home.nodes.history.available {
-            DayList(nodes: Self.order.filter { nodes.contains($0) }, home: home, zoom: zoom)
+            DayList(
+                rows: HistoryOrder.rows(stored: order, nodes: nodes, price: home.prices.available),
+                order: $order, home: home, zoom: zoom, hold: hold, path: $path)
                 .equatable()
         } else {
             // A box that keeps no history can still serve prices: the
@@ -160,6 +184,8 @@ private struct DayRows: View {
                 if home.prices.available {
                     Divider().overlay(Theme.line).padding(.leading, DayRow.indent)
                     PriceDayLink(home: home, zoom: zoom)
+                        .contentShape(.rect)
+                        .onTapGesture { path.append(.price(priceDay(home).fromMs)) }
                     DayAxis().padding(.leading, DayRow.indent)
                 }
             }
@@ -167,37 +193,190 @@ private struct DayRows: View {
     }
 }
 
+/// Which row is in hand. The list sets it, the tab reads it: a day that
+/// scrolled under a carried row would take it with it.
+@MainActor @Observable final class DayHold {
+    var row: HistoryRow?
+}
+
+/// The day's rows on one axis, and the hold that moves one. A held row
+/// follows the finger while the others make room for it; nothing is kept
+/// until the finger lets go, and then only on this phone.
 private struct DayList: View, Equatable {
-    let nodes: [EnergyNode]
+    let rows: [HistoryRow]
+    @Binding var order: String
     let home: HomeModels
     let zoom: Namespace.ID
+    let hold: DayHold
+    @Binding var path: [HomeRoute]
 
-    nonisolated static func == (a: Self, b: Self) -> Bool { a.nodes == b.nodes }
+    /// How far the row in hand has been carried, and where it would land.
+    /// This view alone holds them, so a drag redraws the rows and nothing
+    /// above them.
+    @State private var carried: CGFloat = 0
+    @State private var place = 0
+    /// Each row as tall as it is drawn, so a carried row passes a row at
+    /// that row's own middle, whatever the text size.
+    @State private var heights: [String: CGFloat] = [:]
+    /// True while a finger is on a row. SwiftUI clears it however the
+    /// gesture ends, so a hold the system takes away still lets go.
+    @GestureState private var touching = false
+
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.rows == b.rows }
 
     var body: some View {
         let history = home.nodes.history
         let midnight = history.midnightMs
         let now = home.site.minuteMs
+        // The order on screen: while a row is in hand, where it would land.
+        let shown = hold.row.map { HistoryOrder.moved(rows, $0, to: place) } ?? rows
         VStack(spacing: 0) {
-            ForEach(Array(nodes.enumerated()), id: \.element) { i, node in
-                if i > 0 { Divider().overlay(Theme.line).padding(.leading, DayRow.indent) }
-                NavigationLink(value: HomeRoute.day(node)) {
-                    DayRow(day: Self.day(node, history: history, car: home.nodes.carEnergy, midnight: midnight, nowMs: now))
-                        .equatable()
+            ForEach(Array(rows.enumerated()), id: \.element) { i, row in
+                let inHand = row == hold.row
+                let shift = offset(i, row: row)
+                VStack(spacing: 0) {
+                    // A hairline where two rows meet, by what the eye
+                    // sees: the row at the top of the list has none.
+                    if row != shown.first {
+                        Divider().overlay(Theme.line).padding(.leading, DayRow.indent)
+                    }
+                    door(row, history: history, midnight: midnight, now: now)
+                        .contentShape(.rect)
+                        // A tap on the row opens it, and is read before
+                        // the hold outside it; a hold beats it to the
+                        // draw, so a row that lifts never opens.
+                        .onTapGesture { open(row) }
+                        .accessibilityAction { open(row) }
+                        .accessibilityActions { moves(row) }
                 }
-                .buttonStyle(.plain)
-                .matchedTransitionSource(id: HomeRoute.day(node), in: zoom)
-                .accessibilityIdentifier("history.node.\(node.rawValue)")
-            }
-            // What the day cost, last: the nodes tell what the home did,
-            // the price what it did it at.
-            if home.prices.available {
-                Divider().overlay(Theme.line).padding(.leading, DayRow.indent)
-                PriceDayLink(home: home, zoom: zoom)
+                .background {
+                    // In hand, not in a box: the raised ground says the
+                    // row has left the list, and goes with it.
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Theme.raised)
+                        .opacity(inHand ? 1 : 0)
+                }
+                .shadow(color: .black.opacity(inHand ? 0.22 : 0), radius: 12, y: 4)
+                .scaleEffect(inHand ? 1.02 : 1)
+                .offset(y: shift)
+                .zIndex(inHand ? 1 : 0)
+                // The carried row keeps up with the finger; the rows it
+                // passes glide out of its way.
+                .animation(inHand ? nil : Theme.spring, value: shift)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { heights[row.key] = $0 }
+                .gesture(lift(row, at: i))
             }
             DayAxis()
                 .padding(.leading, DayRow.indent)
         }
+        .onChange(of: touching) { _, on in if !on { drop() } }
+        .sensoryFeedback(.impact(weight: .light), trigger: hold.row != nil) { _, lifted in lifted }
+        .sensoryFeedback(.selection, trigger: place) { _, _ in hold.row != nil }
+    }
+
+    /// One row, and what it draws. It is no button: a button's own press
+    /// would take the hold that moves it, so the row's gesture opens it.
+    @ViewBuilder private func door(_ row: HistoryRow, history: HistoryModel, midnight: Double, now: Double) -> some View {
+        switch row {
+        case .node(let node):
+            DayRow(day: Self.day(node, history: history, car: home.nodes.carEnergy, midnight: midnight, nowMs: now))
+                .equatable()
+                .matchedTransitionSource(id: HomeRoute.day(node), in: zoom)
+                .accessibilityIdentifier("history.node.\(node.rawValue)")
+        case .price:
+            PriceDayLink(home: home, zoom: zoom)
+        }
+    }
+
+    /// What a row opens: that node's day, or that day's prices.
+    private func open(_ row: HistoryRow) {
+        switch row {
+        case .node(let node): path.append(.day(node))
+        case .price: path.append(.price(priceDay(home).fromMs))
+        }
+    }
+
+    /// Moving a row without a finger, for VoiceOver and Full Keyboard
+    /// Access.
+    @ViewBuilder private func moves(_ row: HistoryRow) -> some View {
+        if let i = rows.firstIndex(of: row) {
+            if i > 0 {
+                Button(L("Move up")) { keep(HistoryOrder.moved(rows, row, to: i - 1)) }
+            }
+            if i < rows.count - 1 {
+                Button(L("Move down")) { keep(HistoryOrder.moved(rows, row, to: i + 1)) }
+            }
+        }
+    }
+
+    /// Hold a row to lift it, drag to carry it, let go to keep it there.
+    /// Behind the row's own tap, which a hold is not, and ahead of the
+    /// day's scroll, which stops while a row is in hand.
+    private func lift(_ row: HistoryRow, at i: Int) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.35)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .updating($touching) { _, on, _ in on = true }
+            .onChanged { step in
+                switch step {
+                case .first(true):
+                    guard hold.row == nil, rows.count > 1 else { return }
+                    withAnimation(Theme.spring) {
+                        hold.row = row
+                        carried = 0
+                        place = i
+                    }
+                case .second(true, let drag):
+                    guard hold.row == row, let drag else { return }
+                    carried = drag.translation.height
+                    place = target(from: i, carried: carried)
+                default:
+                    break
+                }
+            }
+            .onEnded { _ in drop() }
+    }
+
+    /// How far a row stands from where the list would put it: the carried
+    /// row is where the finger is, and a row between its place and where it
+    /// would land has moved over by the carried row's height.
+    private func offset(_ i: Int, row: HistoryRow) -> CGFloat {
+        guard let held = hold.row, let from = rows.firstIndex(of: held) else { return 0 }
+        if row == hold.row { return carried }
+        let tall = heights[held.key] ?? 0
+        if place > from, i > from, i <= place { return -tall }
+        if place < from, i >= place, i < from { return tall }
+        return 0
+    }
+
+    /// Where a row carried this far would land: past the middle of each row
+    /// it has covered.
+    private func target(from: Int, carried: CGFloat) -> Int {
+        var place = from
+        var covered: CGFloat = 0
+        var i = carried > 0 ? from + 1 : from - 1
+        let step = carried > 0 ? 1 : -1
+        while i >= 0, i < rows.count {
+            let tall = heights[rows[i].key] ?? 0
+            guard abs(carried) > covered + tall / 2 else { break }
+            place = i
+            covered += tall
+            i += step
+        }
+        return place
+    }
+
+    private func drop() {
+        guard let row = hold.row else { return }
+        withAnimation(Theme.spring) {
+            order = HistoryOrder.stored(HistoryOrder.moved(rows, row, to: place))
+            hold.row = nil
+            carried = 0
+        }
+    }
+
+    /// The order this phone keeps from now on.
+    private func keep(_ rows: [HistoryRow]) {
+        withAnimation(Theme.spring) { order = HistoryOrder.stored(rows) }
     }
 
     /// One row's values, made once per change of tiles or minute. A row
@@ -394,16 +573,23 @@ private struct DaySpark: View {
     }
 }
 
-/// History's price row and the door it opens: the price screen on this
-/// same day. Reads the minute and the prices, and hands the row a value,
-/// so a reading redraws nothing here.
+/// The day the price row shows and the day it opens, read once: the
+/// household's own day, midnight to midnight.
+@MainActor private func priceDay(_ home: HomeModels) -> TimelineWindow {
+    TimelineWindow.today(nowMs: home.site.minuteMs, clock: ZoneClock.of(.current))
+}
+
+/// History's price row: the price screen on this same day lies behind it.
+/// Reads the minute and the prices, and hands the row a value, so a reading
+/// redraws nothing here. Like the node rows it is no button; the row's own
+/// gesture opens it.
 private struct PriceDayLink: View {
     let home: HomeModels
     let zoom: Namespace.ID
 
     var body: some View {
         let clock = ZoneClock.of(.current)
-        let today = TimelineWindow.today(nowMs: home.site.minuteMs, clock: clock)
+        let today = priceDay(home)
         let prices = home.prices
         // Today's prices are in the window Now already asked for; the days
         // behind are the price screen's own read.
@@ -413,13 +599,10 @@ private struct PriceDayLink: View {
                 day: prices.day(fromMs: today.fromMs, toMs: today.toMs, clock: clock),
                 elapsed: min(1, max(0, (home.site.minuteMs - today.fromMs) / today.spanMs))
             )
-        NavigationLink(value: HomeRoute.price(today.fromMs)) {
-            PriceDayRow(shown: shown)
-                .equatable()
-        }
-        .buttonStyle(.plain)
-        .matchedTransitionSource(id: HomeRoute.price(today.fromMs), in: zoom)
-        .accessibilityIdentifier("history.price")
+        PriceDayRow(shown: shown)
+            .equatable()
+            .matchedTransitionSource(id: HomeRoute.price(today.fromMs), in: zoom)
+            .accessibilityIdentifier("history.price")
     }
 }
 
