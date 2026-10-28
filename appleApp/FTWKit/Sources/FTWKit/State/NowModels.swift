@@ -188,19 +188,38 @@ public final class ChargingWatch: Activatable {
 /// the widgets' record, and keeps it over midnight: yesterday's tomorrow is
 /// today. The box's answer, or FTW Cloud's copy, replaces it only when it
 /// differs.
+///
+/// The days behind today are a second window and a second read, asked for
+/// once a day by the screens that draw them. Both in one request would not
+/// fit: two days of quarter hours is 192 slots and about 11 kB, and the box
+/// drops the far end of anything past the bulk frame it has
+/// (`appproto/price.go` in srcfl/ftw). Keeping them apart also leaves the
+/// widgets' record exactly what it was — today forward, nothing behind.
 @Observable
 @MainActor
 public final class PriceModel: Activatable {
     static let horizonMs: Double = 48 * 3_600_000
+    /// How far behind today the box is asked for: the two days the node
+    /// timelines reach back.
+    static let pastMs: Double = 48 * 3_600_000
     static let publishHour = 14
 
     /// The window on screen, with when and where it came from.
     public private(set) var window: Stamped<PriceEntry>?
+    /// The days behind today, as the box last had them. Its `fromMs` is
+    /// the midnight the window starts at, two days before today's.
+    public private(set) var past: Stamped<PriceEntry>?
+    /// Why there are no days behind: a sentence about the wire, never
+    /// about the home.
+    public private(set) var pastProblem: String?
 
     @ObservationIgnored private unowned let site: SiteModel
     @ObservationIgnored private var ask: LiveAsk?
+    @ObservationIgnored private var pastAsk: LiveAsk?
     @ObservationIgnored private var active = 0
+    @ObservationIgnored private var pastActive = 0
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var pastGeneration = 0
     @ObservationIgnored private let calendar: Calendar
     /// FTW Cloud's window as last taken, so it is taken once.
     @ObservationIgnored private var cloudTaken: Stamped<PriceEntry>?
@@ -216,12 +235,43 @@ public final class PriceModel: Activatable {
         self.calendar = calendar
         let shared = site.siteId.flatMap { cache?.read(PriceEntry.self, siteId: $0) }.map { Stamped($0.value, asOfMs: $0.record.readAtMs, origin: .cache) }
         window = [site.kept?.prices?.cached, shared].compactMap { $0 }.max { $0.asOfMs < $1.asOfMs }
+        if let kept = site.keptFile(PastPriceFile.self, "prices-past"), kept.version == PastPriceFile.version {
+            past = Stamped(PriceEntry(fromMs: kept.fromMs, prices: kept.prices, timeZone: kept.timeZone), asOfMs: kept.asOfMs, origin: .cache)
+        }
         site.keep { [weak self] home in home.prices = self?.window }
+        site.keepFile("prices-past") { [weak self] in
+            self?.past.map { PastPriceFile(fromMs: $0.value.fromMs, asOfMs: $0.asOfMs, prices: $0.value.prices, timeZone: $0.value.timeZone) }
+        }
         site.observe { [weak self] in self?.takeCloud() }
     }
 
     public var prices: Prices? { window?.value.prices }
     public var fromMs: Double { window?.value.fromMs ?? 0 }
+
+    /// Whether this box serves prices at all. Unknown until its hello, so
+    /// a screen holds the shape of a price row rather than hiding it.
+    public var available: Bool {
+        !site.heardFromBox || site.session.caps.contains(Contract.capPriceSpot)
+    }
+
+    /// Every slot the phone holds in a window, the days behind and the days
+    /// ahead as one series, each start once and the newer read winning. The
+    /// box is the record: where neither window has a slot there is a hole,
+    /// never a zero.
+    public func slots(fromMs: Double, toMs: Double) -> [PriceSlot] {
+        var byStart: [Double: PriceSlot] = [:]
+        for slot in (past?.value.prices.slots ?? []) + (prices?.slots ?? [])
+        where slot.startMs < toMs && slot.startMs + slot.durationMs > fromMs {
+            byStart[slot.startMs] = slot
+        }
+        return byStart.values.sorted { $0.startMs < $1.startMs }
+    }
+
+    /// One day as History's price row tells it, out of every slot the phone
+    /// holds.
+    public func day(fromMs: Double, toMs: Double, clock: ZoneClock = .of(.current)) -> PriceDay {
+        PriceDay.make(slots(fromMs: fromMs, toMs: toMs), fromMs: fromMs, toMs: toMs, currency: currency, clock: clock)
+    }
 
     private func take(_ next: Stamped<PriceEntry>) {
         if let taken = Stamped.taking(next, over: window) { window = taken }
@@ -282,6 +332,30 @@ public final class PriceModel: Activatable {
         ask?.evaluate()
     }
 
+    /// A screen that draws days behind today asks for them too: History's
+    /// price row, and the price screen once it is dragged back. One read a
+    /// day, on its own window.
+    public func activatePast() {
+        pastActive += 1
+        if pastAsk == nil {
+            pastAsk = LiveAsk(site: site, want: { [weak self] in
+                guard let self, self.pastActive > 0, self.available, self.site.heardFromBox else { return nil }
+                // Named by the day alone: the days behind do not change
+                // when tomorrow's rates publish.
+                return "past prices \(Int(self.pastFromMs))"
+            }, ask: { [weak self] in try await self?.loadPast() })
+        }
+        pastAsk?.evaluate()
+    }
+
+    public func deactivatePast() {
+        pastActive = max(0, pastActive - 1)
+        pastAsk?.evaluate()
+    }
+
+    /// The midnight the days behind start at.
+    var pastFromMs: Double { midnight(site.nowMs) - Self.pastMs }
+
     func load() async throws {
         generation += 1
         let mine = generation
@@ -298,6 +372,51 @@ public final class PriceModel: Activatable {
             throw error
         }
     }
+
+    /// The days behind today. The answer is whatever the box has stored:
+    /// its prices table is never pruned, so a box that has run for a week
+    /// answers the whole window and a box installed yesterday answers part
+    /// of it. What it does not have stays a hole.
+    func loadPast() async throws {
+        pastGeneration += 1
+        let mine = pastGeneration
+        let from = pastFromMs
+        do {
+            let wire = try await site.prices(fromMs: from, toMs: from + Self.pastMs)
+            guard mine == pastGeneration else { return }
+            let next = Stamped(PriceEntry(fromMs: from, prices: wire, timeZone: site.session.box?.tz), asOfMs: site.nowMs, origin: .relay)
+            if let taken = Stamped.taking(next, over: past) { past = taken }
+            pastProblem = nil
+        } catch {
+            guard mine == pastGeneration else { return }
+            // A window already drawn stays drawn and says nothing; with
+            // none, the screen says what happens now.
+            if past == nil { pastProblem = Self.failure(error) }
+            throw error
+        }
+    }
+
+    /// Why the days behind are missing. A price window crosses the session,
+    /// not the API, so the errors are the session's: no carrier, a timeout,
+    /// or the box refusing. What happens now, never what broke inside.
+    static func failure(_ error: Error) -> String {
+        if let refusal = error as? BoxRefusal, refusal.detail.code == "E_UNAVAILABLE" {
+            return NodeWords.text("Your box can't send its prices right now. Still trying.")
+        }
+        return NodeWords.text("No prices yet. Your box is out of reach.")
+    }
+}
+
+/// The days behind today, kept on this phone so History's price row paints
+/// in frame one. Its own file: the widgets' record stays today forward.
+struct PastPriceFile: Codable, Equatable, Sendable {
+    static let version = 1
+
+    var version = PastPriceFile.version
+    var fromMs: Double
+    var asOfMs: Double
+    var prices: Prices
+    var timeZone: String?
 }
 
 /// "Is FTW in control?" in one calm line, from the stream alone: lane 0

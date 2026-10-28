@@ -655,12 +655,12 @@ import FTWShared
             PlanSlot(startMs: t + 2 * h, durationMs: h, batteryW: -1_800, gridW: 0, priceMinor: 160, reason: "expensive_import"),
         ]
         AppWords.$language.withValue(.en) {
-            #expect(PlanText.battery(slots, stale: false, nowMs: t, zone: CarTextTests.utc) == "Charges at up to 2.5\u{00A0}kW until 12:00, power is cheap. Then gives power, power is dear.")
+            #expect(PlanText.battery(slots, stale: false, nowMs: t, zone: CarTextTests.utc) == "Charges at up to 2.5\u{00A0}kW until 12:00, power costs less. Then gives power, power costs more.")
             #expect(PlanText.battery(slots, stale: true, nowMs: t, zone: CarTextTests.utc).hasPrefix("Your box couldn't plan ahead"))
             #expect(PlanText.grid(slots, stale: false) == "Expects to buy 5.4\u{00A0}kWh over the next 12 hours.")
         }
         AppWords.$language.withValue(.sv) {
-            #expect(PlanText.battery(slots, stale: false, nowMs: t, zone: CarTextTests.utc) == "Laddar med upp till 2,5\u{00A0}kW till 12:00, elen är billig. Sedan ger batteriet ström, elen är dyr.")
+            #expect(PlanText.battery(slots, stale: false, nowMs: t, zone: CarTextTests.utc) == "Laddar med upp till 2,5\u{00A0}kW till 12:00, elen kostar mindre. Sedan ger batteriet ström, elen kostar mer.")
         }
     }
 }

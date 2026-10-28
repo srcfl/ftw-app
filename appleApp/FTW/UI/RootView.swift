@@ -40,8 +40,9 @@ enum HomeRoute: Hashable {
     case day(EnergyNode)
     /// The plan ahead, from Now's plan card.
     case plan
-    /// The price ahead, from the plan.
-    case price
+    /// The price, from the plan ahead or from History's row. The day it
+    /// opens on, midnight to midnight, or nil to open where now is.
+    case price(Double?)
     /// What the home saved, from History and the home's node.
     case savings
     /// An assistant's consent link: its offer, to Face ID.
@@ -69,7 +70,7 @@ enum HomeRoute: Hashable {
         switch defaults.string(forKey: "FTWTab") {
         case "car": return (.now, [.car(nil)])
         case "plan": return (.plan, [])
-        case "price": return (.plan, [.price])
+        case "price": return (.plan, [.price(nil)])
         case "history": return (.history, [])
         case "savings": return (.history, [.savings])
         case "home": return (.home, [])
@@ -213,8 +214,8 @@ private struct TabStack<Root: View>: View {
             NodeView(app: app, home: home, node: node, zoom: zoom)
         case .plan:
             PlanView(app: app, home: home)
-        case .price:
-            PriceView(home: home)
+        case .price(let dayMs):
+            PriceView(home: home, dayMs: dayMs)
         case .savings:
             SavingsView(home: home)
         case .offer(let link):

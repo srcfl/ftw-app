@@ -15,26 +15,39 @@ public struct TouchIntent: Equatable, Sendable {
         /// Down, not yet a scrub: nothing moves.
         case waiting
         case scrub
+        /// One finger moving across a chart that can be moved through
+        /// time: the window follows it and nothing is read. A finger that
+        /// rested first reads instead, and keeps reading as it runs on.
+        case pan
         /// Lifted while waiting.
         case tap
     }
 
     public let start: CGPoint
     public let startMs: Double
+    /// Whether a one-finger move moves this chart through time. A chart
+    /// that cannot be moved reads on the move, as every chart always has.
+    public let pans: Bool
     public private(set) var state: State = .waiting
     /// How far the finger got from where it came down, the most so far.
     public private(set) var travel: CGFloat = 0
 
-    public init(at start: CGPoint, ms: Double) {
+    public init(at start: CGPoint, ms: Double, pans: Bool = false) {
         self.start = start
         startMs = ms
+        self.pans = pans
     }
 
-    /// The finger is at `p`, with `fingers` down.
+    /// The finger is at `p`, with `fingers` down. Once it has decided, it
+    /// keeps that decision until every finger lifts.
     @discardableResult
     public mutating func moved(to p: CGPoint, atMs ms: Double, fingers: Int = 1) -> State {
         travel = max(travel, hypot(p.x - start.x, p.y - start.y))
-        if state == .waiting, fingers >= 2 || travel >= Self.slop || ms - startMs >= Self.holdMs { state = .scrub }
+        guard state == .waiting else { return state }
+        // A span, or a finger that rested, reads. Only a move that comes
+        // first moves the window.
+        if fingers >= 2 || ms - startMs >= Self.holdMs { state = .scrub }
+        else if travel >= Self.slop { state = pans ? .pan : .scrub }
         return state
     }
 

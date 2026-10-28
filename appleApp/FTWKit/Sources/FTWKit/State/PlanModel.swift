@@ -240,9 +240,14 @@ public enum PlanText {
     /// giving power.
     static let idleW: Double = 100
 
+    /// The box's reason codes in words. A price reason is relative: the box
+    /// gives power at noon because noon costs more than the night it
+    /// charged in, not because noon is expensive. "Power is dear" claimed
+    /// the second, and read wrong to a tester on a cheap day (26 October
+    /// 2026), so the words now say more and less.
     static let reasons: [String: String] = [
-        "cheap_import": "power is cheap",
-        "expensive_import": "power is dear",
+        "cheap_import": "power costs less",
+        "expensive_import": "power costs more",
         "solar_surplus": "spare solar",
         "peak_shaving": "holding the grid limit",
         "reserve_held": "keeping a reserve",
@@ -262,7 +267,7 @@ public enum PlanText {
     }
 
     /// One sentence about the battery's next change, which is what a plan
-    /// is for: "Charges at 2.5 kW until 06:00, power is cheap."
+    /// is for: "Charges at 2.5 kW until 06:00, power costs less."
     public static func battery(_ slots: [PlanSlot], stale: Bool, nowMs: Double, zone: TimeZone) -> String {
         if stale { return NodeWords.text("Your box couldn't plan ahead just now, so it runs on safe defaults.") }
         guard let first = slots.first else { return NodeWords.text("No plan for the hours ahead yet.") }

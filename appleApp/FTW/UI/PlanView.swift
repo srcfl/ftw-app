@@ -427,7 +427,7 @@ private struct PriceRow: View {
     var body: some View {
         if let window = prices.prices {
             let current = window.slots.first { minute >= $0.startMs && minute < $0.startMs + $0.durationMs }
-            NavigationLink(value: HomeRoute.price) {
+            NavigationLink(value: HomeRoute.price(nil)) {
                 HStack(alignment: .firstTextBaseline) {
                     Kicker(L("Electricity price"))
                     Spacer(minLength: 8)

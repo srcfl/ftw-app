@@ -173,8 +173,8 @@ public enum NodeWords {
         "Expects the sun to make %@ in the next 12 hours.": "Räknar med att solen ger %@ de närmaste 12 timmarna.",
         "No sun expected in the next 12 hours.": "Ingen sol väntas de närmaste 12 timmarna.",
         "Expects the home to use %@ in the next 12 hours.": "Räknar med att hemmet använder %@ de närmaste 12 timmarna.",
-        "power is cheap": "elen är billig",
-        "power is dear": "elen är dyr",
+        "power costs less": "elen kostar mindre",
+        "power costs more": "elen kostar mer",
         "spare solar": "solen ger överskott",
         "holding the grid limit": "håller effekttaket",
         "keeping a reserve": "behåller en reserv",
@@ -420,6 +420,14 @@ public enum NodeWords {
         "Light": "Ljust",
         "Match iPhone": "Som iPhone",
         "Widgets and the watch follow the iPhone.": "Widgetarna och klockan följer iPhonen.",
+
+        // History's price row, and the price screen behind now
+        "Opens this day's prices.": "Visar dygnets priser.",
+        "%@ · average": "%@ · snitt",
+        "No prices for this time.": "Inga priser för den tiden.",
+        "Your box can't send its prices right now. Still trying.": "Boxen kan inte skicka sina priser just nu. Försöker igen.",
+        "No prices yet. Your box is out of reach.": "Inga priser än. Boxen är inte nåbar.",
+        "Drag to move through time.": "Dra för att flytta i tiden.",
     ]
 }
 
