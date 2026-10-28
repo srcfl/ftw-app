@@ -3,7 +3,7 @@ name: iOS public beta
 # Gives a build that scripts/release.sh sent to TestFlight to the Pilot group,
 # FTW's public beta (https://testflight.apple.com/join/E4Japad7): What to
 # Test from appleApp/store/*/release-notes.txt, then Beta App Review. Run it
-# with the version and build that the release run reported. It waits for
+# with the version and build that scripts/release.sh printed. It waits for
 # Apple to process the build, so it may start right after the upload.
 
 on:

@@ -20,12 +20,13 @@ Apple moves menus, so trust the screen if it differs.
 
 ## How a build travels
 
-1. `scripts/release.sh` runs on a clean checkout of a commit on
-   `origin/main`, and refuses anything else: the store build must come from
+1. `scripts/release.sh` runs on a clean checkout of `origin/main`, and
+   refuses anything else: the store build must come from
    published source ([Encryption and export](#5-encryption-and-export)). It
    ships `MARKETING_VERSION` from `FTW.xcconfig`. The build number is the
-   date and time, `20261028.1342`, so each upload is higher than the last
-   without asking Apple.
+   date and time, `20261028.1342` (`20261028.905` before ten), so each
+   upload is higher than the last without asking Apple. It checks for the
+   App Store Connect key before any slow work.
 2. It runs `swift test`, then archives with this Mac's Xcode and checks the
    version in the app, its extensions and the watch app.
 3. Xcode exports with [`ExportOptions.plist`](ExportOptions.plist)
@@ -40,25 +41,28 @@ Apple moves menus, so trust the screen if it differs.
 
 ### Signing on this Mac
 
-A release never makes a certificate. The archive is signed with the team's
-**Apple Development** certificate in the login keychain (Fredrik Ahlgren,
-team `L66M368PZ6`, until 12 October 2027) and the profiles Xcode already
-holds, and it runs without `-allowProvisioningUpdates`, so Xcode cannot
-create one. The export signs for the App Store with Apple's cloud-managed
-distribution certificate, which lives with Apple, through the App Store
-Connect key or else the account signed in under **Xcode → Settings →
-Accounts**.
+A release never makes a development certificate. The archive is signed
+with the team's **Apple Development** certificate in the login keychain
+(Fredrik Ahlgren, team `L66M368PZ6`, until 12 October 2027) and the profiles
+Xcode already holds, and it runs without `-allowProvisioningUpdates`, so
+Xcode cannot create one. The export signs for the App Store with a
+distribution certificate Apple keeps (cloud-managed). Xcode renews that one
+when it lapses; the team's three "Apple Distribution" certificates run out
+on 16 January, 6 February and 1 March 2027, so expect the first export after
+that to ask Apple for a new one.
 
 The GitHub release workflow did the opposite: every run on a clean runner
 made a new "Apple Development" certificate through the API key, until the
 team reached Apple's limit on 28 October 2026 ("Your account has reached
 the maximum number of certificates"). That workflow is gone. The ones it
-made, marked "Created via API" under **Certificates**, can be revoked; the
-certificate above is not one of them.
+made are marked "Created via API" under **Certificates**. They are still
+listed in this Mac's development profiles, so revoking them changes those
+profiles on Apple's side; revoke them only with time to check a release
+afterwards.
 
-If the certificate is ever lost, restore it from a backup of the login
-keychain, or make one new certificate in Xcode once and keep it; never one
-per release.
+If the certificate above is ever lost, restore it from a backup of the
+login keychain, or make one new certificate in Xcode once and keep it;
+never one per release.
 
 ### The App Store Connect key on this Mac
 
@@ -157,23 +161,25 @@ none was in use:
 
 The name under the icon stays "FTW" whatever the store name.
 
-### 3. Make the API key and add the secrets
+### 3. Make the API key, for this Mac and the public beta workflow
 
 **Users and Access → Integrations → App Store Connect API → Team Keys →
 Generate API Key**
 
-- Name: `GitHub ftw-app release`.
+- Name: `ftw-app release`.
 - Access: **Admin**. With an App Manager key, cloud signing fails
   ("Cloud signing permission error"; [Apple forum
   thread](https://developer.apple.com/forums/thread/698117)). The reason:
-  the runner has no certificate, so the export signs with a cloud-managed
-  distribution certificate. Apple's [roles
+  the export signs with a cloud-managed distribution certificate. Apple's [roles
   table](https://developer.apple.com/support/roles/) gives those to Account
   Holder and Admin; other roles need a per-user permission, and a team key
   cannot carry one. Role and name cannot change after creation.
 - Download the `.p8` file. Apple offers it once.
 - The Key ID is in the key's row; the Issuer ID is at the top of the page.
 
+Put the `.p8` on this Mac ([The App Store Connect key on this
+Mac](#the-app-store-connect-key-on-this-mac)). For the public beta workflow,
+the fallback when the key is not on this Mac, also set it as secrets.
 `ASC_KEY_ID` and `ASC_ISSUER_ID` are plain text; `gh` asks for each.
 `ASC_KEY_P8` is the `.p8` file's PEM text as it is, not base64:
 
@@ -189,17 +195,16 @@ gh secret set ASC_ISSUER_ID --repo srcfl/ftw-app
 gh secret set ASC_KEY_P8 --repo srcfl/ftw-app < AuthKey_XXXXXXXXXX.p8
 ```
 
-Then delete the `.p8` from your disk, or keep it in a password manager.
+Keep the `.p8` in a password manager too: Apple offers it once.
 
 **Safer, when there is time.** An Admin key can do much more than upload
-builds, and any branch's workflow can read a repository secret. The job
-also reads secrets from an environment `app-store`:
+builds, and any branch's workflow can read a repository secret. The public
+beta job also reads secrets from an environment `app-store`:
 
 1. **srcfl/ftw-app → Settings → Environments → New environment →
    `app-store`.**
 2. **Deployment branches and tags → Selected branches and tags**: add
-   branch `main` and tag `ios-v*`. Optionally add yourself as a required
-   reviewer.
+   branch `main`. Optionally add yourself as a required reviewer.
 3. Set the same three secrets with `--env app-store` added, then delete
    the repository ones.
 
@@ -340,9 +345,9 @@ the PR.
 - **United States.** The source is public, so the encryption is not
   subject to the EAR (15 CFR 742.15(b) and the note to 734.3(b)(2)–(3)): no
   email to BIS and the NSA, and no year-end report. That holds only if every
-  store build comes from a published commit. The workflow passes
-  `FTW_SOURCE_REVISION=$GITHUB_SHA`; tag only commits pushed to this
-  public repository.
+  store build comes from a published commit. `scripts/release.sh` builds
+  only a clean checkout of `origin/main` and passes its commit as
+  `FTW_SOURCE_REVISION`.
 - **France.** Apple asks for nothing with "None". French law (Décret
   2007-663, art. 3–5) still requires a free declaration to ANSSI one month
   before the app is offered in France. Fredrik decided on 12 October 2026
@@ -435,7 +440,10 @@ and the car view.
    ```
 
    `FTW_SKIP_TESTS=1` skips `swift test` when it just ran;
-   `FTW_SKIP_PILOT=1` uploads without the public beta step.
+   `FTW_SKIP_PILOT=1` uploads without the public beta step;
+   `FTW_XCODE_ACCOUNT=1` uploads through Xcode's signed-in account when
+   the key is not on this Mac; `FTW_ARCHIVE=…` sends an archive the script
+   already made, without building again.
 3. Internal testers get the build once Apple has processed it, usually
    within the hour. With the key on this Mac the script has already given
    it to `Pilot` and submitted it for Beta App Review; without it, run
@@ -451,11 +459,10 @@ and the archive stays in `appleApp/build/release/<version>-<build>/`.
 | Cloud signing permission error | The key is not Admin. |
 | No profiles for 'energy.ftw.app' | App ID not registered, or no app record yet. |
 | Private key not installed for an Apple Development certificate | This Mac lacks the certificate's private key; restore it ([Signing on this Mac](#signing-on-this-mac)). |
-| Failed to Use Accounts: App Store Connect access for "L66M368PZ6" is required | No App Store Connect key on this Mac and no account signed in to Xcode. Sign in under **Xcode → Settings → Accounts**, or put the key in place ([The App Store Connect key on this Mac](#the-app-store-connect-key-on-this-mac)). The archive is kept; export it again without rebuilding. |
-| Your account has reached the maximum number of certificates | Something asked for a new certificate; find it and stop it, then revoke the "Created via API" ones. |
+| Failed to Use Accounts: App Store Connect access for "L66M368PZ6" is required | `FTW_XCODE_ACCOUNT=1`, and no account for the team is signed in to Xcode. Sign in under **Xcode → Settings → Accounts**, or put the key in place ([The App Store Connect key on this Mac](#the-app-store-connect-key-on-this-mac)). The archive is kept: send it without building again with `FTW_ARCHIVE=build/release/<version>-<build>/FTW.xcarchive appleApp/scripts/release.sh`. |
+| Your account has reached the maximum number of certificates | Something asked for a new development certificate; find it and stop it. See [Signing on this Mac](#signing-on-this-mac) before revoking any. |
 | The bundle version must be higher | A build number was used; run again a minute later. |
 | Agreement missing or expired | The Account Holder must accept it under Business. |
-| Xcode upload failed, then altool succeeded | Nothing to do; Apple got the build. |
 | The upload succeeded but no build appears in TestFlight | Apple refused it after upload. `GET /v1/apps/{id}/buildUploads` gives the reason. |
 | ITMS-90626 Invalid Siri Support | An App Intent's title or description names Apple's products, such as "iPhone". Say "phone" instead. |
 
