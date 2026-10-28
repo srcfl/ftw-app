@@ -158,15 +158,12 @@ native, and smooth enough to impress.
   stack, and a second tap on a tab takes it to its top. History tells
   today: the savings, then a row per node with its energy in words and
   its day drawn midnight to midnight on one shared axis, each into that
-  node's view on Today. Hold a row and drag it to read the day in your
-  own order; this phone keeps it and the box is never asked, since the
-  box is the record of what the home did, not of the order someone cares
-  to read it in (Fredrik, 27 October 2026). Home holds what the title's
-  menu and the settings sheet held: the cars, assistants, the watch, the
-  homes, this phone and About. Now's title is the home's name and opens
-  nothing. The mode and the planning style change in Plan alone
-  (Fredrik, 25 October 2026): its mode row opens the mode sheet, and its
-  scale runs from Careful to Bold.
+  node's view on Today. Home holds what the title's menu and the
+  settings sheet held: the cars, assistants, the watch, the homes, this
+  phone and About. Now's title is the home's name and opens nothing. The
+  mode and the planning style change in Plan alone (Fredrik, 25 October
+  2026): its mode row opens the mode sheet, and its scale runs from
+  Careful to Bold.
   In their own views the battery's and the car's levels are rings
   (`LevelRing`): lit clockwise from twelve to the level, in the node's
   colour only while live (the car's level is a fact, violet without
@@ -478,9 +475,17 @@ cd appleApp/FTWKit && swift test   # iPhone logic, on a Mac with Xcode 27
 
 `ContractTests` reads `protocol/registry.yaml` and fails when `Contract.swift`
 drifts from it. Update `Contract.swift` by hand, never with a name the
-registry does not have. The Apple workflow also builds the app and widget
-for the iOS Simulator. Review UI changes in the simulator or on a device;
+registry does not have. Review UI changes in the simulator or on a device;
 reading the source is not enough.
+
+**Build and test on this machine.** Fredrik, 28 October 2026: every build
+and every test run belongs here, not on GitHub's hosted macOS runners.
+They are slow and they are dear, and the laptop does the same work in a
+fraction of the time. So before a merge: build the app for the simulator,
+run `swift test`, and drive the change in the simulator. That is the
+evidence a pull request stands on, and a merge does not wait on the
+Apple workflow. It stays as a backstop for work that arrives from
+outside this machine.
 
 Green before every handoff. New protocol code needs a vector, not only a
 round-trip against itself.

@@ -118,7 +118,7 @@ struct HomeView: View {
             }
             Tab(HomeTab.history.title, systemImage: HomeTab.history.symbol, value: HomeTab.history) {
                 TabStack(app: app, home: home, path: path(.history)) { zoom in
-                    HistoryTabView(home: home, zoom: zoom, path: path(.history))
+                    HistoryTabView(home: home, zoom: zoom)
                         .homeBar(app: app, home: home, title: HomeTab.history.title)
                 }
             }
