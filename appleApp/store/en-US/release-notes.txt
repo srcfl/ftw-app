@@ -1,4 +1,4 @@
-New in 0.6.0: the app opens dark, since light means live and the glow shows best on the dark ground. Pick Light or Match iPhone under Home, Appearance. A pinch on a chart now zooms its time instead of closing the view, in a node's view and on the full screen.
+New in 0.6.0: the app opens dark, since light means live and the glow shows best on the dark ground. Pick Light or Match iPhone under Home, Appearance. History has a row for the electricity price: the day's average and its low, with the day drawn midnight to midnight. Open it and drag the chart to read two days back. You can also put History's rows in your own order. The plan now says power costs more or less instead of calling it dear, since the box compares hours with each other. On a chart the battery keeps one colour both ways, so gold is the sun's alone. A pinch on a chart zooms its time instead of closing the view.
 
 New in 0.5.2: the solar forecast ahead is one stepped line, hour by hour, instead of loose dashes. With the next box update, the history for solar, grid and battery shows the measured power instead of jumping between zero and 1.2 kW.
 
