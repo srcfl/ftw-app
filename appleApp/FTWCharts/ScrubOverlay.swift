@@ -63,6 +63,13 @@ struct ScrubOverlay: View {
     /// A touch that lifted before it scrubbed: the node view opens the chart
     /// on the whole screen.
     var onTap: (() -> Void)?
+    /// Where a chart can be moved through time: a one-finger drag moves
+    /// the window instead of reading it, and a finger that rests reads.
+    /// Given where the finger came down and where it is, each across the
+    /// plot, and whether this is the first event of that move. A chart
+    /// without it reads on the move, as every chart always has.
+    var onPan: ((Double, Double, Bool) -> Void)?
+    var onPanEnded: (() -> Void)?
 
     @GestureState private var touching = false
     @State private var size: CGSize = .zero
@@ -102,10 +109,17 @@ struct ScrubOverlay: View {
             // the gate says it is no tap.
             SpatialEventGesture()
                 .updating($touching) { _, state, _ in state = true }
-                .onChanged { events in gate.changed(events) { follow($0) } }
+                .onChanged { events in
+                    gate.changed(events, pans: onPan != nil, scrub: { follow($0) }, pan: { anchor, to, began in
+                        let plot = frame.plot(in: size)
+                        guard plot.width > 0 else { return }
+                        onPan?(Double((anchor - plot.minX) / plot.width), Double((to - plot.minX) / plot.width), began)
+                    })
+                }
                 .onEnded { _ in
                     if gate.ended() { onTap?() }
                     model.lift()
+                    onPanEnded?()
                 }
         )
         // A gesture the system takes away ends without onEnded.
@@ -113,6 +127,7 @@ struct ScrubOverlay: View {
             if !now {
                 gate.cancelled()
                 model.lift()
+                onPanEnded?()
             }
         }
         .sensoryFeedback(.selection, trigger: model.ticks)
@@ -272,8 +287,14 @@ final class FingerGate {
     private static func ms() -> Double { ProcessInfo.processInfo.systemUptime * 1000 }
 
     /// The fingers moved. `scrub` takes every event once the touch is a
-    /// scrub.
-    func changed(_ events: SpatialEventCollection, scrub: @escaping (SpatialEventCollection) -> Void) {
+    /// scrub; `pan` takes it where the chart can be moved through time and
+    /// the finger moved before it rested.
+    func changed(
+        _ events: SpatialEventCollection,
+        pans: Bool = false,
+        scrub: @escaping (SpatialEventCollection) -> Void,
+        pan: @escaping (CGFloat, CGFloat, Bool) -> Void = { _, _, _ in }
+    ) {
         let down = events.filter { $0.phase == .active }
         self.scrub = scrub
         last = events
@@ -282,7 +303,7 @@ final class FingerGate {
             return
         }
         if intent == nil {
-            intent = TouchIntent(at: first.location, ms: Self.ms())
+            intent = TouchIntent(at: first.location, ms: Self.ms(), pans: pans)
             hold = Task { [weak self] in
                 try? await Task.sleep(for: .milliseconds(Int(TouchIntent.holdMs)))
                 guard !Task.isCancelled else { return }
@@ -293,6 +314,14 @@ final class FingerGate {
         let was = touch.state
         touch.moved(to: first.location, atMs: Self.ms(), fingers: down.count)
         intent = touch
+        if touch.state == .pan {
+            if was == .waiting {
+                ScrubModel.log.debug("pan starts: moved \(Double(touch.travel), format: .fixed(precision: 1)) pt")
+                hold?.cancel()
+            }
+            pan(touch.start.x, first.location.x, was == .waiting)
+            return
+        }
         guard touch.state == .scrub else { return }
         if was == .waiting {
             ScrubModel.log.debug("scrub starts: moved \(Double(touch.travel), format: .fixed(precision: 1)) pt, fingers \(down.count)")

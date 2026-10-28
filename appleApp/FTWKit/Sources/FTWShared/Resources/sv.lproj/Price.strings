@@ -8,3 +8,6 @@
 "Below zero: you are paid to use power" = "Under noll: du får betalt för att använda el";
 "STORES %@ AT %@" = "LAGRAR %@ VID %@";
 "GIVES %@ AT %@" = "GER %@ VID %@";
+"Average %@ · lowest %@ at %@" = "Snitt %@ · lägst %@ kl %@";
+"No prices for this day" = "Inga priser för det dygnet";
+"%@ with no price" = "%@ utan pris";

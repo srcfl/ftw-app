@@ -40,17 +40,36 @@ public struct TimelineWindow: Equatable, Sendable {
         nowFraction = at
     }
 
+    /// The window a chart already draws, as one that can be moved: it
+    /// follows now while now is inside it, so a finger that lands on the
+    /// price chart takes it from exactly where it was drawn.
+    public init(fromMs: Double, toMs: Double, nowMs: Double) {
+        let span = min(max(toMs - fromMs, Self.minimumSpanMs), Self.maximumSpanMs)
+        self.fromMs = fromMs
+        self.toMs = fromMs + span
+        isToday = false
+        let f = (nowMs - fromMs) / span
+        nowFraction = f < 0 || f > 1 ? nil : f
+    }
+
     /// Today on `clock`: from its midnight to the next one, 23 or 25 hours
     /// on a day the clock turns.
     public static func today(nowMs: Double, clock: ZoneClock) -> Self {
+        day(ofMs: nowMs, nowMs: nowMs, clock: clock)
+    }
+
+    /// The whole day `ms` falls in, midnight to midnight on `clock`. It is
+    /// today's window when that day holds now, so it rolls at midnight as a
+    /// node's does; a day behind stays where it is. History's rows open the
+    /// price on their own day this way.
+    public static func day(ofMs ms: Double, nowMs: Double, clock: ZoneClock) -> Self {
         let calendar = clock.calendar
-        let date = Date(timeIntervalSince1970: nowMs / 1000)
-        let start = calendar.startOfDay(for: date)
+        let start = calendar.startOfDay(for: Date(timeIntervalSince1970: ms / 1000))
         let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
         var w = Self(nowMs: nowMs)
         w.fromMs = start.timeIntervalSince1970 * 1000
         w.toMs = end.timeIntervalSince1970 * 1000
-        w.isToday = true
+        w.isToday = w.fromMs <= nowMs && nowMs < w.toMs
         w.nowFraction = nil
         return w
     }

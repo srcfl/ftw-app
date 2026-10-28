@@ -93,24 +93,28 @@ public struct PriceChart: Equatable, Sendable {
         Words.decimal(PriceStrip.text(abs(minor), currency))
     }
 
-    /// The chart of `slots` from the current slot to `spanMs` ahead.
+    /// The chart of `slots` across one window `spanMs` long: from `fromMs`
+    /// where one is given, else from the slot now is in. A window behind
+    /// now draws the same way, with no now rule and nothing pending.
     /// `everyHours` spaces the hour labels.
     public static func build(
         _ slots: [PriceSlot],
         currency: String,
         nowMs: Double,
+        fromMs windowFromMs: Double? = nil,
         spanMs: Double = 24 * 3_600_000,
         everyHours: Int = 6,
         plan: PlanEntry? = nil,
         clock: ZoneClock
     ) -> PriceChart {
         let valid = slots.filter { $0.totalMinor.isFinite && $0.durationMs > 0 }.sorted { $0.startMs < $1.startMs }
-        let ahead = valid.filter { $0.startMs + $0.durationMs > nowMs }
-        // One grid step for the window: the shortest slot ahead, so an hour
+        let anchorMs = windowFromMs ?? nowMs
+        let inWindow = valid.filter { $0.startMs + $0.durationMs > anchorMs && $0.startMs < anchorMs + spanMs }
+        // One grid step for the window: the shortest slot in it, so an hour
         // of quarters and an hour slot sit on the same grid.
-        let stepMs = max(60_000, ahead.map(\.durationMs).min() ?? 900_000)
-        let current = ahead.first { $0.startMs <= nowMs }
-        let fromMs = current?.startMs ?? clock.alignDown(nowMs, stepMs: stepMs)
+        let stepMs = max(60_000, inWindow.map(\.durationMs).min() ?? 900_000)
+        let current = inWindow.first { $0.startMs <= anchorMs }
+        let fromMs = windowFromMs.map { clock.alignDown($0, stepMs: stepMs) } ?? current?.startMs ?? clock.alignDown(nowMs, stepMs: stepMs)
         let count = max(1, Int((spanMs / stepMs).rounded(.up)))
         let toMs = fromMs + Double(count) * stepMs
         let grid = SlotGrid(firstMs: fromMs, stepMs: stepMs, count: count, fromMs: fromMs, toMs: toMs)
@@ -152,7 +156,10 @@ public struct PriceChart: Equatable, Sendable {
 
         var pending: ClosedRange<Int>?
         var pendingText = ""
-        if case .some(nil) = minor.last, let lastKnown = minor.lastIndex(where: { $0 != nil }) {
+        // Only a window that reaches past now can be waiting for rates. A
+        // day behind with no price at its end is a hole, not a market yet
+        // to speak.
+        if toMs > nowMs, case .some(nil) = minor.last, let lastKnown = minor.lastIndex(where: { $0 != nil }) {
             pending = (lastKnown + 1)...(count - 1)
             if clock.minuteOfDay(grid.startMs(lastKnown + 1)) == 0 {
                 pendingText = clock.minuteOfDay(nowMs) < 14 * 60 ? PriceWord.tomorrowAround.text : PriceWord.tomorrow.text
@@ -160,13 +167,14 @@ public struct PriceChart: Equatable, Sendable {
         }
 
         // Whole local hours a few apart, clear of now's label and at least
-        // an hour from the right edge.
+        // an hour from the right edge. A window with no now in it has no
+        // label to keep clear of.
         var hours: [Tick] = []
         let hour = 3_600_000.0
         var t = clock.alignDown(fromMs, stepMs: hour) + hour
         while t <= toMs - hour {
             let minute = clock.minuteOfDay(t)
-            if minute % 60 == 0, (minute / 60) % max(1, everyHours) == 0, t - nowMs >= 1.5 * hour {
+            if minute % 60 == 0, (minute / 60) % max(1, everyHours) == 0, nowIndex == nil || t - nowMs >= 1.5 * hour {
                 hours.append(Tick(ms: t, label: String(clock.label(t).prefix(2))))
             }
             t += hour
@@ -286,6 +294,10 @@ enum PriceWord: String, CaseIterable {
     case paid = "Below zero: you are paid to use power"
     case stores = "STORES %@ AT %@"
     case gives = "GIVES %@ AT %@"
+    /// History's price row: the day's mean, its cheapest slot and when.
+    case dayAverage = "Average %@ · lowest %@ at %@"
+    case noPriceThatDay = "No prices for this day"
+    case someMissing = "%@ with no price"
 
     var text: String { Words.bundle.localizedString(forKey: rawValue, value: rawValue, table: "Price") }
 
