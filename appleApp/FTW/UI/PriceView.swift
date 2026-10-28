@@ -167,27 +167,37 @@ private struct PricePage: View, Equatable {
             PriceHero(chart: chart, zone: zone, dayName: TimelineLabel.window(drawn, nowMs: minuteMs, clock: clock), scrub: scrub)
                 .dynamicTypeSize(...DynamicTypeSize.accessibility1)
                 .fixedSize(horizontal: false, vertical: true)
-            if chart.isEmpty {
-                // What the box has, or what stopped it saying: a day it
-                // never fetched is empty, and a wire that failed says so.
-                Text(behind ? (problem ?? L("No prices for this time.")) : L("No prices ahead yet."))
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.ink2)
-                    .padding(.top, 24)
-            } else {
-                // What the rest leaves, up to 0.55 of the screen: about
-                // 330 pt on an SE, 526 on a Pro Max.
+            // The chart stays whether the window is priced or not: it is
+            // what the finger moves through time, so a window with no
+            // prices can still be dragged out of. What the rest leaves,
+            // up to 0.55 of the screen: about 330 pt on an SE, 526 on a
+            // Pro Max.
+            ZStack {
                 PriceBarsChart(chart: chart, scrub: scrub, onPan: { a, b, began in onPan(a, b, began, drawn) }, onPanEnded: onPanEnded)
-                    .frame(minHeight: 240, idealHeight: 240, maxHeight: chartMax ?? 240)
-                    .layoutPriority(1)
-                    .padding(.top, 24)
-                    .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-                    .accessibilityElement()
-                    .accessibilityLabel(L("Electricity price"))
-                    .accessibilityHint(L("Drag to move through time."))
-                    .accessibilityChartDescriptor(PriceDescriptor(chart: chart))
-                    .accessibilityIdentifier("price.chart")
-                if chartMax != nil { Spacer(minLength: 0) }
+                if chart.isEmpty {
+                    // What the box has, or what stopped it saying: a day
+                    // it never fetched is empty, and a wire that failed
+                    // says so.
+                    Text(behind ? (problem ?? L("No prices for this time.")) : L("No prices ahead yet."))
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.ink2)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 28)
+                        .allowsHitTesting(false)
+                }
+            }
+            .frame(minHeight: 240, idealHeight: 240, maxHeight: chartMax ?? 240)
+            .layoutPriority(1)
+            .padding(.top, 24)
+            .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+            .accessibilityElement()
+            .accessibilityLabel(L("Electricity price"))
+            .accessibilityHint(L("Drag to move through time."))
+            .accessibilityChartDescriptor(PriceDescriptor(chart: chart))
+            .accessibilityIdentifier("price.chart")
+            if chartMax != nil { Spacer(minLength: 0) }
+            // Nothing is included in a price the window does not have.
+            if !chart.isEmpty {
                 VStack(alignment: .leading, spacing: 0) {
                     PriceReadout(chart: chart, included: included, planned: plan != nil, scrub: scrub)
                         .padding(.top, 16)
@@ -196,7 +206,6 @@ private struct PricePage: View, Equatable {
                 }
                 .fixedSize(horizontal: false, vertical: true)
             }
-            if chartMax != nil, chart.isEmpty { Spacer(minLength: 0) }
         }
     }
 }

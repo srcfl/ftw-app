@@ -101,11 +101,25 @@ import Testing
         #expect(abs((d.bars.last!.at + d.bars.last!.width) - 1) < 1e-9)
     }
 
-    @Test func belowZeroDrawsAsTheCheapestAndNeverWithAMinusSign() {
+    /// The figures carry no minus sign, as nothing in the app does, so the
+    /// words beside them say the market went below zero. Without that,
+    /// "lowest 13,0" reads as a cost — and the row hands the same string
+    /// to VoiceOver.
+    @Test func belowZeroIsSaidInWordsBesideTheUnsignedFigures() {
         let d = Self.day(Self.quarters(20) { $0 == 2 ? -13 : 90 })
         #expect(d.lowMinor == -13)
         #expect(d.bars.first(where: { $0.minor < 0 })?.third == .cheap)
         #expect(d.line == "Average \(Words.decimal("85.7")) öre · lowest \(Words.decimal("13.0")) at 02:00")
+        #expect(d.note == "Below zero: you are paid to use power")
+
+        // A whole day below zero says it too, from the average alone.
+        let paid = Self.day(Self.quarters(20) { _ in -4 })
+        #expect(paid.note == "Below zero: you are paid to use power")
+        // A day that never went below zero says nothing.
+        #expect(Self.day(Self.quarters(20) { _ in 90 }).note == nil)
+        // Both at once, in one line.
+        let both = Self.day(Self.quarters(20, hours: 0..<12) { $0 == 2 ? -13 : 90 })
+        #expect(both.note == "Below zero: you are paid to use power · 12 h with no price")
     }
 
     // MARK: The window a day is drawn in

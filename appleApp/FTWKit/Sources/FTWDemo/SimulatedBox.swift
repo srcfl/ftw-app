@@ -77,6 +77,9 @@ public final class SimulatedBox {
     /// Every price window asked for, so a test can tell the days ahead
     /// from the days behind.
     public private(set) var priceWindows: [ClosedRange<Double>] = []
+    /// A box that hears a price window and never answers it, for the wait
+    /// a phone out of reach sees.
+    public var answersPrices = true
     public private(set) var stepUpsSeen = 0
     /// Its assistants, support grants, requests and audit log.
     public private(set) lazy var access = SimulatedAccess { [scheduler] in scheduler.nowMs }
@@ -179,6 +182,7 @@ public final class SimulatedBox {
             // fraction in one, answering nothing. So does this.
             guard let from = Self.wholeMs(body["fromMs"]), let to = Self.wholeMs(body["toMs"]) else { return }
             priceWindows.append(from...max(from, to))
+            guard answersPrices else { return }
             sendBulk(Envelope(t: "price", id: env.id, b: pricesCBOR(from: from, to: to)))
         case "hist.query":
             guard answersHistory else { return }

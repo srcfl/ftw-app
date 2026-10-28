@@ -12,6 +12,9 @@ import Foundation
 /// Holes are holes. A slot the box has no price for draws nothing, counts
 /// for nothing in the average and is said in words, so a day the box never
 /// fetched never reads as a day that cost nothing.
+///
+/// Figures carry no minus sign here either, as nothing in the app does, so
+/// a day that went below zero says so in words beside them.
 public struct PriceDay: Equatable, Sendable {
     /// One priced slot, as a share of the day, so a row of any width draws
     /// it without knowing the clock.
@@ -46,7 +49,8 @@ public struct PriceDay: Equatable, Sendable {
     public var currency: String
     /// "Average 94 öre · lowest 31 at 03:00", or why there is nothing.
     public var line: String
-    /// "6 h with no price", once a tenth of the day is missing.
+    /// What the figures cannot say: that the market went below zero, and
+    /// how much of the day has no price at all.
     public var note: String?
 
     /// The box said something about this day.
@@ -96,7 +100,7 @@ public struct PriceDay: Equatable, Sendable {
             covered: covered,
             currency: currency,
             line: line,
-            note: note(missingMs: length - held)
+            note: note(missingMs: length - held, lowest: low?.minor, mean: mean)
         )
     }
 
@@ -112,11 +116,17 @@ public struct PriceDay: Equatable, Sendable {
                  currency: currency, line: PriceWord.noPriceThatDay.text, note: nil)
     }
 
-    /// Said once a tenth of the day has no price; below that a quarter hour
-    /// either side of a market's own rounding is not news.
-    static func note(missingMs: Double) -> String? {
-        guard missingMs >= 8_640_000 else { return nil }
-        let minutes = Int((missingMs / 60_000).rounded())
-        return PriceWord.someMissing.format(minutes < 120 ? "\(minutes) min" : "\(minutes / 60) h")
+    /// A day below zero is said in the chart's own words, so "lowest 13,0"
+    /// is never read as a cost. Missing time is said once a tenth of the
+    /// day has none; below that a quarter hour either side of a market's
+    /// own rounding is not news.
+    static func note(missingMs: Double, lowest: Double?, mean: Double?) -> String? {
+        var parts: [String] = []
+        if (lowest ?? 0) < 0 || (mean ?? 0) < 0 { parts.append(PriceWord.paid.text) }
+        if missingMs >= 8_640_000 {
+            let minutes = Int((missingMs / 60_000).rounded())
+            parts.append(PriceWord.someMissing.format(minutes < 120 ? "\(minutes) min" : "\(minutes / 60) h"))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }

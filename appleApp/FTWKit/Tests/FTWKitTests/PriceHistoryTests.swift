@@ -124,6 +124,32 @@ import FTWShared
         #expect(asked() == 2)
     }
 
+    /// A price window crosses the session, not the API, so its failures are
+    /// the session's. With no window behind, the screen says what happens
+    /// now rather than reading as a market that said nothing.
+    @Test func aFailedReadSaysSoRatherThanReadingAsNoPrices() async throws {
+        let site = self.site()
+        let prices = PriceModel(site: site, calendar: clock.calendar)
+        let box = SimulatedBox(scheduler: scheduler, house: SimulatedHouse(timeZone: CarTextTests.stockholm))
+        site.connect(LoopbackCarrier(box: box, scheduler: scheduler))
+        prices.activate()
+        await run(2_000)
+        #expect(prices.pastProblem == nil)
+
+        // The box hears the window and never answers it.
+        box.answersPrices = false
+        prices.activatePast()
+        await run(Session.priceTimeoutMs + 2_000, step: 1_000)
+        #expect(prices.past == nil)
+        #expect(prices.pastProblem == "No prices yet. Your box is out of reach.")
+
+        // Once it answers, the sentence goes.
+        box.answersPrices = true
+        await run(60_000, step: 1_000)
+        #expect(prices.past != nil)
+        #expect(prices.pastProblem == nil)
+    }
+
     /// The days behind are kept on this phone, in their own file, so
     /// History's price row paints in frame one after a kill.
     @Test func theDaysBehindArePaintedFromThePhoneOnTheNextLaunch() async throws {

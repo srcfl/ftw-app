@@ -389,9 +389,21 @@ public final class PriceModel: Activatable {
             pastProblem = nil
         } catch {
             guard mine == pastGeneration else { return }
-            if past == nil, let e = error as? BoxAPIError { pastProblem = e.help }
+            // A window already drawn stays drawn and says nothing; with
+            // none, the screen says what happens now.
+            if past == nil { pastProblem = Self.failure(error) }
             throw error
         }
+    }
+
+    /// Why the days behind are missing. A price window crosses the session,
+    /// not the API, so the errors are the session's: no carrier, a timeout,
+    /// or the box refusing. What happens now, never what broke inside.
+    static func failure(_ error: Error) -> String {
+        if let refusal = error as? BoxRefusal, refusal.detail.code == "E_UNAVAILABLE" {
+            return NodeWords.text("Your box can't send its prices right now. Still trying.")
+        }
+        return NodeWords.text("No prices yet. Your box is out of reach.")
     }
 }
 
