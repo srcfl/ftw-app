@@ -1,7 +1,9 @@
 # Releasing the iPhone app
 
-CI tests, archives, signs and uploads. A person sets up App Store Connect
-once, then tags each release. This file lists that person's steps in order:
+This Mac tests, archives, signs and uploads, with one script
+([`scripts/release.sh`](scripts/release.sh)); no GitHub runner builds a
+release (Fredrik, 28 October 2026). A person sets up App Store Connect once,
+then runs the script for each release. This file lists that person's steps in order:
 first the shortest way onto your own iPhone, then what external testers
 and the App Store need. Checked against Apple's pages on 12 October 2026;
 Apple moves menus, so trust the screen if it differs.
@@ -12,29 +14,67 @@ Apple moves menus, so trust the screen if it differs.
 | Team ID | `L66M368PZ6` |
 | Bundle IDs | `energy.ftw.app` (registered), `energy.ftw.app.widgets`, `energy.ftw.app.notify`, `energy.ftw.app.watchkitapp`, `energy.ftw.app.watchkitapp.widgets` |
 | App Group | `group.energy.ftw.app` |
-| Workflow | [`.github/workflows/ios-release.yml`](../.github/workflows/ios-release.yml) |
+| Release | [`scripts/release.sh`](scripts/release.sh), on this Mac |
 | Store texts | [`store/`](store/) |
 | Privacy and support | `https://ftw.sourceful.energy/privacy`, `https://ftw.sourceful.energy/support` ([srcfl/ftw-web](https://github.com/srcfl/ftw-web)) |
 
 ## How a build travels
 
-1. A tag `ios-v1.2.3` starts the job on GitHub's `xcode-27` runner. The job
-   uses the workflow file in the tagged commit, so any branch that contains
-   it can be tagged. Text after a dash only tells tags apart:
-   `ios-v0.1.0-1` and `ios-v0.1.0-2` both ship version 0.1.0. Once the
-   workflow is on `main`, **Actions → iOS release → Run workflow** also
-   works; it ships `MARKETING_VERSION` from `FTW.xcconfig`.
-2. It runs `swift test`, then archives with Xcode 27.0 and the iOS 27 SDK.
-   The build number is the run number, with `.2`, `.3` on a re-run.
-3. Xcode signs with the team through the API key and uploads with
-   [`ExportOptions.plist`](ExportOptions.plist) (`app-store-connect`,
-   `upload`). If that upload fails, the job exports the `.ipa` and sends it
-   with `xcrun altool --upload-package`, which Apple's "Upload builds" help
-   still lists. The build shows in TestFlight once Apple has processed it.
+1. `scripts/release.sh` runs on a clean checkout of a commit on
+   `origin/main`, and refuses anything else: the store build must come from
+   published source ([Encryption and export](#5-encryption-and-export)). It
+   ships `MARKETING_VERSION` from `FTW.xcconfig`. The build number is the
+   date and time, `20261028.1342`, so each upload is higher than the last
+   without asking Apple.
+2. It runs `swift test`, then archives with this Mac's Xcode and checks the
+   version in the app, its extensions and the watch app.
+3. Xcode exports with [`ExportOptions.plist`](ExportOptions.plist)
+   (`app-store-connect`, `upload`) and sends the build to App Store Connect.
+   It shows in TestFlight once Apple has processed it.
+4. With the App Store Connect key on this Mac, the script then gives the
+   build to the public beta: it waits for processing, writes What to Test,
+   adds the build to `Pilot` and submits it for Beta App Review
+   ([`scripts/testflight-pilot.py`](scripts/testflight-pilot.py)). Without
+   the key it says so, and **Actions → iOS public beta** does the same from
+   GitHub, where the key lives as secrets; that workflow builds nothing.
 
-Without the three secrets the job archives unsigned and reports
-"Upload skipped". A pull request that changes the workflow or the export
-options always takes that path, so it proves the archive without a key.
+### Signing on this Mac
+
+A release never makes a certificate. The archive is signed with the team's
+**Apple Development** certificate in the login keychain (Fredrik Ahlgren,
+team `L66M368PZ6`, until 12 October 2027) and the profiles Xcode already
+holds, and it runs without `-allowProvisioningUpdates`, so Xcode cannot
+create one. The export signs for the App Store with Apple's cloud-managed
+distribution certificate, which lives with Apple, through the App Store
+Connect key or else the account signed in under **Xcode → Settings →
+Accounts**.
+
+The GitHub release workflow did the opposite: every run on a clean runner
+made a new "Apple Development" certificate through the API key, until the
+team reached Apple's limit on 28 October 2026 ("Your account has reached
+the maximum number of certificates"). That workflow is gone. The ones it
+made, marked "Created via API" under **Certificates**, can be revoked; the
+certificate above is not one of them.
+
+If the certificate is ever lost, restore it from a backup of the login
+keychain, or make one new certificate in Xcode once and keep it; never one
+per release.
+
+### The App Store Connect key on this Mac
+
+For the public beta step, and to upload without the Xcode account:
+
+1. Put the `.p8` at `~/.appstoreconnect/private_keys/AuthKey_<KEY ID>.p8`
+   (`chmod 600`), where `altool` also looks.
+2. Put its ids, which are not secret, in `~/.appstoreconnect/ftw.env`:
+
+   ```bash
+   ASC_KEY_ID=XXXXXXXXXX
+   ASC_ISSUER_ID=00000000-0000-0000-0000-000000000000
+   ```
+
+An App Manager key is enough for TestFlight; signing with the key in place
+of the Xcode account needs Admin.
 
 Apple has required the iOS 26 SDK for uploads since 28 April 2026 and
 requires the iOS 27 SDK from April 2027. Xcode 27 meets both.
@@ -163,18 +203,15 @@ also reads secrets from an environment `app-store`:
 3. Set the same three secrets with `--env app-store` added, then delete
    the repository ones.
 
-### 4. Tag a build
+### 4. Release a build
 
-Tag a commit that contains the workflow, for example the head of the
-branch you want to test, and push the tag:
+On a clean checkout of `main`:
 
 ```bash
-git tag ios-v0.1.0-1 && git push origin ios-v0.1.0-1
+appleApp/scripts/release.sh
 ```
 
-Follow the run under **Actions → iOS release**. Each run on a clean runner
-may create an "Apple Development" certificate marked "Created via API" for
-the archive; if **Certificates** reports a limit, revoke the old ones.
+It never makes a certificate ([Signing on this Mac](#signing-on-this-mac)).
 
 ### 5. Answer the encryption question, if asked
 
@@ -388,32 +425,34 @@ and the car view.
 
 ## Each release
 
-1. Set `MARKETING_VERSION` in `FTW.xcconfig` to the new version on `main`.
-2. Tag that commit and push the tag:
+1. Set `MARKETING_VERSION` in `FTW.xcconfig` to the new version and lead
+   `store/<lang>/release-notes.txt` with what is new, in a pull request.
+   Merge it once it is green on this Mac (`swift test`, a simulator build).
+2. On a clean checkout of that `main`:
 
    ```bash
-   git tag ios-v1.0.0 && git push origin ios-v1.0.0
+   appleApp/scripts/release.sh
    ```
 
-3. Watch the *iOS release* run. When it reports the upload, the build
-   appears in TestFlight, usually within an hour.
-4. Run **Actions → iOS public beta → Run workflow** with the version and
-   build the release run reported. It waits for Apple to process the
-   build, writes What to Test from `store/<lang>/release-notes.txt`, adds
-   the build to the external group `Pilot` (the public link) and submits it
-   for Beta App Review. Internal testers get it once it is processed.
+   `FTW_SKIP_TESTS=1` skips `swift test` when it just ran;
+   `FTW_SKIP_PILOT=1` uploads without the public beta step.
+3. Internal testers get the build once Apple has processed it, usually
+   within the hour. With the key on this Mac the script has already given
+   it to `Pilot` and submitted it for Beta App Review; without it, run
+   **Actions → iOS public beta** with the version and build it printed.
 
 ## When the upload fails
 
-The run keeps Xcode's export logs as the `export-logs` artifact. The
-summary says whether Xcode or altool uploaded the build.
+Xcode's export logs are in the folder the export names, under `$TMPDIR`,
+and the archive stays in `appleApp/build/release/<version>-<build>/`.
 
 | Message | Cause |
 |---|---|
 | Cloud signing permission error | The key is not Admin. |
 | No profiles for 'energy.ftw.app' | App ID not registered, or no app record yet. |
-| Private key not installed for an Apple Development certificate | Old API certificates; revoke them under Certificates. |
-| The bundle version must be higher | A build number was used; run again or tag again. |
+| Private key not installed for an Apple Development certificate | This Mac lacks the certificate's private key; restore it ([Signing on this Mac](#signing-on-this-mac)). |
+| Your account has reached the maximum number of certificates | Something asked for a new certificate; find it and stop it, then revoke the "Created via API" ones. |
+| The bundle version must be higher | A build number was used; run again a minute later. |
 | Agreement missing or expired | The Account Holder must accept it under Business. |
 | Xcode upload failed, then altool succeeded | Nothing to do; Apple got the build. |
 | The upload succeeded but no build appears in TestFlight | Apple refused it after upload. `GET /v1/apps/{id}/buildUploads` gives the reason. |
