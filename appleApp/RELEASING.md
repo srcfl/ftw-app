@@ -451,6 +451,7 @@ and the archive stays in `appleApp/build/release/<version>-<build>/`.
 | Cloud signing permission error | The key is not Admin. |
 | No profiles for 'energy.ftw.app' | App ID not registered, or no app record yet. |
 | Private key not installed for an Apple Development certificate | This Mac lacks the certificate's private key; restore it ([Signing on this Mac](#signing-on-this-mac)). |
+| Failed to Use Accounts: App Store Connect access for "L66M368PZ6" is required | No App Store Connect key on this Mac and no account signed in to Xcode. Sign in under **Xcode → Settings → Accounts**, or put the key in place ([The App Store Connect key on this Mac](#the-app-store-connect-key-on-this-mac)). The archive is kept; export it again without rebuilding. |
 | Your account has reached the maximum number of certificates | Something asked for a new certificate; find it and stop it, then revoke the "Created via API" ones. |
 | The bundle version must be higher | A build number was used; run again a minute later. |
 | Agreement missing or expired | The Account Holder must accept it under Business. |
