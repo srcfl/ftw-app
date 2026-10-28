@@ -27,7 +27,7 @@ struct HistoryTabView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HistorySavings(home: home, zoom: zoom)
                     .padding(.bottom, 24)
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                HStack(spacing: 8) {
                     Kicker(L("Today"))
                     // How to move a row, while nobody has moved one.
                     if order.isEmpty, home.nodes.history.available {
