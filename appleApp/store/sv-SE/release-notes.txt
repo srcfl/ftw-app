@@ -1,3 +1,5 @@
+Nytt i 0.6.2: planens staplar visar hela planen som boxen har gjort, fram till det sista kända priset, ofta till i morgon kväll. Raderna under dem säger i morgon där klockslaget annars hade lästs som i kväll. Effektdiagrammen märker ut noll och ett eller två jämna steg på skalan. När batteriet gör samma sak två gånger i följd säger planen det en gång.
+
 Nytt i 0.6.1: Historik går att scrolla igen. Att dra om ordningen på raderna är borttaget tills det går att göra utan att låsa fliken.
 
 Nytt i 0.6.0: appen öppnar mörk, eftersom ljus betyder live och glöden syns bäst på mörk botten. Välj Ljust eller Som iPhone under Hem, Utseende. Historik har fått en rad för elpriset: dygnets snitt och lägsta, och dygnet ritat midnatt till midnatt. Öppna den och dra i diagrammet för att läsa två dygn bakåt. Planen säger nu att elen kostar mer eller mindre i stället för att kalla den dyr, eftersom boxen jämför timmar med varandra. På ett diagram går batteriet i samma färg åt båda håll, så guld bara är solen. En nypning i ett diagram zoomar tiden i stället för att stänga vyn.
