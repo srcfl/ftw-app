@@ -160,8 +160,13 @@ enum Notifications {
 }
 
 /// Where the system hands a pressed button and a notification that arrives
-/// while FTW is open.
-final class NotificationButtons: NSObject, UNUserNotificationCenterDelegate {
+/// while FTW is open. On the main actor, so the system's completion handlers
+/// run on the main thread: UIKit asserts if a button that launched the app in
+/// the background completes on another thread. The conformance is isolated
+/// because the protocol's async requirements are nonisolated and the UN types
+/// are not Sendable.
+@MainActor
+final class NotificationButtons: NSObject, @MainActor UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         // A tap on the notification, Open, or a dismissal asks the box
         // nothing.
