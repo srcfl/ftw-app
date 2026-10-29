@@ -195,6 +195,18 @@ public enum PlanGlance {
         return out.sorted { ($0.startMs, $0.kind.rawValue) < ($1.startMs, $1.kind.rawValue) }
     }
 
+    /// Where the plan the box sent ends, for the plan view's lanes: its
+    /// last battery slot or car window, at least `horizonMs` on, and never
+    /// past the end of tomorrow, so a clock on it reads as today or
+    /// tomorrow. The box plans over every published price, so in the
+    /// evening this is tomorrow's last priced quarter.
+    public static func reach(_ entry: PlanEntry, fromMs t: Double, calendar: Calendar) -> Double {
+        let ends = (entry.battery ?? []).map { $0.startMs + $0.durationMs } + entry.charges.map(\.toMs)
+        let today = calendar.startOfDay(for: Date(timeIntervalSince1970: t / 1000))
+        let tomorrowEnds = calendar.date(byAdding: .day, value: 2, to: today).map { $0.timeIntervalSince1970 * 1000 } ?? t + 48 * 3_600_000
+        return max(t + horizonMs, min(ends.max() ?? t, tomorrowEnds))
+    }
+
     static func action(_ w: Double) -> Kind? {
         w > idleW ? .charge : (w < -idleW ? .discharge : nil)
     }
@@ -229,7 +241,10 @@ public enum PlanGlance {
         public let atMs: Double
         public let state: State
         public let readAtMs: Double?
-        /// Everything over the next `horizonMs`, in order.
+        /// Where the moment looks to: `horizonMs` on, or for the plan
+        /// view's lanes the whole plan (`reach`).
+        public let toMs: Double
+        /// Everything up to `toMs`, in order.
         public let events: [Event]
         /// The prices under the plan, as bars from `atMs` on.
         public let backdrop: [PriceStrip.Bar]
@@ -273,6 +288,17 @@ public enum PlanGlance {
         public var isGrey: Bool { state != .plan }
         /// Waiting with nothing to say yet: the line is drawn as its shape.
         public var placeholder: Bool { state == .waiting && summary == PlanWord.reading.text }
+
+        /// "now–20:45", "23:15–24:00", or "tomorrow 21:00–22:30" where the
+        /// clock alone would read as later today: the day once, before the
+        /// start.
+        public func times(_ e: Event) -> String {
+            var calendar = Calendar.current
+            calendar.timeZone = timeZone
+            let clock = Clock(calendar: calendar)
+            let start = PlanGlance.started(e, at: atMs) ? PlanWord.nowLower.text : PlanGlance.ahead(e.startMs, asEnd: false, from: atMs, clock: clock)
+            return "\(start)–\(clock.wall(e.endMs, asEnd: true).hm)"
+        }
     }
 
     /// The widget's timeline: one moment now, one at every start and end
@@ -293,7 +319,7 @@ public enum PlanGlance {
     public static func moment(_ read: CacheRead<PlanEntry>?, atMs t: Double, calendar given: Calendar? = nil) -> Moment {
         let calendar = given ?? .household(read?.value.timeZone)
         guard let read else {
-            return Moment(atMs: t, state: .nothing, readAtMs: nil, events: [], backdrop: [], currency: "", summary: PlanWord.openToSee.text,
+            return Moment(atMs: t, state: .nothing, readAtMs: nil, toMs: t + horizonMs, events: [], backdrop: [], currency: "", summary: PlanWord.openToSee.text,
                           next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, nextText: PlanWord.openToSee.text, nextShorter: [], story: [], levels: [], timeZone: calendar.timeZone)
         }
         let old = t - read.record.readAtMs >= staleAfterMs
@@ -301,34 +327,36 @@ public enum PlanGlance {
         return moment(read.value, state: state, readAtMs: read.record.readAtMs, atMs: t, calendar: calendar)
     }
 
-    /// Now's own reading, straight from the session: never old.
-    public static func live(_ entry: PlanEntry, nowMs: Double, calendar: Calendar? = nil) -> Moment {
-        moment(entry, state: entry.boxStale ? .boxStale : .plan, readAtMs: nil, atMs: nowMs, calendar: calendar ?? .household(entry.timeZone))
+    /// Now's own reading, straight from the session: never old. `whole`
+    /// looks over the whole plan rather than `horizonMs`, for the lanes.
+    public static func live(_ entry: PlanEntry, nowMs: Double, calendar: Calendar? = nil, whole: Bool = false) -> Moment {
+        moment(entry, state: entry.boxStale ? .boxStale : .plan, readAtMs: nil, atMs: nowMs, calendar: calendar ?? .household(entry.timeZone), whole: whole)
     }
 
     /// A plan this phone kept from an earlier launch, inside the app until
     /// the box answers: dated "Planned 14:05", and grey once old. From a box
     /// this phone cannot reach, it is old at once: the box may have planned
     /// again since.
-    public static func kept(_ entry: PlanEntry, readAtMs: Double, nowMs: Double, unreachable: Bool = false, calendar: Calendar? = nil) -> Moment {
+    public static func kept(_ entry: PlanEntry, readAtMs: Double, nowMs: Double, unreachable: Bool = false, calendar: Calendar? = nil, whole: Bool = false) -> Moment {
         let state: State = entry.boxStale ? .boxStale : (unreachable || nowMs - readAtMs >= staleAfterMs ? .old : .plan)
-        return moment(entry, state: state, readAtMs: readAtMs, atMs: nowMs, calendar: calendar ?? .household(entry.timeZone), inApp: true)
+        return moment(entry, state: state, readAtMs: readAtMs, atMs: nowMs, calendar: calendar ?? .household(entry.timeZone), inApp: true, whole: whole)
     }
 
     /// Before the box's first answer, with no plan kept. `note` says what
     /// happens instead, when something does.
-    public static func waiting(_ entry: PlanEntry, nowMs: Double, note: String? = nil, calendar: Calendar? = nil) -> Moment {
-        let m = moment(entry, state: .waiting, readAtMs: nil, atMs: nowMs, calendar: calendar ?? .household(entry.timeZone))
+    public static func waiting(_ entry: PlanEntry, nowMs: Double, note: String? = nil, calendar: Calendar? = nil, whole: Bool = false) -> Moment {
+        let m = moment(entry, state: .waiting, readAtMs: nil, atMs: nowMs, calendar: calendar ?? .household(entry.timeZone), whole: whole)
         guard let note else { return m }
-        return Moment(atMs: m.atMs, state: m.state, readAtMs: nil, events: m.events, backdrop: m.backdrop, currency: m.currency, summary: note,
+        return Moment(atMs: m.atMs, state: m.state, readAtMs: nil, toMs: m.toMs, events: m.events, backdrop: m.backdrop, currency: m.currency, summary: note,
                       next: nil, nextWhen: nil, nextWhat: nil, nextUntil: nil, cheapText: nil, laterText: nil, ageText: nil, nextText: note, nextShorter: [], story: [], levels: m.levels, timeZone: m.timeZone)
     }
 
-    private static func moment(_ entry: PlanEntry, state: State, readAtMs: Double?, atMs t: Double, calendar: Calendar, inApp: Bool = false) -> Moment {
+    private static func moment(_ entry: PlanEntry, state: State, readAtMs: Double?, atMs t: Double, calendar: Calendar, inApp: Bool = false, whole: Bool = false) -> Moment {
         let clock = Clock(calendar: calendar)
-        let list = events(entry, fromMs: t, toMs: t + horizonMs)
+        let end = whole ? reach(entry, fromMs: t, calendar: calendar) : t + horizonMs
+        let list = events(entry, fromMs: t, toMs: end)
         let actions = list.filter { $0.kind != .cheap }
-        let under = entry.prices.filter { $0.startMs + $0.durationMs > t && $0.startMs < t + horizonMs }
+        let under = entry.prices.filter { $0.startMs + $0.durationMs > t && $0.startMs < end }
         let backdrop = PriceStrip.summary(Prices(zone: "", currency: entry.currency, slots: under, stale: false), nowMs: t).bars
 
         var age: String?
@@ -367,6 +395,7 @@ public enum PlanGlance {
             atMs: t,
             state: state,
             readAtMs: readAtMs,
+            toMs: end,
             events: list,
             backdrop: backdrop,
             currency: entry.currency,
@@ -384,7 +413,7 @@ public enum PlanGlance {
             nextText: nextText,
             nextShorter: nextShorter,
             story: state == .plan || state == .old ? story(list, entry: entry, from: t, clock: clock, ongoingIsNow: state == .plan) : [],
-            levels: (entry.battery ?? []).filter { $0.startMs + $0.durationMs > t && $0.startMs < t + horizonMs }
+            levels: (entry.battery ?? []).filter { $0.startMs + $0.durationMs > t && $0.startMs < end }
                 .compactMap { s in s.levelPct.map { LevelPoint(ms: s.startMs + s.durationMs, pct: $0) } },
             timeZone: calendar.timeZone
         )
@@ -393,13 +422,22 @@ public enum PlanGlance {
     /// "02–05 car charges to 80 % · 06–09 battery gives power · cheapest
     /// 02–04": the car's next charge and the battery's next move, in the
     /// order they happen, then the cheap hours. Without a car, the battery's
-    /// next two moves.
+    /// next two moves, said once when they are the same: "now–20:45 and
+    /// 21:00–21:30 battery gives power".
     static func line(_ events: [Event], from t: Double, clock: Clock, ongoingIsNow: Bool, actions most: Int = 2) -> String {
         let car = events.first { $0.kind == .car }
         let battery = events.filter { $0.kind == .charge || $0.kind == .discharge }.prefix(car == nil ? most : most - 1)
         let actions = ([car].compactMap { $0 } + battery).sorted { $0.startMs < $1.startMs }
-        var parts = actions.map { e -> String in
+        var runs = [(event: Event, when: String)]()
+        for e in actions {
             let when = range(e, from: t, clock: clock, ongoingIsNow: ongoingIsNow)
+            if let last = runs.last, last.event.kind == e.kind, e.kind == .charge || e.kind == .discharge {
+                runs[runs.count - 1].when = PlanWord.both.format(last.when, when)
+            } else {
+                runs.append((e, when))
+            }
+        }
+        var parts = runs.map { e, when -> String in
             switch e.kind {
             case .car:
                 return e.targetPct.map { PlanWord.carChargesTo.format(when, percent($0)) } ?? PlanWord.carCharges.format(when)
@@ -652,6 +690,7 @@ enum PlanWord: String, CaseIterable {
     case batteryCharges = "%@ battery charges"
     case batteryGives = "%@ battery gives power"
     case cheapest = "cheapest %@"
+    case both = "%@ and %@"
     case now = "Now"
     case nowLower = "now"
     case until = "until %@"

@@ -89,14 +89,15 @@ public final class PlanShare {
     /// The plan at `nowMs` as Now and the plan view show it: the box's own
     /// once it has answered; else the plan kept from an earlier launch,
     /// dated; else the card's shape until the box answers. "No plan" is
-    /// said only after the box has answered without one.
-    public func moment(nowMs: Double) -> PlanGlance.Moment {
-        shown(nowMs: nowMs).moment
+    /// said only after the box has answered without one. `whole` looks over
+    /// the whole plan, for the plan view's lanes, rather than Now's hours.
+    public func moment(nowMs: Double, whole: Bool = false) -> PlanGlance.Moment {
+        shown(nowMs: nowMs, whole: whole).moment
     }
 
     /// The moment, and the plan it was read from, for a drawing that needs
     /// every quarter and not only the events.
-    public func shown(nowMs: Double) -> (entry: PlanEntry, moment: PlanGlance.Moment) {
+    public func shown(nowMs: Double, whole: Bool = false) -> (entry: PlanEntry, moment: PlanGlance.Moment) {
         let entry = self.entry
         // A box this phone cannot reach may have planned again since: what
         // is on screen is the last plan known, dated and grey.
@@ -105,10 +106,10 @@ public final class PlanShare {
             // Dated by when the plan came, as Plan, the widget and the watch
             // date it: a plan sent again keeps its first stamp.
             let came = s.fromCache ? s.asOfMs : (plan.receivedAtMs ?? s.asOfMs)
-            return (entry, s.fromCache || away ? PlanGlance.kept(entry, readAtMs: came, nowMs: nowMs, unreachable: away) : PlanGlance.live(entry, nowMs: nowMs))
+            return (entry, s.fromCache || away ? PlanGlance.kept(entry, readAtMs: came, nowMs: nowMs, unreachable: away, whole: whole) : PlanGlance.live(entry, nowMs: nowMs, whole: whole))
         }
-        if let kept { return (kept.value, PlanGlance.kept(kept.value, readAtMs: kept.record.readAtMs, nowMs: nowMs, unreachable: away)) }
-        return (entry, PlanGlance.waiting(entry, nowMs: nowMs, note: plan.problem))
+        if let kept { return (kept.value, PlanGlance.kept(kept.value, readAtMs: kept.record.readAtMs, nowMs: nowMs, unreachable: away, whole: whole)) }
+        return (entry, PlanGlance.waiting(entry, nowMs: nowMs, note: plan.problem, whole: whole))
     }
 
     /// The plan as it stood before the person's own change, drawn as the

@@ -3,7 +3,8 @@ import FTWKit
 import SwiftUI
 
 /// The plan, opened from Now: the next 24 hours round the plan dial, or
-/// the next twelve hours in lanes, then each thing the box means to do,
+/// the whole plan the box sent in lanes (to tomorrow's last priced quarter
+/// in the evening), then each thing the box means to do,
 /// when, and why, in the box's own reasons. The dial is the default; the
 /// lanes are one tap away in the toolbar, and the phone keeps the viewer's
 /// choice.
@@ -123,8 +124,9 @@ private struct PlanBody: View {
 
     var body: some View {
         // The plan marks the minute: it redraws once a minute, not a second.
+        // The lanes show the whole plan the box sent; the dial one turn.
         let minute = site.minuteMs
-        let moment = models.planShare.moment(nowMs: minute)
+        let moment = models.planShare.moment(nowMs: minute, whole: style == .lanes)
         let moved = models.planShare.moved
         Group {
             switch style {
@@ -178,7 +180,7 @@ private struct PlanBody: View {
                         MovedLine(text: moved)
                     }
                     VStack(alignment: .leading, spacing: 6) {
-                        PlanLanesCard(moment: moment, dial: dials.dial(models.planShare.entry, nowMs: minute), holds: $dialHolds, touch: dialTouch)
+                        PlanLanesCard(moment: moment, dial: dials.dial(models.planShare.entry, nowMs: minute, untilMs: moment.toMs), holds: $dialHolds, touch: dialTouch)
                             .frame(height: 140)
                         Legend(kinds: Set(moment.events.map(\.kind)), level: !moment.levels.isEmpty)
                     }
@@ -265,16 +267,17 @@ private struct PlanStory: View {
 }
 
 /// The dial worked out once per plan and minute, so a body that runs again
-/// for any other reason reads it.
+/// for any other reason reads it. `untilMs` runs its quarters on to the
+/// end of the lanes.
 @MainActor
 private final class DialMemo {
-    private var key: (entry: PlanEntry, minute: Double)?
+    private var key: (entry: PlanEntry, minute: Double, until: Double?)?
     private var kept: PlanDial?
 
-    func dial(_ entry: PlanEntry, nowMs: Double) -> PlanDial {
-        if let key, key.entry == entry, key.minute == nowMs, let kept { return kept }
-        let d = PlanDial(plan: entry, prices: nil, nowMs: nowMs)
-        key = (entry, nowMs)
+    func dial(_ entry: PlanEntry, nowMs: Double, untilMs: Double? = nil) -> PlanDial {
+        if let key, key.entry == entry, key.minute == nowMs, key.until == untilMs, let kept { return kept }
+        let d = PlanDial(plan: entry, prices: nil, nowMs: nowMs, untilMs: untilMs)
+        key = (entry, nowMs, untilMs)
         kept = d
         return d
     }
@@ -381,19 +384,15 @@ private struct Events: View {
                 }
             }
             Spacer(minLength: 8)
-            Text(range(e))
+            // "now–04:47", or "tomorrow 21:00–22:30" where the clock alone
+            // would read as tonight.
+            Text(moment.times(e))
                 .font(Theme.figure(13, weight: .medium))
                 .foregroundStyle(Theme.fgDim)
                 .lineLimit(1)
         }
         .padding(.vertical, 7)
         .accessibilityElement(children: .combine)
-    }
-
-    /// "22:15–00:00", "now–04:47".
-    private func range(_ e: PlanGlance.Event) -> String {
-        let start = PlanGlance.started(e, at: moment.atMs) ? L("now") : AppWords.clock(e.startMs, zone: .current)
-        return "\(start)–\(AppWords.clock(e.endMs, zone: .current))"
     }
 
     /// The box's reason, and what the numbers are.
@@ -594,7 +593,9 @@ struct PlanLanes: View, Equatable {
 
     var body: some View {
         let from = moment.atMs
-        let to = from + PlanGlance.horizonMs
+        let to = moment.toMs
+        // Every three hours over Now's twelve; every six over a day and more.
+        let every = to - from > 18 * 3_600_000 ? 6 : 3
         let top = max(1, moment.backdrop.map(\.minor).max() ?? 1)
         let grey = moment.isGrey
         Chart {
@@ -648,11 +649,26 @@ struct PlanLanes: View, Equatable {
         }
         .chartYAxis(.hidden)
         .chartXAxis {
-            AxisMarks(preset: .aligned, values: .stride(by: .hour, count: 3)) { value in
+            AxisMarks(preset: .aligned, values: Self.hours(fromMs: from, toMs: to, every: every)) { value in
                 AxisValueLabel { hourLabel(value) }
             }
         }
         .accessibilityHidden(true)
+    }
+
+    /// The whole hours the axis names, counted from midnight so they read
+    /// 00, 06, 12, 18 (or every three): a stride from now would count from
+    /// whatever hour now is.
+    static func hours(fromMs: Double, toMs: Double, every: Int) -> [Date] {
+        let calendar = Calendar.current
+        let start = Date(timeIntervalSince1970: fromMs / 1000)
+        guard var t = calendar.dateInterval(of: .hour, for: start)?.end else { return [] }
+        var out = [Date]()
+        while t.timeIntervalSince1970 * 1000 < toMs {
+            if calendar.component(.hour, from: t) % every == 0 { out.append(t) }
+            t = calendar.date(byAdding: .hour, value: 1, to: t) ?? t.addingTimeInterval(3_600)
+        }
+        return out
     }
 
     static func lane(_ kind: PlanGlance.Kind) -> ClosedRange<Double> {
@@ -805,9 +821,10 @@ private struct LanesMark: View {
             }
             .allowsHitTesting(false)
             .onChange(of: plot, initial: true) { _, now in finger.plotLocal = now }
-            .onChange(of: fromMs, initial: true) { _, now in
-                finger.fromMs = now
-                finger.toMs = toMs
+            // A new plan can move the lanes' end while now stays put.
+            .onChange(of: [fromMs, toMs], initial: true) { _, now in
+                finger.fromMs = now[0]
+                finger.toMs = now[1]
             }
         }
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { finger.overlay = $0 }

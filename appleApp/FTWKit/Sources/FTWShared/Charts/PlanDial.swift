@@ -67,13 +67,16 @@ public struct PlanDial: Equatable, Sendable {
     public let doing: [String]
 
     /// The face at `nowMs`. Prices come from the price record where it has
-    /// them, else from the plan's own.
-    public init(plan: PlanEntry?, prices: PriceEntry?, nowMs: Double) {
+    /// them, else from the plan's own. `untilMs` runs the quarters on past
+    /// one turn to that time, for the lanes, which show the whole plan; the
+    /// face is always one turn.
+    public init(plan: PlanEntry?, prices: PriceEntry?, nowMs: Double, untilMs: Double? = nil) {
         let zoneID = plan?.timeZone ?? prices?.timeZone
         let zone = zoneID.flatMap(TimeZone.init(identifier:)) ?? .current
         let clock = ZoneClock.of(zone)
         let first = clock.alignDown(nowMs, stepMs: Self.quarterMs)
-        let grid = SlotGrid(firstMs: first, stepMs: Self.quarterMs, count: Self.count, fromMs: first, toMs: first + Double(Self.count) * Self.quarterMs)
+        let count = untilMs.map { max(Self.count, Int((($0 - first) / Self.quarterMs).rounded(.up))) } ?? Self.count
+        let grid = SlotGrid(firstMs: first, stepMs: Self.quarterMs, count: count, fromMs: first, toMs: first + Double(count) * Self.quarterMs)
 
         let slots = (prices?.prices.slots.isEmpty == false ? prices!.prices.slots : plan?.prices ?? [])
             .filter { $0.totalMinor.isFinite }
@@ -95,7 +98,7 @@ public struct PlanDial: Equatable, Sendable {
         func price(_ q: Int) -> Double? { holding(slots, q, start: \.startMs, length: \.durationMs)?.totalMinor }
         func planned(_ q: Int) -> PlanEntry.Slot? { holding(battery, q, start: \.startMs, length: \.durationMs) }
 
-        let minors = (0..<Self.count).map { price($0) }
+        let minors = (0..<count).map { price($0) }
         let known = minors.compactMap { $0 }
         let lo = known.min() ?? 0, hi = known.max() ?? 0
 
@@ -104,7 +107,7 @@ public struct PlanDial: Equatable, Sendable {
             if let pct = c.targetPct, let i = grid.index(atMs: c.toMs - 1) { goals[i] = pct }
         }
 
-        let quarters = (0..<Self.count).map { i in
+        let quarters = (0..<count).map { i in
             let start = grid.startMs(i), end = grid.endMs(i)
             let slot = planned(i)
             let w = slot?.batteryW
@@ -154,7 +157,7 @@ public struct PlanDial: Equatable, Sendable {
             let from = max(s.fromMs, first), to = min(s.toMs, grid.toMs)
             return from < to ? from...to : nil
         }
-        times = (0..<Self.count).map { clock.label($0 == 0 ? nowMs : grid.startMs($0)) }
+        times = (0..<count).map { clock.label($0 == 0 ? nowMs : grid.startMs($0)) }
         self.prices = minors.map { m in m.map { figure($0) + " " + perKwh } ?? DialWord.noPrice.text }
         doing = quarters.map { q in
             var parts = [String]()
