@@ -157,7 +157,11 @@ public struct PlanDial: Equatable, Sendable {
             let from = max(s.fromMs, first), to = min(s.toMs, grid.toMs)
             return from < to ? from...to : nil
         }
-        times = (0..<count).map { clock.label($0 == 0 ? nowMs : grid.startMs($0)) }
+        // Past one turn the clock reads as a time today: the day goes first.
+        times = (0..<count).map { i in
+            let label = clock.label(i == 0 ? nowMs : grid.startMs(i))
+            return i < Self.count ? label : PriceWord.tomorrow.text + " " + label
+        }
         self.prices = minors.map { m in m.map { figure($0) + " " + perKwh } ?? DialWord.noPrice.text }
         doing = quarters.map { q in
             var parts = [String]()

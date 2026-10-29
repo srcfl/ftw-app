@@ -134,6 +134,7 @@ import Testing
     /// window, at least Now's twelve hours, never past the end of tomorrow.
     @Test func theLanesReachTheWholePlan() {
         var long = night()
+        long.timeZone = "Europe/Stockholm"
         // The night plan runs to 12:00; it charges 10:00–11:00 tomorrow.
         long.battery = long.battery!.map { s in
             s.startMs >= at(13, 10) && s.startMs < at(13, 11) ? PlanEntry.Slot(startMs: s.startMs, durationMs: s.durationMs, batteryW: 2_000, reason: "solar_surplus") : s
@@ -154,6 +155,9 @@ import Testing
         let dial = PlanDial(plan: long, prices: nil, nowMs: at(12, 20), untilMs: at(14, 0))
         #expect(dial.quarters.count == 112)
         #expect(dial.grid.index(atMs: at(13, 22)) != nil)
+        // Past one turn the finger's clock names the day.
+        #expect(dial.time(95) == "19:45")
+        #expect(dial.time(96) == "TOMORROW 20:00")
         #expect(PlanDial(plan: long, prices: nil, nowMs: at(12, 20), untilMs: at(13, 12)).quarters.count == PlanDial.count)
     }
 
@@ -164,6 +168,11 @@ import Testing
         #expect(m.times(PlanGlance.Event(kind: .car, startMs: at(13, 21), endMs: at(13, 22, 30))) == "tomorrow 21:00–22:30")
         #expect(m.times(PlanGlance.Event(kind: .charge, startMs: at(12, 23, 15), endMs: at(13, 0))) == "23:15–24:00")
         #expect(m.times(PlanGlance.Event(kind: .discharge, startMs: at(12, 13), endMs: at(12, 15))) == "now–15:00")
+        // The same clock time tomorrow would read as now.
+        let eight = PlanGlance.live(night(), nowMs: at(12, 20), calendar: calendar)
+        let again = PlanGlance.Event(kind: .discharge, startMs: at(13, 20), endMs: at(13, 22))
+        #expect(eight.times(again) == "tomorrow 20:00–22:00")
+        #expect(PlanGlance.range(again, from: at(12, 20), clock: Clock(calendar: calendar), ongoingIsNow: true) == "tomorrow 20–22")
     }
 
     /// The widget never shows an old plan as if it held now: an hour after

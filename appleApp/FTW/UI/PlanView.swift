@@ -649,18 +649,20 @@ struct PlanLanes: View, Equatable {
         }
         .chartYAxis(.hidden)
         .chartXAxis {
-            AxisMarks(preset: .aligned, values: Self.hours(fromMs: from, toMs: to, every: every)) { value in
-                AxisValueLabel { hourLabel(value) }
+            AxisMarks(preset: .aligned, values: Self.hours(fromMs: from, toMs: to, every: every, zone: moment.timeZone)) { value in
+                AxisValueLabel { hourLabel(value, zone: moment.timeZone) }
             }
         }
         .accessibilityHidden(true)
     }
 
-    /// The whole hours the axis names, counted from midnight so they read
-    /// 00, 06, 12, 18 (or every three): a stride from now would count from
-    /// whatever hour now is.
-    static func hours(fromMs: Double, toMs: Double, every: Int) -> [Date] {
-        let calendar = Calendar.current
+    /// The whole hours the axis names, counted from the household's
+    /// midnight so they read 00, 06, 12, 18 (or every three), as the rows
+    /// read their times: a stride from now would count from whatever hour
+    /// now is.
+    static func hours(fromMs: Double, toMs: Double, every: Int, zone: TimeZone) -> [Date] {
+        var calendar = Calendar.current
+        calendar.timeZone = zone
         let start = Date(timeIntervalSince1970: fromMs / 1000)
         guard var t = calendar.dateInterval(of: .hour, for: start)?.end else { return [] }
         var out = [Date]()
@@ -851,8 +853,10 @@ private final class LaneFinger {
 
 /// "15", on the 24-hour clock FTW uses in both languages: an English phone
 /// would otherwise label the afternoon "03".
-private func hourLabel(_ value: AxisValue) -> some View {
-    Text(value.as(Date.self).map { String(format: "%02d", Calendar.current.component(.hour, from: $0)) } ?? "")
+private func hourLabel(_ value: AxisValue, zone: TimeZone) -> some View {
+    var calendar = Calendar.current
+    calendar.timeZone = zone
+    return Text(value.as(Date.self).map { String(format: "%02d", calendar.component(.hour, from: $0)) } ?? "")
         .font(.caption2)
         .foregroundStyle(Theme.ink3)
 }

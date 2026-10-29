@@ -34,11 +34,14 @@ public struct YDomain: Equatable, Sendable {
     /// smallest round step that leaves at most two of them, never zero
     /// (which has its own line) and none within half a step of an end,
     /// where it would crowd the end's own mark. A −2…7.5 kW scale is
-    /// marked at 2.5 and 5 kW, a −3…5 kW one at 2.5 kW.
+    /// marked at 2.5 and 5 kW, a −3…5 kW one at 2.5 kW. A scale under
+    /// 10 W is not marked: its rungs would round to the watt.
     public var rungs: [Double] {
-        guard span > 0, span.isFinite else { return [] }
+        guard span >= 10, span.isFinite else { return [] }
+        // A step under `e` leaves at least five marks inside, so the
+        // search starts there.
         let e = pow(10, (log10(span / 6)).rounded(.down))
-        for m in [0.1, 1, 10] {
+        for m in [1.0, 10] {
             for s in Self.rungSteps {
                 let step = s * e * m
                 let marks = Self.multiples(of: step, inside: self)

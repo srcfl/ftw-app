@@ -639,7 +639,7 @@ public enum PlanGlance {
         let start = e.startMs <= t + graceMs && ongoingIsNow ? PlanWord.nowLower.text : short(a)
         let text = "\(start)–\(short(b))"
         let now = clock.wall(t, asEnd: false)
-        guard e.startMs > t, a.day > now.day, (a.hour, a.minute) > (now.hour, now.minute) else { return text }
+        guard e.startMs > t, a.day > now.day, (a.hour, a.minute) >= (now.hour, now.minute) else { return text }
         return GlanceWord.tomorrow.format(text)
     }
 
@@ -652,7 +652,7 @@ public enum PlanGlance {
     static func ahead(_ ms: Double, asEnd: Bool, from t: Double, clock: Clock) -> String {
         let a = clock.wall(ms, asEnd: asEnd)
         let now = clock.wall(t, asEnd: false)
-        guard a.day > now.day, (a.hour, a.minute) > (now.hour, now.minute) else { return a.hm }
+        guard a.day > now.day, (a.hour, a.minute) >= (now.hour, now.minute) else { return a.hm }
         return GlanceWord.tomorrow.format(a.hm)
     }
 

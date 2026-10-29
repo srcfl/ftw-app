@@ -135,6 +135,9 @@ import Testing
         // −2.5 kW would sit on top of the −3 kW end.
         #expect(YDomain(lower: -3_000, upper: 5_000).rungs == [2_500])
         #expect(YDomain(lower: 0, upper: 0).rungs.isEmpty)
+        // Under 10 W a rung would round: 2.5 W would read "3 W".
+        #expect(YDomain(lower: 0, upper: 7.5).rungs.isEmpty)
+        #expect(YDomain(lower: 0, upper: 10).rungs == [5])
         for d in [YDomain(lower: -2_000, upper: 7_500), YDomain(lower: 0, upper: 150), YDomain(lower: -300, upper: 20_000)] {
             #expect(d.rungs.count <= 2)
             #expect(d.rungs.allSatisfy { $0 != 0 && $0 > d.lower && $0 < d.upper })
