@@ -330,6 +330,6 @@ struct Clock {
     /// A time tomorrow that the clock alone would read as later today.
     private func misleads(_ a: Wall, from t: Double) -> Bool {
         let now = wall(t, asEnd: false)
-        return a.day > now.day && (a.hour, a.minute) > (now.hour, now.minute)
+        return a.day > now.day && (a.hour, a.minute) >= (now.hour, now.minute)
     }
 }

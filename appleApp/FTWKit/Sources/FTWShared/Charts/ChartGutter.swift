@@ -23,9 +23,10 @@ public enum ChartGutter {
         gap + (labels.map { width($0, size: size) }.max() ?? 0) + end
     }
 
-    /// The labels a power scale draws at its ends: "20 kW", never "0 W".
+    /// The labels a power scale draws at its ends and its rungs: "20 kW",
+    /// "10 kW". Zero is "0", never the widest.
     public static func scaleLabels(_ domain: YDomain) -> [String] {
-        [domain.upper, domain.lower].filter { $0 != 0 }.map { PowerFormat.scale(abs($0)) }
+        ([domain.upper, domain.lower].filter { $0 != 0 } + domain.rungs).map { PowerFormat.scale(abs($0)) }
     }
 }
 

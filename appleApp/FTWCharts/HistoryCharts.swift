@@ -241,12 +241,16 @@ enum Ghost {
 
 /// The axes every chart on the engine draws in its own Canvas.
 enum ChartAxes {
-    /// Zero as one device pixel; a dotted gridline and a magnitude in the
-    /// right gutter at each end of the scale; the direction words, only
-    /// when the scale holds both signs and, given `reach`, only in a corner
-    /// no data runs through (`CornerWords`). `zero` false leaves zero to
-    /// the chart: a source at rest draws it dotted.
-    static func draw(in g: inout GraphicsContext, plot: CGRect, domain: YDomain, px: CGFloat, axis: CGFloat, look: TraceLook?, shown: YDomain? = nil, reach: [ChartReach]? = nil, zero drawsZero: Bool = true) {
+    /// Zero as one device pixel with "0" in the right gutter; a dotted
+    /// gridline and a magnitude at each end of the scale and at up to two
+    /// round rungs between (`YDomain.rungs`), a rung too near zero or an
+    /// end for its label left out; the direction words, only when the
+    /// scale holds both signs and, given `reach`, only in a corner no data
+    /// runs through (`CornerWords`). `zero` false leaves zero's line to the
+    /// chart: a source at rest draws it dotted. `rungs` false, for a chart
+    /// with no gutter (the watch), draws neither the rungs nor the "0":
+    /// a line there would have no figure.
+    static func draw(in g: inout GraphicsContext, plot: CGRect, domain: YDomain, px: CGFloat, axis: CGFloat, look: TraceLook?, shown: YDomain? = nil, reach: [ChartReach]? = nil, zero drawsZero: Bool = true, rungs marks: Bool = true) {
         // Labels name the scale the chart is going to; zero sits where the
         // scale on its way puts it.
         let map = YMap(domain: domain, height: plot.height)
@@ -257,7 +261,15 @@ enum ChartAxes {
             zero.addLine(to: CGPoint(x: plot.maxX, y: base))
             g.stroke(zero, with: .color(Theme.ink.opacity(0.35)), style: StrokeStyle(lineWidth: px, lineCap: .butt, lineJoin: .round))
         }
-        for v in [domain.upper, domain.lower] where v != 0 {
+        if marks, domain.lower <= 0, domain.upper >= 0 {
+            g.draw(g.resolve(ChartText.label("0", size: axis)), at: CGPoint(x: plot.maxX + 4, y: base), anchor: .leading)
+        }
+        let ends = [domain.upper, domain.lower].filter { $0 != 0 }
+        // A label is about 1.2 of its size tall: a rung keeps a clear gap
+        // to the labels at zero and at each end.
+        let clear = axis * 2
+        let rungs = marks ? domain.rungs.filter { r in ([0] + ends).allSatisfy { abs(map.y(r) - map.y($0)) >= clear } } : []
+        for v in ends + rungs {
             let y = plot.minY + map.y(v)
             var line = Path()
             line.move(to: CGPoint(x: plot.minX, y: y))

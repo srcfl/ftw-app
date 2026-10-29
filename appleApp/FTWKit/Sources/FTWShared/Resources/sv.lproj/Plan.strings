@@ -11,6 +11,7 @@
 "%@ battery charges" = "%@ laddar batteriet";
 "%@ battery gives power" = "%@ laddar batteriet ur";
 "cheapest %@" = "billigast %@";
+"%@ and %@" = "%@ och %@";
 "Now" = "Nu";
 "now" = "nu";
 "until %@" = "till %@";

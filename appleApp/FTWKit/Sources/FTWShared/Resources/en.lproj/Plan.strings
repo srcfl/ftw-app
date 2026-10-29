@@ -11,6 +11,7 @@
 "%@ battery charges" = "%@ battery charges";
 "%@ battery gives power" = "%@ battery gives power";
 "cheapest %@" = "cheapest %@";
+"%@ and %@" = "%@ and %@";
 "Now" = "Now";
 "now" = "now";
 "until %@" = "until %@";

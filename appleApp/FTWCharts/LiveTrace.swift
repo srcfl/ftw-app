@@ -199,7 +199,7 @@ struct LiveTraceSurface: View {
         // them, as on every chart.
         // Only the left of the window can run under a word.
         let reach = frame.readings.prefix { series.x($0.t) - shift <= 120 }.map { ChartReach(x: series.x($0.t) - shift, low: $0.v, high: $0.v) }
-        ChartAxes.draw(in: &g, plot: plot, domain: series.domain, px: px, axis: axisSize, look: look, shown: shown, reach: reach, zero: !series.atRest)
+        ChartAxes.draw(in: &g, plot: plot, domain: series.domain, px: px, axis: axisSize, look: look, shown: shown, reach: reach, zero: !series.atRest, rungs: chartFrame.trailing > 0)
 
         var plotting = g
         plotting.clip(to: Path(CGRect(x: plot.minX, y: plot.minY - 12, width: plot.width, height: plot.height + 24)))

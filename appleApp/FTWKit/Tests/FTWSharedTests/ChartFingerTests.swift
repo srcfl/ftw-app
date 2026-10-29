@@ -119,8 +119,29 @@ import Testing
         let gutter = ChartGutter.trailing(ChartGutter.scaleLabels(YDomain(lower: -15_000, upper: 20_000)), size: 10)
         #expect(gutter >= ChartGutter.gap + 5 * 6.18)
         #expect(gutter < 40)
-        #expect(ChartGutter.scaleLabels(YDomain(lower: 0, upper: 3_000)) == ["3 kW"])
+        #expect(ChartGutter.scaleLabels(YDomain(lower: 0, upper: 3_000)) == ["3 kW", "1 kW", "2 kW"])
         #expect(ChartGutter.trailing(["1,5 kW"], size: 10) > ChartGutter.trailing(["3 kW"], size: 10))
+    }
+
+    /// Anders, 28 Oct 2026: "a few lines on the y-axis". Up to two round
+    /// rungs between the ends, never zero, never an end.
+    @Test func aScaleIsMarkedAtUpToTwoRoundRungs() {
+        #expect(YDomain(lower: -2_000, upper: 7_500).rungs == [2_500, 5_000])
+        #expect(YDomain(lower: 0, upper: 3_000).rungs == [1_000, 2_000])
+        #expect(YDomain(lower: 0, upper: 1_000).rungs == [500])
+        #expect(YDomain(lower: 0, upper: 7_500).rungs == [2_500, 5_000])
+        #expect(YDomain(lower: -15_000, upper: 20_000).rungs == [-10_000, 10_000])
+        #expect(YDomain(lower: -1_000, upper: 1_000).rungs == [-500, 500])
+        // −2.5 kW would sit on top of the −3 kW end.
+        #expect(YDomain(lower: -3_000, upper: 5_000).rungs == [2_500])
+        #expect(YDomain(lower: 0, upper: 0).rungs.isEmpty)
+        // Under 10 W a rung would round: 2.5 W would read "3 W".
+        #expect(YDomain(lower: 0, upper: 7.5).rungs.isEmpty)
+        #expect(YDomain(lower: 0, upper: 10).rungs == [5])
+        for d in [YDomain(lower: -2_000, upper: 7_500), YDomain(lower: 0, upper: 150), YDomain(lower: -300, upper: 20_000)] {
+            #expect(d.rungs.count <= 2)
+            #expect(d.rungs.allSatisfy { $0 != 0 && $0 > d.lower && $0 < d.upper })
+        }
     }
 
     @Test func aDirectionWordStaysOffTheLine() {

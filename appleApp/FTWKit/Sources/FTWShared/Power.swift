@@ -49,13 +49,14 @@ public enum PowerFormat {
     /// "4.2 kW", magnitude only.
     public static func text(_ watts: Double) -> String { parts(watts).joined }
 
-    /// A chart rung: round by construction, so no forced decimal.
+    /// A chart rung: round by construction, so no forced decimal, and in
+    /// the language's own decimal mark ("7,5 kW" in Swedish).
     public static func scale(_ watts: Double) -> String {
         guard watts.isFinite else { return "" }
         let a = abs(watts)
         if a < 1000 { return "\(Int(a.rounded())) W" }
-        if a < 1_000_000 { return "\(trim(a / 1000)) kW" }
-        return "\(trim(a / 1_000_000)) MW"
+        if a < 1_000_000 { return Words.decimal("\(trim(a / 1000)) kW") }
+        return Words.decimal("\(trim(a / 1_000_000)) MW")
     }
 
     /// Permille on the wire, whole percent on screen.

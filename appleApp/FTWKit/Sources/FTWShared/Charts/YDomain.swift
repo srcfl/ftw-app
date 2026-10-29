@@ -26,6 +26,45 @@ public struct YDomain: Equatable, Sendable {
         return (steps.first { $0 * e >= x * 0.9999 } ?? 10) * e
     }
 
+    /// The steps a scale is marked in between its ends: round to read, so
+    /// 1, 2, 2.5 or 5 times a power of ten, never 1.5 or 7.5.
+    static let rungSteps: [Double] = [1, 2, 2.5, 5, 10]
+
+    /// The values a chart marks between its ends: the multiples of the
+    /// smallest round step that leaves at most two of them, never zero
+    /// (which has its own line) and none within half a step of an end,
+    /// where it would crowd the end's own mark. A −2…7.5 kW scale is
+    /// marked at 2.5 and 5 kW, a −3…5 kW one at 2.5 kW. A scale under
+    /// 10 W is not marked: its rungs would round to the watt.
+    public var rungs: [Double] {
+        guard span >= 10, span.isFinite else { return [] }
+        // A step under `e` leaves at least five marks inside, so the
+        // search starts there.
+        let e = pow(10, (log10(span / 6)).rounded(.down))
+        for m in [1.0, 10] {
+            for s in Self.rungSteps {
+                let step = s * e * m
+                let marks = Self.multiples(of: step, inside: self)
+                if marks.count <= 2 { return marks }
+            }
+        }
+        return []
+    }
+
+    /// The multiples of `step` at least half a step inside `domain`, zero
+    /// left out.
+    static func multiples(of step: Double, inside domain: YDomain) -> [Double] {
+        let eps = step * 1e-6
+        var out = [Double]()
+        var v = (domain.lower / step).rounded(.up) * step
+        while v < domain.upper - eps {
+            let room = min(v - domain.lower, domain.upper - v)
+            if room >= step / 2 - eps, abs(v) > eps { out.append(v) }
+            v += step
+        }
+        return out
+    }
+
     /// The domain for data from `low` to `high`. Each side of zero ends on
     /// a nice step at least 10 % past its peak. It grows at once, and
     /// shrinks only when the data fills less than 55 % of it, so the labels

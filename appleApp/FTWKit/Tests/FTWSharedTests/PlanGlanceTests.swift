@@ -114,6 +114,67 @@ import Testing
         #expect(PlanGlance.ahead(at(13, 21), asEnd: false, from: at(12, 14), clock: clock) == "tomorrow 21:00")
     }
 
+    /// Two runs of the battery doing the same thing are said once, with
+    /// both times: Anders read "laddar batteriet ur" twice on 28 Oct 2026.
+    @Test func twoRunsOfTheSameKindAreSaidOnce() {
+        let start = at(12, 20)
+        let battery = (0..<8).map { i -> PlanEntry.Slot in
+            let w: Double = i < 3 || i == 4 || i == 5 ? -480 : 0
+            return PlanEntry.Slot(startMs: start + Double(i) * Self.quarter, durationMs: Self.quarter, batteryW: w, reason: "expensive_import")
+        }
+        let entry = PlanEntry(battery: battery, charges: [], prices: [], currency: "SEK", boxStale: false)
+        let m = PlanGlance.live(entry, nowMs: start, calendar: calendar)
+        #expect(m.summary == "now–20:45 and 21:00–21:30 battery gives power")
+        // Different moves keep a clause each.
+        #expect(PlanGlance.live(night(), nowMs: at(12, 21, 30), calendar: calendar).summary.hasPrefix("22:00–23:30 battery charges · 01:00–04:45 car charges"))
+    }
+
+    /// The lanes show the whole plan the box sent (Anders, 28 Oct 2026:
+    /// "no way to see the plan further ahead"): to its last slot or car
+    /// window, at least Now's twelve hours, never past the end of tomorrow.
+    @Test func theLanesReachTheWholePlan() {
+        var long = night()
+        long.timeZone = "Europe/Stockholm"
+        // The night plan runs to 12:00; it charges 10:00–11:00 tomorrow.
+        long.battery = long.battery!.map { s in
+            s.startMs >= at(13, 10) && s.startMs < at(13, 11) ? PlanEntry.Slot(startMs: s.startMs, durationMs: s.durationMs, batteryW: 2_000, reason: "solar_surplus") : s
+        }
+        #expect(PlanGlance.reach(long, fromMs: at(12, 20), calendar: calendar) == at(13, 12))
+        let whole = PlanGlance.live(long, nowMs: at(12, 20), calendar: calendar, whole: true)
+        let now = PlanGlance.live(long, nowMs: at(12, 20), calendar: calendar)
+        #expect(whole.toMs == at(13, 12) && now.toMs == at(13, 8))
+        #expect(whole.events.contains { $0.kind == .charge && $0.startMs == at(13, 10) })
+        #expect(!now.events.contains { $0.startMs == at(13, 10) })
+        #expect(whole.levels.isEmpty == now.levels.isEmpty)
+        // A short plan keeps twelve hours; a long one stops at tomorrow's end.
+        let short = PlanEntry(battery: Array(night().battery!.prefix(4)), charges: [], prices: [], currency: "SEK", boxStale: false)
+        #expect(PlanGlance.reach(short, fromMs: at(12, 20), calendar: calendar) == at(13, 8))
+        let far = PlanEntry(battery: [PlanEntry.Slot(startMs: at(12, 20), durationMs: 60 * Self.hour, batteryW: 0, reason: "idle")], charges: [], prices: [], currency: "SEK", boxStale: false)
+        #expect(PlanGlance.reach(far, fromMs: at(12, 20), calendar: calendar) == at(14, 0))
+        // The finger reads a quarter anywhere on the lanes, past one turn too.
+        let dial = PlanDial(plan: long, prices: nil, nowMs: at(12, 20), untilMs: at(14, 0))
+        #expect(dial.quarters.count == 112)
+        #expect(dial.grid.index(atMs: at(13, 22)) != nil)
+        // Past one turn the finger's clock names the day.
+        #expect(dial.time(95) == "19:45")
+        #expect(dial.time(96) == "TOMORROW 20:00")
+        #expect(PlanDial(plan: long, prices: nil, nowMs: at(12, 20), untilMs: at(13, 12)).quarters.count == PlanDial.count)
+    }
+
+    /// A row's times name tomorrow where the clock would mislead, as the
+    /// line does, now that the lanes reach into tomorrow evening.
+    @Test func aRowNamesTomorrowWhereTheClockWouldMislead() {
+        let m = PlanGlance.live(night(), nowMs: at(12, 14), calendar: calendar)
+        #expect(m.times(PlanGlance.Event(kind: .car, startMs: at(13, 21), endMs: at(13, 22, 30))) == "tomorrow 21:00–22:30")
+        #expect(m.times(PlanGlance.Event(kind: .charge, startMs: at(12, 23, 15), endMs: at(13, 0))) == "23:15–24:00")
+        #expect(m.times(PlanGlance.Event(kind: .discharge, startMs: at(12, 13), endMs: at(12, 15))) == "now–15:00")
+        // The same clock time tomorrow would read as now.
+        let eight = PlanGlance.live(night(), nowMs: at(12, 20), calendar: calendar)
+        let again = PlanGlance.Event(kind: .discharge, startMs: at(13, 20), endMs: at(13, 22))
+        #expect(eight.times(again) == "tomorrow 20:00–22:00")
+        #expect(PlanGlance.range(again, from: at(12, 20), clock: Clock(calendar: calendar), ongoingIsNow: true) == "tomorrow 20–22")
+    }
+
     /// The widget never shows an old plan as if it held now: an hour after
     /// the box made it, the moment goes grey, says how old it is, and stops
     /// naming what happens "now".
