@@ -204,7 +204,7 @@ public enum Flow {
     /// The phosphor on a beam, from 0 (ink, still) to 1 (live). It ignites
     /// on the first live frame with the app's spring (response 0.35 s,
     /// bounce 0.15), and when live ends it decays exponentially (τ 0.4 s)
-    /// while its wave slows to rest in 0.35 s, so the screen cools like a
+    /// while its lines slow to rest in 0.35 s, so the screen cools like a
     /// CRT. A beam that has never been live stays at 0. Instant under
     /// Reduce Motion.
     public struct Light: Equatable, Sendable {
@@ -236,13 +236,13 @@ public enum Flow {
             self.live = live
         }
 
-        /// The glow, the wave's depth and the core's strength.
+        /// The glow, the lines' light and the core's strength.
         public func level(at t: Double) -> Double {
             let dt = max(0, t - since)
             return live ? 1 - (1 - level0) * Self.residual(dt) : level0 * exp(-dt / Self.decay)
         }
 
-        /// How fast the wave runs, as a share of its speed.
+        /// How fast the lines run, as a share of their speed.
         public func motion(at t: Double) -> Double {
             let dt = max(0, t - since)
             if live { return min(1, 1 - (1 - motion0) * Self.residual(dt)) }
@@ -299,7 +299,7 @@ public enum Flow {
     }
 
     /// A beam over time: its width and speed follow the readings (τ 0.4 s),
-    /// its light ignites and decays, its wave runs at the speed the power
+    /// its light ignites and decays, its lines run at the speed the power
     /// gives. A plain value stepped once per frame, so a test can run it.
     public struct BeamMotion: Equatable, Sendable {
         public static let tau: Double = 0.4
@@ -391,23 +391,25 @@ public enum Flow {
     }
 
     /// How long a reading's swell runs: 0.95 of the time since the one
-    /// before, from 0.48 s to 1.5 s, so a swell has ended when the next
-    /// reading comes.
+    /// before, from 0.48 s to 1.5 s, so at a steady cadence a swell has
+    /// ended when the next reading comes.
     public static func ringSwellDuration(gap: Double) -> Double {
         min(1.5, 0.95 * max(0.5, gap.isFinite ? gap : 1))
     }
 
     /// Where the lines of light sit on the way between an arc and the
     /// home's circle, `length` points long: one a wavelength apart, as
-    /// shares of the way from where the power comes from (0) to where it
-    /// goes (1). They move on as `phase`, in wavelengths, grows.
-    public static func ringLines(phase: Double, length: Double) -> [Double] {
+    /// shares of the way from the arc (0) to the home's circle (1). As
+    /// `phase`, in wavelengths, grows they move toward the home when the
+    /// power flows into it and toward the arc when it flows out. A way
+    /// shorter than a wavelength holds one line or none.
+    public static func ringLines(phase: Double, length: Double, towardHome: Bool) -> [Double] {
         guard length > 0, phase.isFinite else { return [] }
         let f = phase - phase.rounded(.down)
         var out = [Double]()
         var s = f * wavelength
         while s <= length {
-            out.append(s / length)
+            out.append(towardHome ? s / length : 1 - s / length)
             s += wavelength
         }
         return out
@@ -439,15 +441,18 @@ public enum Flow {
 
         /// The arc at `t`, with `reading` the time of the newest reading
         /// from the box. A new one starts a swell while the arc is live and
-        /// flowing; the first frame, a cache and Reduce Motion never swell.
-        public mutating func step(_ target: BeamTarget, reading: Double? = nil, at t: Double, reduceMotion: Bool) -> RingFrame {
+        /// flowing and the ring is `animating`. The first frame, a reading
+        /// that came while nothing was drawn, a frame drawn once with the
+        /// timeline at rest, a cache and Reduce Motion never swell: a swell
+        /// that cannot run would stand still at its brightest.
+        public mutating func step(_ target: BeamTarget, reading: Double? = nil, at t: Double, reduceMotion: Bool, animating: Bool = true) -> RingFrame {
             let dt = max(0, t - last)
             last = max(last, t)
             let f = beam.step(target, at: t, reduceMotion: reduceMotion)
             let wanted = Flow.ringFill(kw: target.kw)
             if reduceMotion { fill.snap(wanted) } else { fill.step(toward: wanted, dt: dt, tau: BeamMotion.tau) }
             if let reading, reading != self.reading {
-                if let before = self.reading, target.live, target.flowing, !reduceMotion {
+                if let before = self.reading, target.live, target.flowing, !reduceMotion, animating, dt <= BeamMotion.gap {
                     swell = Swell(start: t, duration: Flow.ringSwellDuration(gap: (reading - before) / 1_000))
                 }
                 self.reading = reading
@@ -455,7 +460,7 @@ public enum Flow {
             var k: Double?
             if let s = swell {
                 let p = (t - s.start) / s.duration
-                if reduceMotion || p > 1 { swell = nil } else { k = max(0, p) }
+                if reduceMotion || !animating || p > 1 { swell = nil } else { k = max(0, p) }
             }
             return RingFrame(beam: f, fill: min(1, max(0, fill.value)), swell: k)
         }

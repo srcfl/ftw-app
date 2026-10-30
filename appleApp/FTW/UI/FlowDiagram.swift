@@ -143,7 +143,7 @@ private struct FlowRing: View {
                 let began = ContinuousClock.now
                 defer { ChartDraws.flow(ContinuousClock.now - began) }
                 #endif
-                draw(&g, at: (running ? tick.date : .now).timeIntervalSinceReferenceDate, still: still)
+                draw(&g, at: (running ? tick.date : .now).timeIntervalSinceReferenceDate, still: still, running: running)
             }
         }
         .onAppear { onScreen = true }
@@ -164,7 +164,7 @@ private struct FlowRing: View {
         var opacity: Double = 1
     }
 
-    private func draw(_ g: inout GraphicsContext, at t: Double, still: Bool) {
+    private func draw(_ g: inout GraphicsContext, at t: Double, still: Bool, running: Bool) {
         let dark = g.environment.colorScheme == .dark
         let track = Theme.ink.opacity(dark ? 0.13 : 0.09)
         let th = Double(ring.thickness), r = Double(ring.radius)
@@ -180,7 +180,7 @@ private struct FlowRing: View {
         // and a near one, each blurred once; then the cores over them.
         var halo = [Soft](), near = [Soft](), cores = [Soft](), chevrons = [(Double, Bool, Double)]()
         for arc in arcs {
-            let f = clock.frame(arc.target, reading: reading, at: t, reduceMotion: still)
+            let f = clock.frame(arc.target, reading: reading, at: t, reduceMotion: still, animating: running)
             let k = 1 - f.beam.idle
             guard k > 0.01, let lit = FlowPlan.ringArc(arc.spot, fill: f.fill).lit else { continue }
             let light = min(1, f.beam.light)
@@ -217,11 +217,10 @@ private struct FlowRing: View {
             // fade in and out at the ends of the way.
             guard light > 0.004 else { continue }
             let spread = max(8, (lit.upperBound - lit.lowerBound) / 2)
-            for p in Flow.ringLines(phase: f.beam.phase, length: outer - inner) {
-                let toHome = arc.target.towardHome ? p : 1 - p
+            for toHome in Flow.ringLines(phase: f.beam.phase, length: outer - inner, towardHome: arc.target.towardHome) {
                 let rr = outer + (inner - outer) * toHome
                 let hs = spread * (1 - 0.4 * toHome)
-                let a = (dark ? 0.6 : 0.55) * strength * pow(sin(.pi * p), 1.2) * light * k
+                let a = (dark ? 0.6 : 0.55) * strength * pow(sin(.pi * toHome), 1.2) * light * k
                 let range = (mid - hs)...(mid + hs)
                 var line = soft(range, radius: rr, width: th * 0.4, color) { u, _ in a * Flow.ringEase(u, end: 0) }
                 line.opacity = dark ? 1 : 0.85
@@ -319,9 +318,9 @@ private struct FlowRing: View {
 private final class RingClock {
     private var motions: [EnergyNode: Flow.RingMotion] = [:]
 
-    func frame(_ target: Flow.BeamTarget, reading: Double?, at t: Double, reduceMotion: Bool) -> Flow.RingFrame {
+    func frame(_ target: Flow.BeamTarget, reading: Double?, at t: Double, reduceMotion: Bool, animating: Bool) -> Flow.RingFrame {
         var m = motions[target.node] ?? Flow.RingMotion(target, reading: reading, at: t)
-        let f = m.step(target, reading: reading, at: t, reduceMotion: reduceMotion)
+        let f = m.step(target, reading: reading, at: t, reduceMotion: reduceMotion, animating: animating)
         motions[target.node] = m
         return f
     }

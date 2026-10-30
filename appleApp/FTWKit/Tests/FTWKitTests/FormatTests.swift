@@ -247,22 +247,32 @@ import Testing
     }
 
     /// The lines sit a wavelength apart along the way, inside it, and move
-    /// from where the power comes from to where it goes as the phase grows.
-    @Test func theLinesRunFromSourceToSink() {
+    /// toward the home for power coming into it and toward the arc for
+    /// power leaving it as the phase grows.
+    @Test func theLinesRunTheWayThePowerFlows() {
         let length = 30.4
-        for phase in stride(from: 0.0, to: 3, by: 0.07) {
-            let ps = Flow.ringLines(phase: phase, length: length)
-            #expect(ps.allSatisfy { (0...1).contains($0) })
-            for (a, b) in zip(ps, ps.dropFirst()) { #expect(abs((b - a) * length - Flow.wavelength) < 1e-9) }
-            #expect(ps.count == 2 || ps.count == 3)
+        for toward in [true, false] {
+            for phase in stride(from: 0.0, to: 3, by: 0.07) {
+                let ps = Flow.ringLines(phase: phase, length: length, towardHome: toward)
+                #expect(ps.allSatisfy { (0...1).contains($0) })
+                for (a, b) in zip(ps, ps.dropFirst()) { #expect(abs(abs(b - a) * length - Flow.wavelength) < 1e-9) }
+                #expect(ps.count == 2 || ps.count == 3)
+            }
+            let a = Flow.ringLines(phase: 0.2, length: length, towardHome: toward)[0]
+            let b = Flow.ringLines(phase: 0.3, length: length, towardHome: toward)[0]
+            // Toward the home's circle (1) when the power comes in, toward
+            // the arc (0) when it goes out.
+            #expect(abs((b - a) * length - (toward ? 1 : -1) * 0.1 * Flow.wavelength) < 1e-9)
+            // Whole wavelengths later the lines are where they were.
+            #expect(Flow.ringLines(phase: 7.25, length: length, towardHome: toward) == Flow.ringLines(phase: 0.25, length: length, towardHome: toward))
         }
-        let a = Flow.ringLines(phase: 0.2, length: length)[0]
-        let b = Flow.ringLines(phase: 0.3, length: length)[0]
-        #expect(abs((b - a) * length - 0.1 * Flow.wavelength) < 1e-9)
-        #expect(Flow.ringLines(phase: 0.4, length: 0).isEmpty)
-        #expect(Flow.ringLines(phase: .nan, length: length).isEmpty)
-        // Whole wavelengths later the lines are where they were.
-        #expect(Flow.ringLines(phase: 7.25, length: length) == Flow.ringLines(phase: 0.25, length: length))
+        // The least ring's way is shorter than a wavelength: one line or
+        // none.
+        for phase in stride(from: 0.0, to: 1, by: 0.05) {
+            #expect(Flow.ringLines(phase: phase, length: 11.3, towardHome: true).count <= 1)
+        }
+        #expect(Flow.ringLines(phase: 0.4, length: 0, towardHome: true).isEmpty)
+        #expect(Flow.ringLines(phase: .nan, length: length, towardHome: true).isEmpty)
     }
 
     /// Faster with more power: the lines take the beam's phase, which runs
@@ -320,40 +330,81 @@ import Testing
         #expect(Flow.ringStrength(kw: 1) > 0.65 && Flow.ringStrength(kw: 1) < 1)
     }
 
+    /// Steps an arc at 60 Hz from `from` to `to` seconds with `reading`,
+    /// as a live screen draws it, giving the frame at `to`.
+    func run(_ m: inout Flow.RingMotion, _ t: Flow.BeamTarget, reading: Double, from: Double, to: Double, reduceMotion: Bool = false, animating: Bool = true) -> Flow.RingFrame {
+        var s = from
+        var f = m.step(t, reading: reading, at: s, reduceMotion: reduceMotion, animating: animating)
+        while s < to - 1e-9 {
+            s = min(to, s + 1.0 / 60)
+            f = m.step(t, reading: reading, at: s, reduceMotion: reduceMotion, animating: animating)
+        }
+        return f
+    }
+
     /// Each new reading from the box starts one swell, from the frame it is
     /// first drawn on, that ends before the next reading at its cadence.
     @Test func eachReadingSendsOneSwell() {
         var m = Flow.RingMotion(target(2), reading: 1_000, at: 0)
         // The first frame and a reading already seen never swell.
         #expect(m.step(target(2), reading: 1_000, at: 0, reduceMotion: false).swell == nil)
-        #expect(m.step(target(2), reading: 1_000, at: 0.5, reduceMotion: false).swell == nil)
+        #expect(run(&m, target(2), reading: 1_000, from: 0, to: 1).swell == nil)
         // A reading a second later swells for 0.95 s.
-        let first = m.step(target(2), reading: 2_000, at: 1, reduceMotion: false)
+        let first = m.step(target(2), reading: 2_000, at: 1 + 1.0 / 60, reduceMotion: false)
         #expect(first.swell == 0)
-        #expect(abs((m.step(target(2), reading: 2_000, at: 1.475, reduceMotion: false).swell ?? -1) - 0.5) < 1e-9)
-        #expect(m.step(target(2), reading: 2_000, at: 1.96, reduceMotion: false).swell == nil)
+        let mid = run(&m, target(2), reading: 2_000, from: 1 + 2.0 / 60, to: 1 + 1.0 / 60 + 0.475)
+        #expect(abs((mid.swell ?? -1) - 0.5) < 1e-6)
+        #expect(run(&m, target(2), reading: 2_000, from: 1.5, to: 2).swell == nil)
         // Five seconds apart, it runs its longest, 1.5 s.
-        _ = m.step(target(2), reading: 7_000, at: 6, reduceMotion: false)
-        #expect(abs((m.step(target(2), reading: 7_000, at: 6.75, reduceMotion: false).swell ?? -1) - 0.5) < 1e-9)
+        _ = run(&m, target(2), reading: 2_000, from: 2, to: 6)
+        _ = m.step(target(2), reading: 7_000, at: 6 + 1.0 / 60, reduceMotion: false)
+        let long = run(&m, target(2), reading: 7_000, from: 6 + 2.0 / 60, to: 6 + 1.0 / 60 + 0.75)
+        #expect(abs((long.swell ?? -1) - 0.5) < 1e-6)
         // A new reading starts the swell again from the middle.
-        #expect(m.step(target(2), reading: 7_400, at: 6.9, reduceMotion: false).swell == 0)
+        #expect(m.step(target(2), reading: 7_400, at: 6.8, reduceMotion: false).swell == 0)
         #expect(Flow.ringSwellDuration(gap: 0.1) == 0.475)
         #expect(Flow.ringSwellDuration(gap: .nan) == 0.95)
     }
 
     /// A cache, a node at rest and Reduce Motion never swell.
     @Test func onlyALiveFlowingArcSwells() {
-        var cached = Flow.RingMotion(target(2, live: false), reading: 1_000, at: 0)
-        #expect(cached.step(target(2, live: false), reading: 2_000, at: 1, reduceMotion: false).swell == nil)
-        var resting = Flow.RingMotion(target(0.02), reading: 1_000, at: 0)
-        #expect(resting.step(target(0.02), reading: 2_000, at: 1, reduceMotion: false).swell == nil)
-        var still = Flow.RingMotion(target(2), reading: 1_000, at: 0)
-        #expect(still.step(target(2), reading: 2_000, at: 1, reduceMotion: true).swell == nil)
+        for (t, still) in [(target(2, live: false), false), (target(0.02), false), (target(2), true)] {
+            var m = Flow.RingMotion(t, reading: 1_000, at: 0)
+            _ = run(&m, t, reading: 1_000, from: 0, to: 1, reduceMotion: still)
+            #expect(m.step(t, reading: 2_000, at: 1 + 1.0 / 60, reduceMotion: still).swell == nil)
+        }
         // Turned on in the middle of a swell, Reduce Motion ends it.
         var m = Flow.RingMotion(target(2), reading: 1_000, at: 0)
-        _ = m.step(target(2), reading: 2_000, at: 1, reduceMotion: false)
-        #expect(m.step(target(2), reading: 2_000, at: 1.2, reduceMotion: true).swell == nil)
-        #expect(m.step(target(2), reading: 2_000, at: 1.3, reduceMotion: false).swell == nil)
+        _ = run(&m, target(2), reading: 1_000, from: 0, to: 1)
+        #expect(m.step(target(2), reading: 2_000, at: 1 + 1.0 / 60, reduceMotion: false).swell == 0)
+        #expect(m.step(target(2), reading: 2_000, at: 1 + 2.0 / 60, reduceMotion: true).swell == nil)
+        #expect(m.step(target(2), reading: 2_000, at: 1 + 3.0 / 60, reduceMotion: false).swell == nil)
+    }
+
+    /// A swell that cannot run would stand still at its brightest: a
+    /// reading drawn once while the timeline rests, say under Control
+    /// Center, or first drawn after the ring was away, sends none.
+    @Test func aSwellNeverStandsStill() {
+        // The timeline at rest: a frame drawn for each reading, a second
+        // apart, never swells.
+        var resting = Flow.RingMotion(target(2), reading: 1_000, at: 0)
+        for i in 1...5 {
+            let f = resting.step(target(2), reading: 1_000 + Double(i) * 1_000, at: Double(i), reduceMotion: false, animating: false)
+            #expect(f.swell == nil)
+        }
+        // Not animating, even drawn often, it sends none.
+        var quiet = Flow.RingMotion(target(2), reading: 1_000, at: 0)
+        _ = run(&quiet, target(2), reading: 1_000, from: 0, to: 1, animating: false)
+        #expect(quiet.step(target(2), reading: 2_000, at: 1 + 1.0 / 60, reduceMotion: false, animating: false).swell == nil)
+        // Back on screen after a minute away: the newest reading is old
+        // news and sends none; the next one does.
+        var back = Flow.RingMotion(target(2), reading: 1_000, at: 0)
+        _ = run(&back, target(2), reading: 1_000, from: 0, to: 1)
+        #expect(back.step(target(2), reading: 61_000, at: 61, reduceMotion: false).swell == nil)
+        _ = run(&back, target(2), reading: 61_000, from: 61 + 1.0 / 60, to: 62)
+        #expect(back.step(target(2), reading: 62_000, at: 62 + 1.0 / 60, reduceMotion: false).swell == 0)
+        // A swell under way stops when the ring stops animating.
+        #expect(back.step(target(2), reading: 62_000, at: 62 + 2.0 / 60, reduceMotion: false, animating: false).swell == nil)
     }
 }
 

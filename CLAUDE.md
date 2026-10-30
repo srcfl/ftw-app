@@ -142,9 +142,10 @@ native, and smooth enough to impress.
   1.8 kW, nine tenths at 6 kW, never past the quarter), in the node's
   colour, brightest over its middle third with no hot ends
   (`Flow.ringEase`). Each reading from the box sends one swell from the
-  arc's middle out past its ends, over 0.95 of the time to the next
-  reading and at most 1.5 s (`Flow.ringSwell`); with no reading the arc
-  stands still. Steady flow (J, chosen by Fredrik on 30 Oct 2026 from
+  arc's middle out past its ends, over 0.95 of the time since the reading
+  before and at most 1.5 s (`Flow.ringSwell`); with no reading the arc
+  stands still, and a reading that comes while the ring is not animating
+  sends no swell. Steady flow (J, chosen by Fredrik on 30 Oct 2026 from
   round 3 of the canvas): thin lines of light run all the time across
   the way between the arc and the home's circle, 15 pt apart and faster
   with more power (`Flow.ringLines` at `Flow.waveSpeed`), in toward the
