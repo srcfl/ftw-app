@@ -56,7 +56,8 @@ LICENSING.md from this source tree.
 
 ## Native builds and stores
 
-For a clean official build, set `GITHUB_SHA` or `-PftwSourceRevision` to the
+For a clean official build, set `FTW_SOURCE_REVISION` (iPhone,
+`appleApp/scripts/release.sh` does) or `-PftwSourceRevision` (Android) to the
 full published commit. This pins the in-app source and license links. A local
 build without a revision uses development repository links. An extracted
 source archive builds without Git; pass its published revision to retain the

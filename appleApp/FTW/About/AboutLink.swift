@@ -54,7 +54,7 @@ struct AboutLink: View {
 
 extension BuildSource {
     /// This build, as its bundle records it. The "Record the source revision"
-    /// phase writes the commit; CI sets FTW_SOURCE_REVISION to GITHUB_SHA.
+    /// phase writes the commit; scripts/release.sh sets FTW_SOURCE_REVISION.
     static let bundled = BuildSource(
         version: AppInfo.version,
         build: AppInfo.buildNumber,
