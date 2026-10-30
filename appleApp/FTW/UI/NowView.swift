@@ -332,7 +332,7 @@ private struct FlowSection: View {
 
     var body: some View {
         let readings = Self.readings(site: site, loadpoints: loadpoints)
-        FlowDiagram(readings: readings, zoom: zoom, car: carActions)
+        FlowDiagram(readings: readings, readingAt: site.lastFrameAtMs, zoom: zoom, car: carActions)
             // A drawing with fixed places: its figures grow with the text
             // to the largest standard size, its names stop at the default
             // one. Capped here, so the drawing's scaled sizes see the cap.

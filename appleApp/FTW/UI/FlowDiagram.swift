@@ -10,13 +10,18 @@ import SwiftUI
 ///
 /// The ring (Ring / Quiet, chosen by Fredrik on 24 October 2026) gives each
 /// node the quarter that faces it. Its arc lights from the quarter's middle
-/// out, longer with more power (`Flow.ringFill`), in the node's colour, and
-/// a soft wave of light runs along it: clockwise for power coming into the
-/// home, the other way for power leaving it. Only a reading the box
-/// confirmed live glows or moves: a cached or quiet arc is a faint still
-/// arc, and a node at rest shows only its quarter's track.
+/// out, longer with more power (`Flow.ringFill`), in the node's colour,
+/// brightest over its middle third, and each reading from the box sends a
+/// swell from its middle out to its ends. Steady flow (J, chosen on 30
+/// October 2026): thin lines of light run between the arc and the home's
+/// circle all the time, faster with more power, in toward the home for
+/// power coming into it and out for power leaving it. Only a reading the
+/// box confirmed live glows or moves: a cached or quiet arc is a faint
+/// still arc, and a node at rest shows only its quarter's track.
 struct FlowDiagram: View {
     let readings: [NodeReading]
+    /// When the newest reading from the box came, in ms by the phone clock.
+    var readingAt: Double?
     let zoom: Namespace.ID
     /// Charge now, Pause and Back to the plan, held on the car.
     var car: CarActions?
@@ -34,7 +39,7 @@ struct FlowDiagram: View {
             let axis = nodes.contains { [.top, .bottom].contains(FlowPlan.spot($0, among: nodes)) }
             let ring = RingGeometry(size: geo.size, label: label, labelWidth: width, axis: axis)
             ZStack {
-                FlowRing(arcs: arcs(nodes: nodes), ring: ring)
+                FlowRing(arcs: arcs(nodes: nodes), reading: readingAt, ring: ring)
                     .accessibilityHidden(true)
                 // The labels sit in the corners of a box just tall enough
                 // that none of them touches the ring.
@@ -98,13 +103,13 @@ extension FlowPlan.Spot {
     var horizontal: HorizontalAlignment { leading ? .leading : (trailing ? .trailing : .center) }
 }
 
-/// The ring, in one Canvas inside one `TimelineView`. The light runs at the
+/// The ring, in one Canvas inside one `TimelineView`. The lines run at the
 /// display's rate while an arc is live and Now is on screen in an active
 /// app, at 20 frames a second in Low Power Mode, and for a moment after a
 /// change so an arc can grow, ignite or cool; otherwise the timeline rests
-/// and nothing draws. Under Reduce Motion the light holds still, ignite and
-/// decay are instant, and a still chevron on the arc says which way it
-/// flows.
+/// and nothing draws. Under Reduce Motion nothing runs or swells, ignite
+/// and decay are instant, and a still chevron on the way to the home says
+/// which way the power flows.
 private struct FlowRing: View {
     struct Arc: Equatable {
         let target: Flow.BeamTarget
@@ -113,6 +118,8 @@ private struct FlowRing: View {
     }
 
     let arcs: [Arc]
+    /// When the newest reading from the box came, in ms by the phone clock.
+    let reading: Double?
     let ring: RingGeometry
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.scenePhase) private var scenePhase
@@ -136,7 +143,7 @@ private struct FlowRing: View {
                 let began = ContinuousClock.now
                 defer { ChartDraws.flow(ContinuousClock.now - began) }
                 #endif
-                draw(&g, at: (running ? tick.date : .now).timeIntervalSinceReferenceDate, still: still)
+                draw(&g, at: (running ? tick.date : .now).timeIntervalSinceReferenceDate, still: still, running: running)
             }
         }
         .onAppear { onScreen = true }
@@ -149,36 +156,100 @@ private struct FlowRing: View {
         }
     }
 
-    private func draw(_ g: inout GraphicsContext, at t: Double, still: Bool) {
+    /// A stroke of soft light, drawn in a pass of its own.
+    private struct Soft {
+        let path: Path
+        let shading: GraphicsContext.Shading
+        var width: Double
+        var opacity: Double = 1
+    }
+
+    private func draw(_ g: inout GraphicsContext, at t: Double, still: Bool, running: Bool) {
         let dark = g.environment.colorScheme == .dark
         let track = Theme.ink.opacity(dark ? 0.13 : 0.09)
-        let style = StrokeStyle(lineWidth: ring.thickness, lineCap: .round)
+        let th = Double(ring.thickness), r = Double(ring.radius)
         // Each node's quarter, the track its arc lights.
         for arc in arcs {
-            let a = FlowPlan.ringArc(arc.spot, fill: 1)
-            g.stroke(path(a.track), with: .color(track), style: style)
+            g.stroke(path(FlowPlan.ringArc(arc.spot, fill: 1).track, radius: r), with: .color(track), style: StrokeStyle(lineWidth: ring.thickness, lineCap: .round))
         }
+        // The way between the arcs and the home's circle, where the lines
+        // of light run.
+        let outer = r - th / 2 - 4, inner = Double(ring.hub) / 2 + 4
+        let ink = Theme.ink2.resolve(in: g.environment)
+        // Glow in two passes for every arc and line at once, a wide halo
+        // and a near one, each blurred once; then the cores over them.
+        var halo = [Soft](), near = [Soft](), cores = [Soft](), chevrons = [(Double, Bool, Double)]()
         for arc in arcs {
-            let f = clock.frame(arc.target, at: t, reduceMotion: still)
+            let f = clock.frame(arc.target, reading: reading, at: t, reduceMotion: still, animating: running)
             let k = 1 - f.beam.idle
             guard k > 0.01, let lit = FlowPlan.ringArc(arc.spot, fill: f.fill).lit else { continue }
-            let p = path(lit)
-            if TraceInk.glows(live: f.beam.light > 0.004, in: g) {
-                TraceInk.glow(p, color: arc.color, width: ring.thickness, strength: f.beam.light * k, in: g)
-            }
+            let light = min(1, f.beam.light)
             // Light means live: the arc's colour while the box confirms it,
             // ink once it does not, crossing over as the phosphor ignites
             // or cools.
-            let color = Self.mix(Theme.ink2.resolve(in: g.environment), arc.color.resolve(in: g.environment), f.beam.light)
-            let cap = Double(ring.thickness) / 2 / Double(ring.radius) * 180 / .pi
-            // With no glow (light mode, or Reduce Transparency), full-strength
-            // colour says live alone: the wave runs shallower and the arc
-            // keeps its colour between crests.
-            let glows = dark && !g.environment.accessibilityReduceTransparency
-            let stops = Self.stops(lit, radius: Double(ring.radius), clockwise: arc.target.towardHome, f.beam, color, k, lead: cap, depth: glows ? 1 : 0.35)
-            g.stroke(p, with: .conicGradient(Gradient(stops: stops), center: ring.center, angle: .degrees(lit.lowerBound - cap)), style: style)
-            if still, arc.target.flowing { chevron(lit, clockwise: arc.target.towardHome, opacity: f.beam.alpha * k, in: g) }
+            let color = Self.mix(ink, arc.color.resolve(in: g.environment), light)
+            let strength = Flow.ringStrength(kw: arc.target.kw)
+            let half = (lit.upperBound - lit.lowerBound) / 2 * r * .pi / 180
+            let swell = { (s: Double) in f.swell.map { Flow.ringSwell(s, k: $0, half: half) } ?? 0 }
+            let glows = TraceInk.glows(live: light > 0.004, in: g)
+            // The arc: brightest over its middle third, with no hot ends,
+            // lifted by each reading's swell. A live arc leaves the swell
+            // the room it needs.
+            let base = 1 - (still ? 0.1 : 0.3) * light
+            let end = dark ? 0.14 : 0.32
+            cores.append(soft(lit, radius: r, width: th, color) { u, s in f.beam.alpha * k * Flow.ringEase(u, end: end) * (base + (1 - base) * swell(s)) })
+            if glows {
+                // One gradient for both glows, the near one at less strength.
+                let g0 = light * k
+                var glow = soft(lit, radius: r, width: th * 1.6, color) { u, s in 0.9 * g0 * Flow.ringEase(u, end: 0) * (0.5 + 0.6 * strength * swell(s)) }
+                halo.append(glow)
+                glow.width = th * 1.1
+                glow.opacity = 0.65 / 0.9
+                near.append(glow)
+            }
+            let mid = (lit.lowerBound + lit.upperBound) / 2
+            if still {
+                if arc.target.flowing { chevrons.append((mid, arc.target.towardHome, f.beam.alpha * k)) }
+                continue
+            }
+            // The lines: thin arcs of light that keep their angle, so they
+            // narrow as they near the home and widen as they leave it, and
+            // fade in and out at the ends of the way.
+            guard light > 0.004 else { continue }
+            let spread = max(8, (lit.upperBound - lit.lowerBound) / 2)
+            for toHome in Flow.ringLines(phase: f.beam.phase, length: outer - inner, towardHome: arc.target.towardHome) {
+                let rr = outer + (inner - outer) * toHome
+                let hs = spread * (1 - 0.4 * toHome)
+                let a = (dark ? 0.6 : 0.55) * strength * pow(sin(.pi * toHome), 1.2) * light * k
+                let range = (mid - hs)...(mid + hs)
+                var line = soft(range, radius: rr, width: th * 0.4, color) { u, _ in a * Flow.ringEase(u, end: 0) }
+                line.opacity = dark ? 1 : 0.85
+                cores.append(line)
+                if glows {
+                    line.width = th * 0.8
+                    line.opacity = 0.75
+                    near.append(line)
+                }
+            }
         }
+        for (pass, blur) in [(halo, th * 1.3), (near, th * 0.5)] where !pass.isEmpty {
+            var glow = g
+            glow.blendMode = .plusLighter
+            glow.addFilter(.blur(radius: blur))
+            glow.drawLayer { layer in
+                for s in pass {
+                    var c = layer
+                    c.opacity = s.opacity
+                    c.stroke(s.path, with: s.shading, style: StrokeStyle(lineWidth: s.width, lineCap: .round))
+                }
+            }
+        }
+        for s in cores {
+            var c = g
+            c.opacity = s.opacity
+            c.stroke(s.path, with: s.shading, style: StrokeStyle(lineWidth: s.width, lineCap: .round))
+        }
+        for (mid, inward, opacity) in chevrons { chevron(at: mid, radius: (outer + inner) / 2, inward: inward, opacity: opacity, in: g) }
     }
 
     /// From `a` at 0 to `b` at 1.
@@ -188,60 +259,51 @@ private struct FlowRing: View {
         return Color.Resolved(red: lerp(a.red, b.red), green: lerp(a.green, b.green), blue: lerp(a.blue, b.blue), opacity: lerp(a.opacity, b.opacity))
     }
 
-    /// An arc of the ring between two angles, clockwise as drawn.
-    private func path(_ range: ClosedRange<Double>) -> Path {
+    /// An arc of a circle round the ring's middle between two angles,
+    /// clockwise as drawn.
+    private func path(_ range: ClosedRange<Double>, radius: Double) -> Path {
         var p = Path()
-        p.addArc(center: ring.center, radius: ring.radius, startAngle: .degrees(range.lowerBound), endAngle: .degrees(range.upperBound), clockwise: false)
+        p.addArc(center: ring.center, radius: radius, startAngle: .degrees(range.lowerBound), endAngle: .degrees(range.upperBound), clockwise: false)
         return p
     }
 
-    /// The core's brightness along the arc as stops of a conic gradient that
-    /// starts `lead` degrees before the arc's first angle, so the round cap
-    /// there takes the arc's first colour rather than the gradient's last.
-    /// Inside, the stops sit ten to a wavelength along the arc, close enough
-    /// that a crest running past them keeps its height within 4 %.
-    static func stops(_ lit: ClosedRange<Double>, radius: Double, clockwise: Bool, _ f: Flow.BeamFrame, _ color: Color.Resolved, _ k: Double, lead: Double = 0, depth scale: Double = 1) -> [Gradient.Stop] {
-        let span = lit.upperBound - lit.lowerBound
+    /// A soft arc at `radius` over `range`: `color` at `alpha(u, s)` along
+    /// it, `u` from -1 at its first angle to 1 at its last and `s` points
+    /// from its middle. The stops sit 6 pt apart, and at least eight to an
+    /// arc, on a conic gradient that starts half the stroke's width before
+    /// the arc, so each round cap takes the colour of the end it closes.
+    /// The light's shapes are soft, so a stop closer would add nothing.
+    private func soft(_ range: ClosedRange<Double>, radius: Double, width: Double, _ color: Color.Resolved, alpha: (Double, Double) -> Double) -> Soft {
+        let span = range.upperBound - range.lowerBound
         let perDegree = radius * .pi / 180
-        let length = span * perDegree
-        func stop(_ deg: Double) -> Gradient.Stop {
-            // Points from where the light starts: the arc's first angle when
-            // it runs clockwise, its last when it runs back.
-            let s = (clockwise ? deg : span - deg) * perDegree
-            let b = f.alpha * (1 - f.depth * scale * (1 - Flow.wave(s, phase: f.phase))) * k
+        let lead = width / 2 / perDegree
+        func stop(_ deg: Double, at location: Double) -> Gradient.Stop {
             var c = color
-            c.opacity *= Float(b)
-            return Gradient.Stop(color: Color(c), location: (deg + lead) / 360)
+            c.opacity *= Float(min(1, max(0, alpha(span > 0 ? deg / span * 2 - 1 : 0, abs(deg - span / 2) * perDegree))))
+            return Gradient.Stop(color: Color(c), location: location)
         }
-        var head = stop(0)
-        head.location = 0
-        var out = [head, stop(0)]
-        if f.depth * scale > 0.001, length > 1 {
-            let step = Flow.wavelength / 10 / perDegree
-            var d = step
-            while d < span {
-                out.append(stop(d))
-                d += step
-            }
+        var stops = [stop(0, at: 0)]
+        let step = max(0.5, min(span / 8, 6 / perDegree))
+        var d = 0.0
+        while d < span {
+            stops.append(stop(d, at: (d + lead) / 360))
+            d += step
         }
-        out.append(stop(span))
-        // Past the arc only the end's round cap is drawn; it keeps the
-        // end's colour.
-        var tail = out[out.count - 1]
-        tail.location = 1
-        out.append(tail)
-        return out
+        stops.append(stop(span, at: (span + lead) / 360))
+        stops.append(stop(span, at: 1))
+        let shading = GraphicsContext.Shading.conicGradient(Gradient(stops: stops), center: ring.center, angle: .degrees(range.lowerBound - lead))
+        return Soft(path: path(range, radius: radius), shading: shading, width: width)
     }
 
-    /// A still chevron at the middle of an arc, pointing the way the light
-    /// would run: 6 pt, in ink, as a mark of the interface.
-    private func chevron(_ lit: ClosedRange<Double>, clockwise: Bool, opacity: Double, in g: GraphicsContext) {
-        let mid = (lit.lowerBound + lit.upperBound) / 2 * .pi / 180
-        let c = CGPoint(x: ring.center.x + ring.radius * cos(mid), y: ring.center.y + ring.radius * sin(mid))
-        // The tangent, clockwise in y-down coordinates.
-        let dir: CGFloat = clockwise ? 1 : -1
-        let (ux, uy) = (-sin(mid) * dir, cos(mid) * dir)
-        let size = max(6, ring.thickness * 0.6 + 3)
+    /// A still chevron on the way between an arc and the home, at the arc's
+    /// middle, pointing the way the lines would run: 6 pt, in ink, as a mark
+    /// of the interface.
+    private func chevron(at angle: Double, radius: Double, inward: Bool, opacity: Double, in g: GraphicsContext) {
+        let a = angle * .pi / 180
+        let c = CGPoint(x: ring.center.x + radius * cos(a), y: ring.center.y + radius * sin(a))
+        let dir: Double = inward ? -1 : 1
+        let (ux, uy) = (cos(a) * dir, sin(a) * dir)
+        let size = max(6, Double(ring.thickness) * 0.6 + 3)
         var head = Path()
         head.move(to: CGPoint(x: c.x - ux * size - uy * size, y: c.y - uy * size + ux * size))
         head.addLine(to: CGPoint(x: c.x + ux * size * 0.6, y: c.y + uy * size * 0.6))
@@ -256,9 +318,9 @@ private struct FlowRing: View {
 private final class RingClock {
     private var motions: [EnergyNode: Flow.RingMotion] = [:]
 
-    func frame(_ target: Flow.BeamTarget, at t: Double, reduceMotion: Bool) -> Flow.RingFrame {
-        var m = motions[target.node] ?? Flow.RingMotion(target, at: t)
-        let f = m.step(target, at: t, reduceMotion: reduceMotion)
+    func frame(_ target: Flow.BeamTarget, reading: Double?, at t: Double, reduceMotion: Bool, animating: Bool) -> Flow.RingFrame {
+        var m = motions[target.node] ?? Flow.RingMotion(target, reading: reading, at: t)
+        let f = m.step(target, reading: reading, at: t, reduceMotion: reduceMotion, animating: animating)
         motions[target.node] = m
         return f
     }
