@@ -1,3 +1,5 @@
+New in 0.6.3: on Now, thin lines of light run between each part of your home and its use in the middle. They run in toward the middle for power coming into the home and out for power leaving it, and faster with more power. Each arc pulses once for every reading from your box. With Reduce Motion on, a still arrow shows the way. A button on a notification no longer closes the app.
+
 New in 0.6.2: the plan's lanes show the whole plan your box made, to the last known price, often into tomorrow evening. The rows under them say tomorrow where the time alone would read as tonight. Power charts mark zero and one or two even steps on the scale. When the battery does the same thing twice in a row, the plan says it once.
 
 New in 0.6.1: History scrolls again. Putting its rows in your own order is gone until it can be done without locking the tab.

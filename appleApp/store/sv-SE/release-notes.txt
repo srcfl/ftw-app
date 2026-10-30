@@ -1,3 +1,5 @@
+Nytt i 0.6.3: på Nu går tunna linjer av ljus mellan varje del av hemmet och förbrukningen i mitten. De går in mot mitten när strömmen kommer in i hemmet och ut när den lämnar det, och fortare med mer effekt. Varje båge pulserar en gång för varje avläsning från boxen. Med Reducera rörelse på visar en stilla pil vägen. En knapp i en notis stänger inte längre appen.
+
 Nytt i 0.6.2: planens staplar visar hela planen som boxen har gjort, fram till det sista kända priset, ofta till i morgon kväll. Raderna under dem säger i morgon där klockslaget annars hade lästs som i kväll. Effektdiagrammen märker ut noll och ett eller två jämna steg på skalan. När batteriet gör samma sak två gånger i följd säger planen det en gång.
 
 Nytt i 0.6.1: Historik går att scrolla igen. Att dra om ordningen på raderna är borttaget tills det går att göra utan att låsa fliken.
