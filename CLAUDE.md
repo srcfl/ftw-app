@@ -138,17 +138,27 @@ native, and smooth enough to impress.
   Oct 2026 from the design canvas; it replaces the beams of 13 Oct). The
   home's use sits in the middle; each node has the quarter of the ring
   that faces its corner. Its arc lights from the quarter's middle out,
-  longer with more power (`Flow.ringFill`: a fifth at 0.6 kW, half at
+  longer with more power (`Flow.ringFill`: at least a quarter, half at
   1.8 kW, nine tenths at 6 kW, never past the quarter), in the node's
-  colour, and a soft wave of light runs along it, faster with more power:
-  clockwise for power coming into the home, the other way for power
-  leaving it (`Flow.RingMotion` over `Flow.BeamMotion`, tested). The light
-  runs at the display's rate while an arc is live and Now is on screen in
-  an active app, ignites on the first live frame and decays when live
-  ends, and the arc's colour crosses to ink as it cools; otherwise the
-  timeline rests. Under Reduce Motion it holds still and a still chevron
-  on the arc shows the direction; in Low Power Mode it drops to 20 fps. A
-  node at 42 W or less lights nothing; only its quarter's track shows.
+  colour, brightest over its middle third with no hot ends
+  (`Flow.ringEase`). Each reading from the box sends one swell from the
+  arc's middle out past its ends, over 0.95 of the time to the next
+  reading and at most 1.5 s (`Flow.ringSwell`); with no reading the arc
+  stands still. Steady flow (J, chosen by Fredrik on 30 Oct 2026 from
+  round 3 of the canvas): thin lines of light run all the time across
+  the way between the arc and the home's circle, 15 pt apart and faster
+  with more power (`Flow.ringLines` at `Flow.waveSpeed`), in toward the
+  home for power coming into it and out for power leaving it. They keep
+  their angle, so they narrow near the home. All of it is
+  `Flow.RingMotion` over `Flow.BeamMotion`, tested. The light runs at the
+  display's rate while an arc is live and Now is on screen in an active
+  app, ignites on the first live frame and decays when live ends, and the
+  arc's colour crosses to ink as it cools; otherwise the timeline rests.
+  In the dark the arcs and lines glow in two blurred passes for the whole
+  ring, never one per arc. Under Reduce Motion nothing runs or swells and
+  a still chevron on the way shows the direction; in Low Power Mode it
+  drops to 20 fps. A node at 42 W or less lights nothing; only its
+  quarter's track shows.
   The corner labels sit as close to the ring as clears it by 10 pt
   (`RingGeometry`), and the car's goal and level are one row under it.
   The live curve glides over each second, except under Reduce Motion or
