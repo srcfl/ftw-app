@@ -6,14 +6,27 @@ import SwiftUI
 /// so a viewer who goes from Live to Today sees the time change and
 /// nothing else.
 enum TraceInk {
+    /// One width scale for every line a chart draws: readings, the plan and
+    /// forecast after now, the History tab and the plan's battery level, so
+    /// each chart keeps the same grammar (Fredrik, 24 October 2026: the
+    /// lines looked a little thin). Hairlines and axes stay one pixel.
+    static let weight: CGFloat = 1.3
     /// The line's width.
-    static let line: CGFloat = 2.5
+    static let line: CGFloat = 2.5 * weight
     /// The glow: two strokes under the line, as wide as these times the
     /// line and as strong as these, with no blur.
     static let glowWide: (width: CGFloat, alpha: Double) = (2.8, 0.12)
     static let glowNear: (width: CGFloat, alpha: Double) = (1.8, 0.25)
     /// A second series on the same chart: thinner, under the node's own.
-    static let otherLine: CGFloat = 2
+    static let otherLine: CGFloat = 2 * weight
+    /// A plan or a forecast: thinner than a reading, and dashed, with gaps
+    /// that grow with it so its round caps never close them.
+    static let ghost: CGFloat = 1.75 * weight
+    static let ghostDash: [CGFloat] = [3 * weight, 4 * weight]
+    /// The edge a plan's ghost bar draws at its value.
+    static let planEdge: CGFloat = 1 * weight
+    /// A line on a small chart, as on the History tab.
+    static let smallLine: CGFloat = 1.5 * weight
     /// A new value slides in over this long.
     static let slide: TimeInterval = 0.25
     /// A new scale, a series coming or going, moves as one spring over this.

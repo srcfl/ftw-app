@@ -165,7 +165,7 @@ struct HistoryDrawing: ChartDrawing {
                 TraceInk.dotted(dotted, px: px, in: p)
             }
             if showsFetchingEstimate {
-                p.stroke(Path(series.estimate.cgPath).applying(toShown), with: .color(look.up.opacity(0.6)), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round, dash: [3, 4]))
+                p.stroke(Path(series.estimate.cgPath).applying(toShown), with: .color(look.up.opacity(0.6)), style: StrokeStyle(lineWidth: TraceInk.ghost, lineCap: .round, lineJoin: .round, dash: TraceInk.ghostDash))
             }
             TraceInk.line(line, look: look, width: own ? TraceInk.line : TraceInk.otherLine, opacity: own ? 1 : 0.85, glows: own && filling != nil, glowClip: filling, above: above, below: below, in: p)
         }
@@ -215,8 +215,8 @@ struct HistoryDrawing: ChartDrawing {
 /// What the box plans or forecasts, drawn after now on the timeline.
 enum Ghost {
     /// A plan's slots as ghost bars: a faint fill in each direction's
-    /// colour with a 1 px cap, equal neighbours merged, on `g` translated
-    /// to the plot.
+    /// colour with a thin edge at the value, equal neighbours merged, on
+    /// `g` translated to the plot.
     static func bars(_ values: [Double?], grid: SlotGrid, look: TraceLook, width: CGFloat, map: YMap, scale: CGFloat, px: CGFloat, in g: GraphicsContext) {
         for run in ChartPaths.runs(values, grid: grid, width: width, map: map, scale: scale, maxRadius: 4) {
             let color = run.value >= 0 ? look.up : look.down
@@ -226,16 +226,17 @@ enum Ghost {
                 : RectangleCornerRadii(topLeading: 0, bottomLeading: run.radius, bottomTrailing: run.radius, topTrailing: 0)
             g.fill(Path(roundedRect: r, cornerRadii: radii, style: .circular), with: .color(color.opacity(0.14)))
             var cap = Path()
-            let y = run.value > 0 ? r.minY + px / 2 : r.maxY - px / 2
+            let edge = max(px, TraceInk.planEdge)
+            let y = run.value > 0 ? r.minY + edge / 2 : r.maxY - edge / 2
             cap.move(to: CGPoint(x: r.minX + run.radius, y: y))
             cap.addLine(to: CGPoint(x: r.maxX - run.radius, y: y))
-            g.stroke(cap, with: .color(color.opacity(0.7)), style: StrokeStyle(lineWidth: px, lineCap: .round, lineJoin: .round))
+            g.stroke(cap, with: .color(color.opacity(0.7)), style: StrokeStyle(lineWidth: edge, lineCap: .round, lineJoin: .round))
         }
     }
 
     /// A forecast: an estimate, so a dashed line, at half strength.
     static func forecast(_ line: Path, look: TraceLook, in g: GraphicsContext) {
-        g.stroke(line, with: .color(look.up.opacity(0.5)), style: StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round, dash: [3, 4]))
+        g.stroke(line, with: .color(look.up.opacity(0.5)), style: StrokeStyle(lineWidth: TraceInk.ghost, lineCap: .round, lineJoin: .round, dash: TraceInk.ghostDash))
     }
 }
 
