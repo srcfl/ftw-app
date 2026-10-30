@@ -1,3 +1,5 @@
+Nytt i 0.6.3: på Nu rör sig tunna ljuslinjer mellan varje båge i ringen och hemmet i mitten. De går in mot hemmet när effekt kommer in och ut när effekt lämnar hemmet, och fortare ju mer effekt det är. Varje båge pulserar en gång för varje avläsning från boxen. Med Reducera rörelse påslaget står ringen still och en pil visar riktningen. Appen kraschar inte längre när du trycker på en knapp i en notis. Säg till om Nu går trögt eller om telefonen blir varm.
+
 Nytt i 0.6.2: planens staplar visar hela planen som boxen har gjort, fram till det sista kända priset, ofta till i morgon kväll. Raderna under dem säger i morgon där klockslaget annars hade lästs som i kväll. Effektdiagrammen märker ut noll och ett eller två jämna steg på skalan. När batteriet gör samma sak två gånger i följd säger planen det en gång.
 
 Nytt i 0.6.1: Historik går att scrolla igen. Att dra om ordningen på raderna är borttaget tills det går att göra utan att låsa fliken.
