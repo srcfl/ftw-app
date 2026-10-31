@@ -119,7 +119,8 @@ public struct PlanStrip: Equatable, Sendable {
         }
 
         var goals = [Int: Double]()
-        for c in charges where c.toMs > first && c.toMs <= grid.toMs {
+        // Once per car, where its last window ends at the goal.
+        for c in charges where c.toMs > first && c.toMs <= grid.toMs && entry?.chargesAgain(after: c) != true {
             if let pct = c.targetPct, let i = grid.index(atMs: c.toMs - 1) { goals[i] = pct }
         }
 

@@ -34,7 +34,8 @@ public struct PlanDial: Equatable, Sendable {
         /// The battery's planned power, site sign. Nil without a plan.
         public let batteryW: Double?
         public let car: Bool
-        /// The goal, on the car's last quarter of a window.
+        /// The goal, on the last quarter of the car's last window: the one
+        /// that ends at it. Said once, not at every window on the way.
         public let carGoalPct: Double?
         /// Where the plan leaves the battery by the quarter's end, in
         /// percent. Nil when the box did not say.
@@ -103,7 +104,7 @@ public struct PlanDial: Equatable, Sendable {
         let lo = known.min() ?? 0, hi = known.max() ?? 0
 
         var goals = [Int: Double]()
-        for c in charges where c.toMs > first && c.fromMs < grid.toMs {
+        for c in charges where c.toMs > first && c.fromMs < grid.toMs && plan?.chargesAgain(after: c) != true {
             if let pct = c.targetPct, let i = grid.index(atMs: c.toMs - 1) { goals[i] = pct }
         }
 

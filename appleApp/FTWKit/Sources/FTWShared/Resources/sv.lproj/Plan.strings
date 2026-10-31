@@ -7,6 +7,7 @@
 "Your box couldn't plan ahead · it runs on safe defaults" = "Boxen kunde inte planera · kör på säkra standardval";
 "Nothing planned for 12 hours" = "Inget planerat på 12 timmar";
 "%@ car charges to %@" = "%@ laddar bilen till %@";
+"%@ car charges toward %@" = "%@ laddar bilen mot %@";
 "%@ car charges" = "%@ laddar bilen";
 "%@ battery charges" = "%@ laddar batteriet";
 "%@ battery gives power" = "%@ laddar batteriet ur";
@@ -16,6 +17,7 @@
 "now" = "nu";
 "until %@" = "till %@";
 "Car charges to %@" = "Bilen laddar till %@";
+"Car charges toward %@" = "Bilen laddar mot %@";
 "Car charges" = "Bilen laddar";
 "Battery charges" = "Batteriet laddar";
 "Battery gives power" = "Batteriet laddar ur";
@@ -31,6 +33,8 @@
 "Battery *gives power* %@" = "Batteriet *ger ström* %@";
 "Car *charges* %@" = "Bilen *laddar* %@";
 "%@, to %@" = "%@, mål %@";
+"%@ and later, toward %@" = "%@ och senare, mot %@";
+"%@ and later, toward %@ by %@" = "%@ och senare, mot %@ senast %@";
 "%@." = "%@.";
 "Then *stores* %@" = "*Lagrar* sedan %@";
 "Then *gives power* %@" = "*Ger* sedan *ström* %@";

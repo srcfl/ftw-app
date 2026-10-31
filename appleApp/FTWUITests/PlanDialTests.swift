@@ -59,6 +59,20 @@ final class PlanDialTests: XCTestCase {
         XCTAssertTrue(app.navigationBars["Plan ahead"].exists)
     }
 
+    /// A car topped up for a quarter now and charged in the night toward
+    /// one goal (Erik, 31 Oct 2026): the story says the goal is still ahead
+    /// after the quarter, and when, not "to 100 %" as if the quarter got
+    /// the car there.
+    @MainActor
+    func testAWindowOnTheWaySaysTheGoalIsAhead() throws {
+        let app = launch(["-FTWPlanStyle", "dial", "-FTWDemoCar", "steps"])
+        let story = app.descendants(matching: .any)["plan.story"].firstMatch
+        XCTAssertTrue(story.waitForExistence(timeout: 15), "no story under the dial")
+        let ahead = NSPredicate(format: "label CONTAINS 'and later, toward 100' AND label CONTAINS '17:00'")
+        XCTAssertEqual(XCTWaiter().wait(for: [expectation(for: ahead, evaluatedWith: story)], timeout: 10), .completed, "the story reads: \(story.label)")
+        XCTAssertFalse(story.label.contains("to 100"), "a window on the way says it reaches the goal: \(story.label)")
+    }
+
     /// The lanes are one tap away, and the phone remembers the choice: a
     /// new launch opens on the lanes until the viewer taps the dial again.
     @MainActor

@@ -124,6 +124,23 @@ public final class SimulatedHouse {
         return (start, start + hours * 3_600_000, (hours * Self.chargerW).rounded(), max(0, needWh - gained).rounded())
     }
 
+    /// A quarter the box tops the car up in ahead of the night, as Erik's
+    /// box planned it on 31 Oct 2026. Nil, the default, plans the night
+    /// alone.
+    public var carTopUpAtMs: Double?
+
+    /// The car's plan as the windows the box sends: the night's, and the
+    /// top-up quarter before it while that is still to finish. The night
+    /// is shorter by what the top-up gives, so the energy is the same.
+    public func carWindows(_ nowMs: Double) -> [(startMs: Double, endMs: Double, wh: Double)] {
+        guard let p = carPlan(nowMs), p.endMs > p.startMs, p.endMs > nowMs else { return [] }
+        let quarter = 900_000.0
+        guard let from = carTopUpAtMs, from + quarter > nowMs, from + quarter < p.startMs else { return [(p.startMs, p.endMs, p.wh)] }
+        let left = from + quarter - max(nowMs, from)
+        let wh = (Self.chargerW * left / 3_600_000).rounded()
+        return [(max(nowMs, from), from + quarter, wh), (p.startMs, max(p.startMs, p.endMs - left), max(0, p.wh - wh))]
+    }
+
     // Energy since local midnight, integrated.
     public private(set) var todayImportWh: Double = 6_100
     public private(set) var todayExportWh: Double = 2_400
@@ -229,7 +246,7 @@ public final class SimulatedHouse {
         } else if surplusOnly {
             let spare = max(0, -pvW - baseLoadW - 200)
             evW = spare >= 1_400 ? min(spare, 11_000).rounded() : 0
-        } else if let plan = carPlan(nowMs), nowMs >= plan.startMs, nowMs < plan.endMs {
+        } else if carWindows(nowMs).contains(where: { nowMs >= $0.startMs && nowMs < $0.endMs }) {
             evW = Self.chargerW
         } else {
             evW = 0
