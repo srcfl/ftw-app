@@ -228,9 +228,25 @@ private struct TimelineAccessibility: ViewModifier {
     }
 }
 
+/// A page that scrolls around a chart. A finger on the chart's own gesture
+/// would hold the page still, even beside the scroll (seen in the
+/// simulator, 31 October 2026), so the page holds the one drag, beside its
+/// scroll, and hands it to the chart. `holds` is true while the chart pans,
+/// reads or zooms: the page holds still under the finger.
+struct ChartPage {
+    var holds: Binding<Bool>
+    var touch: DialTouch
+}
+
+extension EnvironmentValues {
+    @Entry var chartPage: ChartPage? = nil
+}
+
 /// Touches redraw this small overlay, not the chart geometry. A quick
 /// drag pans; a hold reads. Two fingers move and zoom around their own
 /// centroid. Starting at the leading edge leaves the system back gesture.
+/// On a page that scrolls, the page's drag stands in for the chart's own
+/// gesture, and a swipe that starts up or down is the page's.
 private struct TimelineTouchOverlay: View {
     @Binding var window: TimelineWindow
     /// The window as drawn when the finger lands; the gesture starts from
@@ -248,17 +264,31 @@ private struct TimelineTouchOverlay: View {
     @State private var size = CGSize.zero
     @State private var start: Touch?
     @State private var selectedMs: Double?
+    @State private var finger = PageFinger()
+    @State private var pinchFrom: TimelineWindow?
     @GestureState private var touching = false
+    @Environment(\.chartPage) private var page
 
     private struct Touch {
         var window: TimelineWindow
         var positions: [CGFloat]
+        /// Where the first finger came down, up or down.
+        var startY: CGFloat
         var began: Date
         var lastX: CGFloat
-        // 0 waits for intent, 1 pans, 2 reads, 3 zooms.
+        // 0 waits for intent, 1 pans, 2 reads, 3 zooms, 4 is the page's.
         var mode = 0
         /// Panned, read, zoomed or had a second finger: never a tap.
         var acted = false
+    }
+
+    /// The page's drag, as this chart sees it: where it is on the screen and
+    /// whether the finger came down on it. A plain reference, so a scroll
+    /// redraws nothing here.
+    @MainActor final class PageFinger {
+        var frame: CGRect = .zero
+        var startAt: CGPoint?
+        var mine = false
     }
 
     var body: some View {
@@ -278,51 +308,15 @@ private struct TimelineTouchOverlay: View {
         }
         .leavesTheEdge()
         .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
-        .gesture(SpatialEventGesture()
-            .updating($touching) { _, state, _ in state = true }
-            .onChanged { events in
-                let positions = events.filter { $0.phase == .active }.map { $0.location.x }.sorted()
-                guard !positions.isEmpty, size.width > frame.trailing else { return }
-                if start == nil || start?.positions.count != positions.count {
-                    scrub.lift()
-                    // A changed finger count keeps the gesture from being a
-                    // tap, so a pinch never ends by opening the full screen.
-                    let acted = start != nil || positions.count >= 2
-                    let from = start == nil ? shown : window
-                    window = from
-                    start = Touch(window: from, positions: positions, began: Date(), lastX: positions[0], acted: acted)
-                    return
-                }
-                guard var saved = start else { return }
-                let width = size.width - frame.trailing
-                if positions.count >= 2 {
-                    saved.mode = 3
-                    saved.acted = true
-                    let oldSpan = max(1, saved.positions.last! - saved.positions[0])
-                    let nextSpan = max(1, positions.last! - positions[0])
-                    let anchor = Double((saved.positions[0] + saved.positions.last!) / 2 / width)
-                    let destination = Double((positions[0] + positions.last!) / 2 / width)
-                    window = saved.window.transformed(anchor: anchor, destination: destination, magnification: Double(nextSpan / oldSpan), nowMs: nowMs)
-                    scrub.lift()
-                } else if saved.mode == 2 {
-                    read(positions[0])
-                } else if abs(positions[0] - saved.positions[0]) >= 6 {
-                    saved.mode = 1
-                    saved.acted = true
-                    window = saved.window.transformed(anchor: Double(saved.positions[0] / width), destination: Double(positions[0] / width), magnification: 1, nowMs: nowMs)
-                }
-                saved.lastX = positions[0]
-                start = saved
-            }
-            .onEnded { _ in
-                if let s = start, s.mode == 0, !s.acted { onTap?() }
-                end()
-            })
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { finger.frame = $0 }
+        .gesture(touch, isEnabled: page == nil)
+        .simultaneousGesture(pinch, isEnabled: page != nil)
         .simultaneousGesture(LongPressGesture(minimumDuration: 0.25, maximumDistance: 6).onEnded { _ in
             guard var saved = start, saved.positions.count == 1, saved.mode == 0 else { return }
             saved.mode = 2
             saved.acted = true
             start = saved
+            hold(saved.mode)
             read(saved.lastX)
         })
         // Two fingers here zoom time; the view's zoom transition may not
@@ -334,6 +328,124 @@ private struct TimelineTouchOverlay: View {
             touchingChanged(down)
             if !down { end() }
         }
+        .onAppear {
+            page?.touch.take(finger, changed: { pageChanged($0) }, ended: { pageEnded() })
+        }
+        .onDisappear {
+            page?.touch.release(finger)
+            pageEnded()
+        }
+    }
+
+    /// Every finger, where the page does not scroll.
+    private var touch: some Gesture {
+        SpatialEventGesture()
+            .updating($touching) { _, state, _ in state = true }
+            .onChanged { events in
+                moved(events.filter { $0.phase == .active }.map(\.location))
+            }
+            .onEnded { _ in
+                if let s = start, s.mode == 0, !s.acted { onTap?() }
+                end()
+            }
+    }
+
+    /// Two fingers, on a page that scrolls: zoom around where they landed.
+    private var pinch: some Gesture {
+        MagnifyGesture()
+            .onChanged { v in
+                if pinchFrom == nil {
+                    pinchFrom = start?.window ?? shown
+                    start?.mode = 3
+                    start?.acted = true
+                    scrub.lift()
+                    hold(3)
+                }
+                guard let from = pinchFrom else { return }
+                let anchor = Double(v.startAnchor.x * size.width / max(1, size.width - frame.trailing))
+                window = from.transformed(anchor: anchor, destination: anchor, magnification: Double(v.magnification), nowMs: nowMs)
+            }
+            .onEnded { _ in
+                pinchFrom = nil
+                hold(start?.mode ?? 0)
+            }
+    }
+
+    /// The page's drag. A touch is the chart's only when it came down on
+    /// the chart, clear of the back swipe's edge.
+    private func pageChanged(_ v: DragGesture.Value) {
+        if finger.startAt != v.startLocation {
+            // A new touch: one the system took away never ended.
+            pageEnded()
+            finger.startAt = v.startLocation
+            finger.mine = v.startLocation.x >= EdgeRule.edge && finger.frame.contains(v.startLocation)
+            guard finger.mine else { return }
+            window = shown
+            touchingChanged(true)
+        }
+        guard finger.mine else { return }
+        moved([CGPoint(x: v.location.x - finger.frame.minX, y: v.location.y - finger.frame.minY)])
+    }
+
+    private func pageEnded() {
+        finger.startAt = nil
+        guard finger.mine else { return }
+        finger.mine = false
+        if let s = start, s.mode == 0, !s.acted { onTap?() }
+        touchingChanged(false)
+        end()
+    }
+
+    /// The fingers on the chart, in its own frame.
+    private func moved(_ fingers: [CGPoint]) {
+        let points = fingers.sorted { $0.x < $1.x }
+        let positions = points.map(\.x)
+        guard !positions.isEmpty, size.width > frame.trailing else { return }
+        if start == nil || start?.positions.count != positions.count {
+            scrub.lift()
+            // A changed finger count keeps the gesture from being a
+            // tap, so a pinch never ends by opening the full screen.
+            let acted = start != nil || positions.count >= 2
+            let from = start == nil ? shown : window
+            window = from
+            start = Touch(window: from, positions: positions, startY: points[0].y, began: Date(), lastX: positions[0], acted: acted)
+            return
+        }
+        // The page's swipe, or the page's pinch under its first finger.
+        guard var saved = start, saved.mode != 4, saved.mode != 3 || positions.count >= 2 else { return }
+        let width = size.width - frame.trailing
+        let dx = abs(positions[0] - saved.positions[0])
+        let dy = abs(points[0].y - saved.startY)
+        if positions.count >= 2 {
+            saved.mode = 3
+            saved.acted = true
+            let oldSpan = max(1, saved.positions.last! - saved.positions[0])
+            let nextSpan = max(1, positions.last! - positions[0])
+            let anchor = Double((saved.positions[0] + saved.positions.last!) / 2 / width)
+            let destination = Double((positions[0] + positions.last!) / 2 / width)
+            window = saved.window.transformed(anchor: anchor, destination: destination, magnification: Double(nextSpan / oldSpan), nowMs: nowMs)
+            scrub.lift()
+        } else if saved.mode == 2 {
+            read(positions[0])
+        } else if saved.mode == 0, page != nil, dy >= 6, dy > dx {
+            // Up or down first, on a page that scrolls: the page's.
+            saved.mode = 4
+            saved.acted = true
+        } else if dx >= 6 {
+            saved.mode = 1
+            saved.acted = true
+            window = saved.window.transformed(anchor: Double(saved.positions[0] / width), destination: Double(positions[0] / width), magnification: 1, nowMs: nowMs)
+        }
+        saved.lastX = positions[0]
+        start = saved
+        hold(saved.mode)
+    }
+
+    /// The page holds still while the chart pans, reads or zooms.
+    private func hold(_ mode: Int) {
+        guard let holds = page?.holds else { return }
+        let on = (1...3).contains(mode)
+        if holds.wrappedValue != on { holds.wrappedValue = on }
     }
 
     private func read(_ x: CGFloat) {
@@ -357,6 +469,7 @@ private struct TimelineTouchOverlay: View {
         start = nil
         selectedMs = nil
         scrub.lift()
+        hold(0)
     }
 }
 
@@ -560,3 +673,4 @@ private struct TimelineDescriptor: AXChartDescriptorRepresentable {
         return AXChartDescriptor(title: node.title, summary: TimelineWords.material(node, sampleMs: sampleMs), xAxis: x, yAxis: y, additionalAxes: [], series: series)
     }
 }
+
