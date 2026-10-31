@@ -5,19 +5,23 @@ import SwiftUI
 /// The car, in the node view's material. On a box that keeps cars, the car
 /// comes first: its name and level in large type with where the level
 /// comes from and how old it is, its limit, then the charger in one line
-/// while the car is on it, the plan, the level and the goal. On a box
+/// while the car is on it, the goal, the plan and the level. On a box
 /// without cars, or for a plug-in the box cannot name, the charger's power
-/// is the hero, with the level beside it, as before. Plan, Charge now and
-/// Pause sit in a glass bar at the foot, where the thumb is
-/// and in the same places whatever the car does, with the receipt log
-/// under them: SENT ▸ ACCEPTED ▸ MEASURED ▸ CONFIRMED, each slot lit on
-/// its own evidence. The screen shows intent at once and a result only
-/// once the box has confirmed it.
+/// is the hero, with the level beside it, as before. The goal comes before
+/// the plan, on the first screen, and a tap on the ring or on Plan opens
+/// it. Plan, Charge now and Pause sit in a glass bar at the foot, where
+/// the thumb is and in the same places whatever the car does, with the
+/// receipt log under them: SENT ▸ ACCEPTED ▸ MEASURED ▸ CONFIRMED, each
+/// slot lit on its own evidence. The screen shows intent at once and a
+/// result only once the box has confirmed it.
 struct CarView: View {
     let app: AppModel
     let home: HomeModels
     let id: String?
     @State private var editingGoal = false
+    /// The plan pans, reads or zooms: the page holds still.
+    @State private var chartHolds = false
+    @State private var chartTouch = DialTouch()
     @State private var scrub = ScrubModel()
     @State private var text = PeriodText()
 
@@ -43,9 +47,13 @@ struct CarView: View {
         return id.flatMap { want in model.points.first { $0.id == want } } ?? model.points.first
     }
 
+    /// Whoever may change the goal: the car's, or the charger's schedule.
+    private var canEditGoal: Bool { car != nil ? cars.canControl : home.site.canConfigure }
+
     var body: some View {
         let car = self.car
         let lp = self.lp
+        let editGoal: (() -> Void)? = canEditGoal ? { editingGoal = true } : nil
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if let lp, cars.keepsCars, lp.chargerCar?.asking == true {
@@ -54,7 +62,7 @@ struct CarView: View {
                         .padding(.bottom, 28)
                 }
                 if let car {
-                    CarHero(car: car, cars: cars, site: home.site, zone: model.zone)
+                    CarHero(car: car, cars: cars, site: home.site, zone: model.zone, editGoal: editGoal)
                         .padding(.horizontal, 20)
                     ChargerLine(car: car, lp: lp, model: model, cars: cars)
                         .padding(.horizontal, 20)
@@ -63,13 +71,15 @@ struct CarView: View {
                         StatusLines(lp: lp, model: model, site: home.site)
                             .padding(.horizontal, 20)
                             .padding(.top, 4)
-                        CarPlan(lp: lp, model: model, home: home, scrub: scrub, text: text)
-                            .padding(.top, 24)
                     }
-                    CarLevelBlock(car: car, cars: cars, canControl: cars.canControl)
+                    CarGoalBlock(car: car, lp: lp, cars: cars, model: model, site: home.site, editing: $editingGoal)
                         .padding(.horizontal, 20)
                         .padding(.top, 28)
-                    CarGoalBlock(car: car, lp: lp, cars: cars, model: model, site: home.site, editing: $editingGoal)
+                    if let lp {
+                        CarPlan(lp: lp, model: model, home: home, scrub: scrub, text: text)
+                            .padding(.top, 28)
+                    }
+                    CarLevelBlock(car: car, cars: cars, canControl: cars.canControl)
                         .padding(.horizontal, 20)
                         .padding(.top, 28)
                     if app.isDemo, let demo = lp ?? model.points.first {
@@ -92,15 +102,16 @@ struct CarView: View {
                     StatusLines(lp: lp, model: model, site: home.site)
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
-                    CarPlan(lp: lp, model: model, home: home, scrub: scrub, text: text)
-                        .padding(.top, 24)
-                    // Drawn from what the last launch kept; inert until the
-                    // box has spoken in this session.
-                    LevelBlock(lp: lp, model: model, canControl: home.site.canConfigure)
+                    // The goal and the level are drawn from what the last
+                    // launch kept; inert until the box has spoken in this
+                    // session.
+                    GoalBlock(lp: lp, model: model, site: home.site, canControl: home.site.canConfigure, editing: $editingGoal)
                         .disabled(!home.site.heardFromBox)
                         .padding(.horizontal, 20)
                         .padding(.top, 28)
-                    GoalBlock(lp: lp, model: model, site: home.site, canControl: home.site.canConfigure, editing: $editingGoal)
+                    CarPlan(lp: lp, model: model, home: home, scrub: scrub, text: text)
+                        .padding(.top, 28)
+                    LevelBlock(lp: lp, model: model, canControl: home.site.canConfigure)
                         .disabled(!home.site.heardFromBox)
                         .padding(.horizontal, 20)
                         .padding(.top, 28)
@@ -123,10 +134,19 @@ struct CarView: View {
             .frame(maxWidth: 640, alignment: .leading)
             .frame(maxWidth: .infinity)
         }
+        .scrollDisabled(chartHolds)
+        // Every touch, beside the scroll, for the plan: a gesture on the
+        // plan itself stops the page scrolling.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                .onChanged { chartTouch.changed?($0) }
+                .onEnded { _ in chartTouch.ended?() }
+        )
+        .environment(\.chartPage, ChartPage(holds: $chartHolds, touch: chartTouch))
         .background(Theme.ground)
         .safeAreaBar(edge: .bottom) {
             if let lp, lp.pluggedIn, home.site.canConfigure {
-                ControlBar(lp: lp, model: model)
+                ControlBar(lp: lp, model: model, editGoal: editGoal)
                     .disabled(!home.site.heardFromBox)
             }
         }
@@ -484,11 +504,14 @@ struct Readiness: View {
 
 /// Plan · Charge now · Pause, always in these places, in one glass group.
 /// The one the box reports is chosen; the one asked for turns while it
-/// travels; a tap on the chosen one does nothing. Under them the receipt
-/// log has room of its own, reserved, so nothing moves when it arrives.
+/// travels. A tap on Plan while the car is on its plan opens the goal the
+/// plan works to; a tap on any other chosen one does nothing. Under them
+/// the receipt log has room of its own, reserved, so nothing moves when it
+/// arrives.
 struct ControlBar: View {
     let lp: Loadpoint
     let model: LoadpointsModel
+    var editGoal: (() -> Void)?
     @Environment(\.dynamicTypeSize) private var typeSize
 
     enum Choice: CaseIterable, Identifiable {
@@ -589,6 +612,7 @@ struct ControlBar: View {
 
     private func plain(_ c: Choice, chosen: Bool, waiting: Bool, stacked: Bool) -> some View {
         Button {
+            if chosen, c == .plan { editGoal?() }
             guard !chosen, !model.holdSending(lp) else { return }
             Task {
                 switch c {
@@ -617,6 +641,7 @@ struct ControlBar: View {
         .disabled(waiting)
         .accessibilityAddTraits(chosen ? .isSelected : [])
         .accessibilityValue(waiting ? L("Sending to your box…") : "")
+        .accessibilityHint(chosen && c == .plan && editGoal != nil ? C("Change the goal") : "")
         .accessibilityIdentifier("car.control.\(c)")
     }
 }

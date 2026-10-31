@@ -83,6 +83,8 @@ public enum CarWords {
         "Limit %@": "Laddgräns %@",
         // The goal's level, inside the car's ring.
         "Goal %@": "Mål %@",
+        "Set a goal": "Sätt ett mål",
+        "Change the goal": "Ändra målet",
         "goal %@": "mål %@",
         "On %@ · %@ max": "På %@ · max %@",
         "On %@": "På %@",
