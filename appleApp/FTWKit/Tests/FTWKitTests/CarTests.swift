@@ -228,7 +228,8 @@ import FTWDemo
         let phone = TimeZone(identifier: "America/New_York")!
         #expect(EVText.householdZone(boxTZ: "Europe/Stockholm", phone: phone) == Self.stockholm)
         #expect(EVText.householdZone(boxTZ: "Local", phone: phone) == phone)
-        #expect(EVText.householdZone(boxTZ: "UTC", phone: phone) == phone)
+        #expect(EVText.householdZone(boxTZ: "UTC", phone: phone) == TimeZone(identifier: "UTC")!)
+        #expect(EVText.householdZone(boxTZ: "Etc/UTC", phone: phone) == TimeZone(identifier: "Etc/UTC")!)
         #expect(EVText.householdZone(boxTZ: "", phone: phone) == phone)
         #expect(EVText.householdZone(boxTZ: "Not/AZone", phone: phone) == phone)
         try AppWords.$language.withValue(.en) {
@@ -236,6 +237,26 @@ import FTWDemo
             let now = Self.noon(24).timeIntervalSince1970 * 1000
             #expect(EVText.nextGoal(away, nowMs: now, zone: Self.stockholm, phone: phone) == "Next: tomorrow 07:00, home time")
             #expect(EVText.nextGoal(away, nowMs: now, zone: Self.stockholm, phone: Self.stockholm) == "Next: tomorrow 07:00")
+        }
+    }
+
+    /// A box whose host names no zone runs its clock on UTC: a goal of
+    /// 17:00 is 17:00 UTC, 18:00 in Stockholm in winter. The goal and the
+    /// next deadline say the same hour, and say it is UTC.
+    @Test func aBoxOnUTCSaysItsGoalIsInUTC() throws {
+        let zone = EVText.householdZone(boxTZ: "Etc/UTC", phone: Self.stockholm)
+        let car = try lp(#"{"id":"a","plugged_in":true,"target_time":"2026-11-01T17:00:00Z","schedule":{"soc":1,"time_of_day_min_utc":1020,"time_of_day_min":1020,"recurring":true,"days":64}}"#)
+        let now = Self.utcDate("2026-10-31T11:00:00Z")
+        let nowMs = now.timeIntervalSince1970 * 1000
+        let goal = try #require(car.schedule)
+        AppWords.$language.withValue(.en) {
+            #expect(EVText.goal(goal, at: now, zone: zone, phone: Self.stockholm) == "100\u{00A0}% by 17:00 UTC on Sun")
+            #expect(EVText.nextGoal(car, nowMs: nowMs, zone: zone, phone: Self.stockholm) == "Next: tomorrow 17:00 UTC. FTW's clock is set to UTC.")
+            // Without a box zone, or with a phone on UTC, nothing is said.
+            #expect(EVText.nextGoal(car, nowMs: nowMs, zone: zone, phone: zone) == "Next: tomorrow 17:00")
+        }
+        AppWords.$language.withValue(.sv) {
+            #expect(EVText.nextGoal(car, nowMs: nowMs, zone: zone, phone: Self.stockholm) == "Nästa gång: i morgon 17:00 UTC. FTW:s klocka går på UTC.")
         }
     }
 
