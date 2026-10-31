@@ -265,6 +265,66 @@ import Testing
         #expect(Calendar.household("Asia/Tokyo").timeZone.identifier == "Asia/Tokyo")
     }
 
+    /// A car that charges in several windows toward one goal (Erik, 31
+    /// Oct 2026): a quarter now and the night later, toward 100 % by
+    /// Tuesday 17:00. Seen on Monday at 13:30.
+    func steps(goalMs: Double?) -> PlanEntry {
+        PlanEntry(battery: [], charges: [
+            PlanEntry.Charge(loadpointID: "garage", fromMs: at(12, 14), toMs: at(12, 14, 15), energyWh: 2_750, targetPct: 100, goalMs: goalMs),
+            PlanEntry.Charge(loadpointID: "garage", fromMs: at(13, 1), toMs: at(13, 5), energyWh: 44_000, targetPct: 100, goalMs: goalMs),
+        ], prices: [], currency: "SEK", boxStale: false)
+    }
+
+    /// A window with more after it does not say "to 100 %": the car is not
+    /// there when it ends. It says the goal is still ahead, and when.
+    @Test func aWindowOnTheWaySaysTheGoalIsAhead() {
+        let entry = steps(goalMs: at(13, 17))
+        let events = PlanGlance.events(entry, fromMs: at(12, 13, 30), toMs: at(13, 8)).filter { $0.kind == .car }
+        #expect(events.map(\.chargesAgain) == [true, false])
+        let m = PlanGlance.live(entry, nowMs: at(12, 13, 30), calendar: calendar)
+        #expect(m.nextText == "Car charges 14:00–14:15 and later, toward 100\u{00A0}% by Tue 17:00. Then the car charges 01:00, to 100\u{00A0}%.")
+        #expect(m.story.map(\.plain) == ["Car charges 14:00–14:15 and later, toward 100\u{00A0}% by Tue 17:00."])
+        #expect(m.summary == "14:00–14:15 car charges toward 100\u{00A0}%")
+        #expect(m.nextWhat == "Car charges toward 100\u{00A0}%")
+        // Under way, it says until when.
+        let under = PlanGlance.live(entry, nowMs: at(12, 14, 5), calendar: calendar)
+        #expect(under.nextText.hasPrefix("Car charges until 14:15 and later, toward 100\u{00A0}% by Tue 17:00."))
+        // Once the last window is all that is left, it goes to the goal.
+        let last = PlanGlance.live(entry, nowMs: at(12, 20), calendar: calendar)
+        #expect(last.nextText == "Car charges 01:00–05:00, to 100\u{00A0}%.")
+        #expect(last.nextWhat == "Car charges to 100\u{00A0}%")
+    }
+
+    /// A goal later today has its clock alone; a box that sent no deadline
+    /// still says the goal is ahead.
+    @Test func theGoalsTimeIsSaidAsTheClockReadsIt() {
+        let today = PlanGlance.live(steps(goalMs: at(12, 23)), nowMs: at(12, 13, 30), calendar: calendar)
+        #expect(today.nextText.hasPrefix("Car charges 14:00–14:15 and later, toward 100\u{00A0}% by 23:00."))
+        let none = PlanGlance.live(steps(goalMs: nil), nowMs: at(12, 13, 30), calendar: calendar)
+        #expect(none.nextText.hasPrefix("Car charges 14:00–14:15 and later, toward 100\u{00A0}%."))
+        // A deadline already behind the window is not repeated as one ahead.
+        let gone = PlanGlance.live(steps(goalMs: at(12, 13)), nowMs: at(12, 13, 30), calendar: calendar)
+        #expect(gone.nextText.hasPrefix("Car charges 14:00–14:15 and later, toward 100\u{00A0}%."))
+    }
+
+    /// Another charger's windows are not this car's: each car's last window
+    /// is its own.
+    @Test func eachCarHasItsOwnLastWindow() {
+        var entry = steps(goalMs: at(13, 17))
+        entry.charges.insert(PlanEntry.Charge(loadpointID: "drive", fromMs: at(12, 22), toMs: at(12, 23), energyWh: 11_000, targetPct: 80), at: 1)
+        #expect(entry.charges.map { entry.chargesAgain(after: $0) } == [true, false, false])
+    }
+
+    /// A record from before the deadline was kept still reads.
+    @Test func aChargeWithoutItsDeadlineStillReads() throws {
+        let entry = steps(goalMs: at(13, 17))
+        #expect(try JSONDecoder().decode(PlanEntry.self, from: JSONEncoder().encode(entry)) == entry)
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(entry)) as? [String: Any])
+        json["charges"] = (json["charges"] as? [[String: Any]])?.map { var c = $0; c["goalMs"] = nil; return c }
+        let old = try JSONDecoder().decode(PlanEntry.self, from: JSONSerialization.data(withJSONObject: json))
+        #expect(old.charges.map(\.goalMs) == [nil, nil])
+    }
+
     /// Every sentence has Swedish, with as many blanks as the English.
     @Test func everyWordHasSwedish() throws {
         let url = try #require(Words.bundle.url(forResource: "Plan", withExtension: "strings", subdirectory: nil, localization: "sv"))

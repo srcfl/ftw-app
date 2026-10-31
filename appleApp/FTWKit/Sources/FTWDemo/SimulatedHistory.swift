@@ -132,7 +132,7 @@ extension SimulatedHouse {
         var probe = t
         while probe < end { prices.append(priceAt(probe + slotMs / 2)); probe += slotMs }
         let mean = prices.reduce(0, +) / Double(max(1, prices.count))
-        let car = carPlan(nowMs)
+        let car = carWindows(nowMs)
         var soc = socFraction
         // The demo leaves the battery near where it found it by the end of
         // its day, so what its plan is worth compares honestly.
@@ -144,7 +144,7 @@ extension SimulatedHouse {
             let mid = t + slotMs / 2
             let pv = pvAt(mid)
             let base = baseLoadAt(mid)
-            let ev = car.map { mid >= $0.startMs && mid < $0.endMs ? Self.chargerW : 0 } ?? 0
+            let ev = car.contains { mid >= $0.startMs && mid < $0.endMs } ? Self.chargerW : 0
             let price = priceAt(mid)
             var b = decide(price: price, mean: mean, pv: pv, base: base, ev: ev, soc: soc, mode: modeKey)
             if b > 0, soc >= 0.98 { b = 0 }
