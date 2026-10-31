@@ -12,7 +12,8 @@ public final class SimulatedHouse {
     public let batteryCapacityWh: Double = 13_500
     public let batteryMaxW: Double = 5_000
     public let fuseAmps: Double = 25
-    public let timeZone: TimeZone
+    /// The household clock. A box on UTC takes the phone's zone once.
+    public var timeZone: TimeZone
     /// A clear midsummer's day whatever the date, for showing a day that
     /// sells more than it buys.
     public var sunny = false

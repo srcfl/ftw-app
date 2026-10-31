@@ -132,6 +132,10 @@ public enum Contract {
 
     public static let opSetMode = "site.mode.set"
     public static let opPlannerPrefsSet = "planner.prefs.set"
+    /// Offer the phone's time zone as the household clock. The box takes it
+    /// only while it keeps none; a box that keeps one answers E_PRECONDITION
+    /// with the zone it keeps in args.tz.
+    public static let opSiteTimeZonePropose = "site.time_zone.propose"
     public static let opBatteryHold = "battery.hold"
     public static let opLoadpointHold = "loadpoint.hold"
     public static let opLoadpointBoost = "loadpoint.boost"
@@ -146,7 +150,7 @@ public enum Contract {
     public static let opCarRemove = "car.remove"
 
     public static let ops = [
-        opSetMode, opPlannerPrefsSet, opBatteryHold, opLoadpointHold, opLoadpointBoost, opLoadpointSocSet, opLoadpointSurplusOnlySet,
+        opSetMode, opPlannerPrefsSet, opSiteTimeZonePropose, opBatteryHold, opLoadpointHold, opLoadpointBoost, opLoadpointSocSet, opLoadpointSurplusOnlySet,
         opCarGoalSet, opCarSocSet, opSessionCarSet, opCarAdd, opCarUpdate, opCarRemove,
     ]
 
@@ -168,6 +172,7 @@ public enum Contract {
     public static let opDescs: [String: String] = [
         opSetMode: "Change the site operating mode",
         opPlannerPrefsSet: "Set household planner preferences",
+        opSiteTimeZonePropose: "Offer the phone's time zone to a box that keeps none",
         opBatteryHold: "Hold the battery at a fixed setpoint",
         opLoadpointHold: "Charge the car now at a fixed current",
         opLoadpointBoost: "Boost the car from the house battery",
