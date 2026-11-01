@@ -82,9 +82,25 @@ struct PlanStripLayout: Equatable {
 /// ghost: their colour at `Theme.plan`, never the full strength that says
 /// live. A plan that is old, that the box could not make, or from a box
 /// this phone cannot reach, is ink3 throughout. It never sees a finger.
+///
+/// The pass a tap chose stands out (Now, proposal 5): its run in full
+/// colour, a faint column of its colour behind it, and the bars under it in
+/// its colour, so the prices it meets read at a glance. The bars under the
+/// battery's other runs take their colour faintly. Nothing glows: a plan
+/// is not live.
 struct PlanStripDrawing: ChartDrawing {
     let strip: PlanStrip
     var layout = PlanStripLayout()
+    /// The pass a tap chose; nil draws every run as a ghost.
+    var chosen: PlanPass?
+
+    static func hue(_ kind: PlanPass.Kind) -> Color {
+        switch kind {
+        case .gives: return Theme.gives
+        case .stores: return Theme.stores
+        case .car: return Theme.car
+        }
+    }
 
     func draw(in g: inout GraphicsContext, size: CGSize) {
         let layout = self.layout.fitting(size.height)
@@ -96,6 +112,22 @@ struct PlanStripDrawing: ChartDrawing {
         let grey = strip.grey
         let ghost = Theme.plan(g.environment.colorSchemeContrast)
         let oldInk = Theme.oldPlan
+        let chosen = grey ? nil : self.chosen
+        func inChosen(_ first: Int, _ last: Int, battery: Bool) -> Bool {
+            guard let chosen, chosen.isBattery == battery else { return false }
+            return first >= chosen.first && last <= chosen.last
+        }
+
+        // The chosen pass's column, behind everything: its colour fading
+        // from the lanes down to the bars' foot.
+        if let chosen {
+            let s = PlanStripLayout.span(first: chosen.first, last: chosen.last, grid: grid, width: width, scale: scale)
+            let x0 = max(0, s.x0 - 3), x1 = min(width, s.x1 + 3)
+            let rect = CGRect(x: x0, y: 0, width: x1 - x0, height: layout.priceBottom)
+            let hue = Self.hue(chosen.kind)
+            g.fill(Path(roundedRect: rect, cornerRadius: 5, style: .continuous),
+                   with: .linearGradient(Gradient(colors: [hue.opacity(0.16), hue.opacity(0.03)]), startPoint: CGPoint(x: rect.midX, y: rect.minY), endPoint: CGPoint(x: rect.midX, y: rect.maxY)))
+        }
 
         // A lane with nothing keeps a hairline, so a run never appears out
         // of nothing.
@@ -112,16 +144,20 @@ struct PlanStripDrawing: ChartDrawing {
             return Path(roundedRect: rect, cornerRadius: min(3, rect.width / 2), style: .circular)
         }
 
-        var stores = Path(), gives = Path()
+        var stores = Path(), gives = Path(), lit = Path()
         for run in strip.batteryRuns {
             let p = capsule(run.first, run.last, y: PlanStripLayout.batteryY)
-            if run.value == .stores { stores.addPath(p) } else { gives.addPath(p) }
+            if inChosen(run.first, run.last, battery: true) { lit.addPath(p) } else if run.value == .stores { stores.addPath(p) } else { gives.addPath(p) }
         }
         g.fill(stores, with: .color(grey ? oldInk : Theme.stores.opacity(ghost)))
         g.fill(gives, with: .color(grey ? oldInk : Theme.gives.opacity(ghost)))
 
         var car = Path()
-        for run in strip.carRuns { car.addPath(capsule(run.first, run.last, y: PlanStripLayout.carY)) }
+        for run in strip.carRuns {
+            let p = capsule(run.first, run.last, y: PlanStripLayout.carY)
+            if inChosen(run.first, run.last, battery: false) { lit.addPath(p) } else { car.addPath(p) }
+        }
+        if let chosen { g.fill(lit, with: .color(Self.hue(chosen.kind))) }
         // The goal: a 2 pt tick at the end of its quarter, past the lane.
         for (i, _) in strip.goals {
             let s = PlanStripLayout.span(first: i, last: i, grid: grid, width: width, scale: scale)
@@ -143,15 +179,16 @@ struct PlanStripDrawing: ChartDrawing {
             g.draw(text, at: CGPoint(x: width + 4, y: layout.priceY(v, priceScale)), anchor: .leading)
         }
 
-        // The price: a bar per stretch of equal price, ink by third.
-        var thirds: [PriceChart.Third: Path] = [:]
-        for run in strip.priceRuns {
-            let s = PlanStripLayout.span(first: run.first, last: run.last, grid: grid, width: width, scale: scale)
-            let third = strip.thirds[run.first] ?? .middle
-            thirds[third, default: Path()].addPath(layout.bar(run.value, priceScale, x0: s.x0, x1: s.x1))
+        // The price: a bar per stretch of equal price and equal ink. Ink by
+        // third, or the colour of the pass over it: full under the chosen
+        // pass, faint under the battery's other runs.
+        var inks: [BarInk: Path] = [:]
+        for seg in segments(chosen: chosen) {
+            let s = PlanStripLayout.span(first: seg.first, last: seg.last, grid: grid, width: width, scale: scale)
+            inks[seg.ink, default: Path()].addPath(layout.bar(seg.minor, priceScale, x0: s.x0, x1: s.x1))
         }
-        for (third, path) in thirds {
-            g.fill(path, with: .color(grey ? Theme.ink3.opacity(0.6) : Theme.ink.opacity(Self.ink(third))))
+        for (ink, path) in inks {
+            g.fill(path, with: .color(grey ? Theme.ink3.opacity(0.6) : ink.color(chosen: chosen)))
         }
         // Not priced yet: a hatched stub, so a guess never looks like a price.
         if !strip.pending.isEmpty {
@@ -194,6 +231,46 @@ struct PlanStripDrawing: ChartDrawing {
             guard x - w / 2 >= 0, x + w / 2 <= width else { continue }
             g.draw(text, at: CGPoint(x: x, y: layout.hoursTop), anchor: .top)
         }
+    }
+
+    /// What a price bar is filled with.
+    enum BarInk: Hashable {
+        case third(PriceChart.Third)
+        /// Under the chosen pass; dear is the top third.
+        case chosen(dear: Bool)
+        /// Under another run of the battery.
+        case battery(PlanStrip.Battery, dear: Bool)
+
+        func color(chosen: PlanPass?) -> Color {
+            switch self {
+            case let .third(t): return Theme.ink.opacity(PlanStripDrawing.ink(t))
+            case let .chosen(dear): return PlanStripDrawing.hue(chosen?.kind ?? .gives).opacity(dear ? 0.9 : 0.7)
+            case let .battery(b, dear): return (b == .stores ? Theme.stores : Theme.gives).opacity(dear ? 0.5 : 0.36)
+            }
+        }
+    }
+
+    /// The price runs cut where the ink changes, so each piece is one fill.
+    private func segments(chosen: PlanPass?) -> [(first: Int, last: Int, minor: Double, ink: BarInk)] {
+        func ink(_ i: Int) -> BarInk? {
+            guard strip.minor[i] != nil else { return nil }
+            let third = strip.thirds[i] ?? .middle
+            if let chosen, i >= chosen.first, i <= chosen.last, !chosen.isBattery || strip.battery[i] != nil {
+                return .chosen(dear: third == .dear)
+            }
+            if let b = strip.battery[i], chosen != nil { return .battery(b, dear: third == .dear) }
+            return .third(third)
+        }
+        var out: [(first: Int, last: Int, minor: Double, ink: BarInk)] = []
+        for i in strip.minor.indices {
+            guard let m = strip.minor[i], let k = ink(i) else { continue }
+            if let prev = out.last, prev.last == i - 1, prev.minor == m, prev.ink == k {
+                out[out.count - 1].last = i
+            } else {
+                out.append((i, i, m, k))
+            }
+        }
+        return out
     }
 
     /// The design's thirds: the dearer, the stronger.

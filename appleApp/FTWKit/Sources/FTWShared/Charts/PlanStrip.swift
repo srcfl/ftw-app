@@ -55,6 +55,9 @@ public struct PlanStrip: Equatable, Sendable {
     public let carRuns: [Run<Bool>]
     /// Stretches of equal price, drawn as one bar.
     public let priceRuns: [Run<Double>]
+    /// The battery's runs and the car's windows in the window, each with the
+    /// figures a tap on it shows.
+    public let passes: [PlanPass]
     /// Stretches the market has not priced yet: drawn as hatched stubs,
     /// never as a level.
     public let pending: [Run<Bool>]
@@ -195,6 +198,7 @@ public struct PlanStrip: Equatable, Sendable {
             batteryRuns: runs(battery),
             carRuns: runs(car.map { $0 ? true : nil }),
             priceRuns: runs(minor),
+            passes: PlanPass.passes(entry, grid: grid, nowMs: nowMs, minor: minor, clock: clock),
             pending: runs(minor.map { $0 == nil ? true : nil }),
             hours: hours,
             landmarks: landmarks,
