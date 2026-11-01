@@ -6,8 +6,8 @@ import SwiftUI
 /// each change of the quarter under the finger.
 private let signposts = OSSignposter(subsystem: "energy.ftw.app", category: .pointsOfInterest)
 
-/// The plan dial at the top of the plan view: the next 24 hours as one
-/// turn, the time and the price in the middle. A finger dragged round the
+/// The plan dial at the top of the plan view: the next twelve hours as one
+/// turn of a clock, the time and the price in the middle. A finger dragged round the
 /// ring reads the plan a quarter at a time: the hand follows, brackets
 /// close on its tick, the middle shows that quarter, `.selection` ticks per
 /// quarter and a light impact marks now, the cheapest hours' edges and the
@@ -34,6 +34,8 @@ struct PlanDialCard: View {
     let grey: Bool
     /// The dial before the person's last change, while its plan stands.
     var fade: DialFade?
+    /// The time of the pass a tap chose on the strip under the dial.
+    var lit: ClosedRange<Double>?
     /// True while a finger scrubs: the page around holds still.
     @Binding var holds: Bool
     /// The page's touches, handed on.
@@ -48,11 +50,11 @@ struct PlanDialCard: View {
 
     var body: some View {
         ZStack {
-            PlanDialFace(dial: dial, grey: grey)
+            PlanDialFace(dial: dial, grey: grey, lit: lit)
                 .equatable()
             if let fade {
                 MovedFade(fresh: fade.fresh, mask: QuarterWedges(dial: fade.old, quarters: fade.moved)) {
-                    PlanDialFace(dial: fade.old, grey: grey)
+                    PlanDialFace(dial: fade.old, grey: grey, lit: lit)
                         .equatable()
                 }
                 .id(fade.atMs)

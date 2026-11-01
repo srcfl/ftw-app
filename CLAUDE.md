@@ -306,8 +306,8 @@ The rules below put these into practice.
   runs in cyan both ways wherever a trace is drawn, as the grid runs in
   magenta both ways: the side of zero and the word say which way it goes.
   Gold keeps the battery on Now's ring and strip, the plan's lanes and the
-  widgets, where no sun curve is drawn beside it, and the dial has given
-  it ink since 13 Oct 2026.
+  widgets, where no sun curve is drawn beside it, and on the dial, where
+  the sun is only a thin dashed arc on the rim (round 3, 1 Nov 2026).
 - **Space, not boxes.** No cards and no borders: 24 to 32 pt between
   groups, and a hairline only where two lists meet. `Card` keeps its
   spacing and draws nothing.
@@ -381,22 +381,27 @@ never their graphics or brands.
 ### Plan dial
 
 FTW's own form, from Fredrik's film (srcfl/sourceful-films,
-`product/ftw-confirmed`). His rules, as he settled them on 2026-10-13:
+`product/ftw-confirmed`). His rules of 2026-10-13, as round 3 of the
+design canvas changed them on 1 Nov 2026 (Erik: "18 is not straight down
+as on a normal clock, so you lose the feel for when things happen"):
 
-1. One turn is the next 24 hours. Midnight sits at the bottom and noon at
-   the top, so the day's light fills the upper half. It never reads as a
-   12-hour clock.
-2. One tick per quarter hour, as long as the price in eight steps from
-   zero (`PriceScale`). Its
-   colour is what the plan does with the battery: `Theme.stores` stores,
-   `Theme.ink` gives power, `Theme.ink3` waits. On the dial, gold is the
-   sun's and never the battery's.
+1. A clock. One turn is the next twelve hours, 12 at the top and 6 at the
+   bottom, so 18:00 sits straight down. The whole hours of the turn sit
+   round the rim as the household's clock reads them; none on the hand or
+   the seam.
+2. One tick per quarter hour, as long as the battery's planned power
+   against the most it moves in the turn (at least 1 kW). Its colour is
+   what the plan does with the battery: `Theme.stores` stores,
+   `Theme.gives` gives power, as on the strip under the dial. A quarter in
+   which it waits, or the plan says nothing, is a faint stub. The sun is a
+   thin dashed arc on the rim, never a tick.
 3. A dotted arc in `Theme.car` marks when the car charges, with its goal
    at the end.
-4. A hand marks now. A 2° gap in the rim marks the seam where +24 h meets
+4. A hand marks now. A 2° gap in the rim marks the seam where +12 h meets
    now, and the ticks fade toward it.
-5. Never a tick without a price: a quarter the market has not priced is a
-   stub.
+5. The price is not on the dial. It stands on zero in Now's strip under
+   it, with the passes and their figures; a tap on a pass lights its ticks
+   at full strength.
 6. The sun's arc on the rim comes from the box's own solar forecast, never
    from astronomy or the phone's location. No forecast, no arc.
 7. The middle holds the time and the price, and a third line kept for
@@ -408,7 +413,9 @@ and the rule for a finger; `FTWCharts/PlanDialFace.swift` draws. The
 phone's plan view, its `energy.ftw.plan-dial` widget (StandBy small and
 the lock screen's circle), the watch app and the watch's complication all
 draw that one face. The plan view opens on the dial; the lanes are one
-tap away in the toolbar, and the phone keeps the viewer's choice. A drag
+tap away in the toolbar, and the phone keeps the viewer's choice. Both
+put Now's strip under them, the lanes' over the whole plan with the
+battery's level in a row of its own. A drag
 round the ring costs one lookup per event, and only a change of quarter
 redraws, and then only the hand and the middle. Now keeps its straight
 strip, with gold for the battery giving power. Each battery run and car

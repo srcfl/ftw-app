@@ -54,6 +54,7 @@
 "%@, and reaches %@" = "%@, och når %@";
 
 /* The strip's header and what a finger reads on it. */
+"THE WHOLE PLAN" = "HELA PLANEN";
 "NEXT 12 H" = "NÄSTA 12 H";
 "PLANNED %@" = "PLANERAD %@";
 "OLD PLAN · %@" = "GAMMAL PLAN · %@";

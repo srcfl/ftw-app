@@ -51,6 +51,9 @@ public struct PlanStrip: Equatable, Sendable {
     /// The price of the quarter running now, for the dashed line that
     /// carries it across the hours to come.
     public let nowMinor: Double?
+    /// Where the plan leaves the battery by each quarter's end, in percent;
+    /// nil where the box did not say.
+    public let levelPct: [Double?]
     public let batteryRuns: [Run<Battery>]
     public let carRuns: [Run<Bool>]
     /// Stretches of equal price, drawn as one bar.
@@ -86,11 +89,14 @@ public struct PlanStrip: Equatable, Sendable {
     public let hasCar: Bool
 
     /// The strip at the moment's minute, from the plan the moment was read
-    /// from.
-    public static func build(_ entry: PlanEntry?, moment: PlanGlance.Moment, hasCar: Bool) -> PlanStrip {
+    /// from: the next twelve hours, or for the plan's lanes `quarters`
+    /// (the whole plan), with the hours every six once it runs past a day's
+    /// half.
+    public static func build(_ entry: PlanEntry?, moment: PlanGlance.Moment, hasCar: Bool, quarters wanted: Int = Self.count) -> PlanStrip {
         let clock = ZoneClock.of(moment.timeZone)
         let nowMs = moment.atMs
         let first = clock.alignDown(nowMs, stepMs: quarterMs)
+        let count = max(Self.count, wanted)
         let grid = SlotGrid(firstMs: first, stepMs: quarterMs, count: count, fromMs: first, toMs: first + Double(count) * quarterMs)
 
         let prices = (entry?.prices ?? []).filter { $0.totalMinor.isFinite && $0.durationMs > 0 }.sorted { $0.startMs < $1.startMs }
@@ -142,12 +148,13 @@ public struct PlanStrip: Equatable, Sendable {
         }
         landmarks.formUnion(goals.keys)
 
-        // Whole local hours every three, by the wall clock, so a day that
-        // changes its clock still reads 00, 03, 06.
+        // Whole local hours every three, or six on a long strip, by the wall
+        // clock, so a day that changes its clock still reads 00, 03, 06.
         var hours = [Tick]()
+        let every = count > 64 ? 360 : 180
         var t = clock.alignDown(first, stepMs: 3_600_000) + 3_600_000
         while t < grid.toMs - quarterMs {
-            if clock.minuteOfDay(t) % 180 == 0 { hours.append(Tick(ms: t, label: String(clock.label(t).prefix(2)))) }
+            if clock.minuteOfDay(t) % every == 0 { hours.append(Tick(ms: t, label: String(clock.label(t).prefix(2)))) }
             t += 3_600_000
         }
 
@@ -182,7 +189,7 @@ public struct PlanStrip: Equatable, Sendable {
         switch (moment.state, moment.readAtMs) {
         case let (.plan, at?): kicker = PlanWord.plannedAt.format(clock.label(at))
         case let (.old, at?): kicker = PlanWord.oldPlan.format(clock.label(at))
-        default: kicker = PlanWord.next12h.text
+        default: kicker = count > Self.count ? PlanWord.wholePlan.text : PlanWord.next12h.text
         }
 
         return PlanStrip(
@@ -195,6 +202,7 @@ public struct PlanStrip: Equatable, Sendable {
             thirds: thirds,
             scale: PriceScale(known, currency: currency),
             nowMinor: minor.first ?? nil,
+            levelPct: planned.map { $0?.levelPct },
             batteryRuns: runs(battery),
             carRuns: runs(car.map { $0 ? true : nil }),
             priceRuns: runs(minor),

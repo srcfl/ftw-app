@@ -3,15 +3,16 @@ import SwiftUI
 
 /// Where the parts of Now's plan strip sit, from the top of its Canvas:
 /// room for the lock-on's brackets, two 6 pt lanes 4 pt apart (battery,
-/// then car), the price bars from zero in a row of 20 pt or more, and the
-/// hours under them. The price's scale takes a gutter on the right, so the
+/// then car), on the plan's lanes a row for the battery's level, the price
+/// bars from zero in a row of 20 pt or more, and the hours under them. The price's scale takes a gutter on the right, so the
 /// quarters run across the rest. The surface and the finger's overlay
 /// share it, so a lit quarter and its bar meet.
 struct PlanStripLayout: Equatable {
     static let lane: CGFloat = 6
     static let batteryY: CGFloat = 3
     static let carY: CGFloat = 13
-    static let priceTop: CGFloat = 25
+    /// Where the lanes end; the level row, or the price, starts here.
+    static let lanesBottom: CGFloat = 25
     /// The price row at its least, and the most it grows to when Now has
     /// room: the same two Now's layout reads.
     static let leastPrice = PlanStrip.leastPrice
@@ -21,12 +22,20 @@ struct PlanStripLayout: Equatable {
     var axis: CGFloat = 10
     /// The price row's height: 20 pt, or what Now gives it.
     var priceHeight: CGFloat = Self.leastPrice
+    /// The battery level's row, between the lanes and the price: none on
+    /// Now, where the strip stays small.
+    var levelHeight: CGFloat = 0
 
-    var priceBottom: CGFloat { Self.priceTop + priceHeight }
+    var priceTop: CGFloat { Self.lanesBottom + levelHeight }
+    var priceBottom: CGFloat { priceTop + priceHeight }
+    /// 100 % and 0 % in the level's row, clear of the lanes and the bars.
+    var levelTop: CGFloat { Self.lanesBottom + 5 }
+    var levelBottom: CGFloat { priceTop - 14 }
+    func levelY(_ pct: Double) -> CGFloat { levelBottom - CGFloat(min(100, max(0, pct)) / 100) * (levelBottom - levelTop) }
     var hoursTop: CGFloat { priceBottom + 3 }
     /// Room on the right for the scale's figures, "600", in the axis's
-    /// mono at nine tenths of its size.
-    var gutter: CGFloat { (axis * 2.4).rounded(.up) + 4 }
+    /// mono at nine tenths of its size, or "100 %" beside a level row.
+    var gutter: CGFloat { (axis * (levelHeight > 0 ? 3.4 : 2.4)).rounded(.up) + 4 }
     /// The width the quarters run across.
     func plotWidth(_ width: CGFloat) -> CGFloat { max(0, width - gutter) }
     var height: CGFloat { hoursTop + (axis * 1.25).rounded(.up) }
@@ -165,6 +174,8 @@ struct PlanStripDrawing: ChartDrawing {
         }
         g.fill(car, with: .color(grey ? oldInk : Theme.car.opacity(ghost)))
 
+        if layout.levelHeight > 0 { drawLevel(in: &g, layout: layout, width: width, px: px, ghost: ghost, chosen: chosen) }
+
         // The scale: a hairline at half the top and at the top, each with
         // its figure in the gutter, and the zero line when a price falls
         // under it.
@@ -230,6 +241,46 @@ struct PlanStripDrawing: ChartDrawing {
             let x = grid.x(atMs: tick.ms, width: width)
             guard x - w / 2 >= 0, x + w / 2 <= width else { continue }
             g.draw(text, at: CGPoint(x: x, y: layout.hoursTop), anchor: .top)
+        }
+    }
+
+    /// The battery's planned level through the strip, between hairlines at
+    /// 0 and 100 % with their figures in the gutter: a line through the
+    /// level at each quarter's end, in gold where the battery gives power,
+    /// cyan where it stores and ink where it waits. A ghost, but the chosen
+    /// pass's stretch at full strength.
+    private func drawLevel(in g: inout GraphicsContext, layout: PlanStripLayout, width: CGFloat, px: CGFloat, ghost: Double, chosen: PlanPass?) {
+        let grid = strip.grid
+        var frame = Path()
+        for pct in [0.0, 100.0] { frame.addRect(CGRect(x: 0, y: layout.levelY(pct), width: width, height: px)) }
+        g.fill(frame, with: .color(Theme.ink.opacity(0.08)))
+        for pct in [0.0, 100.0] {
+            let text = g.resolve(ChartText.label("\(Int(pct))\u{00A0}%", size: layout.axis * 0.9))
+            g.draw(text, at: CGPoint(x: width + 4, y: layout.levelY(pct)), anchor: .leading)
+        }
+        guard strip.levelPct.contains(where: { $0 != nil }) else { return }
+        var paths: [String: Path] = [:]
+        var last: CGPoint?
+        for i in strip.levelPct.indices {
+            guard let pct = strip.levelPct[i] else {
+                last = nil
+                continue
+            }
+            let p = CGPoint(x: grid.x(atMs: grid.endMs(i), width: width), y: layout.levelY(pct))
+            if let from = last {
+                let lit = !strip.grey && chosen.map { $0.isBattery && i >= $0.first && i <= $0.last } == true
+                let key = (strip.battery[i].map { $0 == .stores ? "stores" : "gives" } ?? "waits") + (lit ? "!" : "")
+                paths[key, default: Path()].move(to: from)
+                paths[key, default: Path()].addLine(to: p)
+            }
+            last = p
+        }
+        let style = StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round)
+        for (key, path) in paths {
+            let lit = key.hasSuffix("!")
+            let color: Color = strip.grey ? Theme.ink3
+                : key.hasPrefix("stores") ? Theme.stores : key.hasPrefix("gives") ? Theme.gives : Theme.ink2
+            g.stroke(path, with: .color(color.opacity(lit ? 1 : ghost)), style: style)
         }
     }
 
