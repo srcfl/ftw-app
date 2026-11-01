@@ -24,7 +24,7 @@ import Testing
         #expect(s.grid.firstMs == at(12, 20))
         #expect(s.grid.toMs == at(13, 8))
         #expect(s.nowMs == at(12, 20, 5))
-        #expect(s.readouts.count == 48 && s.levels.count == 48 && s.battery.count == 48 && s.car.count == 48)
+        #expect(s.readouts.count == 48 && s.minor.count == 48 && s.battery.count == 48 && s.car.count == 48)
     }
 
     /// Each lane draws one shape per stretch of equal quarters, so a run
@@ -52,18 +52,21 @@ import Testing
         #expect(s.goals == [34: 80])
     }
 
-    /// The price in eight levels across the window, and equal levels as one
-    /// bar: 160 öre is the top, 30 the bottom, 70 sits at level 2.
-    @Test func thePriceIsEightLevelsInRuns() {
+    /// The price stands on zero under a round top, and equal prices are one
+    /// bar: 160 öre reaches four fifths of a 200 öre top, so 30 öre is a
+    /// fifth of 160, as it is, not the floor against the roof.
+    @Test func thePriceStandsOnZeroInRuns() {
         let s = strip(at: at(12, 20, 5))
-        #expect(s.priceRuns.map(\.value) == [7, 2, 0, 2, 7])
+        #expect(s.priceRuns.map(\.value) == [160, 70, 30, 70, 160])
         #expect(s.priceRuns.map(\.count) == [4, 20, 8, 8, 8])
-        // The same height always takes the same ink.
-        #expect(PlanStrip.third(0) == .cheap && PlanStrip.third(2) == .cheap)
-        #expect(PlanStrip.third(3) == .middle && PlanStrip.third(4) == .middle)
-        #expect(PlanStrip.third(5) == .dear && PlanStrip.third(7) == .dear)
-        // A flat window sits in the middle.
-        #expect(PlanStrip.level(70, lo: 70, hi: 70) == 3)
+        #expect(s.scale.top == 200 && s.scale.bottom == 0 && s.scale.lines == [100, 200])
+        #expect(s.scale.fraction(160) == 0.8 && s.scale.fraction(30) == 0.15)
+        // The price now carries on as the dashed line.
+        #expect(s.nowMinor == 160)
+        // Ink by thirds of the window's range: 30 cheap, 70 cheap, 160 dear.
+        #expect(s.thirds[0] == .dear && s.thirds[5] == .cheap && s.thirds[24] == .cheap)
+        // A flat window is the middle third, not the cheap one.
+        #expect(PlanStrip.third(70, lo: 70, hi: 70) == .middle)
     }
 
     /// Under a finger the line and the header say the quarter's price in
@@ -284,7 +287,7 @@ import Testing
         let s = PlanStrip.build(entry, moment: PlanGlance.live(entry, nowMs: at(12, 20, 5), calendar: calendar), hasCar: true)
         // 04:00 is quarter 32; the window runs to 08:00.
         #expect(s.pending == [.init(first: 32, count: 16, value: true)])
-        #expect(s.levels[31] != nil && s.levels[32] == nil)
+        #expect(s.minor[31] != nil && s.minor[32] == nil)
         #expect(strip(at: at(12, 20, 5)).pending.isEmpty)
     }
 

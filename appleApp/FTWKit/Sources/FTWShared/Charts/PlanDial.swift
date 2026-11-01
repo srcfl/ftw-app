@@ -8,6 +8,9 @@ import Foundation
 /// inside marks the car's charging. The sun's arc on the rim comes from the
 /// box's own forecast, never from astronomy.
 ///
+/// The ticks stand on the same scale as every other price bar: eight steps
+/// from zero to a round top (`PriceScale`).
+///
 /// Built on the chart engine (`SlotGrid`, `ZoneClock`) and worked out once
 /// per plan and minute, so a finger or the Crown only reads a table.
 public struct PlanDial: Equatable, Sendable {
@@ -28,7 +31,7 @@ public struct PlanDial: Equatable, Sendable {
         /// Minor units per kWh, the consumer total. Nil before the market
         /// has priced it: the dial draws a stub, never a level.
         public let minor: Double?
-        /// 0 to 7 within this face's prices.
+        /// 0 to 7, from zero to the round top over this face's prices.
         public let level: Int?
         public let battery: Battery
         /// The battery's planned power, site sign. Nil without a plan.
@@ -100,8 +103,7 @@ public struct PlanDial: Equatable, Sendable {
         func planned(_ q: Int) -> PlanEntry.Slot? { holding(battery, q, start: \.startMs, length: \.durationMs) }
 
         let minors = (0..<count).map { price($0) }
-        let known = minors.compactMap { $0 }
-        let lo = known.min() ?? 0, hi = known.max() ?? 0
+        let scale = PriceScale(minors.compactMap { $0 }, currency: currency)
 
         var goals = [Int: Double]()
         for c in charges where c.toMs > first && c.fromMs < grid.toMs && plan?.chargesAgain(after: c) != true {
@@ -116,7 +118,7 @@ public struct PlanDial: Equatable, Sendable {
             return Quarter(
                 startMs: start,
                 minor: minors[i],
-                level: minors[i].map { Self.level($0, lo: lo, hi: hi) },
+                level: minors[i].map { scale.step($0) - 1 },
                 battery: action,
                 batteryW: w,
                 car: charges.contains { $0.fromMs < end && $0.toMs > start },
@@ -180,13 +182,6 @@ public struct PlanDial: Equatable, Sendable {
             }
             return parts.joined(separator: " · ")
         }
-    }
-
-    /// The price in eight levels, the dearest at 7. A flat day sits in the
-    /// middle rather than at either end.
-    static func level(_ v: Double, lo: Double, hi: Double) -> Int {
-        guard hi - lo >= 0.5 else { return levels / 2 - 1 }
-        return min(levels - 1, max(0, Int(((v - lo) / (hi - lo) * Double(levels)).rounded(.down))))
     }
 
     /// The index of the last element starting at or before `t`, by one

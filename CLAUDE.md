@@ -294,6 +294,13 @@ The rules below put these into practice.
   (violet). The home is ink. `live` and `alarm` are states, never levels.
   A price is ink by its level, never red and green. No orange anywhere;
   the system tint is ink.
+- **A price stands on zero.** Erik, 1 Nov 2026: the strip that put the
+  window's cheapest at its floor made 450 against 550 öre look five times
+  dearer. Every price bar, tick and glyph reads one `PriceScale`: zero at
+  the foot and a round top just over the dearest (1, 1.5, 2, 2.5, 3, 4, 5,
+  6 or 8 times a power of ten), with grid lines and figures at half the
+  top and the top where there is room. Now's strip carries the price now
+  on as a dashed line. A price below zero hangs under the zero line.
 - **Gold on a chart is the sun's.** The sun's curve and the battery giving
   power are both warm, and a tester read one as the other, so the battery
   runs in cyan both ways wherever a trace is drawn, as the grid runs in
@@ -315,7 +322,7 @@ The rules below put these into practice.
   | Detail | Where | The reading it carries |
   |---|---|---|
   | Mono status line, `● LIVE · FTW IN CONTROL` | Under every title | Whether this is now, and who controls the home |
-  | 8-level block price bars (▁▂▃▄▅▆▇█) | Now's strip, dial ticks, lock-screen widget | Price per slot at a glance |
+  | 8-step block price bars (▁▂▃▄▅▆▇█), from zero | Dial ticks, lock-screen widget, watch | Price per slot at a glance |
   | Lock-on: corner brackets and an inverse-video tag | Under a finger, on a pressed node | What the finger is on, and its value |
   | 10-cell meter | A grid phase against its fuse | Share in tenths, readable at 4 pt |
   | Receipt log `SENT ▸ ACCEPTED ▸ MEASURED ▸ CONFIRMED` | Car commands | How far the box has confirmed a command |
@@ -379,7 +386,8 @@ FTW's own form, from Fredrik's film (srcfl/sourceful-films,
 1. One turn is the next 24 hours. Midnight sits at the bottom and noon at
    the top, so the day's light fills the upper half. It never reads as a
    12-hour clock.
-2. One tick per quarter hour, as long as the price in eight levels. Its
+2. One tick per quarter hour, as long as the price in eight steps from
+   zero (`PriceScale`). Its
    colour is what the plan does with the battery: `Theme.stores` stores,
    `Theme.ink` gives power, `Theme.ink3` waits. On the dial, gold is the
    sun's and never the battery's.

@@ -261,11 +261,12 @@ import Testing
     // MARK: The block strip
 
     /// Twelve hours from the one that holds now, each the mean of its
-    /// slots, as one of eight levels and a third of the range: the small
+    /// slots, as one of eight steps from zero and a third of the range: the small
     /// widget's bars and the lock screen's glyphs.
     @Test func theStripIsTwelveHoursOfBlocks() {
         let quarter = Self.hourMs / 4
-        // Quarters: hour h costs 10 × h, so the strip climbs one step a hour.
+        // Quarters: hour h costs 10 × h, so the strip climbs from 60 öre to
+        // 170 under a 200 öre top.
         let r = read(slots(from: at(12, 0), count: 96, dtMs: quarter) { i in Double(10 * (i / 4)) }, readAtMs: at(12, 13, 5))
         let m = PriceGlance.moment(r, atMs: at(12, 6, 40), calendar: calendar)
         #expect(m.hours.count == 12)
@@ -273,22 +274,26 @@ import Testing
         #expect(m.hours.first?.current == true)
         #expect(m.hours.dropFirst().allSatisfy { !$0.current })
         #expect(m.hours.map(\.minor) == (6..<18).map { Double(10 * $0) })
-        #expect(m.hours.first?.level == 1 && m.hours.last?.level == 8)
+        #expect(m.hours.first?.level == 3 && m.hours.last?.level == 7)
         #expect(m.hours.first?.third == .cheap && m.hours.last?.third == .dear)
         #expect(m.glyphs.count == 12)
-        #expect(m.glyphs.first == "▁" && m.glyphs.last == "█")
+        #expect(m.glyphs.first == "▃" && m.glyphs.last == "▇")
         // Where the market has not priced, the strip ends.
         let late = PriceGlance.moment(r, atMs: at(12, 17), calendar: calendar)
         #expect(late.hours.count == 7)
         #expect(late.glyphs.count == 7)
     }
 
-    /// A flat day is the middle of the scale, not its floor.
-    @Test func aFlatDayIsTheMiddleBlock() {
-        #expect(PriceBlocks.levels([50, 50, 50]) == [4, 4, 4])
+    /// The glyphs stand on zero, so their heights keep the prices'
+    /// proportions: 438 and 556 öre are two steps apart, not the floor and
+    /// the roof. A flat day stands at its price under a round top.
+    @Test func theBlocksStandOnZero() {
+        #expect(PriceBlocks.levels([438, 556]) == [6, 8])
+        #expect(PriceBlocks.levels([50, 50, 50]) == [8, 8, 8])
+        #expect(PriceBlocks.levels([47, 47]) == [8, 8])
         #expect(PriceBlocks.thirds([50, 50]) == [.middle, .middle])
         #expect(PriceBlocks.levels([0, 100]) == [1, 8])
-        #expect(PriceBlocks.levels([-10, 0, 10]) == [1, 5, 8])
+        #expect(PriceBlocks.levels([-10, 0, 10]) == [1, 1, 8])
     }
 
     /// Every widget says when the app fetched what it shows.

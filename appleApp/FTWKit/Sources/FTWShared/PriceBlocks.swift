@@ -1,7 +1,7 @@
 import Foundation
 
-/// The block-glyph scale, ▁▂▃▄▅▆▇█: a price as one of eight levels between
-/// the lowest and the highest in view, and its ink by thirds of that range.
+/// The block-glyph scale, ▁▂▃▄▅▆▇█: a price as one of eight steps from zero
+/// to a round top (`PriceScale`), and its ink by thirds of the range in view.
 /// The small price widget draws it as bars and the lock screen writes it in
 /// SF Mono, from the same hours, so the two always agree.
 public enum PriceBlocks {
@@ -39,10 +39,11 @@ public enum PriceBlocks {
         return (0..<n).map { Hour(startMs: first + Double($0) * hourMs, minor: means[$0], level: levels[$0], third: thirds[$0], current: $0 == 0) }
     }
 
-    /// 1 to 8 between the lowest and highest value; 4 when they are equal.
+    /// 1 to 8 from zero to the round top over the dearest value, so the
+    /// glyphs keep the prices' proportions.
     public static func levels(_ values: [Double]) -> [Int] {
-        let lo = values.min() ?? 0, hi = values.max() ?? 0
-        return values.map { v in hi > lo ? 1 + min(7, Int(((v - lo) / (hi - lo) * 8).rounded(.down))) : 4 }
+        let scale = PriceScale(values)
+        return values.map(scale.step)
     }
 
     /// The cheap, middle or dear third of the range; middle when flat.
