@@ -98,6 +98,10 @@ public final class SiteModel {
     @ObservationIgnored private var writing: Task<Void, Never>?
     /// Called after every write to `shared`, so the app can wake its widgets.
     @ObservationIgnored public var sharedWritten: (@MainActor () -> Void)?
+    /// The phone's zone, offered to a box on UTC. A seam for tests.
+    @ObservationIgnored var phoneTimeZone: @MainActor () -> String? = { TimeZone.current.identifier }
+    /// Boxes this run has offered the phone's zone, by box id.
+    @ObservationIgnored private var zoneOffered: Set<String> = []
     @ObservationIgnored private var attemptStartedAtMs: Double
     /// The app went to the background: the next return starts a new
     /// attempt (`returned()`).
@@ -438,10 +442,23 @@ public final class SiteModel {
         if s.heardFromBox, let boot = s.cloud?.boot, [.relay, .tunnel, .webrtc].contains(s.carrier), s.uptimeMs != previous.uptimeMs || !previous.heardFromBox {
             learnRuleU(boot: boot, uptimeMs: s.uptimeMs, phoneMs: now)
         }
-        if s.phase == .streaming { scheduleSnapshot() }
+        if s.phase == .streaming {
+            scheduleSnapshot()
+            offerTimeZone(s)
+        }
         if reading { first("relay reading") }
         publish()
         scheduleClock()
+    }
+
+    /// Offers the phone's zone to a box on UTC, once per box per run. The box
+    /// decides; once it takes the zone it restarts, and the next hello names
+    /// it.
+    private func offerTimeZone(_ s: SessionState) {
+        guard let box = s.box, !zoneOffered.contains(box.id),
+              let zone = HouseholdClock.zoneToOffer(boxTZ: box.tz, phoneTZ: phoneTimeZone(), scopes: s.scopes) else { return }
+        zoneOffered.insert(box.id)
+        Task { _ = try? await self.command(Contract.opSiteTimeZonePropose, args: [("tz", .text(zone))]) }
     }
 
     /// Logs once per home how long after `start` something first happened.
