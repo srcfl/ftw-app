@@ -379,7 +379,7 @@ private struct DaySpark: View {
                     var s = g
                     s.clip(to: side)
                     s.fill(body, with: .color(color.opacity(scheme == .dark ? 0.22 : 0.14)))
-                    s.stroke(line, with: .color(color), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                    s.stroke(line, with: .color(color), style: StrokeStyle(lineWidth: TraceInk.smallLine, lineCap: .round, lineJoin: .round))
                 }
             }
             // Where the day has got to.
