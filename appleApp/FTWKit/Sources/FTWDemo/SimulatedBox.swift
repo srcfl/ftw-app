@@ -429,6 +429,18 @@ public final class SimulatedBox {
             result(cmdId, "applied", observed: Double(Self.modes.firstIndex { $0.key == mode } ?? 0))
             // Core sends the plan after an applied command on the session.
             sendBulk(Envelope(t: "plan", b: sessionPlan().wire))
+        case Contract.opSiteTimeZonePropose:
+            guard let tz = args["tz"]?.string, let zone = TimeZone(identifier: tz) else {
+                result(cmdId, "rejected", error: ("E_UNKNOWN_OP", [("op", .text(op)), ("arg", .text("tz"))]))
+                return
+            }
+            guard house.timeZone.identifier == "UTC" || house.timeZone.identifier == "GMT" else {
+                result(cmdId, "rejected", error: ("E_PRECONDITION", [("op", .text(op)), ("tz", .text(house.timeZone.identifier))]))
+                return
+            }
+            // Core stores it and restarts; the next hello names it.
+            house.timeZone = zone
+            result(cmdId, "applied")
         case Contract.opPlannerPrefsSet:
             let k = args["safety_k"]?.double
             let export = args["battery_export"]?.string
