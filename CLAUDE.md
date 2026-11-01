@@ -411,7 +411,13 @@ draw that one face. The plan view opens on the dial; the lanes are one
 tap away in the toolbar, and the phone keeps the viewer's choice. A drag
 round the ring costs one lookup per event, and only a change of quarter
 redraws, and then only the hand and the middle. Now keeps its straight
-strip, with gold for the battery giving power.
+strip, with gold for the battery giving power. Each battery run and car
+window on it is a pass (`PlanPass`, proposal 5, picked by Fredrik on
+1 Nov 2026): a tap chooses one, which then stands in full colour over a
+faint column of its colour, with the bars under it in that colour, and
+three figures under the strip say when it runs, what it does to the
+level and the price it meets. The strip opens on the battery's run under
+way or next; with no pass, the sentence stays.
 
 ## Non-negotiable invariants
 

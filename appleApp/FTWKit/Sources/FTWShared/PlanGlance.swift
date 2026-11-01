@@ -774,6 +774,23 @@ enum PlanWord: String, CaseIterable {
     case carGoal = "car at %@"
     case belowZero = "below zero"
     case noPrice = "no price yet"
+    // The figures under the strip for the pass a finger chose.
+    case passBattery = "BATTERY"
+    case passCar = "CAR"
+    case passLevel = "LEVEL"
+    case passGoal = "GOAL"
+    case passTopPrice = "TOP PRICE"
+    case passMeanPrice = "AVG PRICE"
+    case passSource = "SOURCE"
+    case passDuring = "during the pass"
+    case passFromGrid = "from the grid"
+    case passSun = "The sun"
+    case passNoPurchase = "nothing bought"
+    case passGivesEnergy = "gives %@"
+    case passStoresEnergy = "stores %@"
+    case passReadyBy = "ready by %@"
+    case passToward = "toward %@"
+    case passAgainLater = "charges again later"
 
     var text: String { Words.bundle.localizedString(forKey: rawValue, value: rawValue, table: "Plan") }
 

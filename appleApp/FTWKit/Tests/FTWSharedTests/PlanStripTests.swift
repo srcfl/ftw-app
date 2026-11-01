@@ -69,6 +69,43 @@ import Testing
         #expect(PlanStrip.third(70, lo: 70, hi: 70) == .middle)
     }
 
+    /// Each battery run and car window is a pass a tap can choose, with the
+    /// three figures under the strip: when, what it does to the level, and
+    /// the price it meets.
+    @Test func thePassesAndTheirFigures() {
+        let s = strip(at: at(12, 20, 5))
+        #expect(s.passes.map(\.kind) == [.gives, .stores, .car, .gives])
+        let gives = s.passes[0]
+        #expect(gives.first == 0 && gives.last == 4)
+        #expect(gives.figures.map(\.title) == ["BATTERY", "LEVEL", "TOP PRICE"])
+        #expect(gives.figures.map(\.value) == ["Now", "—", "160 öre"])
+        // From now on: ten minutes of the first quarter and four more at
+        // 1.8 kW.
+        #expect(gives.figures.map(\.sub) == ["until 21:15", "gives 2.1 kWh", "during the pass"])
+        #expect(gives.figures[0].tint == .gives)
+        let stores = s.passes[1]
+        #expect(stores.figures.map(\.value) == ["22:00", "—", "70 öre"])
+        #expect(stores.figures.map(\.sub) == ["until 23:30", "stores 4.5 kWh", "from the grid"])
+        #expect(stores.figures[0].tint == .stores)
+        // 01:00–04:45: an hour at 70, two at 30 and three quarters at 70.
+        let car = s.passes[2]
+        #expect(car.figures.map(\.title) == ["CAR", "GOAL", "AVG PRICE"])
+        #expect(car.figures[0].value == "01:00" && car.figures[0].sub == "until 04:45")
+        #expect(car.figures[1].value == PlanGlance.percent(80))
+        #expect(car.figures[2].value == "49 öre" && car.figures[2].sub == "42 kWh")
+        #expect(car.spoken.hasPrefix("Car charges, 01:00 until 04:45"))
+        #expect(PlanPass.opening(s.passes) == gives)
+    }
+
+    /// A run that stores spare sun buys nothing, and says so.
+    @Test func aRunOnSpareSunBuysNothing() {
+        var entry = glance.night()
+        for i in entry.battery!.indices where entry.battery![i].batteryW > 100 { entry.battery![i].reason = "solar_surplus" }
+        let s = PlanStrip.build(entry, moment: PlanGlance.live(entry, nowMs: at(12, 20, 5), calendar: calendar), hasCar: true)
+        #expect(s.passes[1].figures[2].title == "SOURCE")
+        #expect(s.passes[1].figures[2].value == "The sun" && s.passes[1].figures[2].sub == "nothing bought")
+    }
+
     /// Under a finger the line and the header say the quarter's price in
     /// whole öre, the same figure in both places.
     @Test func aFingerReadsTheQuarterAndBumpsOnItsLandmarks() {

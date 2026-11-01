@@ -65,3 +65,21 @@
 "car at %@" = "bilen når %@";
 "below zero" = "under noll";
 "no price yet" = "inget pris än";
+
+/* The figures under the strip for the pass a finger chose. */
+"BATTERY" = "BATTERI";
+"CAR" = "BIL";
+"LEVEL" = "NIVÅ";
+"GOAL" = "MÅL";
+"TOP PRICE" = "TOPPRIS";
+"AVG PRICE" = "SNITTPRIS";
+"SOURCE" = "KÄLLA";
+"during the pass" = "under passet";
+"from the grid" = "från nätet";
+"The sun" = "Solen";
+"nothing bought" = "inget köpt";
+"gives %@" = "ger %@";
+"stores %@" = "laddar %@";
+"ready by %@" = "klar till %@";
+"toward %@" = "mot %@";
+"charges again later" = "laddar igen senare";

@@ -8,8 +8,13 @@ import SwiftUI
 /// takes the height Now gives it, so on a tall phone the bars read as a
 /// chart.
 ///
-/// The price in the header opens the price; a tap anywhere else opens the
-/// plan, as the chevron by `NEXT 12 H` says. A drag of 4 pt or more reads
+/// Under the strip, the three figures of one pass (proposal 5, picked by
+/// Fredrik on 1 Nov 2026): the battery's run under way or next, until a
+/// tap on another run or car window chooses it. The chosen pass is drawn
+/// in full colour with the bars under it in its colour.
+///
+/// The price in the header opens the price; a tap on a pass chooses it; a
+/// tap anywhere else opens the plan, as the chevron by `NEXT 12 H` says. A drag of 4 pt or more reads
 /// the quarters one at a time: the quarter under the finger lights, the
 /// header names its time and price, the sentence goes at once and what
 /// happens in that quarter fades in, `.selection` ticks per quarter and a
@@ -36,6 +41,10 @@ struct PlanStripView: View, Equatable {
 
     @State private var scrub = ScrubModel()
     @State private var width: CGFloat = 0
+    /// The pass a tap chose, by id, so it holds while the plan stands.
+    @State private var chosenID: String?
+    /// Where the strip's drawing sits, for the passes' tap targets.
+    @State private var canvas: CGRect = .zero
     @GestureState private var dragging = false
     @ScaledMetric(relativeTo: .caption2) private var kicker: CGFloat = 10.5
     @ScaledMetric(relativeTo: .caption2) private var axis: CGFloat = 10
@@ -49,6 +58,12 @@ struct PlanStripView: View, Equatable {
     /// Mono stops growing at accessibility1.
     private var layout: PlanStripLayout { PlanStripLayout(axis: min(axis, 15)) }
     private var mono: Font { .system(size: min(kicker, 15), weight: .medium, design: .monospaced) }
+
+    /// The pass the figures show: the one a tap chose while the plan still
+    /// has it, else the one the strip opens on.
+    private var chosen: PlanPass? {
+        strip.passes.first { $0.id == chosenID } ?? PlanPass.opening(strip.passes)
+    }
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -71,17 +86,26 @@ struct PlanStripView: View, Equatable {
                 .accessibilityIdentifier("now.price")
             }
         }
+        .overlay(alignment: .topLeading) {
+            PassTargets(strip: strip, layout: layout, chosenID: $chosenID)
+                .frame(width: canvas.width, height: canvas.height, alignment: .topLeading)
+                .offset(x: canvas.minX, y: canvas.minY)
+        }
+        .coordinateSpace(.named(Self.space))
+        .sensoryFeedback(.selection, trigger: chosenID)
     }
+
+    private static let space = "now.strip"
 
     private var plan: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
             ZStack {
-                ChartSurface(drawing: PlanStripDrawing(strip: strip, layout: layout))
+                ChartSurface(drawing: PlanStripDrawing(strip: strip, layout: layout, chosen: chosen))
                     .equatable()
                 if let fade {
                     MovedFade(fresh: fade.fresh, mask: QuarterColumns(grid: fade.old.grid, quarters: fade.moved, trailing: layout.gutter)) {
-                        ChartSurface(drawing: PlanStripDrawing(strip: fade.old, layout: layout))
+                        ChartSurface(drawing: PlanStripDrawing(strip: fade.old, layout: layout, chosen: fade.old.passes.first { $0.id == chosen?.id }))
                             .equatable()
                     }
                     .id(fade.atMs)
@@ -90,7 +114,8 @@ struct PlanStripView: View, Equatable {
             }
             // The price row takes the height Now gives the strip.
             .frame(minHeight: layout.height, maxHeight: layout.tallest)
-            StripSentence(sentence: sentence, shorter: shorter, placeholder: placeholder, grey: strip.grey, readouts: strip.readouts, model: scrub)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { canvas = $0 }
+            StripSentence(sentence: sentence, shorter: shorter, placeholder: placeholder, grey: strip.grey, pass: chosen, readouts: strip.readouts, model: scrub)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
@@ -188,8 +213,9 @@ private struct StripPrice: View {
     }
 }
 
-/// The strip's two reserved lines: the next thing the box will do, or,
-/// under a finger, what happens in that quarter. When the sentence needs a
+/// Under the strip: the chosen pass's figures, or with no pass the next
+/// thing the box will do in two reserved lines; under a finger, what
+/// happens in that quarter. When the sentence needs a
 /// third line at this width, it drops its later clauses rather than end in
 /// "…". On touch-down the sentence goes at once and the quarter's line
 /// fades in over 0.1 s, so the two never sit on top of each other; on lift
@@ -199,6 +225,7 @@ private struct StripSentence: View {
     let shorter: [String]
     let placeholder: Bool
     let grey: Bool
+    let pass: PlanPass?
     let readouts: [String]
     let model: ScrubModel
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -210,9 +237,15 @@ private struct StripSentence: View {
             return readouts[i]
         }()
         ZStack(alignment: .topLeading) {
-            said
-                .foregroundStyle(grey ? Theme.ink3 : Theme.ink2)
-                .redacted(reason: placeholder ? .placeholder : [])
+            Group {
+                if let pass, !placeholder {
+                    PassFigures(pass: pass, grey: grey)
+                } else {
+                    said
+                        .foregroundStyle(grey ? Theme.ink3 : Theme.ink2)
+                        .redacted(reason: placeholder ? .placeholder : [])
+                }
+            }
                 .opacity(down ? 0 : 1)
                 // Back only once the quarter's line has gone.
                 .animation(down ? nil : .easeOut(duration: 0.2).delay(0.1), value: down)
@@ -253,5 +286,49 @@ private struct StripSentence: View {
                     }
                 }
         }
+    }
+}
+
+/// A tap target over each pass on the strip's lanes, as wide as its run and
+/// at least 28 pt, from just above the battery's lane to the top of the
+/// bars. Where a battery run and a car window share the same minutes, each
+/// takes its own lane's half. A tap chooses the pass; VoiceOver reads each
+/// as a button that says the pass.
+private struct PassTargets: View {
+    let strip: PlanStrip
+    let layout: PlanStripLayout
+    @Binding var chosenID: String?
+
+    var body: some View {
+        GeometryReader { geo in
+            let width = layout.plotWidth(geo.size.width)
+            ForEach(strip.passes) { pass in
+                let r = rect(pass, width: width)
+                Button {
+                    chosenID = pass.id
+                } label: {
+                    Color.clear
+                        .frame(width: r.width, height: r.height)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .position(x: r.midX, y: r.midY)
+                .accessibilityLabel(pass.spoken)
+                .accessibilityAddTraits(pass.id == (strip.passes.first { $0.id == chosenID } ?? PlanPass.opening(strip.passes))?.id ? .isSelected : [])
+            }
+        }
+    }
+
+    private func rect(_ pass: PlanPass, width: CGFloat) -> CGRect {
+        let x0 = strip.grid.x(atMs: strip.grid.startMs(pass.first), width: width)
+        let x1 = strip.grid.x(atMs: strip.grid.endMs(pass.last), width: width)
+        let w = max(28, x1 - x0)
+        let x = min(max(0, (x0 + x1) / 2 - w / 2), max(0, width - w))
+        let shared = strip.passes.contains { $0.isBattery != pass.isBattery && $0.first <= pass.last && $0.last >= pass.first }
+        let split = PlanStripLayout.carY - 2
+        let top: CGFloat = -8, bottom = PlanStripLayout.priceTop
+        let y0 = shared && !pass.isBattery ? split : top
+        let y1 = shared && pass.isBattery ? split : bottom
+        return CGRect(x: x, y: y0, width: w, height: y1 - y0)
     }
 }
