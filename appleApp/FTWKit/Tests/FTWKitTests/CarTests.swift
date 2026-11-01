@@ -674,6 +674,10 @@ import FTWDemo
             case .estimated, .late: #expect(home.loadpoints.level(car)?.origin == .estimated)
             case .noGoal: #expect(car.schedule == nil)
             case .charging: #expect(car.manualActive)
+            case .steps:
+                // A quarter now, then the night, toward one goal.
+                #expect(home.loadpoints.level(car)?.origin == .estimated)
+                #expect(car.planWindows.count == 2 && car.targetSocPct == 100)
             }
         }
     }

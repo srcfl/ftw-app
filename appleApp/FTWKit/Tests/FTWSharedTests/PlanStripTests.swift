@@ -42,6 +42,16 @@ import Testing
         #expect(s.hasCar)
     }
 
+    /// A window on the way to the goal is a car run with no goal mark: the
+    /// mark sits once, where the last window ends.
+    @Test func theGoalIsMarkedOnce() {
+        var entry = glance.night()
+        entry.charges.insert(PlanEntry.Charge(loadpointID: "garage", fromMs: at(12, 21), toMs: at(12, 21, 30), energyWh: 5_500, targetPct: 80), at: 0)
+        let s = PlanStrip.build(entry, moment: PlanGlance.live(entry, nowMs: at(12, 20, 5), calendar: calendar), hasCar: true)
+        #expect(s.carRuns == [.init(first: 4, count: 2, value: true), .init(first: 20, count: 15, value: true)])
+        #expect(s.goals == [34: 80])
+    }
+
     /// The price in eight levels across the window, and equal levels as one
     /// bar: 160 öre is the top, 30 the bottom, 70 sits at level 2.
     @Test func thePriceIsEightLevelsInRuns() {

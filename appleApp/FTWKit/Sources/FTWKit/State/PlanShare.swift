@@ -3,7 +3,8 @@ import FTWShared
 
 extension PlanEntry {
     /// The plan as the app holds it right now: the box's battery plan, each
-    /// car's charging windows with the level it charges toward, and the
+    /// car's charging windows with the level it charges toward and the
+    /// deadline the box plans for, and the
     /// prices under them. Prices come from the price model, or else from the
     /// plan's own slots.
     /// `levels` stands in for a box that sends no level on its plan: the
@@ -18,7 +19,7 @@ extension PlanEntry {
         var charges = [Charge]()
         for lp in points {
             for w in windows[lp.id] ?? lp.planWindows {
-                charges.append(Charge(loadpointID: lp.id, fromMs: w.fromMs, toMs: w.toMs, energyWh: w.energyWh, targetPct: lp.targetSocPct ?? lp.schedule?.socPct))
+                charges.append(Charge(loadpointID: lp.id, fromMs: w.fromMs, toMs: w.toMs, energyWh: w.energyWh, targetPct: lp.targetSocPct ?? lp.schedule?.socPct, goalMs: lp.targetTimeMs))
             }
         }
         var slots = prices?.slots ?? []
@@ -134,7 +135,7 @@ public final class PlanShare {
 
     /// What would make the record different. Cheap enough for every tick.
     var key: String {
-        let w = loadpoints.points.map { lp in "\(lp.id):\((loadpoints.windows[lp.id] ?? lp.planWindows).map { "\($0.fromMs)-\($0.toMs)" }.joined(separator: ",")):\(lp.targetSocPct ?? lp.schedule?.socPct ?? -1)" }
+        let w = loadpoints.points.map { lp in "\(lp.id):\((loadpoints.windows[lp.id] ?? lp.planWindows).map { "\($0.fromMs)-\($0.toMs)" }.joined(separator: ",")):\(lp.targetSocPct ?? lp.schedule?.socPct ?? -1)@\(lp.targetTimeMs ?? -1)" }
         let p = prices.prices.map { "\($0.slots.count)@\($0.slots.first?.startMs ?? 0)" } ?? "-"
         let plan = self.plan.plan
         let sun = self.plan.forecast.first.map { "\(self.plan.forecast.count)@\($0.startMs)" } ?? "-"

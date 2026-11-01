@@ -37,14 +37,24 @@ public struct PlanEntry: CacheValue {
         public var energyWh: Double?
         /// The level the car charges toward, whole percent.
         public var targetPct: Double?
+        /// When the box means the car to reach it. Nil when the box did
+        /// not say, and in a record from before it was kept.
+        public var goalMs: Double?
 
-        public init(loadpointID: String, fromMs: Double, toMs: Double, energyWh: Double?, targetPct: Double?) {
+        public init(loadpointID: String, fromMs: Double, toMs: Double, energyWh: Double?, targetPct: Double?, goalMs: Double? = nil) {
             self.loadpointID = loadpointID
             self.fromMs = fromMs
             self.toMs = toMs
             self.energyWh = energyWh
             self.targetPct = targetPct
+            self.goalMs = goalMs
         }
+    }
+
+    /// Whether the car on `c`'s charger charges again after it. Then `c` is
+    /// a step on the way, and only the last window ends at the goal.
+    public func chargesAgain(after c: Charge) -> Bool {
+        charges.contains { $0.loadpointID == c.loadpointID && $0.fromMs >= c.toMs }
     }
 
     /// The battery's plan. Nil when the box has sent none: "no plan yet" is
@@ -149,9 +159,14 @@ public enum PlanGlance {
         public let reason: String?
         /// Where the battery's run leaves it, in percent, when the box said.
         public let endLevelPct: Double?
+        /// When the car is meant to reach `targetPct`, when the box said.
+        public let goalMs: Double?
+        /// The car charges again after this window, so it ends short of
+        /// `targetPct`: a step toward it, not where the car gets there.
+        public let chargesAgain: Bool
         public var id: String { "\(kind.rawValue)-\(Int64(startMs))" }
 
-        public init(kind: Kind, startMs: Double, endMs: Double, peakW: Double? = nil, targetPct: Double? = nil, energyWh: Double? = nil, reason: String? = nil, endLevelPct: Double? = nil) {
+        public init(kind: Kind, startMs: Double, endMs: Double, peakW: Double? = nil, targetPct: Double? = nil, energyWh: Double? = nil, reason: String? = nil, endLevelPct: Double? = nil, goalMs: Double? = nil, chargesAgain: Bool = false) {
             self.kind = kind
             self.startMs = startMs
             self.endMs = endMs
@@ -160,6 +175,8 @@ public enum PlanGlance {
             self.energyWh = energyWh
             self.reason = reason
             self.endLevelPct = endLevelPct
+            self.goalMs = goalMs
+            self.chargesAgain = chargesAgain
         }
     }
 
@@ -189,7 +206,8 @@ public enum PlanGlance {
         }
         for c in entry.charges where c.toMs > t && c.fromMs < end {
             let watts = c.energyWh.map { $0 * 3_600_000 / max(1, c.toMs - c.fromMs) }
-            out.append(Event(kind: .car, startMs: max(t, c.fromMs), endMs: c.toMs, peakW: watts, targetPct: c.targetPct, energyWh: c.energyWh))
+            out.append(Event(kind: .car, startMs: max(t, c.fromMs), endMs: c.toMs, peakW: watts, targetPct: c.targetPct, energyWh: c.energyWh,
+                             goalMs: c.goalMs, chargesAgain: entry.chargesAgain(after: c)))
         }
         if let cheap = cheapest(entry, fromMs: t, toMs: end) { out.append(cheap) }
         return out.sorted { ($0.startMs, $0.kind.rawValue) < ($1.startMs, $1.kind.rawValue) }
@@ -440,7 +458,8 @@ public enum PlanGlance {
         var parts = runs.map { e, when -> String in
             switch e.kind {
             case .car:
-                return e.targetPct.map { PlanWord.carChargesTo.format(when, percent($0)) } ?? PlanWord.carCharges.format(when)
+                guard let pct = e.targetPct else { return PlanWord.carCharges.format(when) }
+                return (e.chargesAgain ? PlanWord.carChargesToward : PlanWord.carChargesTo).format(when, percent(pct))
             case .charge: return PlanWord.batteryCharges.format(when)
             case .discharge: return PlanWord.batteryGives.format(when)
             case .cheap: return ""
@@ -494,7 +513,7 @@ public enum PlanGlance {
             case .discharge: lead = battery ? .thenGives : .thenBatteryGives
             case .car, .cheap: lead = .thenCar
             }
-            text += " " + Phrase(kind: then.kind, marked: PlanWord.sentence.format(why(then, lead.format(when), entry: entry))).plain
+            text += " " + Phrase(kind: then.kind, marked: PlanWord.sentence.format(why(then, lead.format(when), entry: entry, from: t, clock: clock))).plain
         }
         return text
     }
@@ -556,7 +575,7 @@ public enum PlanGlance {
         case .discharge: lead = under ? PlanWord.givesUntil.format(end) : PlanWord.givesAt.format(span)
         case .car, .cheap: lead = under ? PlanWord.carUntil.format(end) : PlanWord.carAt.format(span)
         }
-        var text = reason ? why(e, lead, entry: entry) : lead
+        var text = reason ? why(e, lead, entry: entry, from: t, clock: clock) : lead
         if level, let pct = e.endLevelPct, e.kind == .charge || e.kind == .discharge {
             text = (e.kind == .charge ? PlanWord.levelUp : PlanWord.levelDown).format(text, percent(pct))
         }
@@ -566,9 +585,18 @@ public enum PlanGlance {
     /// The box's reason, said as what drives it: the price when power is
     /// dear or cheap, the sun, selling, the grid limit, or the car's goal.
     /// A reason with no price to show leaves the clause as it is.
-    static func why(_ e: Event, _ lead: String, entry: PlanEntry) -> String {
+    ///
+    /// A car window with more after it does not take the car to its goal,
+    /// so it says the goal is still ahead, and when: "Car charges
+    /// 14:00–14:15 and later, toward 100 % by Sun 17:00." Erik read "to
+    /// 100 %" after a quarter of an hour as all the charging there was (31
+    /// Oct 2026).
+    static func why(_ e: Event, _ lead: String, entry: PlanEntry, from t: Double, clock: Clock) -> String {
         if e.kind == .car {
-            return e.targetPct.map { PlanWord.toPercent.format(lead, percent($0)) } ?? lead
+            guard let pct = e.targetPct else { return lead }
+            guard e.chargesAgain else { return PlanWord.toPercent.format(lead, percent(pct)) }
+            guard let by = e.goalMs, by > e.endMs else { return PlanWord.towardLater.format(lead, percent(pct)) }
+            return PlanWord.towardLaterBy.format(lead, percent(pct), clock.at(by, asEnd: true, from: t))
         }
         let under = entry.prices.filter { $0.totalMinor.isFinite && $0.startMs < e.endMs && $0.startMs + $0.durationMs > e.startMs }
         func price(_ minor: Double) -> String {
@@ -659,7 +687,7 @@ public enum PlanGlance {
     /// "Car charges to 80 %", for the widget's headline.
     public static func what(_ e: Event) -> String {
         switch e.kind {
-        case .car: return e.targetPct.map { PlanWord.carTo.format(percent($0)) } ?? PlanWord.car.text
+        case .car: return e.targetPct.map { (e.chargesAgain ? PlanWord.carToward : PlanWord.carTo).format(percent($0)) } ?? PlanWord.car.text
         case .charge: return PlanWord.batteryCharging.text
         case .discharge: return PlanWord.batteryGiving.text
         case .cheap: return PlanWord.cheapPower.text
@@ -686,6 +714,7 @@ enum PlanWord: String, CaseIterable {
     case boxStale = "Your box couldn't plan ahead · it runs on safe defaults"
     case nothingPlanned = "Nothing planned for 12 hours"
     case carChargesTo = "%@ car charges to %@"
+    case carChargesToward = "%@ car charges toward %@"
     case carCharges = "%@ car charges"
     case batteryCharges = "%@ battery charges"
     case batteryGives = "%@ battery gives power"
@@ -695,6 +724,7 @@ enum PlanWord: String, CaseIterable {
     case nowLower = "now"
     case until = "until %@"
     case carTo = "Car charges to %@"
+    case carToward = "Car charges toward %@"
     case car = "Car charges"
     case batteryCharging = "Battery charges"
     case batteryGiving = "Battery gives power"
@@ -710,6 +740,8 @@ enum PlanWord: String, CaseIterable {
     case givesAt = "Battery *gives power* %@"
     case carAt = "Car *charges* %@"
     case toPercent = "%@, to %@"
+    case towardLater = "%@ and later, toward %@"
+    case towardLaterBy = "%@ and later, toward %@ by %@"
     case sentence = "%@."
     case thenStores = "Then *stores* %@"
     case thenGives = "Then *gives power* %@"

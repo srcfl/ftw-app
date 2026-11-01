@@ -827,11 +827,12 @@ public final class SimulatedBox {
                 lp = lp.setting("target_time", .string(ISO8601DateFormatter().string(from: Date(timeIntervalSince1970: deadline / 1000))))
             }
         }
-        if replanning == nil, let p = h.carPlan(now), p.endMs > p.startMs, p.endMs > now {
-            lp = lp.setting("plan_windows", [["start_ms": .number(p.startMs.rounded()), "end_ms": .number(p.endMs.rounded()), "wh": .number(p.wh)]])
+        let windows = h.carWindows(now)
+        if replanning == nil, let p = windows.first {
+            lp = lp.setting("plan_windows", .array(windows.map { ["start_ms": .number($0.startMs.rounded()), "end_ms": .number($0.endMs.rounded()), "wh": .number($0.wh)] }))
             lp = lp.setting("plan_next_start_ms", .number(p.startMs.rounded()))
             lp = lp.setting("plan_next_end_ms", .number(p.endMs.rounded()))
-            lp = lp.setting("plan_total_wh", .number(p.wh))
+            lp = lp.setting("plan_total_wh", .number(windows.map(\.wh).reduce(0, +)))
         } else {
             lp = lp.setting("plan_windows", [])
         }
@@ -1038,9 +1039,10 @@ extension SimulatedBox {
     func planCharger(nowMs: Double) -> PlanCharger {
         let pending = replanning != nil
         var car = PlanCharger(id: "garage", carId: pluggedCarID, pluggedIn: house.carPluggedIn, pending: pending, outdated: pending, goalRev: goalRev, windows: [], totalWh: 0)
-        if let p = house.carPlan(nowMs), p.endMs > p.startMs, p.endMs > nowMs {
-            car.windows = [Loadpoint.Window(fromMs: p.startMs.rounded(), toMs: p.endMs.rounded(), peakW: nil, energyWh: p.wh)]
-            car.totalWh = p.wh
+        let windows = house.carWindows(nowMs)
+        if let p = house.carPlan(nowMs), !windows.isEmpty {
+            car.windows = windows.map { Loadpoint.Window(fromMs: $0.startMs.rounded(), toMs: $0.endMs.rounded(), peakW: nil, energyWh: $0.wh) }
+            car.totalWh = windows.map(\.wh).reduce(0, +)
             car.shortfallWh = pending ? nil : p.shortfallWh
         }
         return car
@@ -1089,6 +1091,9 @@ public enum DemoCar: String, CaseIterable, Sendable {
     case late
     /// No goal yet.
     case noGoal
+    /// Erik's car on 31 Oct 2026: 22 % toward 100 % by Sunday 17:00,
+    /// topped up for a quarter now and charged in the night.
+    case steps
     /// Charge now running.
     case charging
 
@@ -1114,6 +1119,11 @@ public enum DemoCar: String, CaseIterable, Sendable {
             h.schedule = (0.8, 3 * 60, true, 0, 0)
         case .noGoal:
             h.schedule = nil
+        case .steps:
+            h.carSocFraction = 0.22
+            h.carSocSource = "inferred"
+            h.schedule = (1, 17 * 60, false, 1 << 6, 0)
+            h.carTopUpAtMs = ((nowMs / 900_000).rounded(.down) + 1) * 900_000
         case .charging:
             h.carSocFraction = 0.46
             h.carSocSource = "inferred"

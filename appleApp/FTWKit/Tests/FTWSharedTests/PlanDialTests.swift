@@ -185,6 +185,20 @@ import Testing
         #expect(old.daylight == nil)
     }
 
+    /// A car that charges in two windows toward one goal has the goal once,
+    /// where its last window ends (Erik read "100 %" all round the ring on
+    /// 31 Oct 2026). The window on the way is a car quarter, no more.
+    @Test func theGoalIsOnTheDialOnce() {
+        var plan = watch.plan()
+        plan.charges.insert(PlanEntry.Charge(loadpointID: plan.charges[0].loadpointID, fromMs: at(14, 13), toMs: at(14, 13, 15), energyWh: 2_750, targetPct: 80), at: 0)
+        let d = PlanDial(plan: plan, prices: watch.prices(), nowMs: at(14, 12, 7))
+        let step = d.grid.index(atMs: at(14, 13))!, goal = d.grid.index(atMs: at(15, 4, 30))!
+        #expect(d.quarters.indices.filter { d.quarters[$0].carGoalPct != nil } == [goal])
+        #expect(d.quarters[step].car && d.doing[step].hasSuffix(" · CAR"))
+        #expect(d.doing[goal] == "WAITS · CAR TO 80\u{00A0}%")
+        #expect(d.landmarks.contains(goal) && !d.landmarks.contains(step))
+    }
+
     /// Every word has Swedish, with as many blanks as the English.
     @Test func everyWordHasSwedish() throws {
         let url = try #require(Words.bundle.url(forResource: "Dial", withExtension: "strings", subdirectory: nil, localization: "sv"))

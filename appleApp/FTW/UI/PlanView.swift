@@ -242,6 +242,7 @@ private struct PlanStory: View {
         .font(.subheadline)
         .fixedSize(horizontal: false, vertical: true)
         .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("plan.story")
     }
 
     private func sentence(_ phrase: PlanGlance.Phrase) -> Text {
@@ -620,7 +621,7 @@ struct PlanLanes: View, Equatable {
                 .foregroundStyle(grey ? Theme.fgMuted : Self.color(e.kind).opacity(Theme.plan(contrast)))
                 .cornerRadius(5)
                 .annotation(position: .overlay, alignment: .center) {
-                    if !compact || e.endMs - e.startMs >= 90 * 60_000, let pct = e.targetPct, e.kind == .car {
+                    if !compact || e.endMs - e.startMs >= 90 * 60_000, let pct = e.targetPct, e.kind == .car, !e.chargesAgain {
                         // On the pale car bar: ink in light, where the
                         // ground's colour would fall under 4.5:1.
                         Text(AppWords.percent(pct))

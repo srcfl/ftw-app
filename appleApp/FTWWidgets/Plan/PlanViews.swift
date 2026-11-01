@@ -282,7 +282,7 @@ struct PlanLanes: View {
             guard x1 - x0 > 0.5 else { return nil }
             let rect = CGRect(x: x0, y: y, width: x1 - x0, height: Self.lane)
             var path = Path(roundedRect: rect, cornerRadius: min(3, rect.width / 2), style: .continuous)
-            if e.kind == .car, e.targetPct != nil {
+            if e.kind == .car, e.targetPct != nil, !e.chargesAgain {
                 path.addRect(CGRect(x: max(x0, x1 - 2), y: y - 2, width: 2, height: Self.lane + 4))
             }
             return Run(id: e.id, path: path, color: color)
