@@ -157,8 +157,25 @@ struct PlanStripView: View, Equatable {
     }
 
     /// The kicker and its chevron, and room for the price, which sits over
-    /// the strip as a link of its own.
+    /// the strip as a link of its own. Beside the price where both fit; at
+    /// the largest sizes the price takes the first line and the kicker the
+    /// next, so the two never overlap.
     private var header: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                kickerLine
+                Spacer(minLength: 8)
+                priceRoom
+            }
+            VStack(alignment: .leading, spacing: 4) {
+                priceRoom
+                kickerLine
+            }
+        }
+        .animation(Theme.spring, value: strip.kicker)
+    }
+
+    private var kickerLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
             Text(priceLabel.map { strip.kicker + " · " + $0 } ?? strip.kicker)
                 .font(mono)
@@ -172,13 +189,18 @@ struct PlanStripView: View, Equatable {
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(Theme.ink3)
             }
-            Spacer(minLength: 8)
-            // The price's line, never drawn: it gives the header the price's
-            // height and baseline, so the kicker sits on the same line.
-            Text("\(Text(verbatim: "0").font(Theme.figure(figure))) \(Text(verbatim: unit).font(mono).tracking(0.5))")
-                .hidden()
         }
-        .animation(Theme.spring, value: strip.kicker)
+    }
+
+    /// The price's line, never drawn: it gives the header the price's
+    /// width, height and baseline, so the kicker sits on the same line and
+    /// clear of it.
+    private var priceRoom: some View {
+        let figures = priceNow.map { AppWords.decimal($0) } ?? "0"
+        let words = priceNow == nil ? unit : "\(unit) \(PlanGlance.nowWord)"
+        return Text("\(Text(verbatim: figures).font(Theme.figure(figure))) \(Text(verbatim: words).font(mono).tracking(0.5))")
+            .lineLimit(1)
+            .hidden()
     }
 
     private func follow(_ x: CGFloat) {

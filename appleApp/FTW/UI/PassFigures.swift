@@ -6,7 +6,8 @@ import SwiftUI
 /// meets. Each a mono title, a figure and a line, with space between them
 /// and no borders. The first title takes the pass's colour; a plan that is
 /// old reads in ink3. It swaps with the pass, with no animation, so a tap
-/// answers at once.
+/// answers at once. Where the three do not fit side by side, as at the
+/// largest text sizes, they stand one under another rather than end in "…".
 struct PassFigures: View, Equatable {
     let pass: PlanPass
     var grey = false
@@ -15,28 +16,40 @@ struct PassFigures: View, Equatable {
     nonisolated static func == (a: Self, b: Self) -> Bool { a.pass == b.pass && a.grey == b.grey }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            ForEach(Array(pass.figures.enumerated()), id: \.offset) { i, f in
-                VStack(alignment: i == 2 ? .trailing : .leading, spacing: 1) {
-                    Text(f.title)
-                        .font(Theme.mono())
-                        .tracking(0.5)
-                        .foregroundStyle(grey ? Theme.ink3 : tint(f.tint))
-                        .dynamicTypeSize(...DynamicTypeSize.accessibility1)
-                    Text(f.value)
-                        .font(Theme.figure(figure))
-                        .foregroundStyle(grey ? Theme.ink3 : Theme.ink)
-                        .minimumScaleFactor(0.7)
-                    Text(f.sub)
-                        .font(.caption)
-                        .foregroundStyle(grey ? Theme.ink3 : Theme.ink2)
+        let figures = Array(pass.figures.enumerated())
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(figures, id: \.offset) { i, f in
+                    column(f, trailing: i == 2)
+                        .frame(maxWidth: .infinity, alignment: i == 2 ? .trailing : .leading)
                 }
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: i == 2 ? .trailing : .leading)
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(figures, id: \.offset) { _, f in
+                    column(f, trailing: false)
+                }
             }
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(pass.spoken)
+    }
+
+    private func column(_ f: PlanPass.Figure, trailing: Bool) -> some View {
+        VStack(alignment: trailing ? .trailing : .leading, spacing: 1) {
+            Text(f.title)
+                .font(Theme.mono())
+                .tracking(0.5)
+                .foregroundStyle(grey ? Theme.ink3 : tint(f.tint))
+                .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+            Text(f.value)
+                .font(Theme.figure(figure))
+                .foregroundStyle(grey ? Theme.ink3 : Theme.ink)
+                .minimumScaleFactor(0.7)
+            Text(f.sub)
+                .font(.caption)
+                .foregroundStyle(grey ? Theme.ink3 : Theme.ink2)
+        }
+        .lineLimit(1)
     }
 
     private func tint(_ t: PlanPass.Figure.Tint) -> Color {
