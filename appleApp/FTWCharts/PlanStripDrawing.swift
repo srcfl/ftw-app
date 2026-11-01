@@ -28,9 +28,10 @@ struct PlanStripLayout: Equatable {
 
     var priceTop: CGFloat { Self.lanesBottom + levelHeight }
     var priceBottom: CGFloat { priceTop + priceHeight }
-    /// 100 % and 0 % in the level's row, clear of the lanes and the bars.
+    /// 100 % and 0 % in the level's row, clear of the lanes and the bars,
+    /// and 0 %'s figure clear of the price's top figure at any text size.
     var levelTop: CGFloat { Self.lanesBottom + 5 }
-    var levelBottom: CGFloat { priceTop - 14 }
+    var levelBottom: CGFloat { priceTop - max(14, (axis * 1.2).rounded(.up)) }
     func levelY(_ pct: Double) -> CGFloat { levelBottom - CGFloat(min(100, max(0, pct)) / 100) * (levelBottom - levelTop) }
     var hoursTop: CGFloat { priceBottom + 3 }
     /// Room on the right for the scale's figures, "600", in the axis's
@@ -177,17 +178,22 @@ struct PlanStripDrawing: ChartDrawing {
         if layout.levelHeight > 0 { drawLevel(in: &g, layout: layout, width: width, px: px, ghost: ghost, chosen: chosen) }
 
         // The scale: a hairline at half the top and at the top, each with
-        // its figure in the gutter, and the zero line when a price falls
-        // under it.
+        // its figure in the gutter where there is room for it, and the zero
+        // line when a price falls under it. In a short row at a large text
+        // size the top keeps its figure and half the top keeps only its line.
         let priceScale = strip.scale
         var lines = Path()
         for v in priceScale.lines + (priceScale.bottom < 0 ? [0] : []) {
             lines.addRect(CGRect(x: 0, y: snap(layout.priceY(v, priceScale)), width: width, height: px))
         }
         g.fill(lines, with: .color(Theme.ink.opacity(0.1)))
-        for v in priceScale.lines {
+        var lastY: CGFloat?
+        for v in priceScale.lines.sorted(by: >) {
             let text = g.resolve(ChartText.label(priceScale.label(v), size: layout.axis * 0.9))
-            g.draw(text, at: CGPoint(x: width + 4, y: layout.priceY(v, priceScale)), anchor: .leading)
+            let y = layout.priceY(v, priceScale)
+            if let lastY, abs(y - lastY) < text.measure(in: size).height + 2 { continue }
+            g.draw(text, at: CGPoint(x: width + 4, y: y), anchor: .leading)
+            lastY = y
         }
 
         // The price: a bar per stretch of equal price and equal ink. Ink by
