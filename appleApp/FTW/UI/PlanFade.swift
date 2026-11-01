@@ -68,12 +68,15 @@ struct DialFade: Equatable {
 struct QuarterColumns: Shape {
     let grid: SlotGrid
     let quarters: [Int]
+    /// Room on the right the quarters do not run across: the scale's.
+    var trailing: CGFloat = 0
 
     func path(in rect: CGRect) -> Path {
         var p = Path()
+        let width = max(0, rect.width - trailing)
         for i in quarters {
-            let x0 = grid.x(atMs: grid.startMs(i), width: rect.width)
-            let x1 = grid.x(atMs: grid.endMs(i), width: rect.width)
+            let x0 = grid.x(atMs: grid.startMs(i), width: width)
+            let x1 = grid.x(atMs: grid.endMs(i), width: width)
             p.addRect(CGRect(x: rect.minX + x0 - 0.5, y: rect.minY, width: x1 - x0 + 1, height: rect.height))
         }
         return p

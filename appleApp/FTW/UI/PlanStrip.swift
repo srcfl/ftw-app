@@ -3,8 +3,8 @@ import SwiftUI
 
 /// The plan on Now: the next twelve hours in one strip, on the ground with
 /// no card. A header with the price now, the battery's and the car's lanes,
-/// the price in eight levels, the hours, and one sentence about what comes
-/// next. Its height never depends on what the plan says; the price row
+/// the price from zero with its scale, the hours, and one sentence about
+/// what comes next. Its height never depends on what the plan says; the price row
 /// takes the height Now gives it, so on a tall phone the bars read as a
 /// chart.
 ///
@@ -80,7 +80,7 @@ struct PlanStripView: View, Equatable {
                 ChartSurface(drawing: PlanStripDrawing(strip: strip, layout: layout))
                     .equatable()
                 if let fade {
-                    MovedFade(fresh: fade.fresh, mask: QuarterColumns(grid: fade.old.grid, quarters: fade.moved)) {
+                    MovedFade(fresh: fade.fresh, mask: QuarterColumns(grid: fade.old.grid, quarters: fade.moved, trailing: layout.gutter)) {
                         ChartSurface(drawing: PlanStripDrawing(strip: fade.old, layout: layout))
                             .equatable()
                     }
@@ -136,7 +136,7 @@ struct PlanStripView: View, Equatable {
     }
 
     private func follow(_ x: CGFloat) {
-        guard let i = strip.grid.index(atX: x, width: width) else { return }
+        guard let i = strip.grid.index(atX: x, width: layout.plotWidth(width)) else { return }
         scrub.move(to: i, landmark: strip.landmarks.contains(i))
     }
 

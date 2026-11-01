@@ -2,18 +2,15 @@ import Foundation
 
 /// Now's plan strip: the next twelve hours as 48 quarters from the one
 /// running now. Per quarter, what the battery does, whether the car
-/// charges and the price in eight levels; the runs the lanes and bars draw,
+/// charges and the price on a scale from zero; the runs the lanes and bars draw,
 /// the hour labels, the quarters a finger bumps on and the line it reads.
 /// Worked out once per minute or per plan, so a finger costs a subscript.
 /// A view only maps it to its size.
 public struct PlanStrip: Equatable, Sendable {
     public static let quarterMs: Double = 15 * 60_000
     public static let count = 48
-    /// The block-glyph scale: ▁▂▃▄▅▆▇█.
-    public static let levels = 8
-    /// The price row's height: eight levels of 2.5 pt at its least, and
-    /// the most it grows to when Now has room. Now's layout and the strip's
-    /// drawing read the same two.
+    /// The price row's height at its least, and the most it grows to when
+    /// Now has room. Now's layout and the strip's drawing read the same two.
     public static let leastPrice: CGFloat = 20
     public static let mostPrice: CGFloat = 72
 
@@ -43,12 +40,21 @@ public struct PlanStrip: Equatable, Sendable {
     /// The quarter in which a car's charge ends, and the level it charges
     /// toward.
     public let goals: [Int: Double]
-    /// The price per quarter, 0 for the cheapest in the window to 7 for the
-    /// dearest; nil before the market has priced it.
-    public let levels: [Int?]
+    /// The price per quarter in minor units; nil before the market has
+    /// priced it.
+    public let minor: [Double?]
+    /// Its ink, by thirds of the window's range: the dearer, the stronger.
+    public let thirds: [PriceChart.Third?]
+    /// The bars stand on zero and reach a round top, so a bar's height is
+    /// its price.
+    public let scale: PriceScale
+    /// The price of the quarter running now, for the dashed line that
+    /// carries it across the hours to come.
+    public let nowMinor: Double?
     public let batteryRuns: [Run<Battery>]
     public let carRuns: [Run<Bool>]
-    public let priceRuns: [Run<Int>]
+    /// Stretches of equal price, drawn as one bar.
+    public let priceRuns: [Run<Double>]
     /// Stretches the market has not priced yet: drawn as hatched stubs,
     /// never as a level.
     public let pending: [Run<Bool>]
@@ -75,12 +81,6 @@ public struct PlanStrip: Equatable, Sendable {
     public let grey: Bool
     /// The home has a charger, so the car's lane keeps its idle line.
     public let hasCar: Bool
-
-    /// The ink a price bar takes, from its level: the same height always
-    /// has the same ink. Levels 0–2 are the cheap third, 5–7 the dear.
-    public static func third(_ level: Int) -> PriceChart.Third {
-        level <= 2 ? .cheap : level <= 4 ? .middle : .dear
-    }
 
     /// The strip at the moment's minute, from the plan the moment was read
     /// from.
@@ -126,7 +126,7 @@ public struct PlanStrip: Equatable, Sendable {
 
         let known = minor.compactMap { $0 }
         let lo = known.min() ?? 0, hi = known.max() ?? 0
-        let levels = minor.map { $0.map { level($0, lo: lo, hi: hi) } }
+        let thirds = minor.map { $0.map { third($0, lo: lo, hi: hi) } }
 
         var landmarks: Set<Int> = [0, count - 1]
         let inside = prices.filter { $0.startMs + $0.durationMs > nowMs && $0.startMs < grid.toMs }
@@ -188,11 +188,14 @@ public struct PlanStrip: Equatable, Sendable {
             battery: battery,
             car: car,
             goals: goals,
-            levels: levels,
+            minor: minor,
+            thirds: thirds,
+            scale: PriceScale(known, currency: currency),
+            nowMinor: minor.first ?? nil,
             batteryRuns: runs(battery),
             carRuns: runs(car.map { $0 ? true : nil }),
-            priceRuns: runs(levels),
-            pending: runs(levels.map { $0 == nil ? true : nil }),
+            priceRuns: runs(minor),
+            pending: runs(minor.map { $0 == nil ? true : nil }),
             hours: hours,
             landmarks: landmarks,
             readouts: readouts,
@@ -215,11 +218,12 @@ public struct PlanStrip: Equatable, Sendable {
 
     private var count: Int { battery.count }
 
-    /// The price in eight levels within the window, the dearest at 7. A flat
-    /// window sits in the middle rather than at either end.
-    static func level(_ v: Double, lo: Double, hi: Double) -> Int {
-        guard hi - lo >= 0.5 else { return levels / 2 - 1 }
-        return min(levels - 1, max(0, Int(((v - lo) / (hi - lo) * Double(levels)).rounded(.down))))
+    /// Which third of the window's range a price falls in. A flat window
+    /// is the middle, not the cheap end.
+    static func third(_ v: Double, lo: Double, hi: Double) -> PriceChart.Third {
+        guard hi - lo >= 0.5 else { return .middle }
+        let third = (hi - lo) / 3
+        return v < lo + third ? .cheap : v >= lo + 2 * third ? .dear : .middle
     }
 
     /// Stretches of equal values; nil ends a stretch and starts none.

@@ -290,8 +290,8 @@ struct PlanLanes: View {
     }
 
     /// The prices under the plan as Now's strip draws them: a bar per slot,
-    /// slot width less 1 px, its height one of eight levels and its ink by
-    /// thirds of the window. No red and no green.
+    /// slot width less 1 px, its height one of eight steps from zero and its
+    /// ink by thirds of the window. No red and no green.
     private func prices(x: (Double) -> CGFloat, top: CGFloat, width: CGFloat, px: CGFloat, full: Bool) -> some View {
         let bars = moment.backdrop
         let minor = bars.map(\.minor)

@@ -324,8 +324,9 @@ import Testing
     @Test func eachTickHoldsItsPriceLevelAndWhatTheBatteryDoes() {
         let dial = PlanDial(plan: plan(), prices: prices(), nowMs: at(14, 12))
         func q(_ day: Int, _ h: Int, _ m: Int = 0) -> PlanDial.Quarter { dial.quarters[dial.grid.index(atMs: at(day, h, m))!] }
-        #expect(q(14, 18).level == 7)
-        #expect(q(15, 2).level == 0)
+        // On a 200 öre top: 160 öre is the seventh step, 30 the second.
+        #expect(q(14, 18).level == 6)
+        #expect(q(15, 2).level == 1)
         #expect(q(14, 13).level == 2)
         #expect(q(14, 22).battery == .stores)
         #expect(q(14, 17).battery == .gives)
@@ -354,10 +355,13 @@ import Testing
         #expect(dial.landmarks == [0, cheap.lowerBound, cheap.upperBound, dial.grid.index(atMs: at(15, 4, 30))!])
     }
 
-    @Test func aFlatDaySitsInTheMiddle() {
-        #expect(PlanDial.level(50, lo: 50, hi: 50) == 3)
-        #expect(PlanDial.level(50, lo: 0, hi: 100) == 4)
-        #expect(PlanDial.level(100, lo: 0, hi: 100) == 7)
+    /// A tick stands on zero like every other price bar: half the top is
+    /// the fourth step, and a price under zero the lowest.
+    @Test func aTickStandsOnZero() {
+        let scale = PriceScale([0, 100])
+        #expect(scale.step(50) - 1 == 3)
+        #expect(scale.step(100) - 1 == 7)
+        #expect(scale.step(-5) - 1 == 0)
     }
 
     // MARK: The car, cheap power and the complication

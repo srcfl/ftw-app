@@ -3,7 +3,7 @@ import SwiftUI
 import WidgetKit
 
 /// The dial unrolled: the next hours from now on the left, one bar per
-/// quarter, its height the price in eight levels and its colour what the
+/// quarter, its height the price in eight steps from zero and its colour what the
 /// battery does (cyan stores, ink gives, ink3 waits), the car's charging as
 /// dots under it. A quarter with no price yet is a stub. Still paths, one
 /// fill each, for a complication. A plan, so in full colour its hues are a
