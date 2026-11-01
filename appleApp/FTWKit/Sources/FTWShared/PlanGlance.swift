@@ -764,6 +764,7 @@ enum PlanWord: String, CaseIterable {
     case levelUp = "%@, and reaches %@"
     // The strip's header and what a finger reads on it.
     case next12h = "NEXT 12 H"
+    case wholePlan = "THE WHOLE PLAN"
     case plannedAt = "PLANNED %@"
     case oldPlan = "OLD PLAN · %@"
     case nowMark = "NOW"

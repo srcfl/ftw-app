@@ -41,8 +41,16 @@ struct PlanStripView: View, Equatable {
 
     @State private var scrub = ScrubModel()
     @State private var width: CGFloat = 0
-    /// The pass a tap chose, by id, so it holds while the plan stands.
-    @State private var chosenID: String?
+    /// The pass a tap chose, by id, so it holds while the plan stands. The
+    /// plan view shares it with its dial.
+    @Binding var chosenID: String?
+    /// On Now the strip opens the plan; in the plan it is the plan.
+    var opensPlan = true
+    /// The battery level's row: none on Now, room for it in the lanes.
+    var levelHeight: CGFloat = 0
+    /// The least the price row takes: Now gives it what room it has; the
+    /// plan, which scrolls, asks for more.
+    var leastPrice: CGFloat = PlanStripLayout.leastPrice
     /// Where the strip's drawing sits, for the passes' tap targets.
     @State private var canvas: CGRect = .zero
     @GestureState private var dragging = false
@@ -53,10 +61,11 @@ struct PlanStripView: View, Equatable {
     nonisolated static func == (a: Self, b: Self) -> Bool {
         a.strip == b.strip && a.sentence == b.sentence && a.shorter == b.shorter && a.placeholder == b.placeholder
             && a.priceNow == b.priceNow && a.unit == b.unit && a.fade == b.fade && a.zoom == b.zoom
+            && a.chosenID == b.chosenID && a.opensPlan == b.opensPlan && a.levelHeight == b.levelHeight && a.leastPrice == b.leastPrice
     }
 
     /// Mono stops growing at accessibility1.
-    private var layout: PlanStripLayout { PlanStripLayout(axis: min(axis, 15)) }
+    private var layout: PlanStripLayout { PlanStripLayout(axis: min(axis, 15), levelHeight: levelHeight) }
     private var mono: Font { .system(size: min(kicker, 15), weight: .medium, design: .monospaced) }
 
     /// The pass the figures show: the one a tap chose while the plan still
@@ -67,12 +76,16 @@ struct PlanStripView: View, Equatable {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            NavigationLink(value: HomeRoute.plan) {
+            if opensPlan {
+                NavigationLink(value: HomeRoute.plan) {
+                    plan
+                }
+                .buttonStyle(.plain)
+                .matchedTransitionSource(id: HomeRoute.plan, in: zoom)
+                .accessibilityIdentifier("now.plan")
+            } else {
                 plan
             }
-            .buttonStyle(.plain)
-            .matchedTransitionSource(id: HomeRoute.plan, in: zoom)
-            .accessibilityIdentifier("now.plan")
             if let priceNow {
                 NavigationLink(value: HomeRoute.price(nil)) {
                     StripPrice(strip: strip, now: priceNow, unit: unit, model: scrub, figure: figure, mono: mono)
@@ -113,26 +126,28 @@ struct PlanStripView: View, Equatable {
                 PlanStripOverlay(strip: strip, model: scrub, layout: layout)
             }
             // The price row takes the height Now gives the strip.
-            .frame(minHeight: layout.height, maxHeight: layout.tallest)
+            .frame(minHeight: layout.height + max(0, leastPrice - PlanStripLayout.leastPrice), maxHeight: layout.tallest)
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { canvas = $0 }
             StripSentence(sentence: sentence, shorter: shorter, placeholder: placeholder, grey: strip.grey, pass: chosen, readouts: strip.readouts, model: scrub)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
-        // A tap is the link's; only a finger that moves reads the strip.
+        // A tap is the link's; only a finger that moves reads the strip. In
+        // the plan's scroll a drag scrolls the page instead.
         .gesture(
             DragGesture(minimumDistance: 4)
                 .updating($dragging) { _, state, _ in state = true }
                 .onChanged { follow($0.location.x) }
-                .onEnded { _ in scrub.lift() }
+                .onEnded { _ in scrub.lift() },
+            including: opensPlan ? .all : .subviews
         )
         // A gesture the system takes away ends without onEnded.
         .onChange(of: dragging) { _, now in if !now { scrub.lift() } }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(PlanGlance.title)
         .accessibilityValue(sentence)
-        .accessibilityHint(L("Opens the plan."))
+        .accessibilityHint(opensPlan ? L("Opens the plan.") : "")
         #if DEBUG
         .task { await autoScrub() }
         #endif
@@ -148,9 +163,11 @@ struct PlanStripView: View, Equatable {
                 .foregroundStyle(Theme.ink2)
                 .lineLimit(1)
                 .contentTransition(.opacity)
-            Image(systemName: "chevron.right")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(Theme.ink3)
+            if opensPlan {
+                Image(systemName: "chevron.right")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(Theme.ink3)
+            }
             Spacer(minLength: 8)
             // The price's line, never drawn: it gives the header the price's
             // height and baseline, so the kicker sits on the same line.
@@ -326,7 +343,7 @@ private struct PassTargets: View {
         let x = min(max(0, (x0 + x1) / 2 - w / 2), max(0, width - w))
         let shared = strip.passes.contains { $0.isBattery != pass.isBattery && $0.first <= pass.last && $0.last >= pass.first }
         let split = PlanStripLayout.carY - 2
-        let top: CGFloat = -8, bottom = PlanStripLayout.priceTop
+        let top: CGFloat = -8, bottom = PlanStripLayout.lanesBottom
         let y0 = shared && !pass.isBattery ? split : top
         let y1 = shared && pass.isBattery ? split : bottom
         return CGRect(x: x, y: y0, width: w, height: y1 - y0)

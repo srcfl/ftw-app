@@ -155,10 +155,10 @@ import Testing
         let dial = PlanDial(plan: long, prices: nil, nowMs: at(12, 20), untilMs: at(14, 0))
         #expect(dial.quarters.count == 112)
         #expect(dial.grid.index(atMs: at(13, 22)) != nil)
-        // Past one turn the finger's clock names the day.
-        #expect(dial.time(95) == "19:45")
-        #expect(dial.time(96) == "TOMORROW 20:00")
-        #expect(PlanDial(plan: long, prices: nil, nowMs: at(12, 20), untilMs: at(13, 12)).quarters.count == PlanDial.count)
+        // From midnight on the finger's clock names the day.
+        #expect(dial.time(15) == "23:45")
+        #expect(dial.time(16) == "TOMORROW 00:00")
+        #expect(PlanDial(plan: long, prices: nil, nowMs: at(12, 20), untilMs: at(12, 23)).quarters.count == PlanDial.count)
     }
 
     /// A row's times name tomorrow where the clock would mislead, as the

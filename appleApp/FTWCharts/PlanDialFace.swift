@@ -7,13 +7,16 @@ import WidgetKit
 /// face, so the four never differ.
 ///
 /// From the outside in: the rim, a hairline with a 2° gap at the seam where
-/// +24 h meets now, and the sun's arc on it from the box's forecast, dashed
-/// because it is a guess; the
-/// hours just outside it; 96 price ticks in eight levels, cyan where the
-/// battery stores, ink where it gives power, faint where it waits; stubs
-/// where the market has not priced a quarter yet; the car's dotted arc
-/// with its goal. The hand is drawn apart (`PlanDialHand`), so a finger on
-/// the phone moves it without redrawing the face.
+/// +12 h meets now, and the sun's arc on it from the box's forecast, dashed
+/// because it is a guess; the whole hours just outside it, as on a clock;
+/// 48 ticks as long as the battery's planned power, cyan where it stores,
+/// gold where it gives power (as on Now's strip under it), a faint stub
+/// where it waits; the car's dotted
+/// arc with its goal. The hand is drawn apart (`PlanDialHand`), so a finger
+/// on the phone moves it without redrawing the face.
+///
+/// The pass a tap chose (`lit`) has its ticks at full strength; the rest
+/// stay a ghost.
 ///
 /// Every mark is a still path filled once. Nothing glows: a plan is intent,
 /// not a reading, so in full colour every hue is a ghost at `Theme.plan`,
@@ -31,10 +34,12 @@ struct PlanDialFace: View, Equatable {
     /// The plan is old or the box could not plan: every tick in ink3.
     var grey = false
     var size: Size = .app
+    /// The time of the pass a tap chose, drawn at full strength.
+    var lit: ClosedRange<Double>?
     @Environment(\.colorSchemeContrast) private var contrast
     @Environment(\.widgetRenderingMode) private var renderingMode
 
-    nonisolated static func == (a: Self, b: Self) -> Bool { a.dial == b.dial && a.grey == b.grey && a.size == b.size }
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.dial == b.dial && a.grey == b.grey && a.size == b.size && a.lit == b.lit }
 
     var body: some View {
         GeometryReader { geo in
@@ -44,16 +49,19 @@ struct PlanDialFace: View, Equatable {
             ZStack {
                 if size == .app {
                     rim(g).stroke(Theme.ink.opacity(0.18), style: StrokeStyle(lineWidth: 0.5, lineCap: .butt, lineJoin: .round))
-                    HourLabels(g: g)
+                    HourLabels(g: g, dial: dial)
                 }
                 // The sun is the box's forecast, a guess: dashed, where the
                 // prices it plans on are drawn solid.
                 sun(g).stroke(grey ? Theme.ink3 : Theme.solar.opacity(sunPlan), style: StrokeStyle(lineWidth: g.sunWidth, lineCap: .butt, lineJoin: .round, dash: g.sunDash))
-                ticks(g, .waits).fill(grey ? Theme.oldPlan : Theme.ink3.opacity(0.6))
-                ticks(g, .gives).fill(grey ? Theme.oldPlan : Theme.ink.opacity(plan))
-                ticks(g, .stores).fill(grey ? Theme.oldPlan : Theme.stores.opacity(plan))
+                stubs(g).fill(grey ? Theme.oldPlan : Theme.ink3.opacity(0.6))
+                ticks(g, .gives, lit: false).fill(grey ? Theme.oldPlan : Theme.gives.opacity(lit == nil ? plan : plan * 0.6))
+                ticks(g, .stores, lit: false).fill(grey ? Theme.oldPlan : Theme.stores.opacity(lit == nil ? plan : plan * 0.6))
                     .widgetAccentable()
-                stubs(g).fill(Theme.ink3.opacity(0.5))
+                if !grey, lit != nil {
+                    ticks(g, .gives, lit: true).fill(Theme.gives)
+                    ticks(g, .stores, lit: true).fill(Theme.stores)
+                }
                 carDots(g).fill(grey ? Theme.ink3 : Theme.car.opacity(plan))
                     .widgetAccentable()
                 // The goal sits inside the car's arc. On a watch that is
@@ -84,21 +92,26 @@ struct PlanDialFace: View, Equatable {
         return p
     }
 
-    /// One path per battery action, so each fills in one go.
-    private func ticks(_ g: DialGeometry, _ action: PlanDial.Battery) -> Path {
+    /// One path per battery action, so each fills in one go: as long as
+    /// the planned power, never shorter than a stub. `lit` takes the
+    /// quarters of the chosen pass, or the rest.
+    private func ticks(_ g: DialGeometry, _ action: PlanDial.Battery, lit wanted: Bool) -> Path {
         var p = Path()
-        for (i, q) in dial.quarters.enumerated() where q.battery == action {
-            guard let level = q.level else { continue }
-            let length = g.unit * Double(level + 1)
+        for (i, q) in dial.quarters.prefix(PlanDial.count).enumerated() where q.battery == action {
+            guard let reach = dial.reach(i) else { continue }
+            let mid = q.startMs + PlanDial.quarterMs / 2
+            guard (lit?.contains(mid) ?? false) == wanted else { continue }
+            let length = max(g.unit * 1.2, (g.rim - g.inner) * reach)
             p.addPath(g.tick(at: dial.angle(quarter: i), from: g.inner, length: length, width: g.tickWidth * dial.fade(i).squareRoot()))
         }
         return p
     }
 
-    /// Quarters the market has not priced yet: a short stub, never a level.
+    /// Quarters in which the battery waits, or the plan says nothing: a
+    /// short stub, so the turn keeps its shape.
     private func stubs(_ g: DialGeometry) -> Path {
         var p = Path()
-        for (i, q) in dial.quarters.enumerated() where q.minor == nil && i % 2 == 0 {
+        for i in 0..<min(PlanDial.count, dial.quarters.count) where dial.reach(i) == nil && i % 2 == 0 {
             p.addPath(g.tick(at: dial.angle(quarter: i), from: g.inner, length: g.unit * 0.6, width: g.tickWidth * 0.8))
         }
         return p
@@ -108,7 +121,7 @@ struct PlanDialFace: View, Equatable {
     /// other quarter.
     private func carDots(_ g: DialGeometry) -> Path {
         var p = Path()
-        for (i, q) in dial.quarters.enumerated() where q.car && i % 2 == 0 {
+        for (i, q) in dial.quarters.prefix(PlanDial.count).enumerated() where q.car && i % 2 == 0 {
             let c = g.point(dial.angle(quarter: i), g.carRadius)
             p.addEllipse(in: CGRect(x: c.x - g.dot / 2, y: c.y - g.dot / 2, width: g.dot, height: g.dot))
         }
@@ -205,18 +218,19 @@ struct DialGeometry {
     let side: CGFloat
     let size: PlanDialFace.Size
 
-    /// Half the seam's gap: 1° each side of where +24 h meets now.
+    /// Half the seam's gap: 1° each side of where +12 h meets now.
     static let gap = Double.pi / 180
 
     var centre: CGPoint { CGPoint(x: side / 2, y: side / 2) }
-    /// The outer edge of the dearest tick, and the sun's arc.
+    /// The outer edge of the longest tick, and the sun's arc.
     var rim: CGFloat { side / 2 - (size == .app ? 13 : 1.5) }
     /// The hours sit just outside the rim, clear of the sun's arc.
     var labelRadius: CGFloat { side / 2 - 5.5 }
     /// Where every tick starts.
     var inner: CGFloat { rim * (size == .app ? 0.62 : 0.56) }
-    /// One price level's length.
-    var unit: CGFloat { (rim - inner) / CGFloat(PlanDial.levels) }
+    /// An eighth of a tick's room: the stub, the hand's overhang and the
+    /// car's arc are measured in it.
+    var unit: CGFloat { (rim - inner) / 8 }
     var tickWidth: CGFloat { max(0.9, side * (size == .app ? 0.0085 : 0.012)) }
     var carRadius: CGFloat { inner - unit * (size == .app ? 1.6 : 1.4) }
     var dot: CGFloat { max(1.4, side * 0.012) }
@@ -256,18 +270,21 @@ struct DialGeometry {
     }
 }
 
-/// 00, 06, 12 and 18 just outside the rim, in the terminal's mono.
+/// The whole hours of the turn just outside the rim, in the terminal's
+/// mono, where a clock has them: "18" straight down. The three, six, nine
+/// and twelve o'clock places a step stronger.
 private struct HourLabels: View {
     let g: DialGeometry
+    let dial: PlanDial
 
     var body: some View {
-        ForEach([0, 6, 12, 18], id: \.self) { h in
-            // 00 at the bottom, 06 on the left, 12 at the top.
-            let a = Double(h) / 24 * 2 * .pi + .pi
-            Text(verbatim: h < 10 ? "0\(h)" : "\(h)")
-                .font(.system(size: g.label, weight: .regular, design: .monospaced))
-                .foregroundStyle(Theme.ink3)
-                .position(g.point(a, g.labelRadius))
+        ForEach(dial.hours, id: \.label) { h in
+            let k = h.angle / (.pi / 2)
+            let onQuarter = abs(k - k.rounded()) < 0.01
+            Text(verbatim: h.label)
+                .font(.system(size: g.label, weight: onQuarter ? .semibold : .regular, design: .monospaced))
+                .foregroundStyle(onQuarter ? Theme.ink2 : Theme.ink3)
+                .position(g.point(h.angle, g.labelRadius))
         }
     }
 }

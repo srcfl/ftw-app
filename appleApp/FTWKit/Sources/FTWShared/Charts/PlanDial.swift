@@ -1,22 +1,27 @@
 import Foundation
 
-/// The plan dial, as the phone, its widget and the watch all draw it: one
-/// turn is the next 24 hours, on a 24-hour face with 00 at the bottom and
-/// 12 at the top, so the day's light sits in the upper half and morning on
-/// the left. Each quarter hour is one tick. Its length is the price in
-/// eight levels, its colour what the battery does then, and a dotted arc
-/// inside marks the car's charging. The sun's arc on the rim comes from the
-/// box's own forecast, never from astronomy.
+/// The plan dial, as the phone, its widget and the watch all draw it: a
+/// clock. One turn is the next twelve hours, with 12 at the top and 6 at
+/// the bottom, so 18:00 sits straight down as on any clock (Erik and
+/// Fredrik, 1 Nov 2026: the 24-hour face made people read the figures at
+/// the edge and think). Each quarter hour is one tick. Its length is the
+/// battery's planned power, its colour what the battery does then, and a
+/// dotted arc inside marks the car's charging. The price has its own chart
+/// under the dial. The sun's arc on the rim comes from the box's own
+/// forecast, never from astronomy.
 ///
-/// The ticks stand on the same scale as every other price bar: eight steps
-/// from zero to a round top (`PriceScale`).
+/// Each quarter still carries its price, in eight steps from zero
+/// (`PriceScale`), for the watch's strip and a finger's readout.
 ///
 /// Built on the chart engine (`SlotGrid`, `ZoneClock`) and worked out once
 /// per plan and minute, so a finger or the Crown only reads a table.
 public struct PlanDial: Equatable, Sendable {
     public static let quarterMs: Double = 15 * 60_000
-    /// One turn: 24 hours of quarters.
-    public static let count = 96
+    /// One turn: 12 hours of quarters, as on a clock.
+    public static let count = 48
+    /// A tick at full length stands for at least this much power, so a
+    /// trickle never looks like the battery's most.
+    static let leastFullW: Double = 1_000
     /// The block-glyph scale: ▁▂▃▄▅▆▇█.
     public static let levels = 8
     /// The box's forecast counts as sun from this many watts up.
@@ -45,8 +50,20 @@ public struct PlanDial: Equatable, Sendable {
         public let levelPct: Double?
     }
 
+    /// A whole hour on the face: where it sits and its label, "18".
+    public struct Hour: Equatable, Sendable {
+        public let angle: Double
+        public let label: String
+    }
+
     public let grid: SlotGrid
     public let quarters: [Quarter]
+    /// The power a full-length tick stands for: the most the battery moves
+    /// in this turn, and at least `leastFullW`.
+    public let fullW: Double
+    /// Each whole hour in the turn, by the household's clock, except the
+    /// ones too close to the hand or the seam to read.
+    public let hours: [Hour]
     public let nowMs: Double
     public let currency: String
     public let zone: TimeZone
@@ -149,6 +166,17 @@ public struct PlanDial: Equatable, Sendable {
         let perKwh = unit.perKwh.uppercased()
         self.grid = grid
         self.quarters = quarters
+        fullW = max(Self.leastFullW, quarters.prefix(Self.count).compactMap { $0.batteryW.map(abs) }.max() ?? 0)
+        var hours = [Hour]()
+        let hourMs = 3_600_000.0, turnEnd = first + Double(Self.count) * Self.quarterMs
+        var t = clock.alignDown(nowMs, stepMs: hourMs) + hourMs
+        while t < turnEnd {
+            if t - nowMs >= 0.8 * hourMs, turnEnd - t >= 0.8 * hourMs, clock.minuteOfDay(t) % 60 == 0 {
+                hours.append(Hour(angle: Self.clockAngle(t, clock: clock), label: String(clock.label(t).prefix(2))))
+            }
+            t += hourMs
+        }
+        self.hours = hours
         self.nowMs = nowMs
         self.currency = currency
         self.zone = zone
@@ -160,10 +188,11 @@ public struct PlanDial: Equatable, Sendable {
             let from = max(s.fromMs, first), to = min(s.toMs, grid.toMs)
             return from < to ? from...to : nil
         }
-        // Past one turn the clock reads as a time today: the day goes first.
+        // A time from the next midnight on says the day first.
+        let midnight = nowMs + Double(1440 - clock.minuteOfDay(nowMs)) * 60_000
         times = (0..<count).map { i in
             let label = clock.label(i == 0 ? nowMs : grid.startMs(i))
-            return i < Self.count ? label : PriceWord.tomorrow.text + " " + label
+            return grid.startMs(i) < midnight ? label : PriceWord.tomorrow.text + " " + label
         }
         self.prices = minors.map { m in m.map { figure($0) + " " + perKwh } ?? DialWord.noPrice.text }
         doing = quarters.map { q in
@@ -204,20 +233,30 @@ public struct PlanDial: Equatable, Sendable {
 
     // MARK: Where things sit
 
-    /// Radians clockwise from the top for a moment on the household clock:
-    /// 00 at the bottom, 06 on the left, 12 at the top, 18 on the right.
-    public func angle(_ ms: Double) -> Double {
-        let clock = ZoneClock.of(zone)
-        let day = 86_400_000.0
-        var local = (ms + clock.offsetMs(ms)).truncatingRemainder(dividingBy: day)
-        if local < 0 { local += day }
-        return (local / day * 2 * .pi + .pi).truncatingRemainder(dividingBy: 2 * .pi)
+    /// Radians clockwise from the top for a moment on the household clock,
+    /// as on a clock's face: 12 and 00 at the top, 15 and 03 on the right,
+    /// 18 and 06 at the bottom, 21 and 09 on the left.
+    public func angle(_ ms: Double) -> Double { Self.clockAngle(ms, clock: ZoneClock.of(zone)) }
+
+    static func clockAngle(_ ms: Double, clock: ZoneClock) -> Double {
+        let half = 43_200_000.0
+        var local = (ms + clock.offsetMs(ms)).truncatingRemainder(dividingBy: half)
+        if local < 0 { local += half }
+        return local / half * 2 * .pi
+    }
+
+    /// How long quarter `i`'s tick is, 0 to 1 of the ring: the battery's
+    /// planned power against `fullW`. Nil while it waits or with no plan.
+    public func reach(_ i: Int) -> Double? {
+        let q = quarters[i]
+        guard q.battery != .waits, let w = q.batteryW else { return nil }
+        return min(1, abs(w) / fullW)
     }
 
     /// Where the middle of quarter `i` sits.
     public func angle(quarter i: Int) -> Double { angle(grid.startMs(i) + Self.quarterMs / 2) }
 
-    /// Where the turn begins and ends: +24 h meets now.
+    /// Where the turn begins and ends: +12 h meets now.
     public var seam: Double { angle(grid.firstMs) }
 
     /// The sun's spans as distances round the turn from the seam, 0 to 2π.
@@ -245,8 +284,8 @@ public struct PlanDial: Equatable, Sendable {
         return angle(grid.startMs(i))
     }
 
-    /// How faint quarter `i` is: full now, fading toward +24 h, so the
-    /// seam where tomorrow meets now reads as the end of the turn.
+    /// How faint quarter `i` is: full now, fading toward +12 h, so the
+    /// seam where the turn meets now reads as its end.
     public func fade(_ i: Int) -> Double { 1 - 0.55 * Double(i) / Double(Self.count - 1) }
 
     /// The quarter under a finger `x` right of and `y` below the dial's

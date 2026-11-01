@@ -421,6 +421,8 @@ private struct PlanSection: View {
     let prices: PriceModel
     let loadpoints: LoadpointsModel
     let zoom: Namespace.ID
+    /// The pass a tap chose on the strip.
+    @State private var chosenID: String?
 
     var body: some View {
         // The plan marks the minute, not the second: it redraws once a
@@ -439,7 +441,8 @@ private struct PlanSection: View {
             priceNow: current.map { PriceStrip.whole($0.totalMinor, window?.currency) },
             unit: PriceUnits.unit(window?.currency).label.uppercased(),
             fade: StripFade.make(models.planShare.before, strip: strip, nowMs: minute, hasCar: hasCar),
-            zoom: zoom
+            zoom: zoom,
+            chosenID: $chosenID
         )
         .equatable()
         // Capped where it is placed, so the strip's scaled sizes read the
