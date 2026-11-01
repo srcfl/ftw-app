@@ -391,7 +391,8 @@ public final class SimulatedBox {
             slots.append(.map([("startMs", .number(t)), ("durationMs", .number(slotMs)), ("spotMinor", .number((total * 0.6).rounded())), ("totalMinor", .number(total))]))
             t += slotMs
         }
-        return .map([("zone", .text("SE3")), ("currency", .text("SEK")), ("slots", .array(slots)), ("stale", .bool(end < to))])
+        // The VAT rate the totals carry, as a box from srcfl/ftw#1949 says it.
+        return .map([("zone", .text("SE3")), ("currency", .text("SEK")), ("slots", .array(slots)), ("stale", .bool(end < to)), ("vatPermille", .number(250))])
     }
 
     // MARK: Commands

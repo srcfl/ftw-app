@@ -11,3 +11,9 @@
 "Average %@ · lowest %@ at %@" = "Snitt %@ · lägst %@ kl %@";
 "No prices for this day" = "Inga priser för det dygnet";
 "%@ with no price" = "%@ utan pris";
+
+/* Which price a chart shows, as this phone chose it. */
+"TOTAL INCL. VAT" = "TOTALPRIS INKL. MOMS";
+"TOTAL EXCL. VAT" = "TOTALPRIS EXKL. MOMS";
+"SPOT INCL. VAT" = "ELPRIS INKL. MOMS";
+"SPOT EXCL. VAT" = "ELPRIS EXKL. MOMS";

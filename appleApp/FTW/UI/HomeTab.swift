@@ -13,6 +13,8 @@ struct HomeTabView: View {
     /// Back to the tab's root, after this phone is removed.
     let popToRoot: () -> Void
     @AppStorage(Appearance.key) private var appearance = Appearance.standard
+    @AppStorage(PriceShown.feesKey) private var fees = true
+    @AppStorage(PriceShown.vatKey) private var vat = true
 
     var body: some View {
         List {
@@ -25,6 +27,7 @@ struct HomeTabView: View {
             }
             homes
             phone
+            price
             look
             about
         }
@@ -88,6 +91,34 @@ struct HomeTabView: View {
                         Text(AboutWords.text("Remove this phone")).foregroundStyle(Theme.alarm)
                     }
                 }
+            }
+        }
+    }
+
+    /// Which price the app shows, on this phone: the total the household
+    /// pays, or the spot price without the grid fee and tax, each with or
+    /// without VAT. The footer names what is shown, so a price is never
+    /// read under the wrong name.
+    private var price: some View {
+        // Before the box's prices are read, the label names the choice;
+        // once they are, it names what they allow.
+        let held = home.prices.prices
+        let unsaid = held != nil && held?.vatPermille == nil
+        let kind = PriceShown(fees: fees, vat: vat).kind(vatPermille: unsaid ? nil : held?.vatPermille ?? 0)
+        return Section {
+            Toggle(L("With grid fee and tax"), isOn: $fees)
+                .accessibilityIdentifier("settings.price.fees")
+            Toggle(L("With VAT"), isOn: $vat)
+                .accessibilityIdentifier("settings.price.vat")
+        } header: {
+            Text(L("Price shown"))
+        } footer: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(PriceShown.label(kind)).font(Theme.mono()).tracking(0.5)
+                if unsaid, kind != PriceShown(fees: fees, vat: vat).kind(vatPermille: 250) {
+                    Text(L("Your box does not say its VAT rate yet, so FTW shows the price it has and says which."))
+                }
+                Text(L("Now, the plan and the price on this phone. The widgets and the watch show the total with VAT."))
             }
         }
     }

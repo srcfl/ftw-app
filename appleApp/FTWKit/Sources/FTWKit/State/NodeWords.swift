@@ -414,6 +414,13 @@ public enum NodeWords {
         "About FTW": "Om FTW",
         "Homes, settings and about.": "Hem, inställningar och om appen.",
 
+        // Which price the app shows
+        "Price shown": "Priset som visas",
+        "With grid fee and tax": "Med nätavgift och skatt",
+        "With VAT": "Med moms",
+        "Your box does not say its VAT rate yet, so FTW shows the price it has and says which.": "Boxen anger inte sin moms än, så FTW visar det pris den har och säger vilket.",
+        "Now, the plan and the price on this phone. The widgets and the watch show the total with VAT.": "Nu, planen och priset i den här telefonen. Widgetarna och klockan visar totalpriset med moms.",
+
         // How the app looks
         "Appearance": "Utseende",
         "Dark": "Mörkt",

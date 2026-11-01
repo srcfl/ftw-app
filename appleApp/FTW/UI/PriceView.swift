@@ -104,6 +104,8 @@ struct PriceView: View {
 /// Reads the minute, the prices and the plan, and hands them on as values,
 /// so the page below redraws once a minute at most.
 private struct PriceBody: View {
+    @AppStorage(PriceShown.feesKey) private var fees = true
+    @AppStorage(PriceShown.vatKey) private var vat = true
     let site: SiteModel
     let prices: PriceModel
     let plan: PlanShare
@@ -121,7 +123,11 @@ private struct PriceBody: View {
             // the first and last bars are whole.
             let from = (window?.fromMs ?? site.nowMs) - 3_600_000
             let to = (window?.toMs ?? site.nowMs + 24 * 3_600_000) + 3_600_000
-            PricePage(slots: prices.slots(fromMs: from, toMs: to), zone: held.zone, currency: held.currency,
+            // The price this phone chose to show, and what it holds.
+            let choice = PriceShown(fees: fees, vat: vat)
+            let kind = choice.kind(vatPermille: held.vatPermille)
+            PricePage(slots: choice.apply(prices.slots(fromMs: from, toMs: to), vatPermille: held.vatPermille),
+                      shown: kind == .totalWithVAT ? nil : PriceShown.words(kind), zone: held.zone, currency: held.currency,
                       window: window, minuteMs: site.minuteMs, plan: plan.entry, problem: prices.pastProblem,
                       scrub: scrub, chartMax: chartMax, onPan: onPan, onPanEnded: onPanEnded)
                 .equatable()
@@ -136,6 +142,9 @@ private struct PriceBody: View {
 
 private struct PricePage: View, Equatable {
     let slots: [PriceSlot]
+    /// What the price holds when this phone chose other than the total
+    /// with VAT; nil reads it off the box's numbers.
+    let shown: String?
     let zone: String
     let currency: String
     let window: TimelineWindow?
@@ -149,7 +158,7 @@ private struct PricePage: View, Equatable {
     let onPanEnded: () -> Void
 
     nonisolated static func == (a: Self, b: Self) -> Bool {
-        a.slots == b.slots && a.zone == b.zone && a.currency == b.currency && a.window == b.window
+        a.slots == b.slots && a.shown == b.shown && a.zone == b.zone && a.currency == b.currency && a.window == b.window
             && a.minuteMs == b.minuteMs && a.plan == b.plan && a.problem == b.problem && a.chartMax == b.chartMax && a.scrub === b.scrub
     }
 
@@ -158,7 +167,7 @@ private struct PricePage: View, Equatable {
         let clock = ZoneClock.of(.current)
         let chart = PriceChart.build(slots, currency: currency, nowMs: minuteMs, fromMs: window?.fromMs,
                                      spanMs: window?.spanMs ?? 24 * 3_600_000, plan: plan, clock: clock)
-        let included = PriceGlance.text(PriceGlance.included(slots))
+        let included = shown ?? PriceGlance.text(PriceGlance.included(slots))
         // The window as the chart draws it, so a finger takes it from
         // exactly there even before anything has moved it.
         let drawn = window ?? TimelineWindow(fromMs: chart.grid.fromMs, toMs: chart.grid.toMs, nowMs: minuteMs)
