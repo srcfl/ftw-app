@@ -51,6 +51,8 @@ struct PlanStripView: View, Equatable {
     /// The least the price row takes: Now gives it what room it has; the
     /// plan, which scrolls, asks for more.
     var leastPrice: CGFloat = PlanStripLayout.leastPrice
+    /// Which price the bars are, "SPOT EXCL. VAT", after the kicker.
+    var priceLabel: String?
     /// Where the strip's drawing sits, for the passes' tap targets.
     @State private var canvas: CGRect = .zero
     @GestureState private var dragging = false
@@ -62,6 +64,7 @@ struct PlanStripView: View, Equatable {
         a.strip == b.strip && a.sentence == b.sentence && a.shorter == b.shorter && a.placeholder == b.placeholder
             && a.priceNow == b.priceNow && a.unit == b.unit && a.fade == b.fade && a.zoom == b.zoom
             && a.chosenID == b.chosenID && a.opensPlan == b.opensPlan && a.levelHeight == b.levelHeight && a.leastPrice == b.leastPrice
+            && a.priceLabel == b.priceLabel
     }
 
     /// Mono stops growing at accessibility1.
@@ -157,11 +160,12 @@ struct PlanStripView: View, Equatable {
     /// the strip as a link of its own.
     private var header: some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(strip.kicker)
+            Text(priceLabel.map { strip.kicker + " · " + $0 } ?? strip.kicker)
                 .font(mono)
                 .tracking(0.5)
                 .foregroundStyle(Theme.ink2)
                 .lineLimit(1)
+                .minimumScaleFactor(0.75)
                 .contentTransition(.opacity)
             if opensPlan {
                 Image(systemName: "chevron.right")

@@ -122,6 +122,8 @@ private struct PlanBody: View {
     @State private var strips = StripMemo()
     /// The pass a tap chose on the strip, lit on the dial too.
     @State private var chosenID: String?
+    @AppStorage(PriceShown.feesKey) private var fees = true
+    @AppStorage(PriceShown.vatKey) private var vat = true
     @Namespace private var zoom
 
     static let topID = "plan.top"
@@ -136,7 +138,10 @@ private struct PlanBody: View {
         let moved = models.planShare.moved
         let entry = models.planShare.entry
         let quarters = Int(((moment.toMs - minute) / PlanStrip.quarterMs).rounded(.up)) + 1
-        let strip = strips.strip(entry, moment: moment, hasCar: !loadpoints.points.isEmpty, quarters: style == .lanes ? quarters : PlanStrip.count)
+        // The price this phone chose to show, in the strip and its header.
+        let choice = PriceShown(fees: fees, vat: vat)
+        let window = prices.prices.map(choice.apply)
+        let strip = strips.strip(entry, moment: moment, hasCar: !loadpoints.points.isEmpty, quarters: style == .lanes ? quarters : PlanStrip.count, prices: window?.slots)
         let chosen = strip.passes.first { $0.id == chosenID } ?? PlanPass.opening(strip.passes)
         Group {
             switch style {
@@ -168,13 +173,14 @@ private struct PlanBody: View {
                 sentence: moment.nextText,
                 shorter: moment.nextShorter,
                 placeholder: moment.placeholder,
-                priceNow: priceNow(minute),
+                priceNow: priceNow(window, minute),
                 unit: PriceUnits.unit(prices.prices?.currency).label.uppercased(),
                 zoom: zoom,
                 chosenID: $chosenID,
                 opensPlan: false,
                 levelHeight: style == .lanes ? 50 : 0,
-                leastPrice: 56
+                leastPrice: 56,
+                priceLabel: window.map { PriceShown.label(choice.kind(vatPermille: $0.vatPermille)) }
             )
             .equatable()
             .fitCap(.xLarge)
@@ -212,8 +218,8 @@ private struct PlanBody: View {
     }
 
     /// The price now in whole units, for the strip's header.
-    private func priceNow(_ minute: Double) -> String? {
-        guard let window = prices.prices else { return nil }
+    private func priceNow(_ window: Prices?, _ minute: Double) -> String? {
+        guard let window else { return nil }
         let current = window.slots.first { minute >= $0.startMs && minute < $0.startMs + $0.durationMs }
         return current.map { PriceStrip.whole($0.totalMinor, window.currency) }
     }
@@ -260,13 +266,13 @@ private final class DialMemo {
 /// The strip worked out once per plan, minute and length, like the dial.
 @MainActor
 private final class StripMemo {
-    private var key: (entry: PlanEntry, moment: PlanGlance.Moment, hasCar: Bool, quarters: Int)?
+    private var key: (entry: PlanEntry, moment: PlanGlance.Moment, hasCar: Bool, quarters: Int, prices: [PriceSlot]?)?
     private var kept: PlanStrip?
 
-    func strip(_ entry: PlanEntry, moment: PlanGlance.Moment, hasCar: Bool, quarters: Int) -> PlanStrip {
-        if let key, key.entry == entry, key.moment == moment, key.hasCar == hasCar, key.quarters == quarters, let kept { return kept }
-        let s = PlanStrip.build(entry, moment: moment, hasCar: hasCar, quarters: quarters)
-        key = (entry, moment, hasCar, quarters)
+    func strip(_ entry: PlanEntry, moment: PlanGlance.Moment, hasCar: Bool, quarters: Int, prices: [PriceSlot]?) -> PlanStrip {
+        if let key, key.entry == entry, key.moment == moment, key.hasCar == hasCar, key.quarters == quarters, key.prices == prices, let kept { return kept }
+        let s = PlanStrip.build(entry, moment: moment, hasCar: hasCar, quarters: quarters, prices: prices)
+        key = (entry, moment, hasCar, quarters, prices)
         kept = s
         return s
     }

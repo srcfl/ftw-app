@@ -1565,7 +1565,7 @@ extension SiteModel {
                                    spotMinor: Double(spot), totalMinor: Double(total)))
         }
         guard !slots.isEmpty else { return }
-        let prices = Prices(zone: p.zone, currency: p.currency, slots: slots, stale: false)
+        let prices = Prices(zone: p.zone, currency: p.currency, slots: slots, stale: false, vatPermille: p.vatPermille.map { Int($0) })
         cloudPrices = Stamped(PriceEntry(fromMs: Double(p.t0Ms), prices: prices, timeZone: session.box?.tz),
                               asOfMs: view.sentMs(p.header, arrivalMs: Int64(at)).map(Double.init) ?? at, origin: .cloud)
         sharePrices(prices, fromMs: Double(p.t0Ms), via: .cloud)

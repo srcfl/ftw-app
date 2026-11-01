@@ -92,14 +92,16 @@ public struct PlanStrip: Equatable, Sendable {
     /// from: the next twelve hours, or for the plan's lanes `quarters`
     /// (the whole plan), with the hours every six once it runs past a day's
     /// half.
-    public static func build(_ entry: PlanEntry?, moment: PlanGlance.Moment, hasCar: Bool, quarters wanted: Int = Self.count) -> PlanStrip {
+    public static func build(_ entry: PlanEntry?, moment: PlanGlance.Moment, hasCar: Bool, quarters wanted: Int = Self.count, prices shown: [PriceSlot]? = nil) -> PlanStrip {
         let clock = ZoneClock.of(moment.timeZone)
         let nowMs = moment.atMs
         let first = clock.alignDown(nowMs, stepMs: quarterMs)
         let count = max(Self.count, wanted)
         let grid = SlotGrid(firstMs: first, stepMs: quarterMs, count: count, fromMs: first, toMs: first + Double(count) * quarterMs)
 
-        let prices = (entry?.prices ?? []).filter { $0.totalMinor.isFinite && $0.durationMs > 0 }.sorted { $0.startMs < $1.startMs }
+        // The prices this phone chose to show, where the price record has
+        // them, else the ones under the plan.
+        let prices = (shown ?? entry?.prices ?? []).filter { $0.totalMinor.isFinite && $0.durationMs > 0 }.sorted { $0.startMs < $1.startMs }
         let slots = (entry?.battery ?? []).sorted { $0.startMs < $1.startMs }
         let charges = entry?.charges ?? []
         let currency = entry?.currency ?? "SEK"

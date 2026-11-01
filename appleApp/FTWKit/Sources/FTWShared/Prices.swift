@@ -24,11 +24,16 @@ public struct Prices: Equatable, Sendable, Codable {
     /// The answer does not cover the window asked for. Which of the three
     /// shapes it is has to be read off the slots.
     public var stale: Bool
+    /// The VAT rate the box taxed `totalMinor` at, in permille: 250 is
+    /// 25 %. Nil from a box that does not say, and in a record from before
+    /// it was kept.
+    public var vatPermille: Int?
 
-    public init(zone: String, currency: String, slots: [PriceSlot], stale: Bool) {
+    public init(zone: String, currency: String, slots: [PriceSlot], stale: Bool, vatPermille: Int? = nil) {
         self.zone = zone
         self.currency = currency
         self.slots = slots
         self.stale = stale
+        self.vatPermille = vatPermille
     }
 }

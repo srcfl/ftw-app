@@ -423,16 +423,20 @@ private struct PlanSection: View {
     let zoom: Namespace.ID
     /// The pass a tap chose on the strip.
     @State private var chosenID: String?
+    @AppStorage(PriceShown.feesKey) private var fees = true
+    @AppStorage(PriceShown.vatKey) private var vat = true
 
     var body: some View {
         // The plan marks the minute, not the second: it redraws once a
         // minute however often the clock ticks.
         let minute = site.minuteMs
-        let window = prices.prices
+        // The price this phone chose to show, in the strip and its header.
+        let choice = PriceShown(fees: fees, vat: vat)
+        let window = prices.prices.map(choice.apply)
         let current = window.flatMap { w in w.slots.first { minute >= $0.startMs && minute < $0.startMs + $0.durationMs } }
         let shown = models.planShare.shown(nowMs: minute)
         let hasCar = !loadpoints.points.isEmpty
-        let strip = PlanStrip.build(shown.entry, moment: shown.moment, hasCar: hasCar)
+        let strip = PlanStrip.build(shown.entry, moment: shown.moment, hasCar: hasCar, prices: window?.slots)
         PlanStripView(
             strip: strip,
             sentence: shown.moment.nextText,
@@ -442,7 +446,8 @@ private struct PlanSection: View {
             unit: PriceUnits.unit(window?.currency).label.uppercased(),
             fade: StripFade.make(models.planShare.before, strip: strip, nowMs: minute, hasCar: hasCar),
             zoom: zoom,
-            chosenID: $chosenID
+            chosenID: $chosenID,
+            priceLabel: window.map { PriceShown.label(choice.kind(vatPermille: $0.vatPermille)) }
         )
         .equatable()
         // Capped where it is placed, so the strip's scaled sizes read the

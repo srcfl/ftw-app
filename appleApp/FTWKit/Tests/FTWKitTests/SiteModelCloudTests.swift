@@ -375,6 +375,7 @@ final class CloudSite {
         let prices = try w.box.seal(CloudWire.msgPrices, w.box.header(w.at) + [
             ("zone", .text("SE3")), ("currency", .text("SEK")), ("t0Ms", .int(t0)), ("slotMs", .int(900_000)),
             ("spotMinor", .array([.int(42), .null, .int(40)])), ("totalMinor", .array([.int(118), .null, .int(115)])),
+            ("vatPermille", .int(250)),
         ])
         let lp = try w.box.seal(CloudWire.msgLP, w.box.header(w.at) + [
             ("controlRev", .int(3)),
@@ -394,6 +395,8 @@ final class CloudSite {
         #expect(p.carrier == .cloud)
         #expect(p.value.prices.slots.count == 2)
         #expect(p.value.prices.slots.first?.totalMinor == 118)
+        // The box's VAT rate rides with them, for the price this phone shows.
+        #expect(p.value.prices.vatPermille == 250)
         let car = try #require(w.shared.read(CarEntry.self, siteId: "s1"))
         #expect(car.carrier == .cloud)
         #expect(car.value.cars.first?.socPct == 43)

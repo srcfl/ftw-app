@@ -216,7 +216,8 @@ extension Prices {
                     totalMinor: s["totalMinor"]?.double ?? s["spotMinor"]?.double ?? 0
                 )
             },
-            stale: c["stale"]?.bool ?? false
+            stale: c["stale"]?.bool ?? false,
+            vatPermille: c["vatPermille"]?.int64.map { Int($0) }
         )
     }
 }

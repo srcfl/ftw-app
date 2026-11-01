@@ -298,6 +298,11 @@ enum PriceWord: String, CaseIterable {
     case dayAverage = "Average %@ · lowest %@ at %@"
     case noPriceThatDay = "No prices for this day"
     case someMissing = "%@ with no price"
+    /// Which price a chart shows, as this phone chose it.
+    case totalWithVAT = "TOTAL INCL. VAT"
+    case totalWithoutVAT = "TOTAL EXCL. VAT"
+    case spotWithVAT = "SPOT INCL. VAT"
+    case spotWithoutVAT = "SPOT EXCL. VAT"
 
     var text: String { Words.bundle.localizedString(forKey: rawValue, value: rawValue, table: "Price") }
 

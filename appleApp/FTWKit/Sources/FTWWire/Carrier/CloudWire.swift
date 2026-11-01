@@ -554,6 +554,9 @@ public enum CloudWire {
         public var spotMinor: [Int64?]
         /// What the household pays, tariff and VAT included.
         public var totalMinor: [Int64?]
+        /// The VAT rate in `totalMinor`, in permille; nil from a box that
+        /// does not say.
+        public var vatPermille: Int64? = nil
     }
 
     /// The box is there, and this is how old its readings are. It names the
@@ -720,7 +723,8 @@ extension CloudWire.Prices {
             t0Ms: try f.int("t0Ms"),
             slotMs: try f.int("slotMs"),
             spotMinor: try f.list("spotMinor") { $0.isNull ? nil : try CloudWire.int($0, "spotMinor") },
-            totalMinor: try f.list("totalMinor") { $0.isNull ? nil : try CloudWire.int($0, "totalMinor") }
+            totalMinor: try f.list("totalMinor") { $0.isNull ? nil : try CloudWire.int($0, "totalMinor") },
+            vatPermille: try f.optionalInt("vatPermille")
         )
     }
 }

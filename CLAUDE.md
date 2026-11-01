@@ -301,6 +301,11 @@ The rules below put these into practice.
   6 or 8 times a power of ten), with grid lines and figures at half the
   top and the top where there is room. Now's strip carries the price now
   on as a dashed line. A price below zero hangs under the zero line.
+  Which price is a choice on the phone (Home › Price shown, Fredrik,
+  1 Nov 2026): with or without the grid fee and tax, with or without VAT
+  (`PriceShown`, from `spotMinor`, `totalMinor` and the box's
+  `vatPermille`). Every chart that shows it says which, and a box that
+  does not send its rate gets the price the phone has, under its own name.
 - **Gold on a chart is the sun's.** The sun's curve and the battery giving
   power are both warm, and a tester read one as the other, so the battery
   runs in cyan both ways wherever a trace is drawn, as the grid runs in
