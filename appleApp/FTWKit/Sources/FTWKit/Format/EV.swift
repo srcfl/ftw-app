@@ -401,6 +401,8 @@ public enum AppWords {
         "Charge to the car's limit by %1$@ %2$@": "Ladda till bilens gräns till %1$@ %2$@",
         "Next: %@": "Nästa gång: %@",
         "Next: %@, home time": "Nästa gång: %@, hemmatid",
+        "%@ UTC": "%@ UTC",
+        "Next: %@ UTC. FTW's clock is set to UTC.": "Nästa gång: %@ UTC. FTW:s klocka går på UTC.",
         "No goal yet. Without one, FTW only charges from spare solar.": "Inget mål än. Utan mål laddar FTW bara med solöverskott.",
         "Use %@": "Använd %@",
         "Change": "Ändra",
@@ -628,13 +630,20 @@ public enum EVText {
     // MARK: The household clock
 
     /// The zone the box keeps its clock in, when it names one; else the
-    /// phone's. "Local" is what a box without TZ sends, and UTC is what a
-    /// container without a zone runs in: neither is anyone's home.
+    /// phone's. "Local" is what a box sent before Core named its zone. A box
+    /// on UTC plans a goal's 17:00 at 17:00 UTC, so its clock is UTC here
+    /// too: the phone's would hide the difference in the goal's hour.
     public static func householdZone(boxTZ: String?, phone: TimeZone = .current) -> TimeZone {
-        guard let id = boxTZ, !["", "Local", "UTC", "Etc/UTC", "GMT", "Etc/GMT"].contains(id), let zone = TimeZone(identifier: id) else {
+        guard let id = boxTZ, !["", "Local"].contains(id), let zone = TimeZone(identifier: id) else {
             return phone
         }
         return zone
+    }
+
+    /// The household clock is UTC and the phone's is not: a box whose host
+    /// names no zone. Times on it are said to be UTC.
+    static func onUTC(_ zone: TimeZone, phone: TimeZone, at: Date) -> Bool {
+        zone.secondsFromGMT(for: at) == 0 && zone.nextDaylightSavingTimeTransition(after: at) == nil && phone.secondsFromGMT(for: at) != 0
     }
 
     static func calendar(_ zone: TimeZone) -> Calendar {
@@ -697,8 +706,9 @@ public enum EVText {
     }
 
     /// "80 % by 07:00 on weekdays", on the household clock.
-    public static func goal(_ s: Loadpoint.Schedule, at: Date, zone: TimeZone) -> String {
-        let time = AppWords.clock(minute: goalClock(s, at: at, zone: zone))
+    public static func goal(_ s: Loadpoint.Schedule, at: Date, zone: TimeZone, phone: TimeZone = .current) -> String {
+        let clock = AppWords.clock(minute: goalClock(s, at: at, zone: zone))
+        let time = onUTC(zone, phone: phone, at: at) ? AppWords.format("%@ UTC", clock) : clock
         let when = dayPhrase(s.days, recurring: s.recurring)
         if s.finishAtVehicleLimit { return AppWords.format("Charge to the car's limit by %1$@ %2$@", time, when) }
         return AppWords.format("%1$@ by %2$@ %3$@", AppWords.percent(s.socPct), time, when)
@@ -711,7 +721,9 @@ public enum EVText {
         guard let s = lp.schedule else { return nil }
         let at = lp.targetTimeMs.flatMap { $0 > nowMs ? $0 : nil } ?? nextDeadlineMs(s, nowMs: nowMs, zone: zone)
         let day = AppWords.day(at, nowMs: nowMs, zone: zone)
-        let away = zone.secondsFromGMT(for: Date(timeIntervalSince1970: nowMs / 1000)) != phone.secondsFromGMT(for: Date(timeIntervalSince1970: nowMs / 1000))
+        let now = Date(timeIntervalSince1970: nowMs / 1000)
+        if onUTC(zone, phone: phone, at: now) { return AppWords.format("Next: %@ UTC. FTW's clock is set to UTC.", day) }
+        let away = zone.secondsFromGMT(for: now) != phone.secondsFromGMT(for: now)
         return AppWords.format(away ? "Next: %@, home time" : "Next: %@", day)
     }
 
