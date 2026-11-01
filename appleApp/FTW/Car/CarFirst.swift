@@ -13,16 +13,29 @@ func C(_ en: String) -> String { CarWords.text(en) }
 /// The car's name over its level in a ring, the goal marked on it, where
 /// the level comes from and how old it is, and the limit the car reported.
 /// The level is a reading, never live: violet without glow, held still,
-/// ink when FTW assumes it.
+/// ink when FTW assumes it. A tap on it opens the goal, where a tester
+/// first looked for it.
 struct CarHero: View {
     let car: Car
     let cars: CarsModel
     let site: SiteModel
     let zone: TimeZone
+    var editGoal: (() -> Void)?
     @ScaledMetric(relativeTo: .largeTitle) private var ringSize: CGFloat = 196
     @ScaledMetric(relativeTo: .largeTitle) private var figureSize: CGFloat = 52
 
     var body: some View {
+        if let editGoal {
+            Button(action: editGoal) { hero }
+                .buttonStyle(.plain)
+                .accessibilityHint(C("Change the goal"))
+                .accessibilityIdentifier("car.ring")
+        } else {
+            hero
+        }
+    }
+
+    @ViewBuilder private var hero: some View {
         let level = cars.level(car)
         let faint = level?.guessed ?? true
         let goal = car.goal.map { CarsModel.schedule($0, nowMs: site.minuteMs, zone: zone) }
@@ -49,6 +62,12 @@ struct CarHero: View {
                         .accessibilityIdentifier("car.level")
                     if let goalPct {
                         Text(CarWords.format("Goal %@", AppWords.percent(goalPct)))
+                            .font(.subheadline)
+                            .foregroundStyle(Theme.ink2)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    } else if editGoal != nil {
+                        Text(C("Set a goal"))
                             .font(.subheadline)
                             .foregroundStyle(Theme.ink2)
                             .lineLimit(1)

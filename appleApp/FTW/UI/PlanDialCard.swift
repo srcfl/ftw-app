@@ -243,9 +243,10 @@ private final class Finger {
     var dial: PlanDial?
 }
 
-/// The plan page's touches, handed to the dial or the lanes, whichever is
-/// on screen: the page holds the one gesture, beside its scroll, and the
-/// chart says what each touch is. `owner` is the chart that set the
+/// A page's touches, handed to the chart on it: on the plan page the dial
+/// or the lanes, whichever is on screen, and on the car view its plan. The
+/// page holds the one gesture, beside its scroll, and the chart says what
+/// each touch is. `owner` is the chart that set the
 /// handlers, so one leaving after the other came does not take them away.
 @MainActor
 final class DialTouch {

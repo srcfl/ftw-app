@@ -163,6 +163,7 @@ struct GoalEditor: View {
             // FTW's ground under the sheet, its rows raised.
             .scrollContentBackground(.hidden)
             .background(Theme.ground)
+            .accessibilityIdentifier("goal.editor")
             .navigationTitle(L("Goal"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
