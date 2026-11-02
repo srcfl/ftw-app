@@ -245,28 +245,31 @@ private final class Finger {
     var dial: PlanDial?
 }
 
-/// A page's touches, handed to the chart on it: on the plan page the dial
-/// or the lanes, whichever is on screen, and on the car view its plan. The
-/// page holds the one gesture, beside its scroll, and the chart says what
-/// each touch is. `owner` is the chart that set the
-/// handlers, so one leaving after the other came does not take them away.
+/// A page's touches, handed to the charts on it: on the plan page the dial
+/// and the strip under it, or the strip alone, and on the car view its
+/// plan. The page holds the one gesture, beside its scroll, and each chart
+/// says what a touch that started on it is; it lets every other touch
+/// pass. Each chart takes and releases its own handlers by its `owner`, so
+/// one leaving after another came does not take theirs away.
 @MainActor
 final class DialTouch {
-    var changed: ((DragGesture.Value) -> Void)?
-    var ended: (() -> Void)?
-    var owner: AnyObject?
+    private var takers: [(owner: AnyObject, changed: (DragGesture.Value) -> Void, ended: () -> Void)] = []
 
     func take(_ owner: AnyObject, changed: @escaping (DragGesture.Value) -> Void, ended: @escaping () -> Void) {
-        self.owner = owner
-        self.changed = changed
-        self.ended = ended
+        release(owner)
+        takers.append((owner, changed, ended))
     }
 
     func release(_ owner: AnyObject) {
-        guard self.owner === owner else { return }
-        self.owner = nil
-        changed = nil
-        ended = nil
+        takers.removeAll { $0.owner === owner }
+    }
+
+    func change(_ value: DragGesture.Value) {
+        for t in takers { t.changed(value) }
+    }
+
+    func end() {
+        for t in takers { t.ended() }
     }
 }
 

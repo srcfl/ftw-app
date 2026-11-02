@@ -22,6 +22,13 @@ import SwiftUI
 /// On lift the sentence comes back. Only the overlay, the header's price
 /// and the sentence read the finger, so a drag redraws those and nothing
 /// else.
+///
+/// In the plan the strip sits in the page's scroll and has no gesture of
+/// its own: any there held the page still for every swipe that started on
+/// it. The page hands it each touch (`DialTouch`), and it scrubs once the
+/// finger moves mostly sideways or rests 0.1 s (`LaneIntent`), as the
+/// lanes did; up or down scrolls the page, which holds still while the
+/// strip scrubs.
 struct PlanStripView: View, Equatable {
     let strip: PlanStrip
     let sentence: String
@@ -53,8 +60,15 @@ struct PlanStripView: View, Equatable {
     var leastPrice: CGFloat = PlanStripLayout.leastPrice
     /// Which price the bars are, "SPOT EXCL. VAT", after the kicker.
     var priceLabel: String?
+    /// In the plan, the page's touches, handed on.
+    var touch: DialTouch?
+    /// True while a finger scrubs the strip in the plan: the page holds
+    /// still.
+    var holds: Binding<Bool>?
     /// Where the strip's drawing sits, for the passes' tap targets.
     @State private var canvas: CGRect = .zero
+    @State private var finger = StripFinger()
+    @Environment(\.scenePhase) private var scenePhase
     @GestureState private var dragging = false
     @ScaledMetric(relativeTo: .caption2) private var kicker: CGFloat = 10.5
     @ScaledMetric(relativeTo: .caption2) private var axis: CGFloat = 10
@@ -64,7 +78,7 @@ struct PlanStripView: View, Equatable {
         a.strip == b.strip && a.sentence == b.sentence && a.shorter == b.shorter && a.placeholder == b.placeholder
             && a.priceNow == b.priceNow && a.unit == b.unit && a.fade == b.fade && a.zoom == b.zoom
             && a.chosenID == b.chosenID && a.opensPlan == b.opensPlan && a.levelHeight == b.levelHeight && a.leastPrice == b.leastPrice
-            && a.priceLabel == b.priceLabel
+            && a.priceLabel == b.priceLabel && a.touch === b.touch
     }
 
     /// Mono stops growing at accessibility1.
@@ -131,13 +145,16 @@ struct PlanStripView: View, Equatable {
             // The price row takes the height Now gives the strip.
             .frame(minHeight: layout.height + max(0, leastPrice - PlanStripLayout.leastPrice), maxHeight: layout.tallest)
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { canvas = $0 }
+            // Where the drawing is on the screen, for the page's touches:
+            // written to a plain reference, so a scroll redraws nothing.
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { finger.frame = $0 }
             StripSentence(sentence: sentence, shorter: shorter, placeholder: placeholder, grey: strip.grey, pass: chosen, readouts: strip.readouts, model: scrub)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         // A tap is the link's; only a finger that moves reads the strip. In
-        // the plan's scroll a drag scrolls the page instead.
+        // the plan's scroll the page's touches read it instead.
         .gesture(
             DragGesture(minimumDistance: 4)
                 .updating($dragging) { _, state, _ in state = true }
@@ -147,6 +164,26 @@ struct PlanStripView: View, Equatable {
         )
         // A gesture the system takes away ends without onEnded.
         .onChange(of: dragging) { _, now in if !now { scrub.lift() } }
+        .onChange(of: strip, initial: true) { _, now in finger.strip = now }
+        .onChange(of: layout, initial: true) { _, now in finger.layout = now }
+        .onAppear {
+            touch?.take(finger, changed: { value in
+                // A new touch has a new start; one the system took away
+                // never ended.
+                if finger.startAt != value.startLocation {
+                    touchEnded()
+                    touchStarted(value)
+                }
+                touchMoved(value)
+            }, ended: { touchEnded() })
+        }
+        .onDisappear {
+            touch?.release(finger)
+            touchEnded()
+        }
+        // A touch the system took (a call, Control Center, a switch of
+        // app) may never end: the page is not left held.
+        .onChange(of: scenePhase) { _, phase in if phase != .active { touchEnded() } }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(PlanGlance.title)
         .accessibilityValue(sentence)
@@ -208,6 +245,71 @@ struct PlanStripView: View, Equatable {
         scrub.move(to: i, landmark: strip.landmarks.contains(i))
     }
 
+    // MARK: The page's touches, in the plan
+
+    /// A finger came down somewhere on the page. The strip takes it only
+    /// on its drawing, and never within 20 pt of the screen's leading
+    /// edge, where the back swipe starts.
+    private func touchStarted(_ v: DragGesture.Value) {
+        finger.startAt = v.startLocation
+        finger.startMs = ProcessInfo.processInfo.systemUptime * 1000
+        finger.decision = nil
+        let plot = CGRect(x: finger.frame.minX, y: finger.frame.minY, width: finger.layout.plotWidth(finger.frame.width), height: finger.frame.height)
+        guard v.startLocation.x >= EdgeRule.edge, plot.insetBy(dx: 0, dy: -8).contains(v.startLocation) else {
+            finger.decision = .pass
+            return
+        }
+        finger.hold = Task {
+            try? await Task.sleep(for: .milliseconds(Int(RingIntent.holdMs)))
+            guard !Task.isCancelled, finger.decision == nil else { return }
+            touchDecided(.scrub)
+        }
+    }
+
+    /// Each event costs a little arithmetic and writes nothing a view
+    /// reads, until the touch is a scrub.
+    private func touchMoved(_ v: DragGesture.Value) {
+        finger.last = v.location
+        guard finger.decision == nil else {
+            if finger.decision == .scrub { touchFollow(v.location) }
+            return
+        }
+        let held = ProcessInfo.processInfo.systemUptime * 1000 - (finger.startMs ?? 0)
+        if let decision = LaneIntent.decide(start: v.startLocation, now: v.location, heldMs: held) {
+            touchDecided(decision)
+        }
+    }
+
+    private func touchDecided(_ decision: RingIntent.Decision) {
+        finger.decision = decision
+        finger.hold?.cancel()
+        guard decision == .scrub else { return }
+        holds?.wrappedValue = true
+        if let at = finger.last { touchFollow(at) }
+    }
+
+    /// The quarter under the finger, clamped to the strip.
+    private func touchFollow(_ p: CGPoint) {
+        guard let strip = finger.strip else { return }
+        let w = finger.layout.plotWidth(finger.frame.width)
+        guard w > 0 else { return }
+        let x = min(max(p.x - finger.frame.minX, 0), w - 0.5)
+        guard let i = strip.grid.index(atX: x, width: w), i != scrub.index else { return }
+        scrub.move(to: i, landmark: strip.landmarks.contains(i))
+    }
+
+    private func touchEnded() {
+        guard finger.startMs != nil else { return }
+        finger.hold?.cancel()
+        finger.hold = nil
+        finger.startAt = nil
+        finger.startMs = nil
+        finger.decision = nil
+        finger.last = nil
+        if holds?.wrappedValue == true { holds?.wrappedValue = false }
+        if scrub.isDown { scrub.lift() }
+    }
+
     #if DEBUG
     /// With `-FTWStripScrub YES`, a thumb sweeps the strip back and forth
     /// for ten seconds through the same path a finger takes, for recordings
@@ -225,6 +327,24 @@ struct PlanStripView: View, Equatable {
         scrub.lift()
     }
     #endif
+}
+
+/// A finger on the strip in the plan, and where the strip sits: a plain
+/// reference, so a touch or a scroll writes nothing a view reads.
+@MainActor
+private final class StripFinger {
+    /// Where and when the touch came down, on the screen.
+    var startAt: CGPoint?
+    var startMs: Double?
+    var decision: RingIntent.Decision?
+    var last: CGPoint?
+    var hold: Task<Void, Never>?
+    /// The drawing, on the screen.
+    var frame: CGRect = .zero
+    /// The strip and its layout on screen: the page's handler outlives a
+    /// minute's strip.
+    var strip: PlanStrip?
+    var layout = PlanStripLayout()
 }
 
 /// The header's price: now, `156 ÖRE NOW`, and under a finger the
