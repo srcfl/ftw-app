@@ -182,7 +182,8 @@ private struct PlanBody: View {
                 leastPrice: 56,
                 priceLabel: window.map { PriceShown.label(choice.kind(vatPermille: $0.vatPermille)) },
                 touch: dialTouch,
-                holds: $dialHolds
+                holds: $dialHolds,
+                site: site
             )
             .equatable()
             .fitCap(.xLarge)

@@ -156,8 +156,8 @@ import Testing
         #expect(dial.quarters.count == 112)
         #expect(dial.grid.index(atMs: at(13, 22)) != nil)
         // From midnight on the finger's clock names the day.
-        #expect(dial.time(15) == "23:45")
-        #expect(dial.time(16) == "TOMORROW 00:00")
+        #expect(dial.when(15) == "23:45")
+        #expect(dial.when(16) == "TOMORROW 00:00" && dial.time(16) == "00:00")
         #expect(PlanDial(plan: long, prices: nil, nowMs: at(12, 20), untilMs: at(12, 23)).quarters.count == PlanDial.count)
     }
 

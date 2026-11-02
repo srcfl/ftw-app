@@ -28,6 +28,11 @@ struct PlanPage: View {
                     ZStack {
                         PlanDialView(dial: dial, selected: i, grey: moment.isGrey)
                         VStack(spacing: 0) {
+                            // Tomorrow over the time, on a line kept so
+                            // the time never moves.
+                            Text(dial.day(i) ?? " ")
+                                .font(.system(size: max(8, side * 0.062), weight: .medium, design: .monospaced))
+                                .foregroundStyle(Theme.ink2)
                             Text(dial.time(i))
                                 .font(Theme.figure(side * 0.15))
                                 .foregroundStyle(Theme.ink)
@@ -65,7 +70,7 @@ struct PlanPage: View {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(WatchWord.planTitle.text)
-            .accessibilityValue("\(dial.time(i)), \(dial.price(i)), \(i == 0 ? moment.summary : dial.what(i))")
+            .accessibilityValue("\(dial.when(i)), \(dial.price(i)), \(i == 0 ? moment.summary : dial.what(i))")
             .accessibilityHint(WatchWord.turnTheCrown.text)
             .accessibilityAdjustableAction { direction in
                 switch direction {

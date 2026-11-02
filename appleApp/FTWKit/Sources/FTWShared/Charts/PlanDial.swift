@@ -26,6 +26,11 @@ public struct PlanDial: Equatable, Sendable {
     public static let levels = 8
     /// The box's forecast counts as sun from this many watts up.
     static let sunW: Double = 10
+    /// An hour this close to now or to the turn's end is left off: closer,
+    /// its figure would sit on the hand or the seam. A quarter of an hour
+    /// is 7.5° of the turn, which clears two mono digits on the phone and
+    /// the watch. Wider, and at 17:34 the 18 went missing from the foot.
+    static let hourClearMs: Double = 15 * 60_000
 
     public enum Battery: Equatable, Sendable {
         case stores, gives, waits
@@ -84,6 +89,9 @@ public struct PlanDial: Equatable, Sendable {
     /// Per quarter, read by a finger: "14:30", "98 ÖRE/KWH", "STORES ·
     /// 3,0 KW · CAR". Made once, so a drag costs a subscript.
     public let times: [String]
+    /// The first quarter on the next day by the household's clock, where
+    /// the middle names the day over the time; `count` when there is none.
+    public let tomorrowFrom: Int
     public let prices: [String]
     public let doing: [String]
 
@@ -171,7 +179,7 @@ public struct PlanDial: Equatable, Sendable {
         let hourMs = 3_600_000.0, turnEnd = first + Double(Self.count) * Self.quarterMs
         var t = clock.alignDown(nowMs, stepMs: hourMs) + hourMs
         while t < turnEnd {
-            if t - nowMs >= 0.8 * hourMs, turnEnd - t >= 0.8 * hourMs, clock.minuteOfDay(t) % 60 == 0 {
+            if t - nowMs >= Self.hourClearMs, turnEnd - t >= Self.hourClearMs, clock.minuteOfDay(t) % 60 == 0 {
                 hours.append(Hour(angle: Self.clockAngle(t, clock: clock), label: String(clock.label(t).prefix(2))))
             }
             t += hourMs
@@ -188,12 +196,11 @@ public struct PlanDial: Equatable, Sendable {
             let from = max(s.fromMs, first), to = min(s.toMs, grid.toMs)
             return from < to ? from...to : nil
         }
-        // A time from the next midnight on says the day first.
+        // A time from the next midnight on is tomorrow's, named apart from
+        // the time so neither is cut to fit.
         let midnight = nowMs + Double(1440 - clock.minuteOfDay(nowMs)) * 60_000
-        times = (0..<count).map { i in
-            let label = clock.label(i == 0 ? nowMs : grid.startMs(i))
-            return grid.startMs(i) < midnight ? label : PriceWord.tomorrow.text + " " + label
-        }
+        times = (0..<count).map { i in clock.label(i == 0 ? nowMs : grid.startMs(i)) }
+        tomorrowFrom = (0..<count).first { grid.startMs($0) >= midnight } ?? count
         self.prices = minors.map { m in m.map { figure($0) + " " + perKwh } ?? DialWord.noPrice.text }
         doing = quarters.map { q in
             var parts = [String]()
@@ -307,6 +314,13 @@ public struct PlanDial: Equatable, Sendable {
 
     /// "14:30"
     public func time(_ i: Int) -> String { times[i] }
+
+    /// "TOMORROW" over a time on the next day, else nil.
+    public func day(_ i: Int) -> String? { i >= tomorrowFrom ? PriceWord.tomorrow.text : nil }
+
+    /// "TOMORROW 04:30", or "14:30": the day and the time in one, for
+    /// VoiceOver.
+    public func when(_ i: Int) -> String { day(i).map { $0 + " " + times[i] } ?? times[i] }
 
     /// "98", or "–" before the price is known: the widget's middle.
     public func figure(_ i: Int) -> String {

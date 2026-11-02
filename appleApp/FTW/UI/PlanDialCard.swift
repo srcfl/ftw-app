@@ -202,7 +202,7 @@ struct PlanDialCard: View {
 
     /// "14:00, 98 öre/kWh, battery stores 3.0 kW".
     private func spokenValue(_ i: Int) -> String {
-        [dial.time(i), dial.price(i), dial.what(i)].joined(separator: ", ")
+        [dial.when(i), dial.price(i), dial.what(i)].joined(separator: ", ")
     }
 
     #if DEBUG
@@ -291,7 +291,9 @@ private struct DialHand: View {
 }
 
 /// The middle: the time at 40 pt, the price in mono, and a third line kept
-/// for what the plan does in the quarter under the finger.
+/// for what the plan does in the quarter under the finger. Over the time, a
+/// line kept for the day, so tomorrow's "04:15" is never cut to fit beside
+/// it.
 private struct DialCentre: View {
     let dial: PlanDial
     let model: ScrubModel
@@ -302,6 +304,11 @@ private struct DialCentre: View {
         GeometryReader { geo in
             let side = min(geo.size.width, geo.size.height)
             VStack(spacing: side * 0.008) {
+                // Kept whether or not the time is tomorrow's, so nothing moves.
+                Text(dial.day(i) ?? " ")
+                    .font(.system(size: max(9, side * 0.031), weight: .medium, design: .monospaced))
+                    .tracking(0.5)
+                    .foregroundStyle(Theme.ink2)
                 Text(dial.time(i))
                     .font(Theme.figure(side * 0.118))
                     .tracking(-1)
