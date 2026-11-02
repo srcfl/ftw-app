@@ -35,3 +35,5 @@ shoot() {
 shoot pair dark
 shoot now dark -FTWDemo YES -FTWTab now
 shoot now-light light -FTWDemo YES -FTWTab now
+shoot refund dark -FTWDemo YES -FTWTab refund
+shoot refund-light light -FTWDemo YES -FTWTab refund

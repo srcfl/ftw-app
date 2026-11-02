@@ -45,6 +45,8 @@ enum HomeRoute: Hashable {
     case price(Double?)
     /// What the home saved, from History and the home's node.
     case savings
+    /// The energy tax refund after battery storage, from History.
+    case batteryReturn
     /// An assistant's consent link: its offer, to Face ID.
     case offer(OfferLink)
 
@@ -56,6 +58,7 @@ enum HomeRoute: Hashable {
         case .plan: return PlanGlance.title
         case .price: return L("Electricity price")
         case .savings: return L("Savings")
+        case .batteryReturn: return BatteryReturnWords.text("Energy tax refund")
         case .offer: return AccessWords.text("Add an assistant")
         }
     }
@@ -73,6 +76,7 @@ enum HomeRoute: Hashable {
         case "price": return (.plan, [.price(nil)])
         case "history": return (.history, [])
         case "savings": return (.history, [.savings])
+        case "refund": return (.history, [.batteryReturn])
         case "home": return (.home, [])
         default: break
         }
@@ -218,6 +222,8 @@ private struct TabStack<Root: View>: View {
             PriceView(home: home, dayMs: dayMs)
         case .savings:
             SavingsView(home: home)
+        case .batteryReturn:
+            BatteryReturnView(model: home.batteryReturn)
         case .offer(let link):
             // Its own identity, so a newer link in the same place gets a
             // new flow, not the old one's state.
