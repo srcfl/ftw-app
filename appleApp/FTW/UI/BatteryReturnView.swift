@@ -103,7 +103,7 @@ private struct BatteryReturnPage: View, Equatable {
             }
             VStack(alignment: .leading, spacing: 8) {
                 Text(BatteryReturnWords.text("Where the readings can't tell where energy went, FTW counts low. The figure assumes FTW reads every solar inverter, battery and charger in the home."))
-                Text(BatteryReturnWords.text("You can apply up to three years after the year ends. Your box keeps hourly readings for two, so save the hourly basis soon after the year ends."))
+                Text(BatteryReturnWords.text("You can apply up to three years after the year ends, and your box keeps the hourly readings that long."))
                 Link(BatteryReturnWords.text("Skatteverket's rules"), destination: BatteryReturn.rulesURL)
                     .foregroundStyle(Theme.ink)
                     .underline()

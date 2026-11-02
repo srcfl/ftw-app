@@ -289,7 +289,7 @@ public enum BatteryReturnWords {
         "Hourly basis (CSV)": "Timunderlag (CSV)",
         "Keep it with your application.": "Spara det med din ansökan.",
         "Where the readings can't tell where energy went, FTW counts low. The figure assumes FTW reads every solar inverter, battery and charger in the home.": "Där mätvärdena inte visar vart energin tog vägen räknar FTW lågt. Siffran förutsätter att FTW läser alla solväxelriktare, batterier och laddare i hemmet.",
-        "You can apply up to three years after the year ends. Your box keeps hourly readings for two, so save the hourly basis soon after the year ends.": "Du kan ansöka upp till tre år efter årets slut. Boxen sparar timvärden i två år, så spara timunderlaget snart efter årsskiftet.",
+        "You can apply up to three years after the year ends, and your box keeps the hourly readings that long.": "Du kan ansöka upp till tre år efter årets slut, och boxen sparar timvärdena så länge.",
         "Skatteverket's rules": "Skatteverkets regler",
         "Opens the figure for Skatteverket.": "Öppnar siffran till Skatteverket.",
     ]

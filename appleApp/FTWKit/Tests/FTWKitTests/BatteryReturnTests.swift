@@ -308,6 +308,11 @@ import FTWShared
         let said = try #require(first.home.batteryReturn.answers[2025])
         first.site.suspend()
         first.site.destroy()
+        // The home's files are sealed off the main actor. Wait until this
+        // one has landed, as a later launch would.
+        for _ in 0..<500 where files.readJSON(BatteryReturnModel.File.self, "battery-return-home") == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
 
         let second = ReturnRig(files: files, nowMs: first.scheduler.nowMs + 5 * 60_000)
         let kept = try #require(second.home.batteryReturn.answers[2025])
