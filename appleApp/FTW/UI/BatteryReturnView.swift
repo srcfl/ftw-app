@@ -32,6 +32,14 @@ struct BatteryReturnView: View {
         }
         .onAppear { model.activate() }
         .onDisappear { model.deactivate() }
+        #if DEBUG
+        .task {
+            // `-FTWRefundYear 2024` opens on another year, so each can be
+            // photographed.
+            let year = UserDefaults.standard.integer(forKey: "FTWRefundYear")
+            if model.years.contains(year) { model.year = year }
+        }
+        #endif
     }
 }
 

@@ -29,19 +29,32 @@ public enum BatteryReturn {
         public var completeHours: Int
     }
 
+    /// One battery the box read in the year, with its own account.
+    public struct Battery: Codable, Equatable, Sendable {
+        /// Its latest identity on the box.
+        public var assetId: String
+        /// The driver that read it last, as the box's settings name it.
+        public var label: String
+        /// Whether the box's settings hold its size.
+        public var sized: Bool
+        public var returnedWh: Double
+        /// The least round-trip efficiency its readings allow, 0 to 1.
+        public var efficiency: Double
+        /// The size the box counted it with.
+        public var capacityWh: Double
+    }
+
     /// One year as the box answered it.
     public struct Report: Codable, Equatable, Sendable {
         public var year: Int
+        /// What went back from all the batteries, each counted on its own.
         public var returnedWh: Double
         public var hours: Int
         public var completeHours: Int
-        /// The least round-trip efficiency the battery's readings allow,
-        /// 0 to 1.
-        public var efficiency: Double
-        /// The battery size the box counted with.
-        public var capacityWh: Double
-        /// How many batteries the box read in the year.
-        public var batteries: Int
+        public var batteries: [Battery]
+        /// The drivers with a battery size that read no battery in the
+        /// year.
+        public var unread: [String]
         /// Empty when the year has a figure. Any other word is a reason it
         /// has none, one a later box adds included.
         public var problem: String
@@ -57,14 +70,18 @@ public enum BatteryReturn {
             guard (1...12).contains(month) else { return nil }
             return Month(month: month, returnedWh: n(row, "returned_wh"), hours: Int(n(row, "hours")), completeHours: Int(n(row, "complete_hours")))
         }
+        let batteries = (wire["batteries"]?.array ?? []).compactMap { row -> Battery? in
+            guard row.object != nil else { return nil }
+            return Battery(assetId: row["asset_id"]?.string ?? "", label: row["label"]?.string ?? "", sized: row["sized"]?.bool ?? false,
+                           returnedWh: n(row, "returned_wh"), efficiency: n(row, "efficiency"), capacityWh: n(row, "capacity_wh"))
+        }
         return Report(
             year: Int(year),
             returnedWh: n(wire, "returned_wh"),
             hours: Int(n(wire, "hours")),
             completeHours: Int(n(wire, "complete_hours")),
-            efficiency: n(wire, "efficiency"),
-            capacityWh: n(wire, "capacity_wh"),
-            batteries: Int(n(wire, "batteries")),
+            batteries: batteries,
+            unread: (wire["unread"]?.array ?? []).compactMap { $0.string.flatMap { $0.isEmpty ? nil : $0 } },
             problem: wire["problem"]?.string ?? "",
             months: months
         )
@@ -125,8 +142,8 @@ public struct BatteryReturnGlance: Equatable, Sendable {
     public var unit: String
     /// "Grid electricity stored and sent back in 2025"
     public var word: String
-    /// The hours behind the figure and the battery it was counted with, or
-    /// why there is no figure.
+    /// The hours behind the figure and the batteries it was counted with,
+    /// or why there is no figure.
     public var lines: [String]
     public var months: [Row]
     /// `AS OF 14:32`, or a space while nothing is dated.
@@ -157,13 +174,11 @@ public struct BatteryReturnGlance: Equatable, Sendable {
         }
         var hours = words.format("Complete readings for %1$@ of %2$@ hours.", whole(r.completeHours), whole(r.hours))
         if running { hours += " " + words.text("The year is still running.") }
-        let battery = words.format("Counted with a %1$@ battery that gives back at least %2$@ of its charge.",
-                                   kWh(r.capacityWh), "\(Int((r.efficiency * 100).rounded(.down)))\u{00A0}%")
         return BatteryReturnGlance(
             figure: whole(BatteryReturn.wholeKWh(r.returnedWh)),
             unit: unit,
             word: words.format(running ? "Grid electricity stored and sent back in %@ so far" : "Grid electricity stored and sent back in %@", String(year)),
-            lines: [hours, battery],
+            lines: [hours] + counted(r.batteries),
             months: months,
             footer: footer,
             placeholder: false,
@@ -171,20 +186,52 @@ public struct BatteryReturnGlance: Equatable, Sendable {
         )
     }
 
-    /// Why a year has no figure, from the battery's configuration.
+    /// How the figure was counted: the battery's size and the least it
+    /// gives back, or, with several, a line for each and what came from it.
+    static func counted(_ batteries: [BatteryReturn.Battery]) -> [String] {
+        let words = BatteryReturnWords.self
+        func percent(_ efficiency: Double) -> String { "\(Int((efficiency * 100).rounded(.down)))\u{00A0}%" }
+        if batteries.count == 1, let b = batteries.first {
+            return [words.format("Counted with a %1$@ battery that gives back at least %2$@ of its charge.", kWh(b.capacityWh), percent(b.efficiency))]
+        }
+        guard !batteries.isEmpty else { return [] }
+        return [words.text("Counted for each battery on its own:")] + batteries.enumerated().map { i, b in
+            let name = b.label.isEmpty ? words.format("battery %@", String(i + 1)) : quoted(b.label)
+            return words.format("%1$@ from %2$@, a %3$@ battery that gives back at least %4$@ of its charge.",
+                                "\(whole(BatteryReturn.wholeKWh(b.returnedWh)))\u{00A0}kWh", name, kWh(b.capacityWh), percent(b.efficiency))
+        }
+    }
+
+    /// Why a year has no figure, from the box's battery settings.
     static func reason(_ r: BatteryReturn.Report) -> String {
         let words = BatteryReturnWords.self
         switch r.problem {
-        case "battery_size" where r.batteries == 0:
-            return words.format("FTW read no battery in %@.", String(r.year))
         case "battery_size":
-            return words.text("Set the battery's size on your box's own page to get a figure. FTW needs to know how much it holds.")
-        case "batteries":
-            return words.format("FTW works this out for one battery with its size set. In %1$@ it read %2$@ batteries, and a replaced battery counts as a second.",
-                                String(r.year), whole(r.batteries))
+            var seen = Set<String>()
+            let names = r.batteries.filter { !$0.sized && !$0.label.isEmpty && seen.insert($0.label).inserted }.map { quoted($0.label) }
+            if names.isEmpty {
+                return words.text("Set the battery's size on your box's own page to get a figure. FTW needs to know how much it holds.")
+            }
+            return words.format("Set the battery size for %@ on your box's own page to get a figure. FTW needs to know how much each battery holds.", list(names))
+        case "battery_unread" where !r.unread.isEmpty:
+            return words.format("Your box has a battery size for %1$@ but read no battery there in %2$@. FTW could then count what one battery sent to the grid as another's, so there is no figure.",
+                                list(r.unread.map(quoted)), String(r.year))
         default:
             return words.format("Your box gives no figure for %@.", String(r.year))
         }
+    }
+
+    /// A driver's name as the box's settings write it, in the language's
+    /// quotes.
+    static func quoted(_ name: String) -> String {
+        AppWords.language == .sv ? "\u{201D}\(name)\u{201D}" : "\u{201C}\(name)\u{201D}"
+    }
+
+    /// "a", "a and b", "a, b and c", in the words' language.
+    static func list(_ items: [String]) -> String {
+        let f = ListFormatter()
+        f.locale = BatteryReturnWords.locale
+        return f.string(from: items) ?? items.joined(separator: ", ")
     }
 
     static func row(_ m: BatteryReturn.Month) -> Row {
@@ -276,10 +323,13 @@ public enum BatteryReturnWords {
         "Complete readings for %1$@ of %2$@ hours.": "Fullständiga mätvärden för %1$@ av %2$@ timmar.",
         "The year is still running.": "Året pågår fortfarande.",
         "Counted with a %1$@ battery that gives back at least %2$@ of its charge.": "Räknat med ett batteri på %1$@ som ger tillbaka minst %2$@ av sin laddning.",
+        "Counted for each battery on its own:": "Räknat för varje batteri för sig:",
+        "%1$@ from %2$@, a %3$@ battery that gives back at least %4$@ of its charge.": "%1$@ från %2$@, ett batteri på %3$@ som ger tillbaka minst %4$@ av sin laddning.",
+        "battery %@": "batteri %@",
         "FTW has no complete readings for %@.": "FTW har inga fullständiga mätvärden för %@.",
-        "FTW read no battery in %@.": "FTW läste inget batteri %@.",
         "Set the battery's size on your box's own page to get a figure. FTW needs to know how much it holds.": "Ange batteriets storlek på boxens egen sida för att få en siffra. FTW behöver veta hur mycket det rymmer.",
-        "FTW works this out for one battery with its size set. In %1$@ it read %2$@ batteries, and a replaced battery counts as a second.": "FTW räknar ut det här för ett batteri med angiven storlek. %1$@ läste den %2$@ batterier, och ett utbytt batteri räknas som ett till.",
+        "Set the battery size for %@ on your box's own page to get a figure. FTW needs to know how much each battery holds.": "Ange batteristorleken för %@ på boxens egen sida för att få en siffra. FTW behöver veta hur mycket varje batteri rymmer.",
+        "Your box has a battery size for %1$@ but read no battery there in %2$@. FTW could then count what one battery sent to the grid as another's, so there is no figure.": "Boxen har en batteristorlek för %1$@ men läste inget batteri där under %2$@. Då kunde FTW räkna det ett batteri skickade till nätet som ett annat batteris, så det blir ingen siffra.",
         "Your box gives no figure for %@.": "Boxen ger ingen siffra för %@.",
         "No readings": "Inga mätvärden",
         "%1$@ of %2$@ hours": "%1$@ av %2$@ timmar",

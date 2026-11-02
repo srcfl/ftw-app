@@ -28,7 +28,9 @@ public final class BatteryReturnModel: Activatable {
 
     /// What this model keeps between launches, beside the home file.
     struct File: Codable, Equatable {
-        static let version = 1
+        /// 2: one account per battery, so an answer kept in the old shape
+        /// is dropped.
+        static let version = 2
         var version = File.version
         var answers: [Int: Stamped<BatteryReturn.Report>]
     }

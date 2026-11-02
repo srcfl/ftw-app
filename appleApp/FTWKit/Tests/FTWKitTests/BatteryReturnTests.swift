@@ -6,7 +6,7 @@ import FTWShared
 
 /// What the energy tax refund screen says, from Core's
 /// `GET /api/energy/battery-return` alone: whole kWh rounded down, the
-/// hours behind the figure, the battery it was counted with, and the
+/// hours behind the figure, the batteries it was counted with, and the
 /// box's reason in place of a figure when it has one.
 @Suite struct BatteryReturnTests {
     static let zone = BatteryReturn.zone
@@ -20,9 +20,15 @@ import FTWShared
     /// 2 November 2026, 14:32 in Stockholm.
     static let now = at(2026, 11, 2, 14, 32)
 
+    /// One battery as Core's handler writes it.
+    static func battery(_ label: String, sized: Bool = true, returned: Double = 1_234_999.6, efficiency: Double = 0.8849, capacity: Double = 13_500) -> JSON {
+        ["asset_id": .string("\(label)-1"), "label": .string(label), "sized": .bool(sized), "returned_wh": .number(returned),
+         "efficiency": .number(efficiency), "capacity_wh": .number(capacity)]
+    }
+
     /// One year as Core's handler writes it.
     static func wire(year: Int = 2025, returned: Double = 1_234_999.6, hours: Int = 8_760, complete: Int = 8_721,
-                     batteries: Int = 1, problem: String = "", months: [JSON]? = nil) -> JSON {
+                     batteries: [JSON] = [battery("sungrow")], unread: [String] = [], problem: String = "", months: [JSON]? = nil) -> JSON {
         let rows: [JSON] = months ?? (1...12).map { (m: Int) -> JSON in
             let returned: Double = m == 1 ? 96_400 : 95_000
             let complete: Double = m == 8 ? 699 : 730
@@ -31,7 +37,7 @@ import FTWShared
         return [
             "year": .number(Double(year)), "zone": "Europe/Stockholm", "returned_wh": .number(returned),
             "hours": .number(Double(hours)), "complete_hours": .number(Double(complete)),
-            "efficiency": 0.8849, "capacity_wh": 13_500, "batteries": .number(Double(batteries)),
+            "batteries": .array(batteries), "unread": .array(unread.map { .string($0) }),
             "problem": .string(problem), "months": .array(rows),
         ]
     }
@@ -50,9 +56,8 @@ import FTWShared
         #expect(r.returnedWh == 1_234_999.6)
         #expect(r.hours == 8_760)
         #expect(r.completeHours == 8_721)
-        #expect(r.efficiency == 0.8849)
-        #expect(r.capacityWh == 13_500)
-        #expect(r.batteries == 1)
+        #expect(r.batteries == [BatteryReturn.Battery(assetId: "sungrow-1", label: "sungrow", sized: true, returnedWh: 1_234_999.6, efficiency: 0.8849, capacityWh: 13_500)])
+        #expect(r.unread.isEmpty)
         #expect(r.problem == "")
         #expect(r.months.count == 12)
         #expect(r.months[0] == BatteryReturn.Month(month: 1, returnedWh: 96_400, hours: 730, completeHours: 730))
@@ -69,6 +74,11 @@ import FTWShared
         #expect(odd?.returnedWh == 0)
         #expect(odd?.months.isEmpty == true)
         #expect(odd?.problem == "")
+        #expect(odd?.batteries.isEmpty == true)
+        // A battery count, as a box before one account per battery sent it,
+        // names no battery.
+        #expect(BatteryReturn.report(["year": 2025, "batteries": 2, "unread": [3, "", "pixii"]])?.batteries.isEmpty == true)
+        #expect(BatteryReturn.report(["year": 2025, "unread": [3, "", "pixii"]])?.unread == ["pixii"])
     }
 
     // MARK: Who and when
@@ -115,6 +125,26 @@ import FTWShared
         #expect(BatteryReturn.basisName(2025) == "ftw-battery-return-2025.csv")
     }
 
+    /// Several batteries: the figure is the box's total, and each battery
+    /// has a line with what came from it, its size and the least it gives
+    /// back.
+    @Test func eachBatteryHasALine() {
+        let two = Self.wire(batteries: [Self.battery("sungrow", returned: 765_999), Self.battery("pixii", returned: 469_000.6, efficiency: 0.902, capacity: 10_000)])
+        let g = Self.glance(two)
+        #expect(g.figure == "1,234")
+        #expect(g.lines == [
+            "Complete readings for 8,721 of 8,760 hours.",
+            "Counted for each battery on its own:",
+            "765\u{00A0}kWh from \u{201C}sungrow\u{201D}, a 13.5\u{00A0}kWh battery that gives back at least 88\u{00A0}% of its charge.",
+            "469\u{00A0}kWh from \u{201C}pixii\u{201D}, a 10\u{00A0}kWh battery that gives back at least 90\u{00A0}% of its charge.",
+        ])
+        // A battery without a driver's name gets its place.
+        let unnamed = Self.glance(Self.wire(batteries: [Self.battery("sungrow"), Self.battery("", returned: 0)]))
+        #expect(unnamed.lines.last?.hasPrefix("0\u{00A0}kWh from battery 2, ") == true)
+        // None read and no reason: the hours alone.
+        #expect(Self.glance(Self.wire(batteries: [])).lines == ["Complete readings for 8,721 of 8,760 hours."])
+    }
+
     @Test func eachMonthWithHoursIsARow() {
         var months = (1...12).map { (m: Int) -> JSON in
             let hours: Double = m <= 10 ? 744 : 0
@@ -140,10 +170,21 @@ import FTWShared
         #expect(size.lines == ["Set the battery's size on your box's own page to get a figure. FTW needs to know how much it holds."])
         #expect(!size.hasBasis)
         #expect(size.months.isEmpty)
-        #expect(Self.glance(Self.wire(batteries: 0, problem: "battery_size")).lines == ["FTW read no battery in 2025."])
-        #expect(Self.glance(Self.wire(batteries: 2, problem: "batteries")).lines == [
-            "FTW works this out for one battery with its size set. In 2025 it read 2 batteries, and a replaced battery counts as a second.",
+        // The batteries without a size, by their drivers' names, once each.
+        let unsized = [Self.battery("sungrow"), Self.battery("pixii", sized: false), Self.battery("pixii", sized: false), Self.battery("huawei", sized: false)]
+        #expect(Self.glance(Self.wire(batteries: unsized, problem: "battery_size")).lines == [
+            "Set the battery size for \u{201C}pixii\u{201D} and \u{201C}huawei\u{201D} on your box's own page to get a figure. FTW needs to know how much each battery holds.",
         ])
+        // A size the box has for a battery it read nothing from.
+        let unread = Self.glance(Self.wire(unread: ["pixii"], problem: "battery_unread"))
+        #expect(unread.figure == "—")
+        #expect(unread.months.isEmpty)
+        #expect(unread.lines == [
+            "Your box has a battery size for \u{201C}pixii\u{201D} but read no battery there in 2025. FTW could then count what one battery sent to the grid as another's, so there is no figure.",
+        ])
+        #expect(Self.glance(Self.wire(unread: ["a", "b", "c"], problem: "battery_unread")).lines[0].hasPrefix(
+            "Your box has a battery size for \u{201C}a\u{201D}, \u{201C}b\u{201D} and \u{201C}c\u{201D} but"))
+        #expect(Self.glance(Self.wire(problem: "battery_unread")).lines == ["Your box gives no figure for 2025."])
         // A reason a later box adds still means no figure.
         #expect(Self.glance(Self.wire(problem: "something_new")).lines == ["Your box gives no figure for 2025."])
         let none = Self.glance(Self.wire(returned: 0, complete: 0))
@@ -189,6 +230,15 @@ import FTWShared
         #expect(g.months[0].name == "Januari")
         #expect(g.months[0].hours == "730 av 730 timmar")
         #expect(g.footer == "PER 14:32")
+        let two = Self.glance(Self.wire(batteries: [Self.battery("sungrow", returned: 765_999), Self.battery("pixii", returned: 469_000.6, efficiency: 0.902, capacity: 10_000)]), language: .sv)
+        #expect(two.lines.dropFirst() == [
+            "Räknat för varje batteri för sig:",
+            "765\u{00A0}kWh från \u{201D}sungrow\u{201D}, ett batteri på 13,5\u{00A0}kWh som ger tillbaka minst 88\u{00A0}% av sin laddning.",
+            "469\u{00A0}kWh från \u{201D}pixii\u{201D}, ett batteri på 10\u{00A0}kWh som ger tillbaka minst 90\u{00A0}% av sin laddning.",
+        ])
+        #expect(Self.glance(Self.wire(unread: ["pixii", "huawei"], problem: "battery_unread"), language: .sv).lines == [
+            "Boxen har en batteristorlek för \u{201D}pixii\u{201D} och \u{201D}huawei\u{201D} men läste inget batteri där under 2025. Då kunde FTW räkna det ett batteri skickade till nätet som ett annat batteris, så det blir ingen siffra.",
+        ])
     }
 
     /// Every word the screen and History's row hand to the refund's words
@@ -265,7 +315,9 @@ import FTWShared
         #expect(refundAsks(w).count == 4)
     }
 
-    /// The demo's oldest year read two batteries: no figure, the reason.
+    /// The demo's oldest year has a battery size the box read nothing
+    /// from: no figure, the reason. The year after it read two batteries,
+    /// each with its own line.
     @Test func theDemoSaysWhyItsOldestYearHasNoFigure() async throws {
         let w = ReturnRig()
         w.dial()
@@ -275,8 +327,18 @@ import FTWShared
         await w.run(3_000)
         let g = AppWords.$language.withValue(.en) { model.glance }
         #expect(g.figure == "—")
-        #expect(g.lines == ["FTW works this out for one battery with its size set. In 2023 it read 2 batteries, and a replaced battery counts as a second."])
+        #expect(g.lines == ["Your box has a battery size for \u{201C}pixii\u{201D} but read no battery there in 2023. FTW could then count what one battery sent to the grid as another's, so there is no figure."])
         #expect(g.months.isEmpty)
+
+        model.year = 2024
+        await w.run(3_000)
+        let two = AppWords.$language.withValue(.en) { model.glance }
+        let report = try #require(model.answers[2024]?.value)
+        #expect(report.batteries.map(\.label) == ["sungrow", "pixii"])
+        #expect(abs(report.batteries.map(\.returnedWh).reduce(0, +) - report.returnedWh) < 0.01)
+        #expect(two.lines.count == 4)
+        #expect(two.lines[1] == "Counted for each battery on its own:")
+        #expect(two.hasBasis)
     }
 
     /// The hourly basis comes from the box as the file the owner keeps,
@@ -292,9 +354,17 @@ import FTWShared
         #expect(url.lastPathComponent == "ftw-battery-return-2025.csv")
         let text = try String(contentsOf: url, encoding: .utf8)
         let lines = text.split(separator: "\n")
-        #expect(lines.first?.hasPrefix("hour_start,grid_import_wh,grid_export_wh,battery_charge_wh") == true)
+        #expect(lines.first?.hasPrefix("hour_start,battery,grid_import_wh,grid_export_wh,battery_charge_wh") == true)
+        #expect(lines.first?.contains(",other_batteries_discharge_wh,") == true)
         #expect(lines.count == 8_761)
         #expect(refundAsks(w) == ["GET /api/energy/battery-return.csv"])
+
+        // Two batteries: a row for each in every hour of the leap year.
+        let both = Task { try await model.basis(2024) }
+        await w.run(3_000)
+        let rows = try String(contentsOf: try await both.value, encoding: .utf8).split(separator: "\n").dropFirst()
+        #expect(rows.count == 2 * 8_784)
+        #expect(Set(rows.map { $0.split(separator: ",")[1] }) == ["sungrow-sh10rt", "pixii-powershaper"])
     }
 
     /// A second launch opens on each year's last answer, marked as the
