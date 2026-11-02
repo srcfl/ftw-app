@@ -1,3 +1,5 @@
+New in 0.6.6: History has an Energy tax refund row for a home in Sweden with a battery. It shows how much grid electricity the battery stored and sent back to the grid in a calendar year, the basis for claiming the energy tax back from Skatteverket, and saves the hours as a file. It needs version 0.158 or later on your box. On the plan's clock the hour after now shows sooner, so 18 no longer goes missing at 17:34. Over a time tomorrow, TOMORROW stands on a line of its own. A battery run under way starts from the level now, as 62 → 26 %, and says it discharges 4.6 kWh.
+
 New in 0.6.5: you can scrub the plan's strip again, under the clock and in the lanes. Drag sideways to read one quarter at a time, or rest your finger a moment. Drag up or down to scroll the page.
 
 New in 0.6.4: price bars start at zero under an even top, so 450 öre against 550 öre looks a fifth dearer, not five times. A dashed line shows the price now. Tap one of the battery's runs or the car's charge in the plan strip on Now, and three figures say when it runs, what it does to the level and the price it meets. The plan is a 12-hour clock with 18:00 straight down, and its ticks show the battery's power. Choose the price the app shows under Home: with or without the grid fee and tax, with or without VAT. The VAT choice needs your box's next update. The car's goal sits at the top of the car view, the whole view scrolls, and a charge that does not go all the way says the goal is still ahead. When your box runs on UTC, the car view shows the goal in the box's time, and with the box's next update the app offers your phone's time zone.
@@ -9,10 +11,6 @@ New in 0.6.2: the plan's lanes show the whole plan your box made, to the last kn
 New in 0.6.1: History scrolls again. Putting its rows in your own order is gone until it can be done without locking the tab.
 
 New in 0.6.0: the app opens dark, since light means live and the glow shows best on the dark ground. Pick Light or Match iPhone under Home, Appearance. History has a row for the electricity price: the day's average and its low, with the day drawn midnight to midnight. Open it and drag the chart to read two days back. The plan now says power costs more or less instead of calling it dear, since the box compares hours with each other. On a chart the battery keeps one colour both ways, so gold is the sun's alone. A pinch on a chart zooms its time instead of closing the view.
-
-New in 0.5.2: the solar forecast ahead is one stepped line, hour by hour, instead of loose dashes. With the next box update, the history for solar, grid and battery shows the measured power instead of jumping between zero and 1.2 kW.
-
-New in 0.5.1: in a node's timeline, the reading under your finger no longer drops toward zero where the curve is higher. The five minutes the box is still counting now wait for the box instead of reading as a finished mean.
 
 A new look. Now shows the flow as a ring of light, and the battery's and the car's levels as rings. Four tabs: Now, Plan, History and Home. History, live readings and the plan share one timeline that opens on today.
 
