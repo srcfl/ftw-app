@@ -1,3 +1,5 @@
+Nytt i 0.6.6: Historik har en rad för energiskatt tillbaka, för ett hem i Sverige med batteri. Den visar hur mycket el från nätet batteriet lagrade och matade tillbaka till nätet under ett kalenderår, underlaget för att söka tillbaka energiskatten hos Skatteverket, och sparar timmarna som en fil. Det kräver version 0.158 eller senare på boxen. På planens klocka syns timmen efter nu tidigare, så 18 försvinner inte längre vid 17:34. Över en tid i morgon står I MORGON på en egen rad. Ett batteripass som pågår börjar från nivån nu, som 62 → 26 %, och säger att det laddar ur 4,6 kWh.
+
 Nytt i 0.6.5: planens remsa går att scrubba igen, under klockan och i banvyn. Dra åt sidan för att läsa en kvart i taget, eller håll fingret still en kort stund. Dra uppåt eller nedåt för att rulla sidan.
 
 Nytt i 0.6.4: elprisets staplar börjar vid noll under ett jämnt tak, så 450 öre mot 550 öre ser ut som en femtedel dyrare och inte som fem gånger. En streckad linje visar priset nu. Tryck på ett av batteriets pass eller på bilens laddning i planremsan på Nu, så säger tre siffror när det går, vad det gör med nivån och vilket pris det möter. Planen är en klocka på tolv timmar med 18 rakt ned, och strecken visar batteriets effekt. Välj under Hem vilket pris appen visar: med eller utan nätavgift och skatt, med eller utan moms. Valet av moms kräver nästa uppdatering av boxen. Bilens mål ligger högst upp i bilvyn, hela vyn går att scrolla, och en laddning som inte når hela vägen säger att målet ligger längre fram. När boxen går på UTC visar bilvyn målet i boxens tid, och med nästa uppdatering av boxen föreslår appen telefonens tidszon.
@@ -9,10 +11,6 @@ Nytt i 0.6.2: planens staplar visar hela planen som boxen har gjort, fram till d
 Nytt i 0.6.1: Historik går att scrolla igen. Att dra om ordningen på raderna är borttaget tills det går att göra utan att låsa fliken.
 
 Nytt i 0.6.0: appen öppnar mörk, eftersom ljus betyder live och glöden syns bäst på mörk botten. Välj Ljust eller Som iPhone under Hem, Utseende. Historik har fått en rad för elpriset: dygnets snitt och lägsta, och dygnet ritat midnatt till midnatt. Öppna den och dra i diagrammet för att läsa två dygn bakåt. Planen säger nu att elen kostar mer eller mindre i stället för att kalla den dyr, eftersom boxen jämför timmar med varandra. På ett diagram går batteriet i samma färg åt båda håll, så guld bara är solen. En nypning i ett diagram zoomar tiden i stället för att stänga vyn.
-
-Nytt i 0.5.2: solprognosen framåt är en sammanhängande trappa, timme för timme, i stället för lösa streck. Med nästa uppdatering av boxen visar historiken för sol, nät och batteri den uppmätta effekten i stället för att hoppa mellan noll och 1,2 kW.
-
-Nytt i 0.5.1: i en nods tidslinje faller värdet under fingret inte längre mot noll där kurvan ligger högre. De fem minuter som boxen fortfarande räknar väntar nu på boxen i stället för att läsas som ett färdigt medelvärde.
 
 Ett nytt utseende. Nu visar flödet som en ring av ljus, och batteriets och bilens nivåer som ringar. Fyra flikar: Nu, Plan, Historik och Hem. Historik, liveavläsningar och planen delar en tidslinje som öppnar på i dag.
 
