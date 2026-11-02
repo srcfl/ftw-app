@@ -48,6 +48,11 @@ import Testing
         // At 20:07, 06 sits at the foot, the next morning's.
         let night = dial(at: at(14, 20, 7))
         #expect(night.hours.contains { $0.label == "06" && near($0.angle, .pi) })
+        // At 17:34, 18 is 26 minutes past the hand and stands at the foot;
+        // 05 is half an hour before the seam. Neither sits on either.
+        let evening = dial(at: at(14, 17, 34))
+        #expect(evening.hours.first?.label == "18" && evening.hours.last?.label == "05")
+        #expect(evening.hours.count == 12)
     }
 
     /// A tick is as long as the battery's planned power, against the most
@@ -136,8 +141,12 @@ import Testing
         let d = dial(at: at(14, 17, 7))
         let six = d.grid.index(atMs: at(14, 18))!, ten = d.grid.index(atMs: at(14, 22))!, goal = d.grid.index(atMs: at(15, 4, 30))!
         #expect(d.times[0] == "17:07" && d.times[six] == "18:00")
-        // Past midnight the clock names the day.
-        #expect(d.times[goal] == "TOMORROW 04:30")
+        // Past midnight the day stands apart from the time, so neither is
+        // cut to fit the middle.
+        #expect(d.times[goal] == "04:30" && d.day(goal) == "TOMORROW")
+        #expect(d.when(goal) == "TOMORROW 04:30" && d.when(six) == "18:00")
+        #expect(d.day(six) == nil && d.day(d.tomorrowFrom - 1) == nil)
+        #expect(d.times[d.tomorrowFrom] == "00:00")
         #expect(d.prices[six] == "160 ÖRE/KWH")
         #expect(d.doing[six] == "GIVES · 2.0 KW")
         #expect(d.doing[ten] == "STORES · 3.0 KW")

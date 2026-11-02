@@ -65,6 +65,9 @@ struct PlanStripView: View, Equatable {
     /// True while a finger scrubs the strip in the plan: the page holds
     /// still.
     var holds: Binding<Bool>?
+    /// The battery's level now, read by the figures alone, so a run under
+    /// way says where it starts from without the strip redrawing.
+    var site: SiteModel?
     /// Where the strip's drawing sits, for the passes' tap targets.
     @State private var canvas: CGRect = .zero
     @State private var finger = StripFinger()
@@ -78,7 +81,7 @@ struct PlanStripView: View, Equatable {
         a.strip == b.strip && a.sentence == b.sentence && a.shorter == b.shorter && a.placeholder == b.placeholder
             && a.priceNow == b.priceNow && a.unit == b.unit && a.fade == b.fade && a.zoom == b.zoom
             && a.chosenID == b.chosenID && a.opensPlan == b.opensPlan && a.levelHeight == b.levelHeight && a.leastPrice == b.leastPrice
-            && a.priceLabel == b.priceLabel && a.touch === b.touch
+            && a.priceLabel == b.priceLabel && a.touch === b.touch && a.site === b.site
     }
 
     /// Mono stops growing at accessibility1.
@@ -148,7 +151,7 @@ struct PlanStripView: View, Equatable {
             // Where the drawing is on the screen, for the page's touches:
             // written to a plain reference, so a scroll redraws nothing.
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { finger.frame = $0 }
-            StripSentence(sentence: sentence, shorter: shorter, placeholder: placeholder, grey: strip.grey, pass: chosen, readouts: strip.readouts, model: scrub)
+            StripSentence(sentence: sentence, shorter: shorter, placeholder: placeholder, grey: strip.grey, pass: chosen, readouts: strip.readouts, model: scrub, site: site)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
@@ -391,6 +394,7 @@ private struct StripSentence: View {
     let pass: PlanPass?
     let readouts: [String]
     let model: ScrubModel
+    let site: SiteModel?
     @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
@@ -402,7 +406,7 @@ private struct StripSentence: View {
         ZStack(alignment: .topLeading) {
             Group {
                 if let pass, !placeholder {
-                    PassFigures(pass: pass, grey: grey)
+                    LevelNowFigures(pass: pass, grey: grey, site: site)
                 } else {
                     said
                         .foregroundStyle(grey ? Theme.ink3 : Theme.ink2)

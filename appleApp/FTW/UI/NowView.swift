@@ -447,7 +447,8 @@ private struct PlanSection: View {
             fade: StripFade.make(models.planShare.before, strip: strip, nowMs: minute, hasCar: hasCar),
             zoom: zoom,
             chosenID: $chosenID,
-            priceLabel: window.map { PriceShown.label(choice.kind(vatPermille: $0.vatPermille)) }
+            priceLabel: window.map { PriceShown.label(choice.kind(vatPermille: $0.vatPermille)) },
+            site: site
         )
         .equatable()
         // Capped where it is placed, so the strip's scaled sizes read the

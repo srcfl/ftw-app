@@ -34,7 +34,23 @@ public struct PlanPass: Equatable, Sendable, Identifiable {
     public let figures: [Figure]
     /// The pass in one line, for VoiceOver.
     public let spoken: String
+    /// For a battery run under way, the level the plan leads it to. The
+    /// plan holds no level for now, so the level figure takes its start
+    /// from the battery's reading (`figures(levelNow:)`).
+    let underWayToPct: Double?
     public var id: String { "\(kind.rawValue)-\(Int64(startMs))" }
+
+    /// The figures, with a run under way starting from the battery's level
+    /// now: "58 → 10 %" where the plan alone says "→ 10 %".
+    public func figures(levelNow: Double?) -> [Figure] {
+        guard let to = underWayToPct, let now = levelNow, now.isFinite, figures.count > 1 else { return figures }
+        var out = figures
+        out[1] = Figure(title: out[1].title, tint: out[1].tint, value: Self.level(from: now, to: to), sub: out[1].sub)
+        return out
+    }
+
+    /// "58 → 10 %".
+    static func level(from a: Double, to b: Double) -> String { "\(Int(a.rounded())) → " + PlanGlance.percent(b) }
 
     public var isBattery: Bool { kind != .car }
 
@@ -80,10 +96,9 @@ public struct PlanPass: Equatable, Sendable, Identifiable {
                     wh += abs(s.batteryW) * max(0, overlap) / 3_600_000
                 }
                 let before = underWay ? nil : slots.last { abs($0.startMs + $0.durationMs - e.startMs) < 1 }?.levelPct
-                let to = e.endLevelPct.map(PlanGlance.percent)
-                let level = switch (before, to) {
-                case let (a?, b?): "\(Int(a.rounded())) → " + b
-                case let (nil, b?): "→ " + b
+                let level = switch (before, e.endLevelPct) {
+                case let (a?, b?): Self.level(from: a, to: b)
+                case let (nil, b?): "→ " + PlanGlance.percent(b)
                 default: "—"
                 }
                 let gives = kind == .gives
@@ -117,7 +132,8 @@ public struct PlanPass: Equatable, Sendable, Identifiable {
                 ]
                 what = PlanWord.car.text + ", " + start.lowercased() + " " + until + ", " + goal.title.lowercased() + " " + goal.value
             }
-            return PlanPass(kind: kind, startMs: e.startMs, endMs: e.endMs, first: first, last: last, figures: figures, spoken: what)
+            return PlanPass(kind: kind, startMs: e.startMs, endMs: e.endMs, first: first, last: last, figures: figures, spoken: what,
+                            underWayToPct: kind != .car && underWay ? e.endLevelPct : nil)
         }
     }
 

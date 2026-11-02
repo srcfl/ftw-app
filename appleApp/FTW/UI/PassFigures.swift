@@ -11,12 +11,14 @@ import SwiftUI
 struct PassFigures: View, Equatable {
     let pass: PlanPass
     var grey = false
+    /// The battery's level now, where a run under way starts from.
+    var levelNow: Double?
     @ScaledMetric(relativeTo: .title3) private var figure: CGFloat = 21
 
-    nonisolated static func == (a: Self, b: Self) -> Bool { a.pass == b.pass && a.grey == b.grey }
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.pass == b.pass && a.grey == b.grey && a.levelNow == b.levelNow }
 
     var body: some View {
-        let figures = Array(pass.figures.enumerated())
+        let figures = Array(pass.figures(levelNow: levelNow).enumerated())
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .top, spacing: 12) {
                 ForEach(figures, id: \.offset) { i, f in
@@ -59,5 +61,18 @@ struct PassFigures: View, Equatable {
         case .car: return Theme.car
         case .ink: return Theme.ink2
         }
+    }
+}
+
+/// The figures with the battery's level now. Only this reads the site, so
+/// a reading redraws the figures, and only when the whole percent moves.
+struct LevelNowFigures: View {
+    let pass: PlanPass
+    var grey = false
+    var site: SiteModel?
+
+    var body: some View {
+        PassFigures(pass: pass, grey: grey, levelNow: site?.socPercent)
+            .equatable()
     }
 }

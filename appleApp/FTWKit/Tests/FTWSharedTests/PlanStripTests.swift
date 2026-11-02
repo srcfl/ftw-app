@@ -81,11 +81,11 @@ import Testing
         #expect(gives.figures.map(\.value) == ["Now", "—", "160 öre"])
         // From now on: ten minutes of the first quarter and four more at
         // 1.8 kW.
-        #expect(gives.figures.map(\.sub) == ["until 21:15", "gives 2.1 kWh", "during the pass"])
+        #expect(gives.figures.map(\.sub) == ["until 21:15", "discharges 2.1 kWh", "during the pass"])
         #expect(gives.figures[0].tint == .gives)
         let stores = s.passes[1]
         #expect(stores.figures.map(\.value) == ["22:00", "—", "70 öre"])
-        #expect(stores.figures.map(\.sub) == ["until 23:30", "stores 4.5 kWh", "from the grid"])
+        #expect(stores.figures.map(\.sub) == ["until 23:30", "charges 4.5 kWh", "from the grid"])
         #expect(stores.figures[0].tint == .stores)
         // 01:00–04:45: an hour at 70, two at 30 and three quarters at 70.
         let car = s.passes[2]
@@ -95,6 +95,23 @@ import Testing
         #expect(car.figures[2].value == "49 öre" && car.figures[2].sub == "42 kWh")
         #expect(car.spoken.hasPrefix("Car charges, 01:00 until 04:45"))
         #expect(PlanPass.opening(s.passes) == gives)
+    }
+
+    /// The level figure says where a run starts and where it ends. The
+    /// plan holds no level for now, so a run under way starts from the
+    /// battery's reading; a later run from the plan's level before it.
+    @Test func theLevelRunsFromWhereTheBatteryIs() {
+        var entry = glance.night()
+        for i in entry.battery!.indices { entry.battery![i].levelPct = 60 - Double(i) }
+        let s = PlanStrip.build(entry, moment: PlanGlance.live(entry, nowMs: at(12, 20, 5), calendar: calendar), hasCar: true)
+        let gives = s.passes[0], stores = s.passes[1]
+        let end = try! #require(entry.battery!.last { $0.startMs < at(12, 21, 15) }?.levelPct)
+        #expect(gives.figures[1].value == "→ " + PlanGlance.percent(end))
+        #expect(gives.figures(levelNow: 58.4)[1].value == "58 → " + PlanGlance.percent(end))
+        #expect(gives.figures(levelNow: nil) == gives.figures)
+        // A run still to come keeps the plan's level before it.
+        #expect(stores.figures[1].value.contains(" → "))
+        #expect(stores.figures(levelNow: 12) == stores.figures)
     }
 
     /// A run that stores spare sun buys nothing, and says so.

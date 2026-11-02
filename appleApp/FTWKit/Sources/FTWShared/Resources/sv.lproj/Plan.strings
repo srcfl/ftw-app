@@ -79,8 +79,8 @@
 "from the grid" = "från nätet";
 "The sun" = "Solen";
 "nothing bought" = "inget köpt";
-"gives %@" = "ger %@";
-"stores %@" = "laddar %@";
+"discharges %@" = "laddar ur %@";
+"charges %@" = "laddar %@";
 "ready by %@" = "klar till %@";
 "toward %@" = "mot %@";
 "charges again later" = "laddar igen senare";

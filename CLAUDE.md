@@ -417,7 +417,9 @@ as on a normal clock, so you lose the feel for when things happen"):
 6. The sun's arc on the rim comes from the box's own solar forecast, never
    from astronomy or the phone's location. No forecast, no arc.
 7. The middle holds the time and the price, and a third line kept for
-   what the plan does under a finger. No battery ring and no glass disc in
+   what the plan does under a finger. Over the time, a line kept for the
+   day: a time tomorrow says so there, never cut to fit beside it (Hannes,
+   2 Nov 2026). No battery ring and no glass disc in
    the app; the widget keeps a dark ground so it reads on any wallpaper.
 
 `FTWShared/Charts/PlanDial.swift` holds the quarters, the sun, the words
