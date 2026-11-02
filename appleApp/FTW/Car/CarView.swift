@@ -139,8 +139,8 @@ struct CarView: View {
         // plan itself stops the page scrolling.
         .simultaneousGesture(
             DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                .onChanged { chartTouch.changed?($0) }
-                .onEnded { _ in chartTouch.ended?() }
+                .onChanged { chartTouch.change($0) }
+                .onEnded { _ in chartTouch.end() }
         )
         .environment(\.chartPage, ChartPage(holds: $chartHolds, touch: chartTouch))
         .background(Theme.ground)

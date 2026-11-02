@@ -16,7 +16,7 @@ struct PlanView: View {
     /// The viewer's own choice, kept on this phone. `-FTWPlanStyle lanes`
     /// at launch holds it there, for screenshots and tests.
     @AppStorage("FTWPlanStyle") private var style: PlanStyle = .dial
-    /// A finger scrubs the dial: the page holds still under it.
+    /// A finger scrubs the dial or the strip: the page holds still under it.
     @State private var dialHolds = false
     @State private var dialTouch = DialTouch()
 
@@ -42,8 +42,8 @@ struct PlanView: View {
             .leavesTheEdge()
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                    .onChanged { dialTouch.changed?($0) }
-                    .onEnded { _ in dialTouch.ended?() }
+                    .onChanged { dialTouch.change($0) }
+                    .onEnded { _ in dialTouch.end() }
             )
         }
         .scrollBounceBehavior(.basedOnSize)
@@ -180,7 +180,9 @@ private struct PlanBody: View {
                 opensPlan: false,
                 levelHeight: style == .lanes ? 50 : 0,
                 leastPrice: 56,
-                priceLabel: window.map { PriceShown.label(choice.kind(vatPermille: $0.vatPermille)) }
+                priceLabel: window.map { PriceShown.label(choice.kind(vatPermille: $0.vatPermille)) },
+                touch: dialTouch,
+                holds: $dialHolds
             )
             .equatable()
             .fitCap(.xLarge)
