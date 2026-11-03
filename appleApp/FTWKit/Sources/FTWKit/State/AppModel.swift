@@ -21,8 +21,6 @@ public final class HomeModels {
     public let nodes: NodeModels
     /// Today over the grid, for the grid widget.
     public let gridToday: GridTodayShare
-    /// The energy tax refund after battery storage, for a Swedish home.
-    public let batteryReturn: BatteryReturnModel
 
     /// `cache` is what the app left for its widgets. Each model opens on
     /// the sealed home file first, and on these records where it has none.
@@ -36,7 +34,6 @@ public final class HomeModels {
         cars = CarsModel(site: site, loadpoints: loadpoints)
         nodes = NodeModels(site: site, loadpoints: loadpoints, prices: prices, cache: cache)
         gridToday = GridTodayShare(site: site, history: nodes.history, prices: prices)
-        batteryReturn = BatteryReturnModel(site: site)
         // The nodes Now drew, so the next launch draws them in their places
         // before its first reading.
         site.keep { [weak site, weak loadpoints] home in

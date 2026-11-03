@@ -26,7 +26,6 @@ struct HistoryTabView: View {
                 DayRows(home: home, zoom: zoom)
                 DayFoot(history: home.nodes.history, minuteMs: home.site.minuteMs)
                     .padding(.top, 10)
-                BatteryReturnLink(home: home, zoom: zoom)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
@@ -612,66 +611,5 @@ private struct DayFoot: View {
             return frame.time(at: i) + frame.stepMs
         }
         return nil
-    }
-}
-
-/// The door to the energy tax refund after battery storage, for a Swedish
-/// home with a battery: the year, not the day, so it sits under the day's
-/// foot. Closed until opened; the row asks the box nothing.
-private struct BatteryReturnLink: View {
-    let home: HomeModels
-    let zoom: Namespace.ID
-
-    var body: some View {
-        let site = home.site
-        let battery = NowFlow.nodes(fields: site.session.fields, hasCar: false, known: site.kept?.nodes ?? []).contains(.battery)
-        BatteryReturnRow(offered: battery && BatteryReturn.applies(zone: home.prices.prices?.zone), zoom: zoom)
-            .equatable()
-    }
-}
-
-private struct BatteryReturnRow: View, Equatable {
-    let offered: Bool
-    let zoom: Namespace.ID
-
-    nonisolated static func == (a: Self, b: Self) -> Bool { a.offered == b.offered }
-
-    var body: some View {
-        if offered {
-            NavigationLink(value: HomeRoute.batteryReturn) {
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: "building.columns")
-                        .font(.title3)
-                        .foregroundStyle(Theme.ink2)
-                        .dynamicTypeSize(...DynamicTypeSize.large)
-                        .frame(width: DayRow.indent - 12, height: 24)
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(BatteryReturnWords.text("Energy tax refund"))
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(Theme.ink)
-                            Spacer(minLength: 8)
-                            Image(systemName: "chevron.right")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(Theme.ink3)
-                        }
-                        Text(BatteryReturnWords.text("The figure for Skatteverket after battery storage"))
-                            .font(.subheadline)
-                            .foregroundStyle(Theme.ink2)
-                    }
-                }
-                .padding(.vertical, 12)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .matchedTransitionSource(id: HomeRoute.batteryReturn, in: zoom)
-            .padding(.top, 20)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(BatteryReturnWords.text("Energy tax refund"))
-            .accessibilityValue(BatteryReturnWords.text("The figure for Skatteverket after battery storage"))
-            .accessibilityHint(BatteryReturnWords.text("Opens the figure for Skatteverket."))
-            .accessibilityAddTraits(.isButton)
-            .accessibilityIdentifier("history.refund")
-        }
     }
 }
