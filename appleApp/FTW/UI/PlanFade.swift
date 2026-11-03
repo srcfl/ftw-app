@@ -58,7 +58,7 @@ struct DialFade: Equatable {
 
     static func make(_ before: (entry: PlanEntry, atMs: Double, fresh: Bool)?, dial: PlanDial, nowMs: Double) -> DialFade? {
         guard let before else { return nil }
-        let old = PlanDial(plan: before.entry, prices: nil, nowMs: nowMs)
+        let old = PlanDial(plan: before.entry, prices: nil, nowMs: nowMs, page: dial.page)
         let moved = dial.moved(from: old)
         return moved.isEmpty ? nil : DialFade(old: old, moved: moved, atMs: before.atMs, fresh: before.fresh)
     }

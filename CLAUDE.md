@@ -282,7 +282,9 @@ The rules below put these into practice.
   `srcState` live. The cache, the past, the plan and a quiet stream are
   ink and hold still. Light mode has no glow; motion and full colour alone
   say live. Every glow call takes `isLive`, and a test proves that a cache
-  never glows.
+  never glows. One forecast is warm: the sun's area on the dial has a
+  still blur of its own colour in the dark (Fredrik, 3 Nov 2026), never
+  motion, ignite or decay, so it never reads as live.
 - **Three tenses, one grammar.** A glowing line is now. A solid line with a
   filled body is what the box measured. A ghost (low fill, thin cap, dashed
   line) is what it plans or forecasts. A hatch means "on its way"; a dotted
@@ -312,7 +314,8 @@ The rules below put these into practice.
   magenta both ways: the side of zero and the word say which way it goes.
   Gold keeps the battery on Now's ring and strip, the plan's lanes and the
   widgets, where no sun curve is drawn beside it, and on the dial, where
-  the sun is only a thin dashed arc on the rim (round 3, 1 Nov 2026).
+  the sun is an area from the rim and the battery gives power mostly once
+  the sun is gone (round 3, 1 Nov 2026).
 - **Space, not boxes.** No cards and no borders: 24 to 32 pt between
   groups, and a hairline only where two lists meet. `Card` keeps its
   spacing and draws nothing.
@@ -390,25 +393,37 @@ FTW's own form, from Fredrik's film (srcfl/sourceful-films,
 design canvas changed them on 1 Nov 2026 (Erik: "18 is not straight down
 as on a normal clock, so you lose the feel for when things happen"):
 
-1. A clock. One turn is the next twelve hours, 12 at the top and 6 at the
-   bottom, so 18:00 sits straight down. The whole hours of the turn sit
-   round the rim as the household's clock reads them; none on the hand or
-   the seam.
+1. A clock of half a day. A face runs midnight to noon or noon to
+   midnight, 12 at the top and 6 at the bottom, so 18:00 sits straight
+   down, with every hour of it round the rim as the household's clock
+   reads them. The dial opens on the half holding now: its hours gone by
+   keep their figures, fainter, and have no ticks. A swipe sideways across
+   the middle, or the dots under the dial, turns to the next half day the
+   plan reaches, at most to the end of tomorrow, and the Crown runs on
+   into it (xorath, 3 Nov 2026: a turn of the next twelve hours put
+   tonight's 01 and 02 where this noon's hours had been).
 2. One tick per quarter hour, as long as the battery's planned power
    against the most it moves in the turn (at least 1 kW). Its colour is
    what the plan does with the battery: `Theme.stores` stores,
    `Theme.gives` gives power, as on the strip under the dial. A quarter in
-   which it waits, or the plan says nothing, is a faint stub. The sun is a
-   thin dashed arc on the rim, never a tick.
+   which it waits, or the plan says nothing, is a faint stub. The sun is
+   an area, never a tick: a ghost hanging in from the rim, as deep as the
+   watts the box's forecast expects against the most it expects (half the
+   ticks' room at most), with a dashed edge (Fredrik, 3 Nov 2026: the
+   forecast is an area, as the rest is). A widget too small for it keeps a
+   thin dashed arc.
 3. A dotted arc in `Theme.car` marks when the car charges, with its goal
    at the end.
-4. A hand marks now. A 2° gap in the rim marks the seam where +12 h meets
-   now, and the ticks fade toward it.
+4. A hand marks now on now's face; a later face has none until a finger
+   or the Crown chooses a quarter, and its middle names it ("I MORGON"
+   over "00–12"). A 2° gap at the top marks where the half day ends and
+   begins.
 5. The price is not on the dial. It stands on zero in Now's strip under
    it, with the passes and their figures; a tap on a pass lights its ticks
    at full strength.
 6. The sun's arc on the rim comes from the box's own solar forecast, never
-   from astronomy or the phone's location. No forecast, no arc.
+   from astronomy or the phone's location, from now on. No forecast, no
+   arc. While a face shows it, the legend under the strip names it.
 7. The middle holds the time and the price, and a third line kept for
    what the plan does under a finger. Over the time, a line kept for the
    day: a time tomorrow says so there, never cut to fit beside it (Hannes,
@@ -419,7 +434,8 @@ as on a normal clock, so you lose the feel for when things happen"):
 and the rule for a finger; `FTWCharts/PlanDialFace.swift` draws. The
 phone's plan view, its `energy.ftw.plan-dial` widget (StandBy small and
 the lock screen's circle), the watch app and the watch's complication all
-draw that one face. The plan view opens on the dial; the lanes are one
+draw that one face, the widgets and the complication on the half holding
+now. The watch's strip complication keeps the twelve hours from now. The plan view opens on the dial; the lanes are one
 tap away in the toolbar, and the phone keeps the viewer's choice. Both
 put Now's strip under them, the lanes' over the whole plan with the
 battery's level in a row of its own. A drag

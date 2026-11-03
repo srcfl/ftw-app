@@ -194,6 +194,8 @@ public enum NodeWords {
         "Opens the price ahead.": "Öppnar elpriset framåt.",
         "Dial": "Tavla",
         "battery level": "batteriets nivå",
+        "sun forecast": "solprognos",
+        "Half day": "Halvdygn",
         "%@ with the forecast": "%@ med prognosen",
         "Lanes": "Banor",
         "Show the plan as": "Visa planen som",
