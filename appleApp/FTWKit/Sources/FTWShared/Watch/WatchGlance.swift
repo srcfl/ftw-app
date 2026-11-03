@@ -412,10 +412,12 @@ public enum WatchGlance {
 
     // MARK: Complications
 
-    /// One complication entry: the dial, the battery's level while it is
+    /// One complication entry: the dial as the half day holding now, the
+    /// twelve hours from now for the strip, the battery's level while it is
     /// recent enough to show, and the plan and the price in words.
     public struct Face: Equatable, Sendable {
         public let atMs: Double
+        public let clock: PlanDial?
         public let dial: PlanDial?
         public let batteryPct: Double?
         public let plan: PlanGlance.Moment
@@ -434,10 +436,12 @@ public enum WatchGlance {
             t += PlanDial.quarterMs
         }
         let level = now?.value.reading(.battery)?.levelPct
+        let any = plan != nil || prices != nil
         return times.map { at in
             Face(
                 atMs: at,
-                dial: plan == nil && prices == nil ? nil : PlanDial(plan: plan?.value, prices: prices?.value, nowMs: at),
+                clock: any ? PlanDial(plan: plan?.value, prices: prices?.value, nowMs: at, page: 0) : nil,
+                dial: any ? PlanDial(plan: plan?.value, prices: prices?.value, nowMs: at) : nil,
                 batteryPct: now.flatMap { at - $0.record.readAtMs <= levelForMs ? level : nil },
                 plan: PlanGlance.moment(plan, atMs: at),
                 price: PriceGlance.moment(prices, atMs: at)

@@ -6,14 +6,15 @@ import WidgetKit
 /// widget, the watch app and the watch's complication all draw this one
 /// face, so the four never differ.
 ///
-/// From the outside in: the rim, a hairline with a 2° gap at the seam where
-/// +12 h meets now, and the sun's arc on it from the box's forecast, dashed
-/// because it is a guess; the whole hours just outside it, as on a clock;
-/// 48 ticks as long as the battery's planned power, cyan where it stores,
-/// gold where it gives power (as on Now's strip under it), a faint stub
-/// where it waits; the car's dotted
-/// arc with its goal. The hand is drawn apart (`PlanDialHand`), so a finger
-/// on the phone moves it without redrawing the face.
+/// From the outside in: the rim, a hairline with a 2° gap at the top where
+/// the half day ends and begins, and the sun's arc on it from the box's
+/// forecast, dashed because it is a guess; the whole hours just outside it,
+/// as on a clock, the ones gone by fainter; a tick per quarter from now on,
+/// as long as the battery's planned power, cyan where it stores, gold where
+/// it gives power (as on Now's strip under it), a faint stub where it
+/// waits; the car's dotted arc with its goal. The hours gone by have no
+/// ticks. The hand is drawn apart (`PlanDialHand`), so a finger on the
+/// phone moves it without redrawing the face.
 ///
 /// The pass a tap chose (`lit`) has its ticks at full strength; the rest
 /// stay a ghost.
@@ -97,12 +98,12 @@ struct PlanDialFace: View, Equatable {
     /// quarters of the chosen pass, or the rest.
     private func ticks(_ g: DialGeometry, _ action: PlanDial.Battery, lit wanted: Bool) -> Path {
         var p = Path()
-        for (i, q) in dial.quarters.prefix(PlanDial.count).enumerated() where q.battery == action {
+        for i in dial.first..<dial.turn where dial.quarters[i].battery == action {
             guard let reach = dial.reach(i) else { continue }
-            let mid = q.startMs + PlanDial.quarterMs / 2
+            let mid = dial.quarters[i].startMs + PlanDial.quarterMs / 2
             guard (lit?.contains(mid) ?? false) == wanted else { continue }
             let length = max(g.unit * 1.2, (g.rim - g.inner) * reach)
-            p.addPath(g.tick(at: dial.angle(quarter: i), from: g.inner, length: length, width: g.tickWidth * dial.fade(i).squareRoot()))
+            p.addPath(g.tick(at: dial.angle(quarter: i), from: g.inner, length: length, width: g.tickWidth))
         }
         return p
     }
@@ -111,7 +112,7 @@ struct PlanDialFace: View, Equatable {
     /// short stub, so the turn keeps its shape.
     private func stubs(_ g: DialGeometry) -> Path {
         var p = Path()
-        for i in 0..<min(PlanDial.count, dial.quarters.count) where dial.reach(i) == nil && i % 2 == 0 {
+        for i in dial.first..<dial.turn where dial.reach(i) == nil && i % 2 == 0 {
             p.addPath(g.tick(at: dial.angle(quarter: i), from: g.inner, length: g.unit * 0.6, width: g.tickWidth * 0.8))
         }
         return p
@@ -121,7 +122,7 @@ struct PlanDialFace: View, Equatable {
     /// other quarter.
     private func carDots(_ g: DialGeometry) -> Path {
         var p = Path()
-        for (i, q) in dial.quarters.prefix(PlanDial.count).enumerated() where q.car && i % 2 == 0 {
+        for i in dial.first..<dial.turn where dial.quarters[i].car && i % 2 == 0 {
             let c = g.point(dial.angle(quarter: i), g.carRadius)
             p.addEllipse(in: CGRect(x: c.x - g.dot / 2, y: c.y - g.dot / 2, width: g.dot, height: g.dot))
         }
@@ -133,7 +134,7 @@ struct PlanDialFace: View, Equatable {
 /// chose. Apart from the face, so moving it redraws only this.
 struct PlanDialHand: View {
     let dial: PlanDial
-    /// The quarter chosen; nil or 0 points the hand at now.
+    /// The quarter chosen; nil, or now's, points the hand at now.
     var selected: Int?
     var size: PlanDialFace.Size = .app
 
@@ -141,13 +142,15 @@ struct PlanDialHand: View {
         GeometryReader { geo in
             let g = DialGeometry(side: min(geo.size.width, geo.size.height), size: size)
             ZStack {
-                if size == .app, let i = selected, i > 0 {
+                if size == .app, let i = selected, i != dial.nowIndex {
                     lockOn(g, i).fill(Theme.ink)
                 }
-                // From inside the ticks to just past the rim, through the
-                // seam's gap while it points at now.
-                HandLine(along: along, seam: dial.seam, from: g.inner - g.unit * 1.2, to: g.rim + (size == .app ? 3 : 1))
-                    .stroke(Theme.ink, style: StrokeStyle(lineWidth: size == .app ? 1.5 : 1.2, lineCap: .round, lineJoin: .round))
+                // From inside the ticks to just past the rim. A face after
+                // now's has none until a finger or the Crown chooses.
+                if dial.hasHand(selected: selected) {
+                    HandLine(along: along, seam: dial.seam, from: g.inner - g.unit * 1.2, to: g.rim + (size == .app ? 3 : 1))
+                        .stroke(Theme.ink, style: StrokeStyle(lineWidth: size == .app ? 1.5 : 1.2, lineCap: .round, lineJoin: .round))
+                }
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
@@ -272,7 +275,8 @@ struct DialGeometry {
 
 /// The whole hours of the turn just outside the rim, in the terminal's
 /// mono, where a clock has them: "18" straight down. The three, six, nine
-/// and twelve o'clock places a step stronger.
+/// and twelve o'clock places a step stronger, and the hours gone by a step
+/// fainter.
 private struct HourLabels: View {
     let g: DialGeometry
     let dial: PlanDial
@@ -283,7 +287,7 @@ private struct HourLabels: View {
             let onQuarter = abs(k - k.rounded()) < 0.01
             Text(verbatim: h.label)
                 .font(.system(size: g.label, weight: onQuarter ? .semibold : .regular, design: .monospaced))
-                .foregroundStyle(onQuarter ? Theme.ink2 : Theme.ink3)
+                .foregroundStyle(h.past ? Theme.ink3.opacity(0.6) : onQuarter ? Theme.ink2 : Theme.ink3)
                 .position(g.point(h.angle, g.labelRadius))
         }
     }

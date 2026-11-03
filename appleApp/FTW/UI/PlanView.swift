@@ -2,8 +2,8 @@ import Charts
 import FTWKit
 import SwiftUI
 
-/// The plan, opened from Now: the next twelve hours round the plan dial, a
-/// clock, or
+/// The plan, opened from Now: half a day round the plan dial, a clock, the
+/// half holding now first and the ones after a swipe away, or
 /// the whole plan the box sent in lanes (to tomorrow's last priced quarter
 /// in the evening), then each thing the box means to do,
 /// when, and why, in the box's own reasons. The dial is the default; the
@@ -122,6 +122,8 @@ private struct PlanBody: View {
     @State private var strips = StripMemo()
     /// The pass a tap chose on the strip, lit on the dial too.
     @State private var chosenID: String?
+    /// The half day the dial shows, 0 for the one holding now.
+    @State private var face = 0
     @AppStorage(PriceShown.feesKey) private var fees = true
     @AppStorage(PriceShown.vatKey) private var vat = true
     @Namespace private var zoom
@@ -131,8 +133,8 @@ private struct PlanBody: View {
 
     var body: some View {
         // The plan marks the minute: it redraws once a minute, not a second.
-        // The lanes show the whole plan the box sent; the dial one turn,
-        // twelve hours, as on a clock.
+        // The lanes show the whole plan the box sent; the dial half a day,
+        // as on a clock.
         let minute = site.minuteMs
         let moment = models.planShare.moment(nowMs: minute, whole: style == .lanes)
         let moved = models.planShare.moved
@@ -143,12 +145,19 @@ private struct PlanBody: View {
         let window = prices.prices.map(choice.apply)
         let strip = strips.strip(entry, moment: moment, hasCar: !loadpoints.points.isEmpty, quarters: style == .lanes ? quarters : PlanStrip.count, prices: window?.slots)
         let chosen = strip.passes.first { $0.id == chosenID } ?? PlanPass.opening(strip.passes)
+        let faces = dials.faces(entry, nowMs: minute)
+        let shown = min(face, faces.count - 2)
+        let dial = style == .dial ? dials.dial(entry, nowMs: minute, page: shown) : nil
         Group {
             switch style {
             case .dial:
-                let dial = dials.dial(entry, nowMs: minute)
-                PlanDialCard(dial: dial, grey: moment.isGrey, fade: DialFade.make(models.planShare.before, dial: dial, nowMs: minute), lit: chosen.map { $0.startMs...$0.endMs }, holds: $dialHolds, touch: dialTouch)
+                if let dial {
+                    VStack(spacing: 6) {
+                        PlanDialCard(dial: dial, grey: moment.isGrey, fade: DialFade.make(models.planShare.before, dial: dial, nowMs: minute), lit: chosen.map { $0.startMs...$0.endMs }, holds: $dialHolds, face: $face, faces: faces.count - 1, touch: dialTouch)
+                        FaceDots(count: faces.count - 1, face: $face, name: dial.faceName)
+                    }
                     .transition(.opacity)
+                }
             case .lanes:
                 VStack(alignment: .leading, spacing: 4) {
                     Text(moment.summary)
@@ -164,6 +173,9 @@ private struct PlanBody: View {
             }
         }
         .id(Self.topID)
+        // When now passes noon or midnight, the dial starts again on now's
+        // half day.
+        .onChange(of: faces.first) { face = 0 }
         // The same strip as Now's, under the dial or as the lanes: the
         // passes, the price from zero, and the chosen pass's figures. On the
         // lanes it runs the whole plan, with the battery's level.
@@ -187,11 +199,11 @@ private struct PlanBody: View {
             )
             .equatable()
             .fitCap(.xLarge)
-            Legend(dial: style == .dial, level: style == .lanes && strip.levelPct.contains { $0 != nil })
+            Legend(sun: dial.map { !$0.sun.isEmpty } ?? false, level: style == .lanes && strip.levelPct.contains { $0 != nil })
             MovedLine(text: moved)
             // Mono stops growing at accessibility1.
             Group {
-                if style == .dial, let cheapest = dials.dial(entry, nowMs: minute).cheapestText {
+                if let cheapest = dial?.cheapestText {
                     Text(cheapest).foregroundStyle(Theme.ink2)
                 }
                 // What the planner reckons the plan saves, only where it
@@ -249,20 +261,70 @@ private struct PlanBody: View {
     }
 }
 
-/// The dial worked out once per plan and minute, so a body that runs again
-/// for any other reason reads it. `untilMs` runs its quarters on to the
-/// end of the lanes.
+/// The dial and the half days it reaches, worked out once per plan, minute
+/// and face, so a body that runs again for any other reason reads them.
 @MainActor
 private final class DialMemo {
-    private var key: (entry: PlanEntry, minute: Double, until: Double?)?
+    private var key: (entry: PlanEntry, minute: Double, page: Int)?
     private var kept: PlanDial?
+    private var facesKey: (entry: PlanEntry, minute: Double)?
+    private var keptFaces: [Double] = []
 
-    func dial(_ entry: PlanEntry, nowMs: Double, untilMs: Double? = nil) -> PlanDial {
-        if let key, key.entry == entry, key.minute == nowMs, key.until == untilMs, let kept { return kept }
-        let d = PlanDial(plan: entry, prices: nil, nowMs: nowMs, untilMs: untilMs)
-        key = (entry, nowMs, untilMs)
+    func dial(_ entry: PlanEntry, nowMs: Double, page: Int) -> PlanDial {
+        if let key, key.entry == entry, key.minute == nowMs, key.page == page, let kept { return kept }
+        let d = PlanDial(plan: entry, prices: nil, nowMs: nowMs, page: page)
+        key = (entry, nowMs, page)
         kept = d
         return d
+    }
+
+    /// Where each half day the plan reaches starts, and where the last ends.
+    func faces(_ entry: PlanEntry, nowMs: Double) -> [Double] {
+        if let facesKey, facesKey.entry == entry, facesKey.minute == nowMs { return keptFaces }
+        keptFaces = PlanDial.pages(plan: entry, prices: nil, nowMs: nowMs)
+        facesKey = (entry, nowMs)
+        return keptFaces
+    }
+}
+
+/// Which half day the dial shows, as dots under it: one for each the plan
+/// reaches, the shown one in ink. A tap on a dot turns to it; VoiceOver
+/// steps through them. Nothing shows while there is only now's.
+private struct FaceDots: View {
+    let count: Int
+    @Binding var face: Int
+    /// "TOMORROW 00–12", what the shown face is.
+    let name: String
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(0..<count, id: \.self) { k in
+                Button {
+                    withAnimation(Theme.spring) { face = k }
+                } label: {
+                    Circle()
+                        .fill(k == min(face, count - 1) ? Theme.ink : Theme.ink3)
+                        .frame(width: 6, height: 6)
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .opacity(count > 1 ? 1 : 0)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(L("Half day"))
+        .accessibilityValue(name)
+        .accessibilityHidden(count < 2)
+        .accessibilityAdjustableAction { direction in
+            switch direction {
+            case .increment: face = min(face + 1, count - 1)
+            case .decrement: face = max(face - 1, 0)
+            @unknown default: break
+            }
+        }
+        .accessibilityIdentifier("plan.dial.faces")
     }
 }
 
@@ -282,9 +344,11 @@ private final class StripMemo {
 }
 
 /// What each colour means, in short words: the figures under the strip
-/// say the rest. The dial's ticks are as long as the battery's power.
+/// say the rest. The dial's ticks are as long as the battery's power; its
+/// dashed gold rim is the box's sun forecast (xorath, 3 Nov 2026, found
+/// nothing that said so).
 private struct Legend: View {
-    var dial = false
+    var sun = false
     var level = false
     @Environment(\.colorSchemeContrast) private var contrast
 
@@ -301,6 +365,17 @@ private struct Legend: View {
         item(Theme.gives, L("discharging"))
         item(Theme.stores, L("charging"))
         item(Theme.car, L("Car"))
+        if sun {
+            HStack(spacing: 4) {
+                Path { p in
+                    p.move(to: CGPoint(x: 0, y: 1))
+                    p.addLine(to: CGPoint(x: 14, y: 1))
+                }
+                .stroke(Theme.solar.opacity(Theme.planSun(contrast)), style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
+                .frame(width: 14, height: 2)
+                Text(L("sun forecast")).lineLimit(1)
+            }
+        }
         if level {
             HStack(spacing: 4) {
                 Capsule().fill(Theme.ink2).frame(width: 12, height: 1.75)

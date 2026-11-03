@@ -67,7 +67,7 @@ struct PlanDialTimeline: TimelineProvider {
             let t = k == 0 ? nowMs : ((nowMs / PlanDial.quarterMs).rounded(.down) + Double(k)) * PlanDial.quarterMs
             return PlanDialEntry(
                 date: Date(timeIntervalSince1970: t / 1000),
-                dial: read.map { PlanDial(plan: $0.value, prices: nil, nowMs: t) },
+                dial: read.map { PlanDial(plan: $0.value, prices: nil, nowMs: t, page: 0) },
                 moment: PlanGlance.moment(read, atMs: t),
                 plannedAtMs: read?.record.readAtMs
             )
@@ -135,7 +135,7 @@ struct PlanDialWidgetView: View {
                     ZStack {
                         PlanDialView(dial: dial, grey: entry.moment.isGrey, size: .small)
                         VStack(spacing: 0) {
-                            Text(dial.figure(0))
+                            Text(dial.figure(dial.first))
                                 .font(Theme.figure(side * 0.17))
                                 .foregroundStyle(entry.moment.isGrey ? Theme.ink3 : Theme.ink)
                             Text(PriceUnits.unit(dial.currency).perKwh.uppercased())
@@ -180,7 +180,7 @@ struct PlanDialWidgetView: View {
     }
 
     /// "98", the price in the quarter running now.
-    private func figure(_ dial: PlanDial) -> String { dial.figure(0) }
+    private func figure(_ dial: PlanDial) -> String { dial.figure(dial.first) }
 
     /// "PLANNED 16:45", or once old, "PLAN FROM 14:05 · OLD".
     private func planned(_ dial: PlanDial) -> String? {

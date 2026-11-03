@@ -1,13 +1,16 @@
 import FTWShared
 import SwiftUI
 
-/// The next 24 hours on the dial. The Crown steps the hand a quarter hour
-/// at a time with a tick for each, and a light tap at now, at the edges of
-/// the cheapest hours and at the car's goal. The middle shows that
-/// quarter's time and price, and the line under the dial says what is
-/// planned. A tap on the dial brings the hand back to now.
+/// The plan on the dial, half a day to a face: the half holding now, then
+/// the ones the plan reaches. The Crown steps the hand a quarter hour at a
+/// time with a tick for each, on past the face's end into the next half
+/// day, and a light tap at now, at the edges of the cheapest hours and at
+/// the car's goal. The middle shows that quarter's time and price, and the
+/// line under the dial says what is planned. A tap on the dial brings the
+/// hand back to now.
 struct PlanPage: View {
     let model: WatchModel
+    /// Quarters on from now, across the faces.
     @State private var quarter = 0
     @State private var scrub = ScrubStep()
     @State private var faces = DialMemo()
@@ -18,9 +21,10 @@ struct PlanPage: View {
         TimelineView(.everyMinute) { timeline in
             let nowMs = timeline.date.timeIntervalSince1970 * 1000
             let ctx = model.context
-            let dial = faces.dial(plan: ctx?.plan, prices: ctx?.prices, nowMs: nowMs)
+            let place = faces.place(quarter, plan: ctx?.plan, prices: ctx?.prices, nowMs: nowMs)
+            let dial = place.dial
             let moment = PlanGlance.moment(ctx?.plan.map { CacheRead(record: $0, origin: .app) }, atMs: nowMs)
-            let i = min(max(quarter, 0), PlanDial.count - 1)
+            let i = place.index
             GeometryReader { geo in
                 // The dial takes what the two lines under it leave.
                 let side = max(80, min(geo.size.width - 4, geo.size.height - 30))
@@ -48,9 +52,9 @@ struct PlanPage: View {
                         quarter = 0
                         focused = true
                     }
-                    Text(i == 0 ? next(moment) : dial.what(i))
+                    Text(place.step == 0 ? next(moment) : dial.what(i))
                         .font(.system(size: 12))
-                        .foregroundStyle(i == 0 && moment.isGrey ? Theme.ink3 : Theme.ink2)
+                        .foregroundStyle(place.step == 0 && moment.isGrey ? Theme.ink3 : Theme.ink2)
                         .multilineTextAlignment(.center)
                         .lineLimit(2, reservesSpace: true)
                         .minimumScaleFactor(0.85)
@@ -64,17 +68,18 @@ struct PlanPage: View {
             }
             .focusable()
             .focused($focused)
-            .digitalCrownRotation(detent: $quarter, from: 0, through: PlanDial.count - 1, by: 1, sensitivity: .high, isContinuous: false, isHapticFeedbackEnabled: false)
+            .digitalCrownRotation(detent: $quarter, from: 0, through: place.steps - 1, by: 1, sensitivity: .high, isContinuous: false, isHapticFeedbackEnabled: false)
             .onChange(of: quarter) { _, q in
-                scrub.move(to: q, landmark: dial.landmarks.contains(q))
+                let landed = faces.place(q, plan: ctx?.plan, prices: ctx?.prices, nowMs: nowMs)
+                scrub.move(to: q, landmark: landed.dial.landmarks.contains(landed.index))
             }
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(WatchWord.planTitle.text)
-            .accessibilityValue("\(dial.when(i)), \(dial.price(i)), \(i == 0 ? moment.summary : dial.what(i))")
+            .accessibilityValue("\(dial.when(i)), \(dial.price(i)), \(place.step == 0 ? moment.summary : dial.what(i))")
             .accessibilityHint(WatchWord.turnTheCrown.text)
             .accessibilityAdjustableAction { direction in
                 switch direction {
-                case .increment: quarter = min(quarter + 1, PlanDial.count - 1)
+                case .increment: quarter = min(quarter + 1, place.steps - 1)
                 case .decrement: quarter = max(quarter - 1, 0)
                 @unknown default: break
                 }
@@ -114,21 +119,30 @@ struct PlanPage: View {
     }
 }
 
-/// The dial worked out once per plan and minute, so a turn of the Crown
-/// only reads it.
+/// The faces worked out once per plan, minute and half day, so a turn of
+/// the Crown only reads them.
 @Observable
 @MainActor
 final class DialMemo {
     @ObservationIgnored private var key: String?
-    @ObservationIgnored private var kept: PlanDial?
+    @ObservationIgnored private var bounds: [Double] = []
+    @ObservationIgnored private var kept: [Int: PlanDial] = [:]
 
-    func dial(plan: CacheRecord<PlanEntry>?, prices: CacheRecord<PriceEntry>?, nowMs: Double) -> PlanDial {
+    /// Where the Crown is: `quarter` quarters on from now, clamped to the
+    /// plan's reach, on its face.
+    func place(_ quarter: Int, plan: CacheRecord<PlanEntry>?, prices: CacheRecord<PriceEntry>?, nowMs: Double) -> (dial: PlanDial, index: Int, step: Int, steps: Int) {
         let minute = (nowMs / 60_000).rounded(.down)
         let key = "\(plan?.readAtMs ?? 0)|\(prices?.readAtMs ?? 0)|\(minute)"
-        if key == self.key, let kept { return kept }
-        let d = PlanDial(plan: plan?.value, prices: prices?.value, nowMs: nowMs)
-        self.key = key
-        kept = d
-        return d
+        if key != self.key {
+            self.key = key
+            bounds = PlanDial.pages(plan: plan?.value, prices: prices?.value, nowMs: nowMs)
+            kept = [:]
+        }
+        let steps = PlanDial.steps(faces: bounds, nowMs: nowMs)
+        let q = min(max(quarter, 0), steps - 1)
+        let at = PlanDial.step(q, faces: bounds, nowMs: nowMs)
+        let dial = kept[at.page] ?? PlanDial(plan: plan?.value, prices: prices?.value, nowMs: nowMs, page: at.page)
+        kept[at.page] = dial
+        return (dial, dial.grid.index(atMs: at.atMs) ?? dial.first, q, steps)
     }
 }
