@@ -1,4 +1,6 @@
-New in 0.6.6: History has an Energy tax refund row for a home in Sweden with a battery. It shows how much grid electricity the battery stored and sent back to the grid in a calendar year, the basis for claiming the energy tax back from Skatteverket, and saves the hours as a file. It needs version 0.158 or later on your box. On the plan's clock the hour after now shows sooner, so 18 no longer goes missing at 17:34. Over a time tomorrow, TOMORROW stands on a line of its own. A battery run under way starts from the level now, as 62 → 26 %, and says it discharges 4.6 kWh.
+New in 0.6.7: the plan's clock shows half a day, 00–12 or 12–24, as a clock does. It opens on the half you are in, with the hours gone by fainter. Swipe sideways across the middle, or tap the dots under it, for the next half day, as far as the end of tomorrow. On Apple Watch the Crown runs on into it. The sun is a yellow area in from the edge, as deep as your box's forecast, and the legend calls it sun forecast. The Energy tax refund row has left the app; your box's own History page still has it.
+
+New in 0.6.6: on the plan's clock the hour after now shows sooner, so 18 no longer goes missing at 17:34. Over a time tomorrow, TOMORROW stands on a line of its own. A battery run under way starts from the level now, as 62 → 26 %, and says it discharges 4.6 kWh.
 
 New in 0.6.5: you can scrub the plan's strip again, under the clock and in the lanes. Drag sideways to read one quarter at a time, or rest your finger a moment. Drag up or down to scroll the page.
 
@@ -9,8 +11,6 @@ New in 0.6.3: on Now, thin lines of light run between each arc of the ring and t
 New in 0.6.2: the plan's lanes show the whole plan your box made, to the last known price, often into tomorrow evening. The rows under them say tomorrow where the time alone would read as tonight. Power charts mark zero and one or two even steps on the scale. When the battery does the same thing twice in a row, the plan says it once.
 
 New in 0.6.1: History scrolls again. Putting its rows in your own order is gone until it can be done without locking the tab.
-
-New in 0.6.0: the app opens dark, since light means live and the glow shows best on the dark ground. Pick Light or Match iPhone under Home, Appearance. History has a row for the electricity price: the day's average and its low, with the day drawn midnight to midnight. Open it and drag the chart to read two days back. The plan now says power costs more or less instead of calling it dear, since the box compares hours with each other. On a chart the battery keeps one colour both ways, so gold is the sun's alone. A pinch on a chart zooms its time instead of closing the view.
 
 A new look. Now shows the flow as a ring of light, and the battery's and the car's levels as rings. Four tabs: Now, Plan, History and Home. History, live readings and the plan share one timeline that opens on today.
 

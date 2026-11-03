@@ -1,4 +1,6 @@
-Nytt i 0.6.6: Historik har en rad för energiskatt tillbaka, för ett hem i Sverige med batteri. Den visar hur mycket el från nätet batteriet lagrade och matade tillbaka till nätet under ett kalenderår, underlaget för att söka tillbaka energiskatten hos Skatteverket, och sparar timmarna som en fil. Det kräver version 0.158 eller senare på boxen. På planens klocka syns timmen efter nu tidigare, så 18 försvinner inte längre vid 17:34. Över en tid i morgon står I MORGON på en egen rad. Ett batteripass som pågår börjar från nivån nu, som 62 → 26 %, och säger att det laddar ur 4,6 kWh.
+Nytt i 0.6.7: planens klocka visar ett halvt dygn, 00–12 eller 12–24, som en vanlig klocka. Den öppnar på halvan du är i, och timmarna som gått står svagare. Svep åt sidan över mitten, eller tryck på prickarna under, för nästa halvdygn, som längst till slutet av i morgon. På Apple Watch går Crown vidare in i det. Solen är en gul yta in från kanten, lika djup som boxens prognos, och förklaringen kallar den solprognos. Raden för energiskatt tillbaka har lämnat appen; boxens egen sida Historik har den kvar.
+
+Nytt i 0.6.6: på planens klocka syns timmen efter nu tidigare, så 18 försvinner inte längre vid 17:34. Över en tid i morgon står I MORGON på en egen rad. Ett batteripass som pågår börjar från nivån nu, som 62 → 26 %, och säger att det laddar ur 4,6 kWh.
 
 Nytt i 0.6.5: planens remsa går att scrubba igen, under klockan och i banvyn. Dra åt sidan för att läsa en kvart i taget, eller håll fingret still en kort stund. Dra uppåt eller nedåt för att rulla sidan.
 
@@ -9,8 +11,6 @@ Nytt i 0.6.3: på Nu rör sig tunna ljuslinjer mellan varje båge i ringen och h
 Nytt i 0.6.2: planens staplar visar hela planen som boxen har gjort, fram till det sista kända priset, ofta till i morgon kväll. Raderna under dem säger i morgon där klockslaget annars hade lästs som i kväll. Effektdiagrammen märker ut noll och ett eller två jämna steg på skalan. När batteriet gör samma sak två gånger i följd säger planen det en gång.
 
 Nytt i 0.6.1: Historik går att scrolla igen. Att dra om ordningen på raderna är borttaget tills det går att göra utan att låsa fliken.
-
-Nytt i 0.6.0: appen öppnar mörk, eftersom ljus betyder live och glöden syns bäst på mörk botten. Välj Ljust eller Som iPhone under Hem, Utseende. Historik har fått en rad för elpriset: dygnets snitt och lägsta, och dygnet ritat midnatt till midnatt. Öppna den och dra i diagrammet för att läsa två dygn bakåt. Planen säger nu att elen kostar mer eller mindre i stället för att kalla den dyr, eftersom boxen jämför timmar med varandra. På ett diagram går batteriet i samma färg åt båda håll, så guld bara är solen. En nypning i ett diagram zoomar tiden i stället för att stänga vyn.
 
 Ett nytt utseende. Nu visar flödet som en ring av ljus, och batteriets och bilens nivåer som ringar. Fyra flikar: Nu, Plan, Historik och Hem. Historik, liveavläsningar och planen delar en tidslinje som öppnar på i dag.
 
