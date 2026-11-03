@@ -308,6 +308,14 @@ The rules below put these into practice.
   (`PriceShown`, from `spotMinor`, `totalMinor` and the box's
   `vatPermille`). Every chart that shows it says which, and a box that
   does not send its rate gets the price the phone has, under its own name.
+- **One word pair for the battery.** It *charges* or *discharges*
+  (Swedish *laddar* and *laddar ur*), in every tense and every view: Now's
+  ring and node view, the node's axes, History's "charged · discharged",
+  the plan's legend, figures, sentence and readouts, the dial's middle, the
+  price view's line and the watch. Hannes (2 Nov 2026) and the review of
+  3 Nov found six words for the two states. "Stores", "gives power",
+  "gave" and "ger ström" are gone; the role names `stores` and `gives`
+  stay as colours.
 - **Gold on a chart is the sun's.** The sun's curve and the battery giving
   power are both warm, and a tester read one as the other, so the battery
   runs in cyan both ways wherever a trace is drawn, as the grid runs in
@@ -437,8 +445,15 @@ the lock screen's circle), the watch app and the watch's complication all
 draw that one face, the widgets and the complication on the half holding
 now. The watch's strip complication keeps the twelve hours from now. The plan view opens on the dial; the lanes are one
 tap away in the toolbar, and the phone keeps the viewer's choice. Both
-put Now's strip under them, the lanes' over the whole plan with the
-battery's level in a row of its own. A drag
+put Now's strip under them: the lanes' over the whole plan with the
+battery's level in a row of its own, and the dial's over the face's own
+half day, its hours gone by included as fainter bars with no plan, so
+the strip's passes are the ticks the face has and a swipe turns both
+(Fredrik, 3 Nov 2026: a strip of the next twelve hours under tomorrow's
+face put three windows on one screen). Its kicker names the face,
+"TODAY 12–24" or "TOMORROW 00–12", and the cheapest line under it names
+the cheapest two hours of the whole plan ahead, the ones Now's and the
+lanes' sentence name, marked on the face that holds them. A drag
 round the ring costs one lookup per event, and only a change of quarter
 redraws, and then only the hand and the middle. Now keeps its straight
 strip, with gold for the battery giving power. Each battery run and car

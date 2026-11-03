@@ -24,10 +24,9 @@ struct PairView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     content
                     AboutLink(app: app)
-                        .padding(.top, 8)
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, 20)
+                .padding(.bottom, 8)
                 .frame(maxWidth: 520, alignment: .leading)
                 .frame(maxWidth: .infinity)
             }

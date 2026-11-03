@@ -293,6 +293,8 @@ struct PlanStripDrawing: ChartDrawing {
     /// What a price bar is filled with.
     enum BarInk: Hashable {
         case third(PriceChart.Third)
+        /// A quarter gone by, under the dial: its price, fainter.
+        case past(PriceChart.Third)
         /// Under the chosen pass; dear is the top third.
         case chosen(dear: Bool)
         /// Under another run of the battery.
@@ -301,6 +303,7 @@ struct PlanStripDrawing: ChartDrawing {
         func color(chosen: PlanPass?) -> Color {
             switch self {
             case let .third(t): return Theme.ink.opacity(PlanStripDrawing.ink(t))
+            case let .past(t): return Theme.ink.opacity(PlanStripDrawing.ink(t) * 0.4)
             case let .chosen(dear): return PlanStripDrawing.hue(chosen?.kind ?? .gives).opacity(dear ? 0.9 : 0.7)
             case let .battery(b, dear): return (b == .stores ? Theme.stores : Theme.gives).opacity(dear ? 0.5 : 0.36)
             }
@@ -312,6 +315,7 @@ struct PlanStripDrawing: ChartDrawing {
         func ink(_ i: Int) -> BarInk? {
             guard strip.minor[i] != nil else { return nil }
             let third = strip.thirds[i] ?? .middle
+            if strip.grid.endMs(i) <= strip.nowMs { return .past(third) }
             if let chosen, i >= chosen.first, i <= chosen.last, !chosen.isBattery || strip.battery[i] != nil {
                 return .chosen(dear: third == .dear)
             }

@@ -18,7 +18,7 @@ import Testing
         calendar.date(from: DateComponents(year: 2026, month: 10, day: day, hour: hour, minute: minute))!.timeIntervalSince1970 * 1000
     }
 
-    /// A Monday night: the battery gives power until 21:15, charges 22:00 to
+    /// A Monday night: the battery discharges until 21:15, charges 22:00 to
     /// 23:30, gives power again 06:00 to 08:00; the car charges 01:00 to
     /// 04:45 toward 80 %; power is cheapest 02 to 04.
     func night() -> PlanEntry {
@@ -82,10 +82,10 @@ import Testing
         #expect(now.state == .plan)
         // The car's charge and the battery's next move, in order, then the
         // cheap hours. "02–04" at 20:00 can only be tonight.
-        #expect(now.summary == "now–21:15 battery gives power · 01:00–04:45 car charges to 80\u{00A0}% · cheapest 02–04")
+        #expect(now.summary == "now–21:15 battery discharges · 01:00–04:45 car charges to 80\u{00A0}% · cheapest 02–04")
         #expect(now.next?.kind == .discharge)
         #expect(now.nextWhen == "Now")
-        #expect(now.nextWhat == "Battery gives power")
+        #expect(now.nextWhat == "Battery discharges")
         #expect(now.nextUntil == "until 21:15")
         #expect(now.cheapText == "cheapest 02–04")
         // Beside the next thing, what comes after it.
@@ -101,7 +101,7 @@ import Testing
         let later = PlanGlance.live(night(), nowMs: at(12, 23, 45), calendar: calendar)
         #expect(later.nextWhen == "01:00")
         #expect(later.nextWhat == "Car charges to 80\u{00A0}%")
-        #expect(later.summary.hasPrefix("01:00–04:45 car charges to 80\u{00A0}% · 06–08 battery gives power"))
+        #expect(later.summary.hasPrefix("01:00–04:45 car charges to 80\u{00A0}% · 06–08 battery discharges"))
     }
 
     @Test func tomorrowIsNamedOnlyWhereTheClockWouldMislead() {
@@ -124,7 +124,7 @@ import Testing
         }
         let entry = PlanEntry(battery: battery, charges: [], prices: [], currency: "SEK", boxStale: false)
         let m = PlanGlance.live(entry, nowMs: start, calendar: calendar)
-        #expect(m.summary == "now–20:45 and 21:00–21:30 battery gives power")
+        #expect(m.summary == "now–20:45 and 21:00–21:30 battery discharges")
         // Different moves keep a clause each.
         #expect(PlanGlance.live(night(), nowMs: at(12, 21, 30), calendar: calendar).summary.hasPrefix("22:00–23:30 battery charges · 01:00–04:45 car charges"))
     }
@@ -254,7 +254,7 @@ import Testing
         let m = PlanGlance.live(entry, nowMs: at(12, 20))
         #expect(m.timeZone.identifier == "Europe/Helsinki")
         // 21:15 in Stockholm is 22:15 in Helsinki.
-        #expect(m.summary.hasPrefix("now–22:15 battery gives power"))
+        #expect(m.summary.hasPrefix("now–22:15 battery discharges"))
         #expect(m.nextUntil == "until 22:15")
         // A record from before the zone was kept reads as the phone's.
         let old = try JSONEncoder().encode(night())

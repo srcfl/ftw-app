@@ -202,6 +202,9 @@ private struct PlanSlot: View {
 private struct NowCarRow: View {
     let home: HomeModels
     let zoom: Namespace.ID
+    @Environment(\.dynamicTypeSize) private var typeSize
+    /// The icon's column grows with the text, so it never hangs over it.
+    @ScaledMetric(relativeTo: .title3) private var iconWidth: CGFloat = 32
 
     /// What the row says, and where it goes.
     struct Line: Equatable {
@@ -252,7 +255,7 @@ private struct NowCarRow: View {
                 Image(systemName: shown.plugged ? "bolt.car.fill" : "car.side.fill")
                     .font(.title3)
                     .foregroundStyle(home.site.isLive ? Theme.car : Theme.ink3)
-                    .frame(width: 32)
+                    .frame(width: iconWidth)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(shown.title)
                         .font(.subheadline.weight(.semibold))
@@ -262,8 +265,10 @@ private struct NowCarRow: View {
                         .foregroundStyle(shown.guessed ? Theme.ink3 : Theme.ink2)
                         .monospacedDigit()
                 }
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
+                // One line each, scaled a little; at the accessibility
+                // sizes the words wrap rather than end in "…".
+                .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                .minimumScaleFactor(typeSize.isAccessibilitySize ? 1 : 0.85)
                 .redacted(reason: line == nil ? .placeholder : [])
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")

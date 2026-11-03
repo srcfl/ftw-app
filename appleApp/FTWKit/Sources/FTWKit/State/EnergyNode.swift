@@ -79,7 +79,7 @@ public enum EnergyNode: String, CaseIterable, Hashable, Sendable, Identifiable, 
     /// Which way is up on its curve, for the two whose curve crosses zero.
     public var directions: (up: String, down: String)? {
         switch self {
-        case .battery: return (NodeWords.text("charging"), NodeWords.text("giving power"))
+        case .battery: return (NodeWords.text("charging"), NodeWords.text("discharging"))
         case .grid: return (NodeWords.text("buying"), NodeWords.text("selling"))
         default: return nil
         }

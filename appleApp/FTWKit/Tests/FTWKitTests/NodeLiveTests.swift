@@ -75,7 +75,7 @@ import Testing
         let out = NodeLive.energy([[LiveSample(t: 0, v: -2_000), LiveSample(t: 60_000, v: -2_000)]])
         #expect(out.inWh == 0 && abs(out.outWh - 2_000 / 60) < 1e-9)
         AppWords.$language.withValue(.en) {
-            #expect(NodeLive.range(.battery, (120, 50)) == "5 min: charged 120\u{00A0}Wh · gave 50\u{00A0}Wh")
+            #expect(NodeLive.range(.battery, (120, 50)) == "5 min: charged 120\u{00A0}Wh · discharged 50\u{00A0}Wh")
             #expect(!NodeLive.range(.grid, (0, 50)).contains("-"))
         }
     }

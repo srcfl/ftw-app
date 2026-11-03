@@ -54,7 +54,7 @@ public enum WatchWord: String, CaseIterable, Sendable {
     case making = "making"
     case resting = "resting"
     case charging = "charging"
-    case giving = "giving power"
+    case giving = "discharging"
     case using = "using"
     case buying = "buying"
     case selling = "selling"
@@ -68,8 +68,8 @@ public enum WatchWord: String, CaseIterable, Sendable {
     case mode = "Mode"
 
     // The plan dial.
-    case batteryStores = "Battery stores"
-    case batteryGives = "Battery gives power"
+    case batteryStores = "Battery charges"
+    case batteryGives = "Battery discharges"
     case batteryWaits = "Battery waits"
     case noPlan = "No plan"
     case carCharges = "car charges"

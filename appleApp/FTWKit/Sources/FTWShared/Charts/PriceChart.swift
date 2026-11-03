@@ -292,8 +292,8 @@ enum PriceWord: String, CaseIterable {
     case tomorrow = "TOMORROW"
     case noPriceYet = "No price yet"
     case paid = "Below zero: you are paid to use power"
-    case stores = "STORES %@ AT %@"
-    case gives = "GIVES %@ AT %@"
+    case stores = "CHARGES %@ AT %@"
+    case gives = "DISCHARGES %@ AT %@"
     /// History's price row: the day's mean, its cheapest slot and when.
     case dayAverage = "Average %@ · lowest %@ at %@"
     case noPriceThatDay = "No prices for this day"

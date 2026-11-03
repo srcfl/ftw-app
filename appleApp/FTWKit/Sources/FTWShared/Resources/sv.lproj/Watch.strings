@@ -43,7 +43,7 @@
 "making" = "producerar";
 "resting" = "vilar";
 "charging" = "laddar";
-"giving power" = "laddar ur";
+"discharging" = "laddar ur";
 "using" = "använder";
 "buying" = "köper";
 "selling" = "säljer";
@@ -55,8 +55,8 @@
 "Price" = "Pris";
 "Mode" = "Läge";
 
-"Battery stores" = "Batteriet laddar";
-"Battery gives power" = "Batteriet laddar ur";
+"Battery charges" = "Batteriet laddar";
+"Battery discharges" = "Batteriet laddar ur";
 "Battery waits" = "Batteriet vilar";
 "No plan" = "Ingen plan";
 "car charges" = "bilen laddar";

@@ -335,7 +335,7 @@ import Testing
         #expect(q(14, 23, 30).battery == .waits)
         #expect(q(15, 2).car && !q(14, 20).car)
         #expect(q(15, 4, 30).carGoalPct == 80)
-        #expect(dial.what(dial.grid.index(atMs: at(14, 22))!) == "Battery stores 3.0 kW")
+        #expect(dial.what(dial.grid.index(atMs: at(14, 22))!) == "Battery charges 3.0 kW")
         #expect(dial.price(dial.grid.index(atMs: at(14, 18))!) == "160 öre")
     }
 

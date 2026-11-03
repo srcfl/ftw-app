@@ -9,7 +9,7 @@
 "%@ car charges to %@" = "%@ car charges to %@";
 "%@ car charges" = "%@ car charges";
 "%@ battery charges" = "%@ battery charges";
-"%@ battery gives power" = "%@ battery gives power";
+"%@ battery discharges" = "%@ battery discharges";
 "cheapest %@" = "cheapest %@";
 "%@ and %@" = "%@ and %@";
 "Now" = "Now";
@@ -18,24 +18,24 @@
 "Car charges to %@" = "Car charges to %@";
 "Car charges" = "Car charges";
 "Battery charges" = "Battery charges";
-"Battery gives power" = "Battery gives power";
+"Battery discharges" = "Battery discharges";
 "Cheapest power" = "Cheapest power";
 "Planned %@" = "Planned %@";
 "Plan from %@ · open FTW" = "Plan from %@ · open FTW";
 
 /* Now's strip and the story under the dial: the verb between marks (*) takes its colour. */
-"Battery *stores* until %@" = "Battery *stores* until %@";
-"Battery *gives power* until %@" = "Battery *gives power* until %@";
+"Battery *charges* until %@" = "Battery *charges* until %@";
+"Battery *discharges* until %@" = "Battery *discharges* until %@";
 "Car *charges* until %@" = "Car *charges* until %@";
-"Battery *stores* %@" = "Battery *stores* %@";
-"Battery *gives power* %@" = "Battery *gives power* %@";
+"Battery *charges* %@" = "Battery *charges* %@";
+"Battery *discharges* %@" = "Battery *discharges* %@";
 "Car *charges* %@" = "Car *charges* %@";
 "%@, to %@" = "%@, to %@";
 "%@." = "%@.";
-"Then *stores* %@" = "Then *stores* %@";
-"Then *gives power* %@" = "Then *gives power* %@";
-"Then the battery *stores* %@" = "Then the battery *stores* %@";
-"Then the battery *gives power* %@" = "Then the battery *gives power* %@";
+"Then *charges* %@" = "Then *charges* %@";
+"Then *discharges* %@" = "Then *discharges* %@";
+"Then the battery *charges* %@" = "Then the battery *charges* %@";
+"Then the battery *discharges* %@" = "Then the battery *discharges* %@";
 "Then the car *charges* %@" = "Then the car *charges* %@";
 "%@, when power costs up to %@" = "%@, when power costs up to %@";
 "%@ for %@" = "%@ for %@";
@@ -54,8 +54,8 @@
 "PLANNED %@" = "PLANNED %@";
 "OLD PLAN · %@" = "OLD PLAN · %@";
 "NOW" = "NOW";
-"stores" = "stores";
-"gives power" = "gives power";
+"charges" = "charges";
+"discharges" = "discharges";
 "waits" = "waits";
 "car charges" = "car charges";
 "car at %@" = "car at %@";

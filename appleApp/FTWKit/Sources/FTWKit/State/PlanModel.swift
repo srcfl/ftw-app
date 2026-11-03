@@ -287,7 +287,7 @@ public enum PlanText {
         let next = slots[end + 1]
         switch action(next) {
         case .charge: return lead + " " + NodeWords.format("Then charges, %@.", reason(next.reason))
-        case .discharge: return lead + " " + NodeWords.format("Then gives power, %@.", reason(next.reason))
+        case .discharge: return lead + " " + NodeWords.format("Then discharges, %@.", reason(next.reason))
         case .rest: return lead + " " + NodeWords.text("Then rests.")
         }
     }

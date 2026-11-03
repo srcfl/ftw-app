@@ -59,7 +59,7 @@ public enum NowFlow {
                 word = idle ? NodeWords.text("resting") : NodeWords.text("making")
                 tone = Flow.tone(.pv, w)
             case .battery:
-                word = idle ? NodeWords.text("resting") : (w > 0 ? NodeWords.text("charging") : NodeWords.text("giving power"))
+                word = idle ? NodeWords.text("resting") : (w > 0 ? NodeWords.text("charging") : NodeWords.text("discharging"))
                 tone = Flow.tone(.battery, w)
                 toward = w < 0
                 level = fields[Contract.FID.batterySoc].map { ($0 / 10).rounded() }
