@@ -77,8 +77,9 @@ import Testing
         #expect(bounds == [at(14, 12), at(15, 0), at(15, 12), at(16, 0)])
         // Prices for today only: the plan's car still reaches tonight.
         #expect(PlanDial.pages(plan: watch.plan(), prices: watch.prices(days: 1), nowMs: at(14, 17, 34)) == [at(14, 12), at(15, 0), at(15, 12)])
-        // Nothing ahead still has now's face.
-        #expect(PlanDial.pages(plan: nil, prices: nil, nowMs: at(14, 17, 34)) == [at(14, 12), at(15, 0)])
+        // Nothing ahead still has now's face, in the household's zone.
+        let empty = PlanEntry(battery: [], charges: [], prices: [], currency: "SEK", boxStale: false, timeZone: WatchTests.zone)
+        #expect(PlanDial.pages(plan: empty, prices: nil, nowMs: at(14, 17, 34)) == [at(14, 12), at(15, 0)])
         // Never past tomorrow, even with a plan that runs on.
         var long = watch.plan()
         long.battery = [PlanEntry.Slot(startMs: at(14, 8), durationMs: 72 * 3_600_000, batteryW: 0, reason: "test")]
