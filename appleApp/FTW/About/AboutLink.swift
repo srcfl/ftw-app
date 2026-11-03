@@ -10,25 +10,28 @@ struct AboutLink: View {
     @State private var open: AboutView.Start?
 
     var body: some View {
-        VStack(spacing: 6) {
-            // One line while it fits, one link to a line when it does not.
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 20) { links }
-                VStack(spacing: 8) { links }
+        // One line while it fits, with the version on it, one link to a
+        // line when it does not: a foot of one row, so the pairing page
+        // fits over its bar at the default size and nothing sits half
+        // under it.
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 20) {
+                links
+                version
             }
-            .font(.footnote.weight(.medium))
-            .foregroundStyle(Theme.accent)
-            .buttonStyle(.plain)
-            // A 44 pt target for each, without a taller line of text.
-            .frame(minHeight: 44)
-            Text(verbatim: "FTW \(BuildSource.bundled.versionText)")
-                .font(.caption)
-                .foregroundStyle(Theme.fgMuted)
+            VStack(spacing: 8) {
+                links
+                version
+            }
         }
+        .font(.footnote.weight(.medium))
+        .foregroundStyle(Theme.accent)
+        .buttonStyle(.plain)
+        // A 44 pt target for each, without a taller line of text.
+        .frame(minHeight: 44)
         .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
-        .padding(.top, 12)
-        .padding(.bottom, 8)
+        .padding(.top, 4)
         // The foot of the page: never larger than the drawing above it.
         .dynamicTypeSize(...DynamicTypeSize.xLarge)
         .sheet(item: $open) { start in
@@ -41,6 +44,12 @@ struct AboutLink: View {
             if let name = UserDefaults.standard.string(forKey: "FTWAbout") { open = AboutView.Start(name) }
         }
         #endif
+    }
+
+    private var version: some View {
+        Text(verbatim: "FTW \(BuildSource.bundled.versionText)")
+            .font(.caption)
+            .foregroundStyle(Theme.fgMuted)
     }
 
     @ViewBuilder private var links: some View {

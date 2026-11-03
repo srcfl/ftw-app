@@ -74,6 +74,9 @@ public struct PlanPass: Equatable, Sendable, Identifiable {
             case .car: kind = .car
             case .cheap: return nil
             }
+            // Only what overlaps the window: the grid clamps an index, so
+            // an event outside it would land on its first or last quarter.
+            guard e.endMs > grid.firstMs, e.startMs < grid.toMs else { return nil }
             guard let first = grid.index(atMs: max(e.startMs, grid.firstMs)),
                   let last = grid.index(atMs: min(e.endMs, grid.toMs) - 1), last >= first else { return nil }
             let prices = (first...last).compactMap { minor[$0] }

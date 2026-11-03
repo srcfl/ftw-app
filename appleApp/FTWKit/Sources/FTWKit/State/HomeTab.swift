@@ -39,7 +39,7 @@ public enum DayWords {
         let a = AppWords.energy(e.inWh), b = AppWords.energy(e.outWh)
         switch node {
         case .solar: return NodeWords.format("Made %@", a)
-        case .battery: return NodeWords.format("Charged %@ · gave %@", a, b)
+        case .battery: return NodeWords.format("Charged %@ · discharged %@", a, b)
         case .home: return NodeWords.format("Used %@", a)
         case .grid: return NodeWords.format("Bought %@ · sold %@", a, b)
         case .car: return NodeWords.format("Charged %@", a)

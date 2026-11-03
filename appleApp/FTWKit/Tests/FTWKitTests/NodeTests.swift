@@ -655,12 +655,12 @@ import FTWShared
             PlanSlot(startMs: t + 2 * h, durationMs: h, batteryW: -1_800, gridW: 0, priceMinor: 160, reason: "expensive_import"),
         ]
         AppWords.$language.withValue(.en) {
-            #expect(PlanText.battery(slots, stale: false, nowMs: t, zone: CarTextTests.utc) == "Charges at up to 2.5\u{00A0}kW until 12:00, power costs less. Then gives power, power costs more.")
+            #expect(PlanText.battery(slots, stale: false, nowMs: t, zone: CarTextTests.utc) == "Charges at up to 2.5\u{00A0}kW until 12:00, power costs less. Then discharges, power costs more.")
             #expect(PlanText.battery(slots, stale: true, nowMs: t, zone: CarTextTests.utc).hasPrefix("Your box couldn't plan ahead"))
             #expect(PlanText.grid(slots, stale: false) == "Expects to buy 5.4\u{00A0}kWh over the next 12 hours.")
         }
         AppWords.$language.withValue(.sv) {
-            #expect(PlanText.battery(slots, stale: false, nowMs: t, zone: CarTextTests.utc) == "Laddar med upp till 2,5\u{00A0}kW till 12:00, elen kostar mindre. Sedan ger batteriet ström, elen kostar mer.")
+            #expect(PlanText.battery(slots, stale: false, nowMs: t, zone: CarTextTests.utc) == "Laddar med upp till 2,5\u{00A0}kW till 12:00, elen kostar mindre. Sedan laddar batteriet ur, elen kostar mer.")
         }
     }
 }
@@ -1175,7 +1175,7 @@ final class DemoRig {
         let e = EnergyToday(inWh: 5_000, outWh: 4_200, missingMs: 0)
         AppWords.$language.withValue(.en) {
             #expect(DayWords.line(.solar, e) == "Made 5.0\u{00A0}kWh")
-            #expect(DayWords.line(.battery, e) == "Charged 5.0\u{00A0}kWh · gave 4.2\u{00A0}kWh")
+            #expect(DayWords.line(.battery, e) == "Charged 5.0\u{00A0}kWh · discharged 4.2\u{00A0}kWh")
             #expect(DayWords.line(.grid, e) == "Bought 5.0\u{00A0}kWh · sold 4.2\u{00A0}kWh")
             #expect(DayWords.line(.home, e) == "Used 5.0\u{00A0}kWh")
             #expect(DayWords.car(wh: 33_000) == "Charged 33\u{00A0}kWh")
@@ -1184,7 +1184,7 @@ final class DemoRig {
             #expect(DayWords.missing(EnergyToday(inWh: 0, outWh: 0, missingMs: 2_400_000)) == "40 min not recorded")
         }
         AppWords.$language.withValue(.sv) {
-            #expect(DayWords.line(.battery, e) == "Laddat 5,0\u{00A0}kWh · gett 4,2\u{00A0}kWh")
+            #expect(DayWords.line(.battery, e) == "Laddat 5,0\u{00A0}kWh · laddat ur 4,2\u{00A0}kWh")
             #expect(DayWords.shape(.solar) == "Producerat 0,0\u{00A0}kWh")
         }
     }

@@ -1,6 +1,6 @@
 /* The plan dial's words, on the phone, its widget and the watch. Keys are the English (DialWord). */
-"STORES · %@" = "LAGRAR · %@";
-"GIVES · %@" = "GER · %@";
+"CHARGES · %@" = "LADDAR · %@";
+"DISCHARGES · %@" = "LADDAR UR · %@";
 "WAITS" = "VILAR";
 "NO PLAN" = "INGEN PLAN";
 "CAR" = "BILEN";
@@ -11,3 +11,4 @@
 "Plan dial" = "Plantavla";
 "Half a day as a clock: what the battery does and when the car charges." = "Ett halvt dygn som en klocka: vad batteriet gör och när bilen laddar.";
 "ABOUT %@ LESS THAN NO BATTERY · TO %@" = "CIRKA %@ BILLIGARE ÄN UTAN BATTERI · TILL %@";
+"TODAY" = "I DAG";

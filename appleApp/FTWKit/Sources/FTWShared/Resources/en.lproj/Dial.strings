@@ -1,6 +1,6 @@
 /* The plan dial's words, on the phone, its widget and the watch. English is the key (DialWord). */
-"STORES · %@" = "STORES · %@";
-"GIVES · %@" = "GIVES · %@";
+"CHARGES · %@" = "CHARGES · %@";
+"DISCHARGES · %@" = "DISCHARGES · %@";
 "WAITS" = "WAITS";
 "NO PLAN" = "NO PLAN";
 "CAR" = "CAR";
@@ -11,3 +11,4 @@
 "Plan dial" = "Plan dial";
 "Half a day as a clock: what the battery does and when the car charges." = "Half a day as a clock: what the battery does and when the car charges.";
 "ABOUT %@ LESS THAN NO BATTERY · TO %@" = "ABOUT %@ LESS THAN NO BATTERY · TO %@";
+"TODAY" = "TODAY";

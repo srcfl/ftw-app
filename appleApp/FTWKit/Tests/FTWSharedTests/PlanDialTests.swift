@@ -5,7 +5,7 @@ import Testing
 /// The plan dial as the phone, its widget and the watch draw it: half a
 /// day to a face, a finger round the ring, the sun from the box's forecast
 /// and the words a finger reads. The plan and prices are `WatchTests`': from Wednesday
-/// 12:00 the battery gives power 17–19 and stores 22:00–23:30, the car
+/// 12:00 the battery discharges 17–19 and stores 22:00–23:30, the car
 /// charges 01:00–04:45 toward 80 %, and power costs 30 öre 02–04, 160 öre
 /// 17–21 and 70 öre otherwise.
 @Suite struct PlanDialTests {
@@ -240,8 +240,8 @@ import Testing
         #expect(d.day(six) == nil && d.day(d.tomorrowFrom - 1) == nil)
         #expect(d.times[d.tomorrowFrom] == "00:00")
         #expect(d.prices[six] == "160 ÖRE/KWH")
-        #expect(d.doing[six] == "GIVES · 2.0 KW")
-        #expect(d.doing[ten] == "STORES · 3.0 KW")
+        #expect(d.doing[six] == "DISCHARGES · 2.0 KW")
+        #expect(d.doing[ten] == "CHARGES · 3.0 KW")
         #expect(d.doing[goal] == "WAITS · CAR TO 80\u{00A0}%")
         #expect(d.doing[d.grid.index(atMs: at(15, 2))!] == "WAITS · CAR")
         #expect(d.figure(six) == "160")
@@ -265,7 +265,7 @@ import Testing
             + (plan.battery ?? []).filter { $0.startMs >= at(14, 17, 15) }
         let d = PlanDial(plan: plan, prices: watch.prices(), nowMs: at(14, 17, 8))
         #expect(d.quarters[0].battery == .gives)
-        #expect(d.doing[0] == "GIVES · 2.0 KW")
+        #expect(d.doing[0] == "DISCHARGES · 2.0 KW")
         #expect(d.quarters[0].minor == 160)
     }
 
@@ -280,8 +280,8 @@ import Testing
         let d = PlanDial(plan: plan, prices: watch.prices(), nowMs: at(14, 12, 7))
         let ten = d.grid.index(atMs: at(14, 22))!
         #expect(d.quarters[ten].levelPct == 50 + Double(ten % 40))
-        #expect(d.doing[ten] == "STORES · 3.0 KW · \(50 + ten % 40)\u{00A0}%")
-        #expect(d.what(ten) == "Battery stores 3.0 kW · \(50 + ten % 40)\u{00A0}%")
+        #expect(d.doing[ten] == "CHARGES · 3.0 KW · \(50 + ten % 40)\u{00A0}%")
+        #expect(d.what(ten) == "Battery charges 3.0 kW · \(50 + ten % 40)\u{00A0}%")
     }
 
     /// Only the quarters a new plan changed cross-fade on the dial.

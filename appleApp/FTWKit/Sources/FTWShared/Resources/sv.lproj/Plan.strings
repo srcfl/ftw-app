@@ -10,7 +10,7 @@
 "%@ car charges toward %@" = "%@ laddar bilen mot %@";
 "%@ car charges" = "%@ laddar bilen";
 "%@ battery charges" = "%@ laddar batteriet";
-"%@ battery gives power" = "%@ laddar batteriet ur";
+"%@ battery discharges" = "%@ laddar batteriet ur";
 "cheapest %@" = "billigast %@";
 "%@ and %@" = "%@ och %@";
 "Now" = "Nu";
@@ -20,26 +20,26 @@
 "Car charges toward %@" = "Bilen laddar mot %@";
 "Car charges" = "Bilen laddar";
 "Battery charges" = "Batteriet laddar";
-"Battery gives power" = "Batteriet laddar ur";
+"Battery discharges" = "Batteriet laddar ur";
 "Cheapest power" = "Billigast el";
 "Planned %@" = "Planerad %@";
 "Plan from %@ · open FTW" = "Plan från %@ · öppna FTW";
 
 /* Now's strip and the story under the dial: the verb between marks (*) takes its colour. */
-"Battery *stores* until %@" = "Batteriet *lagrar* till %@";
-"Battery *gives power* until %@" = "Batteriet *ger ström* till %@";
+"Battery *charges* until %@" = "Batteriet *laddar* till %@";
+"Battery *discharges* until %@" = "Batteriet *laddar ur* till %@";
 "Car *charges* until %@" = "Bilen *laddar* till %@";
-"Battery *stores* %@" = "Batteriet *lagrar* %@";
-"Battery *gives power* %@" = "Batteriet *ger ström* %@";
+"Battery *charges* %@" = "Batteriet *laddar* %@";
+"Battery *discharges* %@" = "Batteriet *laddar ur* %@";
 "Car *charges* %@" = "Bilen *laddar* %@";
 "%@, to %@" = "%@, mål %@";
 "%@ and later, toward %@" = "%@ och senare, mot %@";
 "%@ and later, toward %@ by %@" = "%@ och senare, mot %@ senast %@";
 "%@." = "%@.";
-"Then *stores* %@" = "*Lagrar* sedan %@";
-"Then *gives power* %@" = "*Ger* sedan *ström* %@";
-"Then the battery *stores* %@" = "Sedan *lagrar* batteriet %@";
-"Then the battery *gives power* %@" = "Sedan *ger* batteriet *ström* %@";
+"Then *charges* %@" = "*Laddar* sedan %@";
+"Then *discharges* %@" = "*Laddar* sedan *ur* %@";
+"Then the battery *charges* %@" = "Sedan *laddar* batteriet %@";
+"Then the battery *discharges* %@" = "Sedan *laddar* batteriet *ur* %@";
 "Then the car *charges* %@" = "Sedan *laddar* bilen %@";
 "%@, when power costs up to %@" = "%@, när elen kostar upp till %@";
 "%@ for %@" = "%@ för %@";
@@ -59,8 +59,8 @@
 "PLANNED %@" = "PLANERAD %@";
 "OLD PLAN · %@" = "GAMMAL PLAN · %@";
 "NOW" = "NU";
-"stores" = "lagrar";
-"gives power" = "ger ström";
+"charges" = "laddar";
+"discharges" = "laddar ur";
 "waits" = "vilar";
 "car charges" = "bilen laddar";
 "car at %@" = "bilen når %@";

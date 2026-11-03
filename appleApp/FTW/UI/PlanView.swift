@@ -143,11 +143,17 @@ private struct PlanBody: View {
         // The price this phone chose to show, in the strip and its header.
         let choice = PriceShown(fees: fees, vat: vat)
         let window = prices.prices.map(choice.apply)
-        let strip = strips.strip(entry, moment: moment, hasCar: !loadpoints.points.isEmpty, quarters: style == .lanes ? quarters : PlanStrip.count, prices: window?.slots)
-        let chosen = strip.passes.first { $0.id == chosenID } ?? PlanPass.opening(strip.passes)
         let faces = dials.faces(entry, nowMs: minute)
         let shown = min(face, faces.count - 2)
         let dial = style == .dial ? dials.dial(entry, nowMs: minute, page: shown) : nil
+        // Under the dial the strip shows the face's half day, the hours
+        // gone by included, so its passes are the ticks the face has and
+        // a swipe turns both. Now keeps the twelve hours from now.
+        let faceWindow = dial.map { PlanStrip.Window(fromMs: faces[shown], toMs: faces[shown + 1], name: $0.faceKicker) }
+        let strip = strips.strip(entry, moment: moment, hasCar: !loadpoints.points.isEmpty, quarters: style == .lanes ? quarters : PlanStrip.count, prices: window?.slots, window: faceWindow)
+        let chosen = strip.passes.first { $0.id == chosenID } ?? PlanPass.opening(strip.passes)
+        // A face with nothing planned says so, not what happens now.
+        let faceEmpty = faceWindow != nil && strip.passes.isEmpty
         Group {
             switch style {
             case .dial:
@@ -182,8 +188,8 @@ private struct PlanBody: View {
         VStack(alignment: .leading, spacing: 10) {
             PlanStripView(
                 strip: strip,
-                sentence: moment.nextText,
-                shorter: moment.nextShorter,
+                sentence: faceEmpty ? L("Nothing planned on this half day") : moment.nextText,
+                shorter: faceEmpty ? [] : moment.nextShorter,
                 placeholder: moment.placeholder,
                 priceNow: priceNow(window, minute),
                 unit: PriceUnits.unit(prices.prices?.currency).label.uppercased(),
@@ -331,13 +337,13 @@ private struct FaceDots: View {
 /// The strip worked out once per plan, minute and length, like the dial.
 @MainActor
 private final class StripMemo {
-    private var key: (entry: PlanEntry, moment: PlanGlance.Moment, hasCar: Bool, quarters: Int, prices: [PriceSlot]?)?
+    private var key: (entry: PlanEntry, moment: PlanGlance.Moment, hasCar: Bool, quarters: Int, prices: [PriceSlot]?, window: PlanStrip.Window?)?
     private var kept: PlanStrip?
 
-    func strip(_ entry: PlanEntry, moment: PlanGlance.Moment, hasCar: Bool, quarters: Int, prices: [PriceSlot]?) -> PlanStrip {
-        if let key, key.entry == entry, key.moment == moment, key.hasCar == hasCar, key.quarters == quarters, key.prices == prices, let kept { return kept }
-        let s = PlanStrip.build(entry, moment: moment, hasCar: hasCar, quarters: quarters, prices: prices)
-        key = (entry, moment, hasCar, quarters, prices)
+    func strip(_ entry: PlanEntry, moment: PlanGlance.Moment, hasCar: Bool, quarters: Int, prices: [PriceSlot]?, window: PlanStrip.Window?) -> PlanStrip {
+        if let key, key.entry == entry, key.moment == moment, key.hasCar == hasCar, key.quarters == quarters, key.prices == prices, key.window == window, let kept { return kept }
+        let s = PlanStrip.build(entry, moment: moment, hasCar: hasCar, quarters: quarters, prices: prices, window: window)
+        key = (entry, moment, hasCar, quarters, prices, window)
         kept = s
         return s
     }

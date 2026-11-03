@@ -31,6 +31,21 @@ public struct PlanStrip: Equatable, Sendable {
         public let label: String
     }
 
+    /// The hours the strip shows when it follows the dial's face rather
+    /// than running twelve hours from now: the half day's bounds, and the
+    /// kicker that names it ("TODAY 12–24", "TOMORROW 00–12").
+    public struct Window: Equatable, Sendable {
+        public let fromMs: Double
+        public let toMs: Double
+        public let name: String
+
+        public init(fromMs: Double, toMs: Double, name: String) {
+            self.fromMs = fromMs
+            self.toMs = toMs
+            self.name = name
+        }
+    }
+
     public let grid: SlotGrid
     public let nowMs: Double
     /// What the battery does per quarter; nil while it waits or without a
@@ -91,12 +106,13 @@ public struct PlanStrip: Equatable, Sendable {
     /// The strip at the moment's minute, from the plan the moment was read
     /// from: the next twelve hours, or for the plan's lanes `quarters`
     /// (the whole plan), with the hours every six once it runs past a day's
-    /// half.
-    public static func build(_ entry: PlanEntry?, moment: PlanGlance.Moment, hasCar: Bool, quarters wanted: Int = Self.count, prices shown: [PriceSlot]? = nil) -> PlanStrip {
+    /// half, or under the dial the face's own `window`, the hours gone by
+    /// included.
+    public static func build(_ entry: PlanEntry?, moment: PlanGlance.Moment, hasCar: Bool, quarters wanted: Int = Self.count, prices shown: [PriceSlot]? = nil, window: Window? = nil) -> PlanStrip {
         let clock = ZoneClock.of(moment.timeZone)
         let nowMs = moment.atMs
-        let first = clock.alignDown(nowMs, stepMs: quarterMs)
-        let count = max(Self.count, wanted)
+        let first = clock.alignDown(window?.fromMs ?? nowMs, stepMs: quarterMs)
+        let count = window.map { max(1, Int((($0.toMs - first) / quarterMs).rounded())) } ?? max(Self.count, wanted)
         let grid = SlotGrid(firstMs: first, stepMs: quarterMs, count: count, fromMs: first, toMs: first + Double(count) * quarterMs)
 
         // The prices this phone chose to show, where the price record has
@@ -122,11 +138,14 @@ public struct PlanStrip: Equatable, Sendable {
         var battery = [Battery?](repeating: nil, count: count)
         var car = [Bool](repeating: false, count: count)
         for i in 0..<count {
-            let start = grid.startMs(i), end = grid.endMs(i), from = max(start, nowMs)
+            // A quarter gone by keeps the price it had and holds no plan,
+            // as the dial's gone hours keep their figures and have no ticks.
+            let start = grid.startMs(i), end = grid.endMs(i), gone = end <= nowMs
+            let from = gone ? start : max(start, nowMs)
             minor[i] = covering(prices, from: from, to: end, start: \.startMs, length: \.durationMs)?.totalMinor
-            planned[i] = covering(slots, from: from, to: end, start: \.startMs, length: \.durationMs)
+            planned[i] = gone ? nil : covering(slots, from: from, to: end, start: \.startMs, length: \.durationMs)
             battery[i] = planned[i].flatMap { $0.batteryW > PlanGlance.idleW ? .stores : ($0.batteryW < -PlanGlance.idleW ? .gives : nil) }
-            car[i] = charges.contains { $0.fromMs < end && $0.toMs > start }
+            car[i] = !gone && charges.contains { $0.fromMs < end && $0.toMs > start }
         }
 
         var goals = [Int: Double]()
@@ -140,11 +159,12 @@ public struct PlanStrip: Equatable, Sendable {
         let thirds = minor.map { $0.map { third($0, lo: lo, hi: hi) } }
 
         var landmarks: Set<Int> = [0, count - 1]
-        let inside = prices.filter { $0.startMs + $0.durationMs > nowMs && $0.startMs < grid.toMs }
+        let open = max(nowMs, first)
+        let inside = prices.filter { $0.startMs + $0.durationMs > open && $0.startMs < grid.toMs }
         if inside.count >= 2, let block = PriceStrip.bestBlock(inside, hours: 2, cheapest: true) {
             let mean = inside.map(\.totalMinor).reduce(0, +) / Double(inside.count)
             if block.meanMinor < mean * PlanGlance.cheapShare || block.meanMinor < 0,
-               let a = grid.index(atMs: max(block.startMs, nowMs)), let b = grid.index(atMs: min(block.endMs, grid.toMs) - 1) {
+               let a = grid.index(atMs: max(block.startMs, open)), let b = grid.index(atMs: min(block.endMs, grid.toMs) - 1) {
                 landmarks.formUnion([a, b])
             }
         }
@@ -191,7 +211,7 @@ public struct PlanStrip: Equatable, Sendable {
         switch (moment.state, moment.readAtMs) {
         case let (.plan, at?): kicker = PlanWord.plannedAt.format(clock.label(at))
         case let (.old, at?): kicker = PlanWord.oldPlan.format(clock.label(at))
-        default: kicker = count > Self.count ? PlanWord.wholePlan.text : PlanWord.next12h.text
+        default: kicker = window?.name ?? (count > Self.count ? PlanWord.wholePlan.text : PlanWord.next12h.text)
         }
 
         return PlanStrip(
@@ -203,7 +223,8 @@ public struct PlanStrip: Equatable, Sendable {
             minor: minor,
             thirds: thirds,
             scale: PriceScale(known, currency: currency),
-            nowMinor: minor.first ?? nil,
+            // The price now, wherever now falls in the window.
+            nowMinor: covering(prices, from: nowMs, to: nowMs + quarterMs, start: \.startMs, length: \.durationMs)?.totalMinor,
             levelPct: planned.map { $0?.levelPct },
             batteryRuns: runs(battery),
             carRuns: runs(car.map { $0 ? true : nil }),

@@ -78,7 +78,7 @@ public enum NodeLive {
         let a = energy(e.inWh), b = energy(e.outWh)
         switch node {
         case .solar: return NodeWords.format("5 min: made %@", a)
-        case .battery: return NodeWords.format("5 min: charged %@ · gave %@", a, b)
+        case .battery: return NodeWords.format("5 min: charged %@ · discharged %@", a, b)
         case .home: return NodeWords.format("5 min: used %@", a)
         case .grid: return NodeWords.format("5 min: bought %@ · sold %@", a, b)
         case .car: return NodeWords.format("5 min: charged %@", a)

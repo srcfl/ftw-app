@@ -202,13 +202,20 @@ public struct PlanDial: Equatable, Sendable {
         var cheapest: ClosedRange<Int>?
         var cheapestText: String?
         let open = max(nowMs, first)
-        let ahead = slots.filter { $0.startMs + $0.durationMs > open && $0.startMs < grid.toMs }
+        // On a face, the cheapest two hours of the whole plan ahead, the
+        // ones Now's and the lanes' sentence name, marked where this face
+        // holds them; on the twelve hours from now, the cheapest within them.
+        let ahead = slots.filter { page == nil ? $0.startMs + $0.durationMs > open && $0.startMs < grid.toMs : $0.startMs + $0.durationMs > nowMs }
         if ahead.count >= 2, let block = PriceStrip.bestBlock(ahead, hours: 2, cheapest: true) {
             let mean = ahead.map(\.totalMinor).reduce(0, +) / Double(ahead.count)
-            if block.meanMinor < mean * PlanGlance.cheapShare || block.meanMinor < 0,
-               let a = grid.index(atMs: max(block.startMs, open)), let b = grid.index(atMs: block.endMs - 1) {
-                cheapest = a...b
+            if block.meanMinor < mean * PlanGlance.cheapShare || block.meanMinor < 0 {
                 cheapestText = PriceWord.cheapest.format(clock.label(block.startMs) + "–" + clock.label(block.endMs), figure(block.meanMinor) + " " + unit.label.uppercased())
+                // The grid clamps an index, so only a block that overlaps
+                // the face marks quarters on it.
+                if block.endMs > open, block.startMs < grid.toMs,
+                   let a = grid.index(atMs: max(block.startMs, open)), let b = grid.index(atMs: min(block.endMs, grid.toMs) - 1), a <= b {
+                    cheapest = a...b
+                }
             }
         }
 
@@ -454,6 +461,10 @@ public struct PlanDial: Equatable, Sendable {
     /// VoiceOver.
     public var faceName: String { day(0).map { $0 + " " + span } ?? span }
 
+    /// "TODAY 12–24" or "TOMORROW 00–12": the kicker of the strip under
+    /// the face, which shows the same hours.
+    public var faceKicker: String { (day(0) ?? DialWord.today.text) + " " + span }
+
     /// "TOMORROW 04:30", or "14:30": the day and the time in one, for
     /// VoiceOver.
     public func when(_ i: Int) -> String { day(i).map { $0 + " " + times[i] } ?? times[i] }
@@ -496,8 +507,9 @@ public struct PlanDial: Equatable, Sendable {
 /// key; the Swedish lives in `Resources/sv.lproj/Dial.strings`, and a test
 /// checks each one has it.
 enum DialWord: String, CaseIterable {
-    case stores = "STORES · %@"
-    case gives = "GIVES · %@"
+    case stores = "CHARGES · %@"
+    case gives = "DISCHARGES · %@"
+    case today = "TODAY"
     case waits = "WAITS"
     case noPlan = "NO PLAN"
     case car = "CAR"

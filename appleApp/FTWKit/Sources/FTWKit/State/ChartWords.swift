@@ -23,7 +23,7 @@ public enum Readouts {
         if abs(w) <= Flow.idleW, node != .home { return NodeWords.text("resting") }
         switch node {
         case .solar: return NodeWords.text("making")
-        case .battery: return w > 0 ? NodeWords.text("charging") : NodeWords.text("giving power")
+        case .battery: return w > 0 ? NodeWords.text("charging") : NodeWords.text("discharging")
         case .home: return NodeWords.text("using")
         case .grid: return w > 0 ? NodeWords.text("buying") : NodeWords.text("selling")
         case .car: return NodeWords.text("charging")
