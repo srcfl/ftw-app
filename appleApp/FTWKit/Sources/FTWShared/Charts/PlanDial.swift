@@ -57,6 +57,9 @@ public struct PlanDial: Equatable, Sendable {
         /// Where the plan leaves the battery by the quarter's end, in
         /// percent. Nil when the box did not say.
         public let levelPct: Double?
+        /// The sun the box's forecast expects in the quarter, in watts. Nil
+        /// where it expects none, or the quarter is gone.
+        public var sunW: Double? = nil
     }
 
     /// A whole hour on the face: where it sits and its label, "18".
@@ -80,6 +83,10 @@ public struct PlanDial: Equatable, Sendable {
     /// The power a full-length tick stands for: the most the battery moves
     /// in this turn, and at least `leastFullW`.
     public let fullW: Double
+    /// The sun at the area's full depth: the most the forecast expects in
+    /// all it covers, so a dull morning stands lower than a bright one on
+    /// the next face, and at least `leastFullW`.
+    public let sunFullW: Double
     /// Each whole hour in the turn, by the household's clock, except the
     /// ones too close to the hand or the seam to read.
     public let hours: [Hour]
@@ -151,6 +158,15 @@ public struct PlanDial: Equatable, Sendable {
             return next < items.count && items[next][keyPath: start] < b ? items[next] : nil
         }
         func price(_ q: Int) -> Double? { holding(slots, q, start: \.startMs, length: \.durationMs)?.totalMinor }
+        let power = (plan?.daylight?.power ?? []).sorted { $0.fromMs < $1.fromMs }
+        // The forecast's watts at the middle of the part of quarter `q` to
+        // come.
+        func sunW(_ q: Int) -> Double? {
+            guard q >= from else { return nil }
+            let mid = (max(grid.startMs(q), nowMs) + grid.endMs(q)) / 2
+            guard let k = Self.last(power, atOrBefore: mid, start: \.fromMs), mid < power[k].toMs else { return nil }
+            return power[k].w
+        }
         func planned(_ q: Int) -> PlanEntry.Slot? { holding(battery, q, start: \.startMs, length: \.durationMs) }
 
         let minors = (0..<count).map { price($0) }
@@ -166,7 +182,7 @@ public struct PlanDial: Equatable, Sendable {
             let slot = planned(i)
             let w = slot?.batteryW
             let action: Battery = w.map { $0 > PlanGlance.idleW ? .stores : ($0 < -PlanGlance.idleW ? .gives : .waits) } ?? .waits
-            return Quarter(
+            var q = Quarter(
                 startMs: start,
                 minor: minors[i],
                 level: minors[i].map { scale.step($0) - 1 },
@@ -176,6 +192,8 @@ public struct PlanDial: Equatable, Sendable {
                 carGoalPct: goals[i],
                 levelPct: slot?.levelPct
             )
+            q.sunW = sunW(i)
+            return q
         }
 
         let unit = PriceUnits.unit(currency)
@@ -205,6 +223,7 @@ public struct PlanDial: Equatable, Sendable {
         self.nowIndex = nowIndex
         let turn = page == nil ? Self.count : count
         fullW = max(Self.leastFullW, quarters.prefix(turn).compactMap { $0.batteryW.map(abs) }.max() ?? 0)
+        sunFullW = max(Self.leastFullW, power.map(\.w).max() ?? 0)
         var hours = [Hour]()
         let hourMs = 3_600_000.0, turnEnd = first + Double(turn) * Self.quarterMs
         if page != nil {
@@ -353,6 +372,12 @@ public struct PlanDial: Equatable, Sendable {
         return min(1, abs(w) / fullW)
     }
 
+    /// How deep the sun's area is in quarter `i`, 0 to 1: the forecast's
+    /// watts against `sunFullW`. Nil where it expects no sun.
+    public func sunReach(_ i: Int) -> Double? {
+        quarters[i].sunW.map { min(1, $0 / sunFullW) }
+    }
+
     /// Where the middle of quarter `i` sits.
     public func angle(quarter i: Int) -> Double { angle(grid.startMs(i) + Self.quarterMs / 2) }
 
@@ -381,7 +406,7 @@ public struct PlanDial: Equatable, Sendable {
     }
 
     /// How far round the turn from the seam `ms` sits, 0 up to 2π.
-    private func along(_ ms: Double) -> Double {
+    public func along(_ ms: Double) -> Double {
         let a = (angle(ms) - seam).truncatingRemainder(dividingBy: 2 * .pi)
         return a < 0 ? a + 2 * .pi : a
     }

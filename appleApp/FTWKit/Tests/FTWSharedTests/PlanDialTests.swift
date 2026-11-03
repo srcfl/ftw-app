@@ -200,7 +200,32 @@ import Testing
         let d = try #require(PlanEntry.Daylight(slots))
         #expect(d.covered == .init(fromMs: at(14, 0), toMs: at(15, 0)))
         #expect(d.sun == [.init(fromMs: at(14, 7, 30), toMs: at(14, 17))])
+        // Its watts travel too, each step with sun, for the dial's area.
+        #expect(d.power?.count == 38 && d.power?.first == .init(fromMs: at(14, 7, 30), toMs: at(14, 7, 45), w: 1_500))
         #expect(PlanEntry.Daylight([]) == nil)
+    }
+
+    /// The sun is an area as deep as the forecast's watts against the most
+    /// it expects, from now on: a bright noon full, a dull morning lower.
+    @Test func theSunIsAnAreaOfTheForecastsWatts() {
+        let steps = (0..<96).compactMap { i -> PlanEntry.Daylight.Step? in
+            let t = at(14, 0) + Double(i) * WatchTests.quarter
+            let h = Double(i % 96) / 4
+            guard h >= 8, h < 16 else { return nil }
+            return .init(fromMs: t, toMs: t + WatchTests.quarter, w: h < 10 ? 1_000 : 4_000)
+        }
+        let day = PlanEntry.Daylight(covered: .init(fromMs: at(14, 0), toMs: at(15, 0)), sun: [.init(fromMs: at(14, 8), toMs: at(14, 16))], power: steps)
+        let morning = dial(at: at(14, 7, 10), daylight: day)
+        #expect(morning.sunFullW == 4_000)
+        #expect(morning.sunReach(morning.grid.index(atMs: at(14, 9))!) == 0.25)
+        #expect(morning.sunReach(morning.grid.index(atMs: at(14, 11))!) == 1)
+        #expect(morning.sunReach(morning.grid.index(atMs: at(14, 7, 30))!) == nil)
+        // Gone by, no sun: at 12:07 the morning's quarters hold none.
+        let noon = dial(at: at(14, 12, 7), daylight: day)
+        #expect(noon.quarters.prefix(noon.first).allSatisfy { $0.sunW == nil })
+        #expect(noon.sunReach(noon.first) == 1)
+        // A record kept before the watts travelled draws no area.
+        #expect(dial(at: at(14, 12, 7), daylight: .init(covered: day.covered, sun: day.sun)).quarters.allSatisfy { $0.sunW == nil })
     }
 
     @Test func theMiddleAndTheScrubLineAreMadeOnce() {

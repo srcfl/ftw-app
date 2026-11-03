@@ -366,13 +366,17 @@ private struct Legend: View {
         item(Theme.stores, L("charging"))
         item(Theme.car, L("Car"))
         if sun {
+            // The dial's sun in small: a ghost area under a dashed edge.
             HStack(spacing: 4) {
-                Path { p in
-                    p.move(to: CGPoint(x: 0, y: 1))
-                    p.addLine(to: CGPoint(x: 14, y: 1))
+                ZStack(alignment: .top) {
+                    RoundedRectangle(cornerRadius: 2).fill(Theme.solar.opacity(0.2 * Theme.planSun(contrast)))
+                    Path { p in
+                        p.move(to: CGPoint(x: 0, y: 0.75))
+                        p.addLine(to: CGPoint(x: 14, y: 0.75))
+                    }
+                    .stroke(Theme.solar.opacity(Theme.planSun(contrast)), style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
                 }
-                .stroke(Theme.solar.opacity(Theme.planSun(contrast)), style: StrokeStyle(lineWidth: 2, dash: [4, 3]))
-                .frame(width: 14, height: 2)
+                .frame(width: 14, height: 6)
                 Text(L("sun forecast")).lineLimit(1)
             }
         }

@@ -7,8 +7,10 @@ import WidgetKit
 /// face, so the four never differ.
 ///
 /// From the outside in: the rim, a hairline with a 2° gap at the top where
-/// the half day ends and begins, and the sun's arc on it from the box's
-/// forecast, dashed because it is a guess; the whole hours just outside it,
+/// the half day ends and begins; the sun as an area hanging in from it, as
+/// deep as the box's forecast expects the panels to make, a ghost with a
+/// dashed edge because it is a guess (Fredrik, 3 Nov 2026: the forecast is
+/// an area, as the rest is); the whole hours just outside the rim,
 /// as on a clock, the ones gone by fainter; a tick per quarter from now on,
 /// as long as the battery's planned power, cyan where it stores, gold where
 /// it gives power (as on Now's strip under it), a faint stub where it
@@ -19,9 +21,10 @@ import WidgetKit
 /// The pass a tap chose (`lit`) has its ticks at full strength; the rest
 /// stay a ghost.
 ///
-/// Every mark is a still path filled once. Nothing glows: a plan is intent,
-/// not a reading, so in full colour every hue is a ghost at `Theme.plan`,
-/// as on Now's strip. A tinted or clear face is one colour already.
+/// Every mark is a still path filled once. Nothing glows but the sun's
+/// area in the dark, held still: a plan is intent, not a reading, so in
+/// full colour every hue is a ghost at `Theme.plan`, as on Now's strip. A
+/// tinted or clear face is one colour already.
 struct PlanDialFace: View, Equatable {
     enum Size: Equatable {
         /// The phone's plan view and the watch app: rim, hours, and the
@@ -52,9 +55,14 @@ struct PlanDialFace: View, Equatable {
                     rim(g).stroke(Theme.ink.opacity(0.18), style: StrokeStyle(lineWidth: 0.5, lineCap: .butt, lineJoin: .round))
                     HourLabels(g: g, dial: dial)
                 }
-                // The sun is the box's forecast, a guess: dashed, where the
-                // prices it plans on are drawn solid.
-                sun(g).stroke(grey ? Theme.ink3 : Theme.solar.opacity(sunPlan), style: StrokeStyle(lineWidth: g.sunWidth, lineCap: .butt, lineJoin: .round, dash: g.sunDash))
+                // The sun is the box's forecast, a guess: a ghost with a
+                // dashed edge. Too small for an area, a widget keeps the
+                // dashed arc.
+                if size == .app {
+                    SunArea(g: g, dial: dial, grey: grey, plan: sunPlan)
+                } else {
+                    sun(g).stroke(grey ? Theme.ink3 : Theme.solar.opacity(sunPlan), style: StrokeStyle(lineWidth: g.sunWidth, lineCap: .butt, lineJoin: .round, dash: g.sunDash))
+                }
                 stubs(g).fill(grey ? Theme.oldPlan : Theme.ink3.opacity(0.6))
                 ticks(g, .gives, lit: false).fill(grey ? Theme.oldPlan : Theme.gives.opacity(lit == nil ? plan : plan * 0.6))
                 ticks(g, .stores, lit: false).fill(grey ? Theme.oldPlan : Theme.stores.opacity(lit == nil ? plan : plan * 0.6))
@@ -270,6 +278,93 @@ struct DialGeometry {
         p.addLine(to: CGPoint(x: p0.x + nx, y: p0.y + ny))
         p.closeSubpath()
         return p
+    }
+}
+
+/// The sun as the forecast's area: from the rim in, as deep as the watts
+/// it expects against the most it expects (half the ticks' room at most),
+/// from now or sunrise to sunset, smooth, with a dashed edge. In the dark
+/// it is warm: a still blur of its own colour under it, never moving, so
+/// it never reads as live. Light mode and Reduce Transparency have none.
+private struct SunArea: View {
+    let g: DialGeometry
+    let dial: PlanDial
+    let grey: Bool
+    /// `Theme.planSun`, or 1 on a tinted face.
+    let plan: Double
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.widgetRenderingMode) private var renderingMode
+
+    var body: some View {
+        let shape = Self.shape(g, dial)
+        ZStack {
+            if !grey, scheme == .dark, !reduceTransparency, renderingMode == .fullColor {
+                shape.area.fill(Theme.solar.opacity(0.3)).blur(radius: max(2, g.side * 0.014))
+            }
+            shape.area.fill(grey ? Theme.ink3.opacity(0.2) : Theme.solar.opacity(0.2 * plan))
+            shape.edge.stroke(grey ? Theme.ink3 : Theme.solar.opacity(plan), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round, dash: g.sunDash))
+        }
+    }
+
+    /// One area and one edge for each run of sun on the face, clear of the
+    /// seam.
+    static func shape(_ g: DialGeometry, _ dial: PlanDial) -> (area: Path, edge: Path) {
+        var area = Path(), edge = Path()
+        let depth = (g.rim - g.inner) * 0.5
+        var i = dial.first
+        while i < dial.turn {
+            guard dial.sunReach(i) != nil else { i += 1; continue }
+            var j = i
+            while j + 1 < dial.turn, dial.sunReach(j + 1) != nil { j += 1 }
+            let a0 = max(dial.along(max(dial.grid.startMs(i), dial.nowMs)), DialGeometry.gap)
+            var a1 = dial.along(dial.grid.endMs(j))
+            if a1 <= a0 { a1 = 2 * .pi }
+            a1 = min(a1, 2 * .pi - DialGeometry.gap)
+            // Sunrise and sunset taper to the rim. Where the sun is already
+            // up at now or at the face's start, or still up at its end, the
+            // area stops square.
+            func at(_ a: Double, _ k: Int) -> CGPoint { g.point(dial.seam + a, g.rim - depth * CGFloat(dial.sunReach(k) ?? 0)) }
+            var points = [g.point(dial.seam + a0, g.rim)]
+            if i == dial.first { points.append(at(a0, i)) }
+            for k in i...j {
+                points.append(at(min(max(dial.along(dial.grid.startMs(k) + PlanDial.quarterMs / 2), a0), a1), k))
+            }
+            if j == dial.turn - 1 { points.append(at(a1, j)) }
+            points.append(g.point(dial.seam + a1, g.rim))
+            let profile = smooth(points)
+            edge.addPath(profile)
+            var run = profile
+            // Back along the rim to where it began.
+            let steps = max(2, Int((a1 - a0) / (.pi / 180)))
+            for s in 1...steps { run.addLine(to: g.point(dial.seam + a1 - (a1 - a0) * Double(s) / Double(steps), g.rim)) }
+            run.closeSubpath()
+            area.addPath(run)
+            i = j + 1
+        }
+        return (area, edge)
+    }
+
+    /// Through the points with no corners: a curve to each midpoint, the
+    /// point between as its control.
+    private static func smooth(_ p: [CGPoint]) -> Path {
+        var path = Path()
+        guard let first = p.first else { return path }
+        path.move(to: first)
+        guard p.count > 3 else {
+            p.dropFirst().forEach { path.addLine(to: $0) }
+            return path
+        }
+        // The first and last legs are straight, so a square end stays
+        // square.
+        path.addLine(to: p[1])
+        for k in 1..<(p.count - 2) {
+            let mid = CGPoint(x: (p[k].x + p[k + 1].x) / 2, y: (p[k].y + p[k + 1].y) / 2)
+            path.addQuadCurve(to: mid, control: p[k])
+        }
+        path.addLine(to: p[p.count - 2])
+        path.addLine(to: p[p.count - 1])
+        return path
     }
 }
 

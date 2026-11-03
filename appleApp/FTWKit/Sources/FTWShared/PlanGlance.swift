@@ -84,15 +84,33 @@ public struct PlanEntry: CacheValue {
         }
     }
 
-    /// The stretch the solar forecast covers, and the runs in it where it
-    /// expects the panels to make power.
+    /// The stretch the solar forecast covers, the runs in it where it
+    /// expects the panels to make power, and how much in each of its
+    /// steps. The dial draws the sun as an area from that power.
     public struct Daylight: Codable, Sendable, Equatable {
         public var covered: Span
         public var sun: [Span]
+        /// The forecast's own steps with sun in them, and the watts it
+        /// expects. Nil in a record kept before it travelled.
+        public var power: [Step]?
 
-        public init(covered: Span, sun: [Span]) {
+        /// One step of the forecast: from, to and the panels' watts.
+        public struct Step: Codable, Sendable, Equatable {
+            public var fromMs: Double
+            public var toMs: Double
+            public var w: Double
+
+            public init(fromMs: Double, toMs: Double, w: Double) {
+                self.fromMs = fromMs
+                self.toMs = toMs
+                self.w = w
+            }
+        }
+
+        public init(covered: Span, sun: [Span], power: [Step]? = nil) {
             self.covered = covered
             self.sun = sun
+            self.power = power
         }
 
         /// From the forecast's slots: start, length and expected watts.
@@ -100,15 +118,17 @@ public struct PlanEntry: CacheValue {
             let sorted = slots.filter { $0.durationMs > 0 }.sorted { $0.startMs < $1.startMs }
             guard let first = sorted.first, let last = sorted.last else { return nil }
             var runs = [Span]()
+            var steps = [Step]()
             for s in sorted where s.pvW >= PlanDial.sunW {
                 let end = s.startMs + s.durationMs
+                steps.append(Step(fromMs: s.startMs, toMs: end, w: s.pvW))
                 if let open = runs.last, s.startMs <= open.toMs + 1 {
                     runs[runs.count - 1].toMs = max(open.toMs, end)
                 } else {
                     runs.append(Span(fromMs: s.startMs, toMs: end))
                 }
             }
-            self.init(covered: Span(fromMs: first.startMs, toMs: last.startMs + last.durationMs), sun: runs)
+            self.init(covered: Span(fromMs: first.startMs, toMs: last.startMs + last.durationMs), sun: runs, power: steps)
         }
     }
 

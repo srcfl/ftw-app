@@ -282,7 +282,9 @@ The rules below put these into practice.
   `srcState` live. The cache, the past, the plan and a quiet stream are
   ink and hold still. Light mode has no glow; motion and full colour alone
   say live. Every glow call takes `isLive`, and a test proves that a cache
-  never glows.
+  never glows. One forecast is warm: the sun's area on the dial has a
+  still blur of its own colour in the dark (Fredrik, 3 Nov 2026), never
+  motion, ignite or decay, so it never reads as live.
 - **Three tenses, one grammar.** A glowing line is now. A solid line with a
   filled body is what the box measured. A ghost (low fill, thin cap, dashed
   line) is what it plans or forecasts. A hatch means "on its way"; a dotted
@@ -312,7 +314,8 @@ The rules below put these into practice.
   magenta both ways: the side of zero and the word say which way it goes.
   Gold keeps the battery on Now's ring and strip, the plan's lanes and the
   widgets, where no sun curve is drawn beside it, and on the dial, where
-  the sun is only a thin dashed arc on the rim (round 3, 1 Nov 2026).
+  the sun is an area from the rim and the battery gives power mostly once
+  the sun is gone (round 3, 1 Nov 2026).
 - **Space, not boxes.** No cards and no borders: 24 to 32 pt between
   groups, and a hairline only where two lists meet. `Card` keeps its
   spacing and draws nothing.
@@ -403,8 +406,12 @@ as on a normal clock, so you lose the feel for when things happen"):
    against the most it moves in the turn (at least 1 kW). Its colour is
    what the plan does with the battery: `Theme.stores` stores,
    `Theme.gives` gives power, as on the strip under the dial. A quarter in
-   which it waits, or the plan says nothing, is a faint stub. The sun is a
-   thin dashed arc on the rim, never a tick.
+   which it waits, or the plan says nothing, is a faint stub. The sun is
+   an area, never a tick: a ghost hanging in from the rim, as deep as the
+   watts the box's forecast expects against the most it expects (half the
+   ticks' room at most), with a dashed edge (Fredrik, 3 Nov 2026: the
+   forecast is an area, as the rest is). A widget too small for it keeps a
+   thin dashed arc.
 3. A dotted arc in `Theme.car` marks when the car charges, with its goal
    at the end.
 4. A hand marks now on now's face; a later face has none until a finger
