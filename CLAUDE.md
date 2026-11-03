@@ -169,15 +169,8 @@ native, and smooth enough to impress.
   stack, and a second tap on a tab takes it to its top. History tells
   today: the savings, then a row per node with its energy in words and
   its day drawn midnight to midnight on one shared axis, each into that
-  node's view on Today. Under the day, a Swedish home (SE1 to SE4) with
-  a battery has a row for the energy tax refund after battery storage
-  (Fredrik, 2 Nov 2026): Core's figure for Skatteverket for one calendar
-  year (`/api/energy/battery-return`), in whole kWh rounded down, month
-  by month, with the hourly basis to share as CSV. The box keeps an
-  account per battery, and with several each has its own line. A
-  `problem` from the box shows why, with no figure. Home holds what the
-  title's menu and the settings sheet held: the cars, assistants, the
-  watch, the homes, this
+  node's view on Today. Home holds what the title's menu and the
+  settings sheet held: the cars, assistants, the watch, the homes, this
   phone and About. Now's title is the home's name and opens nothing. The
   mode and the planning style change in Plan alone (Fredrik, 25 October
   2026): its mode row opens the mode sheet, and its scale runs from

@@ -528,8 +528,6 @@ public final class SimulatedBox {
         ("GET", "/api/mpc/plan", .read, nil),
         ("GET", "/api/planner/prefs", .read, nil),
         ("GET", "/api/energy/history", .read, nil),
-        ("GET", "/api/energy/battery-return", .read, nil),
-        ("GET", "/api/energy/battery-return.csv", .read, nil),
         ("POST", "/api/planner/prefs", .actuate, Contract.opPlannerPrefsSet),
         ("POST", "/api/loadpoints/{id}/vehicle", .configure, nil),
         ("PUT", "/api/loadpoints/{id}/schedule", .configure, nil),
@@ -585,21 +583,12 @@ public final class SimulatedBox {
         case .read:
             break
         }
-        let (status, body, type): (Int, Bytes, String)
-        if route.pattern == "/api/energy/battery-return.csv" {
-            // The one answer that is not JSON: the refund's hourly basis.
-            let year = batteryReturnYear(query)
-            (status, body, type) = year.map { (200, Array(SimulatedBatteryReturn.csv($0, nowMs: scheduler.nowMs).utf8), "text/csv; charset=utf-8") }
-                ?? (400, Array("year out of range\n".utf8), "text/plain; charset=utf-8")
-        } else {
-            let (s, json) = answer(method, route.pattern, route.id, query, requestBody)
-            (status, body, type) = (s, json.encoded(), "application/json")
-        }
+        let (status, json) = answer(method, route.pattern, route.id, query, requestBody)
         guard answerDelayMs > 0 else {
-            respond(id, status: status, body: body, type: type)
+            respond(id, status: status, json: json)
             return
         }
-        scheduler.after(answerDelayMs) { [weak self] in self?.respond(id, status: status, body: body, type: type) }
+        scheduler.after(answerDelayMs) { [weak self] in self?.respond(id, status: status, json: json) }
     }
 
     /// Core's answer to "Are we in control?" for the demo's battery and
@@ -724,9 +713,6 @@ public final class SimulatedBox {
                 "mapped_k": .number(house.safetyK),
                 "mapped_mode": .string(mapped),
             ])
-        case ("GET", "/api/energy/battery-return"):
-            guard let year = batteryReturnYear(query) else { return (400, ["error": "year out of range"]) }
-            return (200, SimulatedBatteryReturn.report(year, nowMs: now))
         case ("GET", "/api/energy/history"):
             let until = min(now, Double(query["until"] ?? "") ?? now)
             let since = Double(query["since"] ?? "") ?? until - 86_400_000
@@ -872,17 +858,9 @@ public final class SimulatedBox {
         sendBulk(Envelope(t: "error", id: id, b: .map([("code", .text(code)), ("retryable", .bool(Contract.isRetryable(code))), ("args", .map(args))])))
     }
 
-    /// The refund's year, as Core takes it: 2018 to this year, last year
-    /// when none is asked for.
-    private func batteryReturnYear(_ query: [String: String]) -> Int? {
-        let now = scheduler.nowMs
-        guard let asked = query["year"] else { return BatteryReturn.defaultYear(nowMs: now) }
-        guard let year = Int(asked), year >= BatteryReturn.firstYear, year <= BatteryReturn.thisYear(nowMs: now) else { return nil }
-        return year
-    }
-
-    private func respond(_ id: UInt32?, status: Int, body: Bytes, type: String) {
-        sendBulk(Envelope(t: "api.head", id: id, b: .map([("status", .int(status)), ("headers", .map([("content-type", .text(type))])), ("len", .int(body.count))])))
+    private func respond(_ id: UInt32?, status: Int, json: JSON) {
+        let body = json.encoded()
+        sendBulk(Envelope(t: "api.head", id: id, b: .map([("status", .int(status)), ("headers", .map([("content-type", .text("application/json"))])), ("len", .int(body.count))])))
         var seq = 0
         var at = 0
         while at < body.count {

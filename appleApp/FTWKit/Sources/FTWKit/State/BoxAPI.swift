@@ -26,26 +26,16 @@ extension SiteModel {
             }
         }
         let res = try await sendBox(method, path, query: query, body: body, stepUp: freshStepUp)
-        let bytes = try Self.body(of: res)
-        if bytes.isEmpty { return nil }
-        do {
-            return try JSON(parsing: bytes)
-        } catch {
-            throw BoxAPIError(code: "E_BAD_BODY", help: AppWords.text("Your box sent something this app couldn't read."), status: res.status)
-        }
-    }
-
-    /// Read the box's own API and get the body back as it came: a CSV, say.
-    public func readBox(_ path: String, query: [String: String] = [:]) async throws -> Bytes {
-        try Self.body(of: try await sendBox(.get, path, query: query, body: nil, stepUp: false))
-    }
-
-    static func body(of res: APIResponse) throws -> Bytes {
         guard (200..<300).contains(res.status) else {
             let code = Self.codeFromBody(res.body)
             throw BoxAPIError(code: code ?? "HTTP_\(res.status)", help: Self.statusHelp(res.status, code), status: res.status)
         }
-        return res.body
+        if res.body.isEmpty { return nil }
+        do {
+            return try JSON(parsing: res.body)
+        } catch {
+            throw BoxAPIError(code: "E_BAD_BODY", help: AppWords.text("Your box sent something this app couldn't read."), status: res.status)
+        }
     }
 
     private func sendBox(_ method: APIMethod, _ path: String, query: [String: String], body: JSON?, stepUp: Bool) async throws -> APIResponse {
