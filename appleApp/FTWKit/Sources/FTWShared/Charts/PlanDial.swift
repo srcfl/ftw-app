@@ -61,6 +61,9 @@ public struct PlanDial: Equatable, Sendable {
         /// The sun the box's forecast expects in the quarter, in watts. Nil
         /// where it expects none.
         public var sunW: Double? = nil
+        /// What of the battery's discharge the plan expects the home to
+        /// sell, in watts (`PlanEntry.Slot.soldW`). Zero otherwise.
+        public var soldW: Double = 0
     }
 
     /// A whole hour on the face: where it sits and its label, "18".
@@ -178,6 +181,7 @@ public struct PlanDial: Equatable, Sendable {
                 levelPct: slot?.levelPct
             )
             q.sunW = sunW(i)
+            q.soldW = slot?.soldW ?? 0
             return q
         }
 
@@ -231,6 +235,7 @@ public struct PlanDial: Equatable, Sendable {
             switch (q.battery, q.batteryW) {
             case (_, nil): parts.append(DialWord.noPlan.text)
             case (.stores, let w?): parts.append(DialWord.stores.format(Words.decimal(PowerFormat.text(w)).uppercased()))
+            case (.gives, _) where q.soldW > 0: parts.append(DialWord.givesSells.format(Words.decimal(PowerFormat.text(q.soldW)).uppercased()))
             case (.gives, let w?): parts.append(DialWord.gives.format(Words.decimal(PowerFormat.text(w)).uppercased()))
             case (.waits, _): parts.append(DialWord.waits.text)
             }
@@ -327,6 +332,14 @@ public struct PlanDial: Equatable, Sendable {
         return min(1, abs(w) / fullW)
     }
 
+    /// The share of quarter `i`'s tick the home sells, 0 to 1: its outer
+    /// end, in the grid's colour, as far as the power that leaves the home.
+    public func soldShare(_ i: Int) -> Double {
+        let q = quarters[i]
+        guard q.battery == .gives, let w = q.batteryW, w < 0 else { return 0 }
+        return min(1, q.soldW / -w)
+    }
+
     /// How deep the sun's area is in quarter `i`, 0 to 1: the forecast's
     /// watts against `sunFullW`. Nil where it expects no sun.
     public func sunReach(_ i: Int) -> Double? {
@@ -418,6 +431,7 @@ public struct PlanDial: Equatable, Sendable {
         switch (q.battery, q.batteryW) {
         case (_, nil): parts.append(WatchWord.noPlan.text)
         case (.stores, let w?): parts.append("\(WatchWord.batteryStores.text) \(Words.decimal(PowerFormat.text(w)))")
+        case (.gives, let w?) where q.soldW > 0: parts.append("\(WatchWord.batteryGives.text) \(Words.decimal(PowerFormat.text(w))), \(WatchWord.selling.text) \(Words.decimal(PowerFormat.text(q.soldW)))")
         case (.gives, let w?): parts.append("\(WatchWord.batteryGives.text) \(Words.decimal(PowerFormat.text(w)))")
         case (.waits, _): parts.append(WatchWord.batteryWaits.text)
         }
@@ -439,6 +453,7 @@ public struct PlanDial: Equatable, Sendable {
 enum DialWord: String, CaseIterable {
     case stores = "CHARGES · %@"
     case gives = "DISCHARGES · %@"
+    case givesSells = "DISCHARGES · SELLS %@"
     case waits = "WAITS"
     case noPlan = "NO PLAN"
     case car = "CAR"

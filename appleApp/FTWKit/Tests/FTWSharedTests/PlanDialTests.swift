@@ -280,6 +280,8 @@ import Testing
         json["daylight"] = nil
         let old = try JSONDecoder().decode(PlanEntry.self, from: JSONSerialization.data(withJSONObject: json))
         #expect(old.daylight == nil)
+        // A record from before the meter's watts were kept sells nothing.
+        #expect(old.battery?.allSatisfy { $0.gridW == nil && $0.soldW == 0 } == true)
     }
 
     /// A car that charges in two windows toward one goal has the goal once,
@@ -294,6 +296,32 @@ import Testing
         #expect(d.quarters[step].car && d.doing[step].hasSuffix(" · CAR"))
         #expect(d.doing[goal] == "WAITS · CAR TO 80\u{00A0}%")
         #expect(d.landmarks.contains(goal) && !d.landmarks.contains(step))
+    }
+
+    /// What the battery gives that the home sells ends its tick in the
+    /// grid's colour, as far as it goes, and the middle says so (Anders,
+    /// 4 Nov 2026). From 17 the home sells 1.5 of the battery's 2 kW, from
+    /// 18 half a kilowatt.
+    @Test func whatTheHomeSellsEndsTheTick() {
+        var plan = watch.plan()
+        for i in plan.battery!.indices {
+            let s = plan.battery![i]
+            guard s.batteryW < 0 else { continue }
+            plan.battery![i].gridW = s.startMs < at(14, 18) ? -1_500 : -500
+        }
+        let d = PlanDial(plan: plan, prices: watch.prices(), nowMs: at(14, 12, 7))
+        let five = d.grid.index(atMs: at(14, 17))!, six = d.grid.index(atMs: at(14, 18))!, ten = d.grid.index(atMs: at(14, 22))!
+        #expect(d.quarters[five].soldW == 1_500 && d.soldShare(five) == 0.75)
+        #expect(d.soldShare(six) == 0.25)
+        #expect(d.soldShare(ten) == 0 && d.soldShare(d.grid.index(atMs: at(14, 13))!) == 0)
+        // The tick keeps its length: the battery's whole power.
+        #expect(abs(d.reach(five)! - 2.0 / 3) < 1e-9)
+        #expect(d.doing[five] == "DISCHARGES · SELLS 1.5 KW")
+        #expect(d.doing[six] == "DISCHARGES · SELLS 500 W")
+        #expect(d.what(five).hasPrefix("Battery discharges 2.0 kW, selling 1.5 kW"))
+        // The plan without the meter's watts sells nothing.
+        let bare = dial()
+        #expect(bare.soldShare(five) == 0 && bare.doing[five] == "DISCHARGES · 2.0 KW")
     }
 
     /// Every word has Swedish, with as many blanks as the English.

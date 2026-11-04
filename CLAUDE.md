@@ -295,7 +295,14 @@ The rules below put these into practice.
   ways, where the side of zero and the word say buying or selling; `car`
   (violet). The home is ink. `live` and `alarm` are states, never levels.
   A price is ink by its level, never red and green. No orange anywhere;
-  the system tint is ink.
+  the system tint is ink. On the plan, what the battery gives that the
+  home sells takes the grid's magenta (Anders, 4 Nov 2026: gold for the
+  home's own use, another colour for selling the surplus), from the box's
+  expected watts at the meter (`PlanEntry.Slot.soldW`): the sun covers
+  the home first, so the battery sells what the home exports, up to what
+  it gives. The dial's tick ends in magenta as far as that goes; on the
+  strip and the lanes a quarter is magenta when most of the battery's
+  power leaves the home, and the legend names it while the plan sells.
 - **A price stands on zero.** Erik, 1 Nov 2026: the strip that put the
   window's cheapest at its floor made 450 against 550 öre look five times
   dearer. Every price bar, tick and glyph reads one `PriceScale`: zero at
@@ -418,7 +425,8 @@ as on a normal clock, so you lose the feel for when things happen"):
 2. One tick per quarter hour, as long as the battery's planned power
    against the most it moves in the turn (at least 1 kW). Its colour is
    what the plan does with the battery: `Theme.stores` stores,
-   `Theme.gives` gives power, as on the strip under the dial. A quarter in
+   `Theme.gives` gives power, as on the strip under the dial, with its
+   outer end in `Theme.grid` as far as the home sells it. A quarter in
    which it waits, or the plan says nothing, is a faint stub. The sun is
    an area, never a tick: a ghost hanging in from the rim, as deep as the
    watts the box's forecast expects against the most it expects (half the

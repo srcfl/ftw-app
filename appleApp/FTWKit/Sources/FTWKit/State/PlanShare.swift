@@ -15,7 +15,7 @@ extension PlanEntry {
             let end = s.startMs + s.durationMs
             return levels.first { $0.startMs < end && end <= $0.endMs + 1 }?.pct
         }
-        let battery = plan.map { p in p.slots.map { Slot(startMs: $0.startMs, durationMs: $0.durationMs, batteryW: $0.batteryW, reason: $0.reason, levelPct: level($0)) } }
+        let battery = plan.map { p in p.slots.map { Slot(startMs: $0.startMs, durationMs: $0.durationMs, batteryW: $0.batteryW, reason: $0.reason, levelPct: level($0), gridW: $0.gridW) } }
         var charges = [Charge]()
         for lp in points {
             for w in windows[lp.id] ?? lp.planWindows {

@@ -19,14 +19,31 @@ public struct PlanEntry: CacheValue {
         /// The level the plan leads the battery to by the end of the slot,
         /// in percent. Nil when the box did not say.
         public var levelPct: Double?
+        /// What the box expects at the meter, site sign: negative while
+        /// the home sells. Nil in a record from before it was kept.
+        public var gridW: Double?
 
-        public init(startMs: Double, durationMs: Double, batteryW: Double, reason: String, levelPct: Double? = nil) {
+        public init(startMs: Double, durationMs: Double, batteryW: Double, reason: String, levelPct: Double? = nil, gridW: Double? = nil) {
             self.startMs = startMs
             self.durationMs = durationMs
             self.batteryW = batteryW
             self.reason = reason
             self.levelPct = levelPct
+            self.gridW = gridW
         }
+
+        /// The watts of the battery's discharge the plan expects to leave
+        /// through the meter: what the home sells beyond its own use, up to
+        /// what the battery gives (Anders, 4 Nov 2026). The sun covers the
+        /// home first, so a battery that gives while the home sells sells
+        /// all it gives. Zero while it charges, waits or covers the home.
+        public var soldW: Double {
+            guard batteryW < -PlanGlance.idleW, let g = gridW, g < -PlanGlance.idleW else { return 0 }
+            return min(-batteryW, -g)
+        }
+
+        /// Most of what the battery gives leaves the home.
+        public var sells: Bool { batteryW < -PlanGlance.idleW && soldW * 2 >= -batteryW }
     }
 
     /// One window in which a car is planned to charge.
@@ -790,6 +807,7 @@ enum PlanWord: String, CaseIterable {
     case nowMark = "NOW"
     case stores = "charges"
     case gives = "discharges"
+    case givesSells = "discharges and sells"
     case waits = "waits"
     case carChargesWord = "car charges"
     case carGoal = "car at %@"

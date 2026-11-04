@@ -1,6 +1,7 @@
 /* The plan dial's words, on the phone, its widget and the watch. English is the key (DialWord). */
 "CHARGES · %@" = "CHARGES · %@";
 "DISCHARGES · %@" = "DISCHARGES · %@";
+"DISCHARGES · SELLS %@" = "DISCHARGES · SELLS %@";
 "WAITS" = "WAITS";
 "NO PLAN" = "NO PLAN";
 "CAR" = "CAR";

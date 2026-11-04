@@ -61,6 +61,7 @@
 "NOW" = "NU";
 "charges" = "laddar";
 "discharges" = "laddar ur";
+"discharges and sells" = "laddar ur och säljer";
 "waits" = "vilar";
 "car charges" = "bilen laddar";
 "car at %@" = "bilen når %@";

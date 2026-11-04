@@ -190,7 +190,9 @@ private struct PlanBody: View {
             )
             .equatable()
             .fitCap(.xLarge)
-            Legend(sun: dial.map { !$0.sun.isEmpty } ?? false, level: style == .lanes && strip.levelPct.contains { $0 != nil })
+            Legend(sun: dial.map { !$0.sun.isEmpty } ?? false,
+                   sells: dial?.quarters.contains { $0.soldW > 0 } == true || strip.battery.contains(.sells),
+                   level: style == .lanes && strip.levelPct.contains { $0 != nil })
             MovedLine(text: moved)
             // Mono stops growing at accessibility1.
             Group {
@@ -287,9 +289,11 @@ private final class StripMemo {
 /// What each colour means, in short words: the figures under the strip
 /// say the rest. The dial's ticks are as long as the battery's power; its
 /// dashed gold rim is the box's sun forecast (xorath, 3 Nov 2026, found
-/// nothing that said so).
+/// nothing that said so). Magenta, the grid's colour, is what the battery
+/// gives that the home sells, named while the plan sells.
 private struct Legend: View {
     var sun = false
+    var sells = false
     var level = false
     @Environment(\.colorSchemeContrast) private var contrast
 
@@ -304,6 +308,7 @@ private struct Legend: View {
 
     @ViewBuilder private var items: some View {
         item(Theme.gives, L("discharging"))
+        if sells { item(Theme.grid, L("selling")) }
         item(Theme.stores, L("charging"))
         item(Theme.car, L("Car"))
         if sun {
