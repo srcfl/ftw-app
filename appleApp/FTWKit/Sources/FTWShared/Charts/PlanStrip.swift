@@ -15,7 +15,9 @@ public struct PlanStrip: Equatable, Sendable {
     public static let mostPrice: CGFloat = 72
 
     public enum Battery: Equatable, Sendable {
-        case stores, gives
+        /// `sells`: it discharges, and most of what it gives leaves the
+        /// home through the meter (Anders, 4 Nov 2026).
+        case stores, gives, sells
     }
 
     /// Equal neighbours, drawn as one shape so a flat stretch has no seams.
@@ -34,7 +36,8 @@ public struct PlanStrip: Equatable, Sendable {
     public let grid: SlotGrid
     public let nowMs: Double
     /// What the battery does per quarter; nil while it waits or without a
-    /// plan.
+    /// plan. A quarter sells when the box expects most of the battery's
+    /// power to leave the home.
     public let battery: [Battery?]
     public let car: [Bool]
     /// The quarter in which a car's charge ends, and the level it charges
@@ -125,7 +128,7 @@ public struct PlanStrip: Equatable, Sendable {
             let start = grid.startMs(i), end = grid.endMs(i), from = max(start, nowMs)
             minor[i] = covering(prices, from: from, to: end, start: \.startMs, length: \.durationMs)?.totalMinor
             planned[i] = covering(slots, from: from, to: end, start: \.startMs, length: \.durationMs)
-            battery[i] = planned[i].flatMap { $0.batteryW > PlanGlance.idleW ? .stores : ($0.batteryW < -PlanGlance.idleW ? .gives : nil) }
+            battery[i] = planned[i].flatMap { $0.batteryW > PlanGlance.idleW ? .stores : ($0.batteryW < -PlanGlance.idleW ? ($0.sells ? .sells : .gives) : nil) }
             car[i] = charges.contains { $0.fromMs < end && $0.toMs > start }
         }
 
@@ -173,6 +176,7 @@ public struct PlanStrip: Equatable, Sendable {
                 switch battery[i] {
                 case .stores?: parts.append(PlanWord.stores.text)
                 case .gives?: parts.append(PlanWord.gives.text)
+                case .sells?: parts.append(PlanWord.givesSells.text)
                 case nil: parts.append(PlanWord.waits.text)
                 }
                 // Where the plan leaves the battery by the quarter's end.

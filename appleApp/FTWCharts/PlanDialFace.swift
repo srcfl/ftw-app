@@ -13,7 +13,9 @@ import WidgetKit
 /// an area, as the rest is); the whole hours just outside the rim, as on a
 /// clock; a tick per quarter, as long as the battery's planned power, cyan
 /// where it charges, gold where it discharges (as on Now's strip under it),
-/// a faint stub where it waits; the car's dotted arc with its goal. It
+/// with its outer end in the grid's magenta as far as the home sells what
+/// the battery gives (Anders, 4 Nov 2026), a faint stub where it waits; the
+/// car's dotted arc with its goal. It
 /// draws the quarters of the dial's `window`, so a face wound on shows the
 /// hours after. The hand is drawn apart (`PlanDialHand`), so a finger on
 /// the phone moves it without redrawing the face.
@@ -65,10 +67,12 @@ struct PlanDialFace: View, Equatable {
                 }
                 stubs(g).fill(grey ? Theme.oldPlan : Theme.ink3.opacity(0.6))
                 ticks(g, .gives, lit: false).fill(grey ? Theme.oldPlan : Theme.gives.opacity(lit == nil ? plan : plan * 0.6))
+                ticks(g, .gives, lit: false, sold: true).fill(grey ? Theme.oldPlan : Theme.grid.opacity(lit == nil ? plan : plan * 0.6))
                 ticks(g, .stores, lit: false).fill(grey ? Theme.oldPlan : Theme.stores.opacity(lit == nil ? plan : plan * 0.6))
                     .widgetAccentable()
                 if !grey, lit != nil {
                     ticks(g, .gives, lit: true).fill(Theme.gives)
+                    ticks(g, .gives, lit: true, sold: true).fill(Theme.grid)
                     ticks(g, .stores, lit: true).fill(Theme.stores)
                 }
                 carDots(g).fill(grey ? Theme.ink3 : Theme.car.opacity(plan))
@@ -103,15 +107,20 @@ struct PlanDialFace: View, Equatable {
 
     /// One path per battery action, so each fills in one go: as long as
     /// the planned power, never shorter than a stub. `lit` takes the
-    /// quarters of the chosen pass, or the rest.
-    private func ticks(_ g: DialGeometry, _ action: PlanDial.Battery, lit wanted: Bool) -> Path {
+    /// quarters of the chosen pass, or the rest. A tick whose power the
+    /// home sells in part is two pieces end to end: what the home keeps
+    /// from the inside, then `sold`, what leaves it, out to the tick's end.
+    private func ticks(_ g: DialGeometry, _ action: PlanDial.Battery, lit wanted: Bool, sold: Bool = false) -> Path {
         var p = Path()
         for i in dial.window where dial.quarters[i].battery == action {
             guard let reach = dial.reach(i) else { continue }
             let mid = dial.quarters[i].startMs + PlanDial.quarterMs / 2
             guard (lit?.contains(mid) ?? false) == wanted else { continue }
             let length = max(g.unit * 1.2, (g.rim - g.inner) * reach)
-            p.addPath(g.tick(at: dial.angle(quarter: i), from: g.inner, length: length, width: g.tickWidth))
+            let kept = length * CGFloat(1 - dial.soldShare(i))
+            let (from, piece) = sold ? (g.inner + kept, length - kept) : (g.inner, kept)
+            guard piece > 0 else { continue }
+            p.addPath(g.tick(at: dial.angle(quarter: i), from: from, length: piece, width: g.tickWidth))
         }
         return p
     }

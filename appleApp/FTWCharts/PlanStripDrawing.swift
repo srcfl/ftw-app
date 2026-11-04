@@ -84,7 +84,8 @@ struct PlanStripLayout: Equatable {
 }
 
 /// Now's plan strip, in one Canvas: the battery's lane (gold gives, cyan
-/// stores), the car's (violet, a 2 pt tick at its goal), an idle hairline
+/// stores, the grid's magenta where most of what it gives leaves the home),
+/// the car's (violet, a 2 pt tick at its goal), an idle hairline
 /// where a lane has nothing, 48 price bars from zero by ink third under
 /// two grid lines with their figures, a dashed line at the price now, the
 /// now rule across lanes and bars, and the hours. Equal neighbours are
@@ -109,6 +110,14 @@ struct PlanStripDrawing: ChartDrawing {
         case .gives: return Theme.gives
         case .stores: return Theme.stores
         case .car: return Theme.car
+        }
+    }
+
+    static func hue(_ battery: PlanStrip.Battery) -> Color {
+        switch battery {
+        case .gives: return Theme.gives
+        case .stores: return Theme.stores
+        case .sells: return Theme.grid
         }
     }
 
@@ -154,13 +163,15 @@ struct PlanStripDrawing: ChartDrawing {
             return Path(roundedRect: rect, cornerRadius: min(3, rect.width / 2), style: .circular)
         }
 
-        var stores = Path(), gives = Path(), lit = Path()
+        // One path per state, and the chosen pass's runs apart at full
+        // strength, each in its own state's colour.
+        var runs: [PlanStrip.Battery: Path] = [:], litRuns: [PlanStrip.Battery: Path] = [:], lit = Path()
         for run in strip.batteryRuns {
             let p = capsule(run.first, run.last, y: PlanStripLayout.batteryY)
-            if inChosen(run.first, run.last, battery: true) { lit.addPath(p) } else if run.value == .stores { stores.addPath(p) } else { gives.addPath(p) }
+            if inChosen(run.first, run.last, battery: true) { litRuns[run.value, default: Path()].addPath(p) } else { runs[run.value, default: Path()].addPath(p) }
         }
-        g.fill(stores, with: .color(grey ? oldInk : Theme.stores.opacity(ghost)))
-        g.fill(gives, with: .color(grey ? oldInk : Theme.gives.opacity(ghost)))
+        for (state, path) in runs { g.fill(path, with: .color(grey ? oldInk : Self.hue(state).opacity(ghost))) }
+        for (state, path) in litRuns { g.fill(path, with: .color(Self.hue(state))) }
 
         var car = Path()
         for run in strip.carRuns {
@@ -253,7 +264,8 @@ struct PlanStripDrawing: ChartDrawing {
     /// The battery's planned level through the strip, between hairlines at
     /// 0 and 100 % with their figures in the gutter: a line through the
     /// level at each quarter's end, in gold where the battery gives power,
-    /// cyan where it stores and ink where it waits. A ghost, but the chosen
+    /// magenta where most of it is sold, cyan where it stores and ink where
+    /// it waits. A ghost, but the chosen
     /// pass's stretch at full strength.
     private func drawLevel(in g: inout GraphicsContext, layout: PlanStripLayout, width: CGFloat, px: CGFloat, ghost: Double, chosen: PlanPass?) {
         let grid = strip.grid
@@ -265,7 +277,7 @@ struct PlanStripDrawing: ChartDrawing {
             g.draw(text, at: CGPoint(x: width + 4, y: layout.levelY(pct)), anchor: .leading)
         }
         guard strip.levelPct.contains(where: { $0 != nil }) else { return }
-        var paths: [String: Path] = [:]
+        var paths: [PlanStrip.Battery?: Path] = [:], litPaths: [PlanStrip.Battery?: Path] = [:]
         var last: CGPoint?
         for i in strip.levelPct.indices {
             guard let pct = strip.levelPct[i] else {
@@ -275,18 +287,23 @@ struct PlanStripDrawing: ChartDrawing {
             let p = CGPoint(x: grid.x(atMs: grid.endMs(i), width: width), y: layout.levelY(pct))
             if let from = last {
                 let lit = !strip.grey && chosen.map { $0.isBattery && i >= $0.first && i <= $0.last } == true
-                let key = (strip.battery[i].map { $0 == .stores ? "stores" : "gives" } ?? "waits") + (lit ? "!" : "")
-                paths[key, default: Path()].move(to: from)
-                paths[key, default: Path()].addLine(to: p)
+                let key = strip.battery[i]
+                if lit {
+                    litPaths[key, default: Path()].move(to: from)
+                    litPaths[key, default: Path()].addLine(to: p)
+                } else {
+                    paths[key, default: Path()].move(to: from)
+                    paths[key, default: Path()].addLine(to: p)
+                }
             }
             last = p
         }
         let style = StrokeStyle(lineWidth: 1.75, lineCap: .round, lineJoin: .round)
-        for (key, path) in paths {
-            let lit = key.hasSuffix("!")
-            let color: Color = strip.grey ? Theme.ink3
-                : key.hasPrefix("stores") ? Theme.stores : key.hasPrefix("gives") ? Theme.gives : Theme.ink2
-            g.stroke(path, with: .color(color.opacity(lit ? 1 : ghost)), style: style)
+        for (lit, set) in [(false, paths), (true, litPaths)] {
+            for (key, path) in set {
+                let color: Color = strip.grey ? Theme.ink3 : key.map(Self.hue) ?? Theme.ink2
+                g.stroke(path, with: .color(color.opacity(lit ? 1 : ghost)), style: style)
+            }
         }
     }
 
@@ -295,8 +312,9 @@ struct PlanStripDrawing: ChartDrawing {
         case third(PriceChart.Third)
         /// A quarter gone by, under the dial: its price, fainter.
         case past(PriceChart.Third)
-        /// Under the chosen pass; dear is the top third.
-        case chosen(dear: Bool)
+        /// Under the chosen pass; dear is the top third. `sells` takes the
+        /// grid's colour for the quarters whose power the home sells.
+        case chosen(sells: Bool, dear: Bool)
         /// Under another run of the battery.
         case battery(PlanStrip.Battery, dear: Bool)
 
@@ -304,8 +322,8 @@ struct PlanStripDrawing: ChartDrawing {
             switch self {
             case let .third(t): return Theme.ink.opacity(PlanStripDrawing.ink(t))
             case let .past(t): return Theme.ink.opacity(PlanStripDrawing.ink(t) * 0.4)
-            case let .chosen(dear): return PlanStripDrawing.hue(chosen?.kind ?? .gives).opacity(dear ? 0.9 : 0.7)
-            case let .battery(b, dear): return (b == .stores ? Theme.stores : Theme.gives).opacity(dear ? 0.5 : 0.36)
+            case let .chosen(sells, dear): return (sells ? Theme.grid : PlanStripDrawing.hue(chosen?.kind ?? .gives)).opacity(dear ? 0.9 : 0.7)
+            case let .battery(b, dear): return PlanStripDrawing.hue(b).opacity(dear ? 0.5 : 0.36)
             }
         }
     }
@@ -317,7 +335,7 @@ struct PlanStripDrawing: ChartDrawing {
             let third = strip.thirds[i] ?? .middle
             if strip.grid.endMs(i) <= strip.nowMs { return .past(third) }
             if let chosen, i >= chosen.first, i <= chosen.last, !chosen.isBattery || strip.battery[i] != nil {
-                return .chosen(dear: third == .dear)
+                return .chosen(sells: chosen.isBattery && strip.battery[i] == .sells, dear: third == .dear)
             }
             if let b = strip.battery[i], chosen != nil { return .battery(b, dear: third == .dear) }
             return .third(third)

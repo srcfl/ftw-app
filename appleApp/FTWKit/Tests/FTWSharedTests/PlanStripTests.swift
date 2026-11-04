@@ -114,6 +114,39 @@ import Testing
         #expect(stores.figures(levelNow: 12) == stores.figures)
     }
 
+    /// The home sells what the battery gives beyond its own use, and no
+    /// more than the battery gives: the sun covers the home first.
+    @Test func theBatterySellsWhatLeavesTheHome() {
+        func slot(_ battery: Double, _ grid: Double?) -> PlanEntry.Slot {
+            PlanEntry.Slot(startMs: 0, durationMs: 900_000, batteryW: battery, reason: "test", gridW: grid)
+        }
+        #expect(slot(-5_000, -3_500).soldW == 3_500 && slot(-5_000, -3_500).sells)
+        #expect(slot(-5_000, -6_000).soldW == 5_000)
+        #expect(slot(-5_000, -1_000).soldW == 1_000 && !slot(-5_000, -1_000).sells)
+        #expect(slot(-5_000, -2_500).sells)
+        #expect(slot(-2_000, 300).soldW == 0)
+        #expect(slot(-2_000, -60).soldW == 0)
+        #expect(slot(3_000, -1_000).soldW == 0 && !slot(3_000, -1_000).sells)
+        #expect(slot(-2_000, nil).soldW == 0)
+    }
+
+    /// A quarter in which most of what the battery gives leaves the home
+    /// is a run of its own, and a finger reads it.
+    @Test func aQuarterThatSellsIsARunOfItsOwn() {
+        var entry = glance.night()
+        for i in 0..<3 { entry.battery![i].gridW = -1_200 }
+        entry.battery![3].gridW = -400
+        let s = PlanStrip.build(entry, moment: PlanGlance.live(entry, nowMs: at(12, 20, 5), calendar: calendar), hasCar: true)
+        #expect(Array(s.batteryRuns.prefix(2)) == [
+            .init(first: 0, count: 3, value: .sells),
+            .init(first: 3, count: 2, value: .gives),
+        ])
+        #expect(s.readouts[0] == "20:00 · 160 öre · discharges and sells")
+        #expect(s.readouts[3] == "20:45 · 160 öre · discharges")
+        // One run of the battery, one pass.
+        #expect(s.passes.first?.kind == .gives && s.passes.first?.first == 0 && s.passes.first?.last == 4)
+    }
+
     /// A run that stores spare sun buys nothing, and says so.
     @Test func aRunOnSpareSunBuysNothing() {
         var entry = glance.night()

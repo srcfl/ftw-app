@@ -981,6 +981,12 @@ extension SimulatedBox {
         if let name = UserDefaults.standard.string(forKey: "FTWDemoCar"), let car = DemoCar(rawValue: name) {
             car.apply(to: box.house, nowMs: scheduler.nowMs)
         }
+        // For screenshots of what the battery sells: `-FTWDemoExport YES`
+        // lets it sell when that pays, as the mode sheet's switch does.
+        if UserDefaults.standard.bool(forKey: "FTWDemoExport") {
+            box.house.batteryExport = "allowed"
+            box.house.modeKey = "planner_arbitrage"
+        }
         #endif
         // The demo is a Core that keeps cars, with one car on the charger.
         // For screenshots: `-FTWDemoCars two`, or `old` for a box from
