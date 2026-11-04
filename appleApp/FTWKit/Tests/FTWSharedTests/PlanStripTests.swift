@@ -78,19 +78,19 @@ import Testing
         let gives = s.passes[0]
         #expect(gives.first == 0 && gives.last == 4)
         #expect(gives.figures.map(\.title) == ["BATTERY", "LEVEL", "TOP PRICE"])
-        #expect(gives.figures.map(\.value) == ["Now", "—", "160 öre"])
+        #expect(gives.figures.map(\.value) == ["Discharges", "—", "160 öre"])
         // From now on: ten minutes of the first quarter and four more at
         // 1.8 kW.
-        #expect(gives.figures.map(\.sub) == ["until 21:15", "discharges 2.1 kWh", "during the pass"])
+        #expect(gives.figures.map(\.sub) == ["until 21:15", "2.1 kWh in all", "during the pass"])
         #expect(gives.figures[0].tint == .gives)
         let stores = s.passes[1]
-        #expect(stores.figures.map(\.value) == ["22:00", "—", "70 öre"])
-        #expect(stores.figures.map(\.sub) == ["until 23:30", "charges 4.5 kWh", "from the grid"])
+        #expect(stores.figures.map(\.value) == ["Charges", "—", "70 öre"])
+        #expect(stores.figures.map(\.sub) == ["22:00–23:30", "4.5 kWh in all", "from the grid"])
         #expect(stores.figures[0].tint == .stores)
         // 01:00–04:45: an hour at 70, two at 30 and three quarters at 70.
         let car = s.passes[2]
         #expect(car.figures.map(\.title) == ["CAR", "GOAL", "AVG PRICE"])
-        #expect(car.figures[0].value == "01:00" && car.figures[0].sub == "until 04:45")
+        #expect(car.figures[0].value == "Charges" && car.figures[0].sub == "01:00–04:45")
         #expect(car.figures[1].value == PlanGlance.percent(80))
         #expect(car.figures[2].value == "49 öre" && car.figures[2].sub == "42 kWh")
         #expect(car.spoken.hasPrefix("Car charges, 01:00 until 04:45"))

@@ -5,7 +5,10 @@ import Foundation
 /// strip, or on the plan, chooses one; the row of three figures under the
 /// price then says when it runs, what it does to the level, and the price
 /// it meets (Now, proposal 5 on the design canvas, picked by Fredrik on
-/// 1 Nov 2026). Worked out with the strip, so a tap is a lookup.
+/// 1 Nov 2026). The first says what it does and until when, "Laddar ur ·
+/// till 09:45", or when a later one runs, "Laddar · 22:00–23:30" (Hannes,
+/// 4 Nov 2026: clearer than "Nu"). Worked out with the strip, so a tap is
+/// a lookup.
 public struct PlanPass: Equatable, Sendable, Identifiable {
     public enum Kind: String, Equatable, Sendable {
         case gives, stores, car
@@ -83,6 +86,9 @@ public struct PlanPass: Equatable, Sendable, Identifiable {
             let underWay = e.startMs <= nowMs + PlanGlance.graceMs
             let start = underWay ? PlanWord.now.text : clock.label(e.startMs)
             let until = PlanWord.until.format(clock.label(e.endMs))
+            // When it runs, under the word for what it does: until its end
+            // while it is under way, its start and end after.
+            let when = underWay ? until : clock.label(e.startMs) + "–" + clock.label(e.endMs)
             let top = prices.max().map(price) ?? "—"
             let mean = prices.isEmpty ? "—" : price(prices.reduce(0, +) / Double(prices.count))
 
@@ -114,8 +120,8 @@ public struct PlanPass: Equatable, Sendable, Identifiable {
                     third = Figure(title: PlanWord.passMeanPrice.text, tint: .ink, value: mean, sub: PlanWord.passFromGrid.text)
                 }
                 figures = [
-                    Figure(title: PlanWord.passBattery.text, tint: gives ? .gives : .stores, value: start, sub: until),
-                    Figure(title: PlanWord.passLevel.text, tint: .ink, value: level, sub: (gives ? PlanWord.passGivesEnergy : PlanWord.passStoresEnergy).format(energy(wh))),
+                    Figure(title: PlanWord.passBattery.text, tint: gives ? .gives : .stores, value: (gives ? PlanWord.passDischarges : PlanWord.passCharges).text, sub: when),
+                    Figure(title: PlanWord.passLevel.text, tint: .ink, value: level, sub: PlanWord.passInAll.format(energy(wh))),
                     third,
                 ]
                 what = (gives ? PlanWord.batteryGiving : PlanWord.batteryCharging).text
@@ -129,7 +135,7 @@ public struct PlanPass: Equatable, Sendable, Identifiable {
                     goal = Figure(title: PlanWord.passGoal.text, tint: .ink, value: "—", sub: "")
                 }
                 figures = [
-                    Figure(title: PlanWord.passCar.text, tint: .car, value: start, sub: until),
+                    Figure(title: PlanWord.passCar.text, tint: .car, value: PlanWord.passCharges.text, sub: when),
                     goal,
                     Figure(title: PlanWord.passMeanPrice.text, tint: .ink, value: mean, sub: e.energyWh.map(energy) ?? ""),
                 ]
