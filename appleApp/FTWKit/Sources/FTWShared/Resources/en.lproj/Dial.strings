@@ -9,6 +9,5 @@
 "PLANNED %@ · REPLANS EVERY 15 MIN" = "PLANNED %@ · REPLANS EVERY 15 MIN";
 "PLAN FROM %@ · OLD" = "PLAN FROM %@ · OLD";
 "Plan dial" = "Plan dial";
-"Half a day as a clock: what the battery does and when the car charges." = "Half a day as a clock: what the battery does and when the car charges.";
+"The next twelve hours as a clock: what the battery does and when the car charges." = "The next twelve hours as a clock: what the battery does and when the car charges.";
 "ABOUT %@ LESS THAN NO BATTERY · TO %@" = "ABOUT %@ LESS THAN NO BATTERY · TO %@";
-"TODAY" = "TODAY";

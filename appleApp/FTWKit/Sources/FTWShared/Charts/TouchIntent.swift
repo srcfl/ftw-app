@@ -84,20 +84,6 @@ public enum EdgeRule {
 /// A finger on the plan dial's ring, inside the plan's scroll. The ring
 /// scrubs on a move along it, or after the finger rests 0.1 s; a move that
 /// is mostly up or down, or across the ring, is the page's, and it scrolls.
-/// A swipe sideways across the dial's middle turns its face to the next
-/// half day, or back. It counts once the finger has gone 40 pt, mostly
-/// sideways; a move mostly up or down is the page's scroll.
-public enum FaceSwipe {
-    public static let distance: CGFloat = 40
-
-    /// +1 for a swipe toward the leading side (the next face), −1 back,
-    /// nil while it is neither.
-    public static func step(_ t: CGSize) -> Int? {
-        guard abs(t.width) >= distance, abs(t.width) > 1.5 * abs(t.height) else { return nil }
-        return t.width < 0 ? 1 : -1
-    }
-}
-
 public enum RingIntent {
     public static let holdMs: Double = 100
 

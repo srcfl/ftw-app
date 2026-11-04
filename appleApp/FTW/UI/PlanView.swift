@@ -2,8 +2,8 @@ import Charts
 import FTWKit
 import SwiftUI
 
-/// The plan, opened from Now: half a day round the plan dial, a clock, the
-/// half holding now first and the ones after a swipe away, or
+/// The plan, opened from Now: the next twelve hours round the plan dial, a
+/// clock that a finger winds on into the rest of the plan, or
 /// the whole plan the box sent in lanes (to tomorrow's last priced quarter
 /// in the evening), then each thing the box means to do,
 /// when, and why, in the box's own reasons. The dial is the default; the
@@ -122,8 +122,6 @@ private struct PlanBody: View {
     @State private var strips = StripMemo()
     /// The pass a tap chose on the strip, lit on the dial too.
     @State private var chosenID: String?
-    /// The half day the dial shows, 0 for the one holding now.
-    @State private var face = 0
     @AppStorage(PriceShown.feesKey) private var fees = true
     @AppStorage(PriceShown.vatKey) private var vat = true
     @Namespace private var zoom
@@ -133,8 +131,8 @@ private struct PlanBody: View {
 
     var body: some View {
         // The plan marks the minute: it redraws once a minute, not a second.
-        // The lanes show the whole plan the box sent; the dial half a day,
-        // as on a clock.
+        // The lanes show the whole plan the box sent; the dial twelve hours,
+        // as on a clock, and a finger winds it on through the rest.
         let minute = site.minuteMs
         let moment = models.planShare.moment(nowMs: minute, whole: style == .lanes)
         let moved = models.planShare.moved
@@ -143,26 +141,16 @@ private struct PlanBody: View {
         // The price this phone chose to show, in the strip and its header.
         let choice = PriceShown(fees: fees, vat: vat)
         let window = prices.prices.map(choice.apply)
-        let faces = dials.faces(entry, nowMs: minute)
-        let shown = min(face, faces.count - 2)
-        let dial = style == .dial ? dials.dial(entry, nowMs: minute, page: shown) : nil
-        // Under the dial the strip shows the face's half day, the hours
-        // gone by included, so its passes are the ticks the face has and
-        // a swipe turns both. Now keeps the twelve hours from now.
-        let faceWindow = dial.map { PlanStrip.Window(fromMs: faces[shown], toMs: faces[shown + 1], name: $0.faceKicker) }
-        let strip = strips.strip(entry, moment: moment, hasCar: !loadpoints.points.isEmpty, quarters: style == .lanes ? quarters : PlanStrip.count, prices: window?.slots, window: faceWindow)
+        let reach = PlanGlance.reach(entry, fromMs: minute, calendar: ZoneClock.of(moment.timeZone).calendar)
+        let dial = style == .dial ? dials.dial(entry, nowMs: minute, untilMs: reach) : nil
+        let strip = strips.strip(entry, moment: moment, hasCar: !loadpoints.points.isEmpty, quarters: style == .lanes ? quarters : PlanStrip.count, prices: window?.slots)
         let chosen = strip.passes.first { $0.id == chosenID } ?? PlanPass.opening(strip.passes)
-        // A face with nothing planned says so, not what happens now.
-        let faceEmpty = faceWindow != nil && strip.passes.isEmpty
         Group {
             switch style {
             case .dial:
                 if let dial {
-                    VStack(spacing: 6) {
-                        PlanDialCard(dial: dial, grey: moment.isGrey, fade: DialFade.make(models.planShare.before, dial: dial, nowMs: minute), lit: chosen.map { $0.startMs...$0.endMs }, holds: $dialHolds, face: $face, faces: faces.count - 1, touch: dialTouch)
-                        FaceDots(count: faces.count - 1, face: $face, name: dial.faceName)
-                    }
-                    .transition(.opacity)
+                    PlanDialCard(dial: dial, grey: moment.isGrey, fade: DialFade.make(models.planShare.before, dial: dial, nowMs: minute), lit: chosen.map { $0.startMs...$0.endMs }, holds: $dialHolds, touch: dialTouch)
+                        .transition(.opacity)
                 }
             case .lanes:
                 VStack(alignment: .leading, spacing: 4) {
@@ -179,17 +167,14 @@ private struct PlanBody: View {
             }
         }
         .id(Self.topID)
-        // When now passes noon or midnight, the dial starts again on now's
-        // half day.
-        .onChange(of: faces.first) { face = 0 }
         // The same strip as Now's, under the dial or as the lanes: the
         // passes, the price from zero, and the chosen pass's figures. On the
         // lanes it runs the whole plan, with the battery's level.
         VStack(alignment: .leading, spacing: 10) {
             PlanStripView(
                 strip: strip,
-                sentence: faceEmpty ? L("Nothing planned on this half day") : moment.nextText,
-                shorter: faceEmpty ? [] : moment.nextShorter,
+                sentence: moment.nextText,
+                shorter: moment.nextShorter,
                 placeholder: moment.placeholder,
                 priceNow: priceNow(window, minute),
                 unit: PriceUnits.unit(prices.prices?.currency).label.uppercased(),
@@ -267,83 +252,33 @@ private struct PlanBody: View {
     }
 }
 
-/// The dial and the half days it reaches, worked out once per plan, minute
-/// and face, so a body that runs again for any other reason reads them.
+/// The dial worked out once per plan and minute, so a body that runs again
+/// for any other reason reads it. `untilMs` runs its quarters on to the
+/// end of the plan, for a finger to wind into.
 @MainActor
 private final class DialMemo {
-    private var key: (entry: PlanEntry, minute: Double, page: Int)?
+    private var key: (entry: PlanEntry, minute: Double, until: Double?)?
     private var kept: PlanDial?
-    private var facesKey: (entry: PlanEntry, minute: Double)?
-    private var keptFaces: [Double] = []
 
-    func dial(_ entry: PlanEntry, nowMs: Double, page: Int) -> PlanDial {
-        if let key, key.entry == entry, key.minute == nowMs, key.page == page, let kept { return kept }
-        let d = PlanDial(plan: entry, prices: nil, nowMs: nowMs, page: page)
-        key = (entry, nowMs, page)
+    func dial(_ entry: PlanEntry, nowMs: Double, untilMs: Double? = nil) -> PlanDial {
+        if let key, key.entry == entry, key.minute == nowMs, key.until == untilMs, let kept { return kept }
+        let d = PlanDial(plan: entry, prices: nil, nowMs: nowMs, untilMs: untilMs)
+        key = (entry, nowMs, untilMs)
         kept = d
         return d
-    }
-
-    /// Where each half day the plan reaches starts, and where the last ends.
-    func faces(_ entry: PlanEntry, nowMs: Double) -> [Double] {
-        if let facesKey, facesKey.entry == entry, facesKey.minute == nowMs { return keptFaces }
-        keptFaces = PlanDial.pages(plan: entry, prices: nil, nowMs: nowMs)
-        facesKey = (entry, nowMs)
-        return keptFaces
-    }
-}
-
-/// Which half day the dial shows, as dots under it: one for each the plan
-/// reaches, the shown one in ink. A tap on a dot turns to it; VoiceOver
-/// steps through them. Nothing shows while there is only now's.
-private struct FaceDots: View {
-    let count: Int
-    @Binding var face: Int
-    /// "TOMORROW 00–12", what the shown face is.
-    let name: String
-
-    var body: some View {
-        HStack(spacing: 0) {
-            ForEach(0..<count, id: \.self) { k in
-                Button {
-                    withAnimation(Theme.spring) { face = k }
-                } label: {
-                    Circle()
-                        .fill(k == min(face, count - 1) ? Theme.ink : Theme.ink3)
-                        .frame(width: 6, height: 6)
-                        .frame(width: 22, height: 22)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .opacity(count > 1 ? 1 : 0)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(L("Half day"))
-        .accessibilityValue(name)
-        .accessibilityHidden(count < 2)
-        .accessibilityAdjustableAction { direction in
-            switch direction {
-            case .increment: face = min(face + 1, count - 1)
-            case .decrement: face = max(face - 1, 0)
-            @unknown default: break
-            }
-        }
-        .accessibilityIdentifier("plan.dial.faces")
     }
 }
 
 /// The strip worked out once per plan, minute and length, like the dial.
 @MainActor
 private final class StripMemo {
-    private var key: (entry: PlanEntry, moment: PlanGlance.Moment, hasCar: Bool, quarters: Int, prices: [PriceSlot]?, window: PlanStrip.Window?)?
+    private var key: (entry: PlanEntry, moment: PlanGlance.Moment, hasCar: Bool, quarters: Int, prices: [PriceSlot]?)?
     private var kept: PlanStrip?
 
-    func strip(_ entry: PlanEntry, moment: PlanGlance.Moment, hasCar: Bool, quarters: Int, prices: [PriceSlot]?, window: PlanStrip.Window?) -> PlanStrip {
-        if let key, key.entry == entry, key.moment == moment, key.hasCar == hasCar, key.quarters == quarters, key.prices == prices, key.window == window, let kept { return kept }
-        let s = PlanStrip.build(entry, moment: moment, hasCar: hasCar, quarters: quarters, prices: prices, window: window)
-        key = (entry, moment, hasCar, quarters, prices, window)
+    func strip(_ entry: PlanEntry, moment: PlanGlance.Moment, hasCar: Bool, quarters: Int, prices: [PriceSlot]?) -> PlanStrip {
+        if let key, key.entry == entry, key.moment == moment, key.hasCar == hasCar, key.quarters == quarters, key.prices == prices, let kept { return kept }
+        let s = PlanStrip.build(entry, moment: moment, hasCar: hasCar, quarters: quarters, prices: prices)
+        key = (entry, moment, hasCar, quarters, prices)
         kept = s
         return s
     }

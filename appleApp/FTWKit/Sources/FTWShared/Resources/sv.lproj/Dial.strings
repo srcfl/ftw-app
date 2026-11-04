@@ -9,6 +9,5 @@
 "PLANNED %@ · REPLANS EVERY 15 MIN" = "PLANERAD %@ · PLANERAS OM VAR 15:E MIN";
 "PLAN FROM %@ · OLD" = "PLAN FRÅN %@ · GAMMAL";
 "Plan dial" = "Plantavla";
-"Half a day as a clock: what the battery does and when the car charges." = "Ett halvt dygn som en klocka: vad batteriet gör och när bilen laddar.";
+"The next twelve hours as a clock: what the battery does and when the car charges." = "De kommande tolv timmarna som en klocka: vad batteriet gör och när bilen laddar.";
 "ABOUT %@ LESS THAN NO BATTERY · TO %@" = "CIRKA %@ BILLIGARE ÄN UTAN BATTERI · TILL %@";
-"TODAY" = "I DAG";
