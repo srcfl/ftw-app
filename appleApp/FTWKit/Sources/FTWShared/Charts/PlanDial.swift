@@ -1,21 +1,21 @@
 import Foundation
 
 /// The plan dial, as the phone, its widget and the watch all draw it: a
-/// clock. A face is half a day, midnight to noon or noon to midnight, with
-/// 12 at the top and 6 at the bottom, so 18:00 sits straight down as on any
-/// clock (Erik and Fredrik, 1 Nov 2026: the 24-hour face made people read
-/// the figures at the edge and think). The first face is the half holding
-/// now, with the hours already gone left on it; the next ones follow the
-/// plan into tomorrow (xorath, 3 Nov 2026: a turn of the next twelve hours
-/// put tonight's 01 and 02 where this noon's hours had been). Each quarter
-/// hour is one tick. Its length is the battery's planned power, its colour
-/// what the battery does then, and a dotted arc inside marks the car's
-/// charging. The price has its own chart under the dial. The sun's arc on
-/// the rim comes from the box's own forecast, never from astronomy.
+/// clock. One turn is twelve hours, 12 at the top and 6 at the bottom, so
+/// 18:00 sits straight down as on any clock (Erik and Fredrik, 1 Nov 2026:
+/// the 24-hour face made people read the figures at the edge and think).
+/// The face opens on the twelve hours from now. A finger or the Crown that
+/// runs on past their end winds the face on with it, a quarter at a time,
+/// so the plan flows into tomorrow under the finger and back (Fredrik,
+/// 4 Nov 2026: a face that stopped at noon and a sideways swipe both felt
+/// wrong). Each quarter hour is one tick. Its length is the battery's
+/// planned power, its colour what the battery does then, and a dotted arc
+/// inside marks the car's charging. The price has its own chart under the
+/// dial. The sun is an area in from the rim, from the box's own forecast,
+/// never from astronomy.
 ///
-/// Built without a `page`, it is the next twelve hours from now instead,
-/// for the watch's strip. Each quarter still carries its price, in eight
-/// steps from zero (`PriceScale`), for that strip and a finger's readout.
+/// Each quarter still carries its price, in eight steps from zero
+/// (`PriceScale`), for the watch's strip and a finger's readout.
 ///
 /// Built on the chart engine (`SlotGrid`, `ZoneClock`) and worked out once
 /// per plan and minute, so a finger or the Crown only reads a table.
@@ -30,10 +30,10 @@ public struct PlanDial: Equatable, Sendable {
     public static let levels = 8
     /// The box's forecast counts as sun from this many watts up.
     static let sunW: Double = 10
-    /// An hour this close to now or to the turn's end is left off the
-    /// twelve hours from now: closer, its figure would sit on the hand or
-    /// the seam. A quarter of an hour is 7.5° of the turn, which clears two
-    /// mono digits on the phone and the watch.
+    /// An hour this close to now or to the turn's ends is left off: closer,
+    /// its figure would sit on the hand or the seam. A quarter of an hour
+    /// is 7.5° of the turn, which clears two mono digits on the phone and
+    /// the watch.
     static let hourClearMs: Double = 15 * 60_000
 
     public enum Battery: Equatable, Sendable {
@@ -45,7 +45,7 @@ public struct PlanDial: Equatable, Sendable {
         /// Minor units per kWh, the consumer total. Nil before the market
         /// has priced it: the dial draws a stub, never a level.
         public let minor: Double?
-        /// 0 to 7, from zero to the round top over this face's prices.
+        /// 0 to 7, from zero to the round top over the plan's prices.
         public let level: Int?
         public let battery: Battery
         /// The battery's planned power, site sign. Nil without a plan.
@@ -58,7 +58,7 @@ public struct PlanDial: Equatable, Sendable {
         /// percent. Nil when the box did not say.
         public let levelPct: Double?
         /// The sun the box's forecast expects in the quarter, in watts. Nil
-        /// where it expects none, or the quarter is gone.
+        /// where it expects none.
         public var sunW: Double? = nil
     }
 
@@ -66,30 +66,25 @@ public struct PlanDial: Equatable, Sendable {
     public struct Hour: Equatable, Sendable {
         public let angle: Double
         public let label: String
-        /// Gone by: on the face holding now, an hour before the hand.
-        public var past = false
     }
 
     public let grid: SlotGrid
+    /// From the quarter holding now: twelve hours, or to `untilMs`.
     public let quarters: [Quarter]
-    /// Which half day this face is, 0 for the one holding now. Nil for the
-    /// twelve hours from now.
-    public let page: Int?
-    /// The quarter holding now, before which this face has only hours; nil
-    /// on a face after now's.
-    public let nowIndex: Int?
-    /// The face's span, "12–24", for a face after now's.
-    public let span: String
+    /// The first quarter on the face: 0 for the twelve hours from now, more
+    /// once a finger or the Crown has wound it on (`wound(to:)`).
+    public private(set) var offset = 0
     /// The power a full-length tick stands for: the most the battery moves
-    /// in this turn, and at least `leastFullW`.
+    /// in all the quarters, so a tick keeps its length as the face winds
+    /// on, and at least `leastFullW`.
     public let fullW: Double
     /// The sun at the area's full depth: the most the forecast expects in
-    /// all it covers, so a dull morning stands lower than a bright one on
-    /// the next face, and at least `leastFullW`.
+    /// all it covers, so a dull morning stands lower than a bright noon,
+    /// and at least `leastFullW`.
     public let sunFullW: Double
-    /// Each whole hour in the turn, by the household's clock, except the
+    /// Each whole hour on the face, by the household's clock, except the
     /// ones too close to the hand or the seam to read.
-    public let hours: [Hour]
+    public private(set) var hours: [Hour]
     public let nowMs: Double
     public let currency: String
     public let zone: TimeZone
@@ -103,40 +98,31 @@ public struct PlanDial: Equatable, Sendable {
     public let landmarks: Set<Int>
     /// The box sent a battery plan.
     public let hasPlan: Bool
-    /// Where the box's forecast expects the sun inside the turn, from
-    /// sunrise to sunset. Empty without a forecast: no sky is drawn rather
-    /// than one worked out from the calendar.
+    /// Where the box's forecast expects the sun from now on, sunrise to
+    /// sunset. Empty without a forecast: no sky is drawn rather than one
+    /// worked out from the calendar.
     public let sun: [ClosedRange<Double>]
-    /// Per quarter, read by a finger: "14:30", "98 ÖRE/KWH", "STORES ·
+    /// Per quarter, read by a finger: "14:30", "98 ÖRE/KWH", "CHARGES ·
     /// 3,0 KW · CAR". Made once, so a drag costs a subscript.
     public let times: [String]
     /// The first quarter on the next day by the household's clock, where
-    /// the middle names the day over the time; `count` when there is none.
+    /// the middle names the day over the time; the quarters' count when
+    /// there is none.
     public let tomorrowFrom: Int
     public let prices: [String]
     public let doing: [String]
 
-    /// The face `page` half days on from the one holding `nowMs`, or
-    /// without a page the twelve hours from now. Prices come from the price
-    /// record where it has them, else from the plan's own. `untilMs` runs
-    /// the twelve hours on to that time, for the lanes.
-    public init(plan: PlanEntry?, prices: PriceEntry?, nowMs: Double, page: Int? = nil, untilMs: Double? = nil) {
+    /// The dial at `nowMs`. Prices come from the price record where it has
+    /// them, else from the plan's own. `untilMs` runs the quarters on past
+    /// twelve hours to that time, so a finger can wind the face on into
+    /// the rest of the plan; the face itself is always twelve hours.
+    public init(plan: PlanEntry?, prices: PriceEntry?, nowMs: Double, untilMs: Double? = nil) {
         let zoneID = plan?.timeZone ?? prices?.timeZone
         let zone = zoneID.flatMap(TimeZone.init(identifier:)) ?? .current
         let clock = ZoneClock.of(zone)
-        let first: Double, count: Int
-        if let page {
-            let halves = Self.halves(nowMs: nowMs, clock: clock)
-            let k = min(max(page, 0), halves.count - 2)
-            first = halves[k]
-            count = Int(((halves[k + 1] - first) / Self.quarterMs).rounded())
-        } else {
-            first = clock.alignDown(nowMs, stepMs: Self.quarterMs)
-            count = untilMs.map { max(Self.count, Int((($0 - first) / Self.quarterMs).rounded(.up))) } ?? Self.count
-        }
+        let first = clock.alignDown(nowMs, stepMs: Self.quarterMs)
+        let count = untilMs.map { max(Self.count, Int((($0 - first) / Self.quarterMs).rounded(.up))) } ?? Self.count
         let grid = SlotGrid(firstMs: first, stepMs: Self.quarterMs, count: count, fromMs: first, toMs: first + Double(count) * Self.quarterMs)
-        let nowIndex = nowMs >= first && nowMs < grid.toMs ? grid.index(atMs: nowMs) : nil
-        let from = nowIndex ?? 0
 
         let slots = (prices?.prices.slots.isEmpty == false ? prices!.prices.slots : plan?.prices ?? [])
             .filter { $0.totalMinor.isFinite }
@@ -147,10 +133,8 @@ public struct PlanDial: Equatable, Sendable {
 
         // What holds in the part of quarter `q` still to come: the box
         // starts its plan the moment it makes it, so the first slot often
-        // begins inside the quarter running now. A quarter gone by holds
-        // nothing.
+        // begins inside the quarter running now.
         func holding<T>(_ items: [T], _ q: Int, start: KeyPath<T, Double>, length: KeyPath<T, Double>) -> T? {
-            guard q >= from else { return nil }
             let a = max(grid.startMs(q), nowMs), b = grid.endMs(q)
             let i = Self.last(items, atOrBefore: a, start: start)
             if let i, a < items[i][keyPath: start] + items[i][keyPath: length] { return items[i] }
@@ -162,7 +146,6 @@ public struct PlanDial: Equatable, Sendable {
         // The forecast's watts at the middle of the part of quarter `q` to
         // come.
         func sunW(_ q: Int) -> Double? {
-            guard q >= from else { return nil }
             let mid = (max(grid.startMs(q), nowMs) + grid.endMs(q)) / 2
             guard let k = Self.last(power, atOrBefore: mid, start: \.fromMs), mid < power[k].toMs else { return nil }
             return power[k].w
@@ -173,7 +156,7 @@ public struct PlanDial: Equatable, Sendable {
         let scale = PriceScale(minors.compactMap { $0 }, currency: currency)
 
         var goals = [Int: Double]()
-        for c in charges where c.toMs > max(first, nowMs) && c.fromMs < grid.toMs && plan?.chargesAgain(after: c) != true {
+        for c in charges where c.toMs > first && c.fromMs < grid.toMs && plan?.chargesAgain(after: c) != true {
             if let pct = c.targetPct, let i = grid.index(atMs: c.toMs - 1) { goals[i] = pct }
         }
 
@@ -188,7 +171,7 @@ public struct PlanDial: Equatable, Sendable {
                 level: minors[i].map { scale.step($0) - 1 },
                 battery: action,
                 batteryW: w,
-                car: i >= from && charges.contains { $0.fromMs < end && $0.toMs > max(start, nowMs) },
+                car: charges.contains { $0.fromMs < end && $0.toMs > start },
                 carGoalPct: goals[i],
                 levelPct: slot?.levelPct
             )
@@ -199,61 +182,30 @@ public struct PlanDial: Equatable, Sendable {
         let unit = PriceUnits.unit(currency)
         func figure(_ minor: Double) -> String { Words.decimal(PriceStrip.text(abs(minor), currency)) }
 
+        // The cheapest two hours of all the quarters ahead: with the whole
+        // plan, the ones Now's and the lanes' sentence name.
         var cheapest: ClosedRange<Int>?
         var cheapestText: String?
-        let open = max(nowMs, first)
-        // On a face, the cheapest two hours of the whole plan ahead, the
-        // ones Now's and the lanes' sentence name, marked where this face
-        // holds them; on the twelve hours from now, the cheapest within them.
-        let ahead = slots.filter { page == nil ? $0.startMs + $0.durationMs > open && $0.startMs < grid.toMs : $0.startMs + $0.durationMs > nowMs }
+        let ahead = slots.filter { $0.startMs + $0.durationMs > nowMs && $0.startMs < grid.toMs }
         if ahead.count >= 2, let block = PriceStrip.bestBlock(ahead, hours: 2, cheapest: true) {
             let mean = ahead.map(\.totalMinor).reduce(0, +) / Double(ahead.count)
-            if block.meanMinor < mean * PlanGlance.cheapShare || block.meanMinor < 0 {
+            if block.meanMinor < mean * PlanGlance.cheapShare || block.meanMinor < 0,
+               let a = grid.index(atMs: max(block.startMs, nowMs)), let b = grid.index(atMs: min(block.endMs, grid.toMs) - 1), a <= b {
+                cheapest = a...b
                 cheapestText = PriceWord.cheapest.format(clock.label(block.startMs) + "–" + clock.label(block.endMs), figure(block.meanMinor) + " " + unit.label.uppercased())
-                // The grid clamps an index, so only a block that overlaps
-                // the face marks quarters on it.
-                if block.endMs > open, block.startMs < grid.toMs,
-                   let a = grid.index(atMs: max(block.startMs, open)), let b = grid.index(atMs: min(block.endMs, grid.toMs) - 1), a <= b {
-                    cheapest = a...b
-                }
             }
         }
 
-        var marks: Set<Int> = nowIndex.map { [$0] } ?? []
+        var marks: Set<Int> = [0]
         if let cheapest { marks.formUnion([cheapest.lowerBound, cheapest.upperBound]) }
         marks.formUnion(goals.keys)
 
         let perKwh = unit.perKwh.uppercased()
         self.grid = grid
         self.quarters = quarters
-        self.page = page
-        self.nowIndex = nowIndex
-        let turn = page == nil ? Self.count : count
-        fullW = max(Self.leastFullW, quarters.prefix(turn).compactMap { $0.batteryW.map(abs) }.max() ?? 0)
+        fullW = max(Self.leastFullW, quarters.compactMap { $0.batteryW.map(abs) }.max() ?? 0)
         sunFullW = max(Self.leastFullW, power.map(\.w).max() ?? 0)
-        var hours = [Hour]()
-        let hourMs = 3_600_000.0, turnEnd = first + Double(turn) * Self.quarterMs
-        if page != nil {
-            // Every hour of the half, as a clock has them, the gone ones too.
-            var t = first
-            while t < turnEnd {
-                if clock.minuteOfDay(t) % 60 == 0 {
-                    hours.append(Hour(angle: Self.clockAngle(t, clock: clock), label: String(clock.label(t).prefix(2)), past: t + hourMs <= nowMs))
-                }
-                t += Self.quarterMs
-            }
-        } else {
-            var t = clock.alignDown(nowMs, stepMs: hourMs) + hourMs
-            while t < turnEnd {
-                if t - nowMs >= Self.hourClearMs, turnEnd - t >= Self.hourClearMs, clock.minuteOfDay(t) % 60 == 0 {
-                    hours.append(Hour(angle: Self.clockAngle(t, clock: clock), label: String(clock.label(t).prefix(2))))
-                }
-                t += hourMs
-            }
-        }
-        self.hours = hours
-        let startHour = clock.minuteOfDay(first) / 60
-        span = String(clock.label(first).prefix(2)) + "–" + (startHour < 12 ? "12" : "24")
+        hours = []
         self.nowMs = nowMs
         self.currency = currency
         self.zone = zone
@@ -263,13 +215,13 @@ public struct PlanDial: Equatable, Sendable {
         hasPlan = !battery.isEmpty
         // The forecast from now on: a guess at the sun gone by says nothing.
         sun = (plan?.daylight?.sun ?? []).compactMap { s in
-            let from = max(s.fromMs, first, nowMs), to = min(s.toMs, grid.toMs)
+            let from = max(s.fromMs, nowMs), to = min(s.toMs, grid.toMs)
             return from < to ? from...to : nil
         }
         // A time from the next midnight on is tomorrow's, named apart from
         // the time so neither is cut to fit.
         let midnight = nowMs + Double(1440 - clock.minuteOfDay(nowMs)) * 60_000
-        times = (0..<count).map { i in clock.label(i == nowIndex ? nowMs : grid.startMs(i)) }
+        times = (0..<count).map { i in clock.label(i == 0 ? nowMs : grid.startMs(i)) }
         tomorrowFrom = (0..<count).first { grid.startMs($0) >= midnight } ?? count
         self.prices = minors.map { m in m.map { figure($0) + " " + perKwh } ?? DialWord.noPrice.text }
         doing = quarters.map { q in
@@ -288,6 +240,47 @@ public struct PlanDial: Equatable, Sendable {
             }
             return parts.joined(separator: " · ")
         }
+        hours = faceHours()
+    }
+
+    // MARK: Winding on
+
+    /// The face wound on to begin at quarter `o`, held so it always shows
+    /// twelve hours of the quarters it has.
+    public func wound(to o: Int) -> PlanDial {
+        let o = min(max(0, o), maxOffset)
+        guard o != offset else { return self }
+        var d = self
+        d.offset = o
+        d.hours = d.faceHours()
+        return d
+    }
+
+    /// Where the face begins with quarter `i` under a finger or the Crown:
+    /// at now while `i` is in the twelve hours from now, and past them with
+    /// `i` its last quarter, so the face moves on and back with the finger.
+    public func offset(keeping i: Int) -> Int { min(max(0, i - (Self.count - 1)), maxOffset) }
+
+    /// The furthest the face winds on: to the last quarter it has.
+    public var maxOffset: Int { max(0, quarters.count - Self.count) }
+
+    /// The quarters on the face.
+    public var window: Range<Int> { offset..<min(quarters.count, offset + Self.count) }
+
+    /// The whole hours on the face, none on the hand at now or the seam.
+    private func faceHours() -> [Hour] {
+        let clock = ZoneClock.of(zone)
+        let hourMs = 3_600_000.0
+        let start = offset == 0 ? nowMs : grid.startMs(offset), end = grid.startMs(offset) + Double(Self.count) * Self.quarterMs
+        var out = [Hour]()
+        var t = clock.alignDown(start, stepMs: hourMs) + hourMs
+        while t < end {
+            if t - start >= Self.hourClearMs, end - t >= Self.hourClearMs, clock.minuteOfDay(t) % 60 == 0 {
+                out.append(Hour(angle: Self.clockAngle(t, clock: clock), label: String(clock.label(t).prefix(2))))
+            }
+            t += hourMs
+        }
+        return out
     }
 
     /// The index of the last element starting at or before `t`, by one
@@ -299,55 +292,6 @@ public struct PlanDial: Equatable, Sendable {
             if items[mid][keyPath: start] <= t { lo = mid + 1 } else { hi = mid }
         }
         return lo == 0 ? nil : lo - 1
-    }
-
-    /// Where each half day starts, from the one holding `nowMs` to the end
-    /// of the day after tomorrow: local midnight and noon, so a day the
-    /// clocks go back or on keeps its hours.
-    static func halves(nowMs: Double, clock: ZoneClock) -> [Double] {
-        let cal = clock.calendar
-        let day = cal.startOfDay(for: Date(timeIntervalSince1970: nowMs / 1000))
-        var all = [Double]()
-        for d in 0...3 {
-            guard let start = cal.date(byAdding: .day, value: d, to: day) else { continue }
-            all.append(start.timeIntervalSince1970 * 1000)
-            if d < 3, let noon = cal.date(bySettingHour: 12, minute: 0, second: 0, of: start) { all.append(noon.timeIntervalSince1970 * 1000) }
-        }
-        let k = all.lastIndex { $0 <= nowMs } ?? 0
-        return Array(all[k...])
-    }
-
-    /// The faces the plan reaches, from the one holding now, at most to the
-    /// end of tomorrow: where each starts, and where the last ends. A plan
-    /// with nothing ahead still has now's face.
-    public static func pages(plan: PlanEntry?, prices: PriceEntry?, nowMs: Double) -> [Double] {
-        let zone = (plan?.timeZone ?? prices?.timeZone).flatMap(TimeZone.init(identifier:)) ?? .current
-        let clock = ZoneClock.of(zone)
-        let halves = halves(nowMs: nowMs, clock: clock)
-        let ends = (plan?.battery ?? []).map { $0.startMs + $0.durationMs }
-            + (plan?.charges ?? []).map(\.toMs)
-            + (prices?.prices.slots ?? plan?.prices ?? []).map { $0.startMs + $0.durationMs }
-        let last = ends.max() ?? nowMs
-        // Past tomorrow a face would have to name the day after.
-        let day = clock.calendar.startOfDay(for: Date(timeIntervalSince1970: nowMs / 1000))
-        let tomorrowEnds = clock.calendar.date(byAdding: .day, value: 2, to: day).flatMap { d in halves.firstIndex(of: d.timeIntervalSince1970 * 1000) } ?? halves.count - 1
-        var n = 1
-        while n < tomorrowEnds, halves[n] < last { n += 1 }
-        return Array(halves[0...n])
-    }
-
-    /// Where the Crown lands `q` quarters on from now, over the faces
-    /// `pages` gave: which face, and the start of its quarter (now itself
-    /// at 0).
-    public static func step(_ q: Int, faces: [Double], nowMs: Double) -> (page: Int, atMs: Double) {
-        let at = q <= 0 ? nowMs : ((nowMs / quarterMs).rounded(.down) + Double(q)) * quarterMs
-        return (min(max(0, faces.lastIndex { $0 <= at } ?? 0), max(0, faces.count - 2)), at)
-    }
-
-    /// How many quarters the Crown steps through: from now's to the end of
-    /// the last face.
-    public static func steps(faces: [Double], nowMs: Double) -> Int {
-        max(1, Int((((faces.last ?? nowMs) - (nowMs / quarterMs).rounded(.down) * quarterMs) / quarterMs).rounded()))
     }
 
     /// The quarters whose battery or car a new plan changed, on the same
@@ -388,25 +332,20 @@ public struct PlanDial: Equatable, Sendable {
     /// Where the middle of quarter `i` sits.
     public func angle(quarter i: Int) -> Double { angle(grid.startMs(i) + Self.quarterMs / 2) }
 
-    /// Where the turn begins and ends: at the top on a half day's face, at
-    /// now on the twelve hours from now.
-    public var seam: Double { angle(grid.firstMs) }
+    /// Where the face begins and ends: at now, or where it is wound to.
+    public var seam: Double { angle(grid.startMs(offset)) }
 
-    /// The quarters on the face: the half day's, or twelve hours'.
-    public var turn: Int { page == nil ? Self.count : quarters.count }
-
-    /// The first quarter a finger or the Crown reads: now's, or a later
-    /// face's first.
-    public var first: Int { nowIndex ?? 0 }
-
-    /// The sun's spans as distances round the turn from the seam, 0 to 2π.
-    /// A span under way now starts at 0, never a whole turn on, and one
-    /// that runs to the end of the turn ends at 2π. Like the ticks, the
-    /// ends follow the household's clock.
+    /// The sun's spans on the face as distances round the turn from the
+    /// seam, 0 to 2π. A span under way at the seam starts at 0, never a
+    /// whole turn on, and one that runs to the end of the face ends at 2π.
+    /// Like the ticks, the ends follow the household's clock.
     public var sunAlong: [ClosedRange<Double>] {
-        sun.map { span in
-            let a = along(span.lowerBound)
-            var b = along(span.upperBound)
+        let from = offset == 0 ? nowMs : grid.startMs(offset), to = grid.startMs(offset) + Double(Self.count) * Self.quarterMs
+        return sun.compactMap { span in
+            let lo = max(span.lowerBound, from), hi = min(span.upperBound, to)
+            guard lo < hi else { return nil }
+            let a = along(lo)
+            var b = along(hi)
             if b <= a { b += 2 * .pi }
             return a...b
         }
@@ -418,35 +357,29 @@ public struct PlanDial: Equatable, Sendable {
         return a < 0 ? a + 2 * .pi : a
     }
 
-    /// Where the hand points: now, or the start of the quarter chosen. On a
-    /// face after now's with nothing chosen there is no hand
-    /// (`hasHand`), and this is the top.
+    /// Where the hand points: now, or the start of the quarter chosen.
     public func handAngle(selected: Int?) -> Double {
-        let i = selected ?? first
-        return i == nowIndex ? angle(nowMs) : angle(grid.startMs(i))
+        guard let i = selected, i > 0 else { return angle(nowMs) }
+        return angle(grid.startMs(i))
     }
 
-    /// Whether a hand shows: at now on now's face, else only where a finger
-    /// or the Crown has chosen a quarter.
-    public func hasHand(selected: Int?) -> Bool { selected != nil || nowIndex != nil }
-
     /// The quarter under a finger `x` right of and `y` below the dial's
-    /// centre. One turn holds each quarter once, so the angle alone finds
-    /// it. On now's face the hours gone by read nothing: a finger there
-    /// stays on now, or on the last quarter if the seam is nearer. A finger
-    /// that crosses the seam winds no further: coming from the end it stays
-    /// on the last quarter, from the first on the first, so turning back
-    /// answers at once.
+    /// centre, counted from now. One turn holds each quarter of the face
+    /// once, so the angle finds it; the quarter before tells which turn.
+    /// A finger that runs on past the face's end reads on into the
+    /// quarters after it, and the face winds on to keep it
+    /// (`offset(keeping:)`). Back past now it stays on now.
     public func index(x: Double, y: Double, from previous: Int?) -> Int {
         var a = atan2(x, -y)
         if a < 0 { a += 2 * .pi }
         var along = a - seam
         if along < 0 { along += 2 * .pi }
-        let raw = Int(along / (2 * .pi) * Double(Self.count))
-        let last = turn - 1
-        let i = raw >= first ? min(last, raw) : (raw + 1 < first - raw ? last : first)
-        guard let previous, abs(i - previous) > (last - first + 1) / 2 else { return i }
-        return previous < (first + last + 1) / 2 ? first : last
+        var i = offset + min(Self.count - 1, Int(along / (2 * .pi) * Double(Self.count)))
+        if let previous {
+            if i - previous > Self.count / 2 { i -= Self.count }
+            if previous - i > Self.count / 2 { i += Self.count }
+        }
+        return min(max(0, i), quarters.count - 1)
     }
 
     // MARK: What a finger or the Crown reads
@@ -456,14 +389,6 @@ public struct PlanDial: Equatable, Sendable {
 
     /// "TOMORROW" over a time on the next day, else nil.
     public func day(_ i: Int) -> String? { i >= tomorrowFrom ? PriceWord.tomorrow.text : nil }
-
-    /// "TOMORROW 00–12", or "12–24": which half day the face is, for
-    /// VoiceOver.
-    public var faceName: String { day(0).map { $0 + " " + span } ?? span }
-
-    /// "TODAY 12–24" or "TOMORROW 00–12": the kicker of the strip under
-    /// the face, which shows the same hours.
-    public var faceKicker: String { (day(0) ?? DialWord.today.text) + " " + span }
 
     /// "TOMORROW 04:30", or "14:30": the day and the time in one, for
     /// VoiceOver.
@@ -509,7 +434,6 @@ public struct PlanDial: Equatable, Sendable {
 enum DialWord: String, CaseIterable {
     case stores = "CHARGES · %@"
     case gives = "DISCHARGES · %@"
-    case today = "TODAY"
     case waits = "WAITS"
     case noPlan = "NO PLAN"
     case car = "CAR"
@@ -519,7 +443,7 @@ enum DialWord: String, CaseIterable {
     case plannedOld = "PLAN FROM %@ · OLD"
     case saving = "ABOUT %@ LESS THAN NO BATTERY · TO %@"
     case title = "Plan dial"
-    case summary = "Half a day as a clock: what the battery does and when the car charges."
+    case summary = "The next twelve hours as a clock: what the battery does and when the car charges."
 
     var text: String { Words.bundle.localizedString(forKey: rawValue, value: rawValue, table: "Dial") }
 

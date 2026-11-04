@@ -195,8 +195,6 @@ public enum NodeWords {
         "Dial": "Tavla",
         "battery level": "batteriets nivå",
         "sun forecast": "solprognos",
-        "Half day": "Halvdygn",
-        "Nothing planned on this half day": "Inget planerat det här halvdygnet",
         "%@ with the forecast": "%@ med prognosen",
         "Lanes": "Banor",
         "Show the plan as": "Visa planen som",

@@ -6,15 +6,15 @@ import SwiftUI
 /// each change of the quarter under the finger.
 private let signposts = OSSignposter(subsystem: "energy.ftw.app", category: .pointsOfInterest)
 
-/// The plan dial at the top of the plan view: half a day as a clock, the
-/// half holding now first, with the time and the price in the middle. A
-/// swipe sideways across the middle turns to the next half day, and back;
-/// the dots under the dial say which face it is. A finger dragged round
-/// the ring reads the plan a quarter at a time: the hand follows, brackets
-/// close on its tick, the middle shows that quarter, `.selection` ticks per
-/// quarter and a light impact marks now, the cheapest hours' edges and the
-/// car's goal. On lift the hand springs back to now. VoiceOver steps it an
-/// hour at a time.
+/// The plan dial at the top of the plan view: the next twelve hours as one
+/// turn of a clock, the time and the price in the middle. A finger dragged
+/// round the ring reads the plan a quarter at a time: the hand follows,
+/// brackets close on its tick, the middle shows that quarter, `.selection`
+/// ticks per quarter and a light impact marks now, the cheapest hours'
+/// edges and the car's goal. A finger that runs on past the twelve hours
+/// winds the face on with it, so the plan flows into tomorrow, and back
+/// (Fredrik, 4 Nov 2026). On lift the face and the hand go back to now.
+/// VoiceOver steps it an hour at a time, as far as the plan reaches.
 ///
 /// The dial sits in the plan's scroll, so a finger on the ring scrubs only
 /// once it moves along the ring or rests 0.1 s (`RingIntent`); a move up or
@@ -28,8 +28,9 @@ private let signposts = OSSignposter(subsystem: "energy.ftw.app", category: .poi
 /// hands it here (`DialTouch`); the dial asks whether it started on the
 /// ring.
 ///
-/// The face never sees the finger. Only the hand and the middle read the
-/// scrub model, so a drag redraws those two, once per quarter.
+/// The face never sees the finger: it reads only where the scrub model
+/// winds it, so within the twelve hours from now a drag redraws the hand
+/// and the middle alone, once per quarter, and past them the face too.
 struct PlanDialCard: View {
     let dial: PlanDial
     /// The plan is old or the box could not plan.
@@ -40,27 +41,20 @@ struct PlanDialCard: View {
     var lit: ClosedRange<Double>?
     /// True while a finger scrubs: the page around holds still.
     @Binding var holds: Bool
-    /// Which half day the face shows, 0 for now's, and how many the plan
-    /// reaches.
-    @Binding var face: Int
-    let faces: Int
     /// The page's touches, handed on.
     let touch: DialTouch
 
     @State private var scrub = ScrubModel()
-    /// The quarter the finger was last on, so it cannot wind past the seam.
-    /// Written on every drag event and read by nothing that draws.
+    /// The quarter the finger was last on, so a step past the seam reads
+    /// as the turn after, never the one before. Written on every drag event
+    /// and read by nothing that draws.
     @State private var finger = Finger()
     /// Where VoiceOver has stepped to.
     @State private var spoken: Int?
-    /// The last swipe went on to a later half day, so the face comes in
-    /// from the trailing side.
-    @State private var turnedOn = true
 
     var body: some View {
         ZStack {
-            PlanDialFace(dial: dial, grey: grey, lit: lit)
-                .equatable()
+            WoundFace(dial: dial, model: scrub, spoken: spoken, grey: grey, lit: lit)
             if let fade {
                 MovedFade(fresh: fade.fresh, mask: QuarterWedges(dial: fade.old, quarters: fade.moved)) {
                     PlanDialFace(dial: fade.old, grey: grey, lit: lit)
@@ -71,18 +65,13 @@ struct PlanDialCard: View {
             DialHand(dial: dial, model: scrub)
             DialCentre(dial: dial, model: scrub, spoken: spoken)
         }
-        .id(dial.grid.firstMs)
-        .transition(.push(from: turnedOn ? .trailing : .leading))
         .aspectRatio(1, contentMode: .fit)
         .frame(maxWidth: 340)
-        // A face turning slides within the dial's own square.
-        .clipped()
         .frame(maxWidth: .infinity)
         // Where the dial is on the screen, for the page's touches: written
         // to a plain reference, so a scroll redraws nothing here.
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { finger.frame = $0 }
         .onChange(of: dial, initial: true) { _, now in finger.dial = now }
-        .onChange(of: faces, initial: true) { _, now in finger.faces = now }
         .onAppear {
             touch.take(finger, changed: { value in
                 // A new touch has a new start; one the system took away
@@ -100,11 +89,10 @@ struct PlanDialCard: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(PlanDial.title)
-        .accessibilityValue(spokenValue(spoken))
+        .accessibilityValue(spokenValue(spoken ?? 0))
         .accessibilityHint(L("Swipe up or down to move an hour."))
         .accessibilityAdjustableAction { step($0) }
         .accessibilityIdentifier("plan.dial")
-        .onChange(of: dial.grid.firstMs) { spoken = nil }
         #if DEBUG
         .task { await autoScrub() }
         #endif
@@ -122,15 +110,12 @@ struct PlanDialCard: View {
 
     /// A finger came down somewhere on the page. The dial takes it only on
     /// the ring (`DialRing`), and never within 20 pt of the screen's
-    /// leading edge, where the back swipe starts. One in the middle may
-    /// turn the face.
+    /// leading edge, where the back swipe starts.
     private func start(_ v: DragGesture.Value) {
         finger.startAt = v.startLocation
         finger.startMs = ProcessInfo.processInfo.systemUptime * 1000
         finger.decision = nil
-        let rect = CGRect(origin: .zero, size: finger.frame.size)
-        finger.turns = v.startLocation.x >= EdgeRule.edge && DialRing.inMiddle(local(v.startLocation), in: rect)
-        guard v.startLocation.x >= EdgeRule.edge, DialRing.contains(local(v.startLocation), in: rect) else {
+        guard v.startLocation.x >= EdgeRule.edge, DialRing.contains(local(v.startLocation), in: CGRect(origin: .zero, size: finger.frame.size)) else {
             finger.decision = .pass
             return
         }
@@ -147,10 +132,6 @@ struct PlanDialCard: View {
     private func move(_ v: DragGesture.Value) {
         let at = local(v.location)
         finger.last = at
-        if finger.turns, let step = FaceSwipe.step(v.translation) {
-            finger.turns = false
-            turn(by: step)
-        }
         guard finger.decision == nil else {
             if finger.decision == .scrub { follow(at) }
             return
@@ -185,16 +166,7 @@ struct PlanDialCard: View {
         }
     }
 
-    /// To the next half day or back, within the ones the plan reaches.
-    private func turn(by step: Int) {
-        let next = min(max(face + step, 0), finger.faces - 1)
-        guard next != face else { return }
-        turnedOn = step > 0
-        withAnimation(Theme.spring) { face = next }
-    }
-
     private func end() {
-        finger.turns = false
         guard finger.startMs != nil else { return }
         finger.hold?.cancel()
         finger.hold = nil
@@ -211,7 +183,8 @@ struct PlanDialCard: View {
         let event = signposts.beginInterval("dial drag")
         defer { signposts.endInterval("dial drag", event) }
         guard side > 0 else { return }
-        let now = finger.dial ?? dial
+        let base = finger.dial ?? dial
+        let now = base.wound(to: base.offset(keeping: finger.previous ?? 0))
         let i = now.index(x: p.x - centre.x, y: p.y - centre.y, from: finger.previous)
         finger.previous = i
         guard i != scrub.index else { return }
@@ -221,41 +194,35 @@ struct PlanDialCard: View {
 
     // MARK: VoiceOver
 
-    /// An hour a step, from now to the end of the turn and back.
+    /// An hour a step, from now to the end of the plan and back.
     private func step(_ direction: AccessibilityAdjustmentDirection) {
-        let at = spoken ?? dial.first
+        let at = spoken ?? 0
         switch direction {
-        case .increment: spoken = min(dial.turn - 1, at + 4)
-        case .decrement: spoken = max(dial.first, at - 4)
+        case .increment: spoken = min(dial.quarters.count - 1, at + 4)
+        case .decrement: spoken = max(0, at - 4)
         @unknown default: return
         }
     }
 
-    /// "14:00, 98 öre/kWh, battery stores 3.0 kW", or on a later face with
-    /// nothing chosen, which half day it is: "Tomorrow 00–12".
-    private func spokenValue(_ i: Int?) -> String {
-        guard let i = i ?? dial.nowIndex else { return dial.faceName }
-        return [dial.when(i), dial.price(i), dial.what(i)].joined(separator: ", ")
+    /// "14:00, 98 öre/kWh, battery stores 3.0 kW".
+    private func spokenValue(_ i: Int) -> String {
+        [dial.when(i), dial.price(i), dial.what(i)].joined(separator: ", ")
     }
 
     #if DEBUG
-    /// With `-FTWDialScrub YES`, a finger goes once round the ring and back
-    /// through the same path a touch takes, for recordings and frame
-    /// measurements where nothing can touch.
+    /// With `-FTWDialScrub YES`, a finger goes round the ring one and a half
+    /// times, winding the face on into tomorrow, and back, through the same
+    /// path a touch takes, for recordings and frame measurements where
+    /// nothing can touch.
     private func autoScrub() async {
         guard UserDefaults.standard.bool(forKey: "FTWDialScrub") else { return }
         try? await Task.sleep(for: .seconds(2))
-        let faces = UserDefaults.standard.integer(forKey: "FTWDialTurns")
-        for _ in 0..<faces {
-            turn(by: 1)
-            try? await Task.sleep(for: .seconds(1.5))
-        }
         let began = ContinuousClock.now
         let r = side * 0.42
-        while ContinuousClock.now - began < .seconds(12) {
-            let t = (ContinuousClock.now - began) / .milliseconds(6_000)
-            let along = t < 1 ? t : 2 - t
-            let a = dial.seam + 0.01 + along * (2 * .pi - 0.02)
+        while ContinuousClock.now - began < .seconds(16) {
+            let t = (ContinuousClock.now - began) / .milliseconds(8_000)
+            let along = (t < 1 ? t : 2 - t) * 1.5
+            let a = dial.seam + 0.01 + along * 2 * .pi
             follow(CGPoint(x: centre.x + r * sin(a), y: centre.y - r * cos(a)))
             try? await Task.sleep(for: .milliseconds(8))
         }
@@ -277,14 +244,10 @@ private final class Finger {
     var decision: RingIntent.Decision?
     var last: CGPoint?
     var hold: Task<Void, Never>?
-    /// The touch came down in the middle and has not turned the face yet.
-    var turns = false
     /// On the screen.
     var frame: CGRect = .zero
-    /// The dial on screen, and how many half days the plan reaches: the
-    /// page's handler outlives a minute's dial.
+    /// The dial on screen: the page's handler outlives a minute's dial.
     var dial: PlanDial?
-    var faces = 1
 }
 
 /// A page's touches, handed to the charts on it: on the plan page the dial
@@ -319,14 +282,31 @@ private enum DialLog {
     static let log = Logger(subsystem: "energy.ftw.app", category: "scrub")
 }
 
-/// The hand and the lock-on, the only marks that move with a finger.
-/// Haptics ride here too, in the same update as the quarter.
+/// The face, wound on as far as the quarter under the finger, or the one
+/// VoiceOver has stepped to, needs. Within the twelve hours from now that
+/// is the same face, which the comparison skips.
+private struct WoundFace: View {
+    let dial: PlanDial
+    let model: ScrubModel
+    let spoken: Int?
+    let grey: Bool
+    let lit: ClosedRange<Double>?
+
+    var body: some View {
+        PlanDialFace(dial: dial.wound(to: dial.offset(keeping: model.index ?? spoken ?? 0)), grey: grey, lit: lit)
+            .equatable()
+    }
+}
+
+/// The hand and the lock-on, the only marks that move with a finger, on
+/// the face as far as it is wound. Haptics ride here too, in the same
+/// update as the quarter.
 private struct DialHand: View {
     let dial: PlanDial
     let model: ScrubModel
 
     var body: some View {
-        PlanDialHand(dial: dial, selected: model.index)
+        PlanDialHand(dial: dial.wound(to: dial.offset(keeping: model.index ?? 0)), selected: model.index)
             .sensoryFeedback(.selection, trigger: model.ticks)
             .sensoryFeedback(.impact(weight: .light), trigger: model.bumps)
     }
@@ -335,16 +315,14 @@ private struct DialHand: View {
 /// The middle: the time at 40 pt, the price in mono, and a third line kept
 /// for what the plan does in the quarter under the finger. Over the time, a
 /// line kept for the day, so tomorrow's "04:15" is never cut to fit beside
-/// it. A face after now's, with no finger on it, names its half day there:
-/// "TOMORROW" over "00–12".
+/// it.
 private struct DialCentre: View {
     let dial: PlanDial
     let model: ScrubModel
     let spoken: Int?
 
     var body: some View {
-        let chosen = model.index ?? spoken ?? dial.nowIndex
-        let i = chosen ?? dial.first
+        let i = model.index ?? spoken ?? 0
         GeometryReader { geo in
             let side = min(geo.size.width, geo.size.height)
             VStack(spacing: side * 0.008) {
@@ -353,11 +331,11 @@ private struct DialCentre: View {
                     .font(.system(size: max(9, side * 0.031), weight: .medium, design: .monospaced))
                     .tracking(0.5)
                     .foregroundStyle(Theme.ink2)
-                Text(chosen == nil ? dial.span : dial.time(i))
+                Text(dial.time(i))
                     .font(Theme.figure(side * 0.118))
                     .tracking(-1)
                     .foregroundStyle(Theme.ink)
-                Text(chosen == nil ? " " : dial.prices[i])
+                Text(dial.prices[i])
                     .font(.system(size: max(9, side * 0.031), weight: .medium, design: .monospaced))
                     .tracking(0.5)
                     .foregroundStyle(Theme.ink2)
@@ -377,15 +355,10 @@ private struct DialCentre: View {
 }
 
 /// Where a finger scrubs: the ring of ticks and the rim, not the middle.
-/// The middle is where a swipe turns the face.
 private enum DialRing {
     static func contains(_ p: CGPoint, in rect: CGRect) -> Bool {
         let side = min(rect.width, rect.height)
         let r = hypot(p.x - rect.midX, p.y - rect.midY)
         return r >= side * 0.26 && r <= side / 2
-    }
-
-    static func inMiddle(_ p: CGPoint, in rect: CGRect) -> Bool {
-        hypot(p.x - rect.midX, p.y - rect.midY) < min(rect.width, rect.height) * 0.26
     }
 }

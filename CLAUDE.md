@@ -401,15 +401,17 @@ FTW's own form, from Fredrik's film (srcfl/sourceful-films,
 design canvas changed them on 1 Nov 2026 (Erik: "18 is not straight down
 as on a normal clock, so you lose the feel for when things happen"):
 
-1. A clock of half a day. A face runs midnight to noon or noon to
-   midnight, 12 at the top and 6 at the bottom, so 18:00 sits straight
-   down, with every hour of it round the rim as the household's clock
-   reads them. The dial opens on the half holding now: its hours gone by
-   keep their figures, fainter, and have no ticks. A swipe sideways across
-   the middle, or the dots under the dial, turns to the next half day the
-   plan reaches, at most to the end of tomorrow, and the Crown runs on
-   into it (xorath, 3 Nov 2026: a turn of the next twelve hours put
-   tonight's 01 and 02 where this noon's hours had been).
+1. A clock. One turn is twelve hours, 12 at the top and 6 at the bottom,
+   so 18:00 sits straight down. It opens on the twelve hours from now,
+   their whole hours round the rim as the household's clock reads them;
+   none on the hand or the seam. A finger that runs on past the seam winds
+   the face on with it, a quarter at a time, so the plan flows into
+   tomorrow under the finger, as far as the plan reaches (to the end of
+   tomorrow at most), and back; on lift the face returns to now. The
+   Crown does the same on the watch. Fredrik, 4 Nov 2026: faces of half a
+   day that stopped at noon, and a sideways swipe between them (0.6.7,
+   after xorath's note of 3 Nov), both felt wrong; every face holds twelve
+   hours.
 2. One tick per quarter hour, as long as the battery's planned power
    against the most it moves in the turn (at least 1 kW). Its colour is
    what the plan does with the battery: `Theme.stores` stores,
@@ -422,16 +424,15 @@ as on a normal clock, so you lose the feel for when things happen"):
    thin dashed arc.
 3. A dotted arc in `Theme.car` marks when the car charges, with its goal
    at the end.
-4. A hand marks now on now's face; a later face has none until a finger
-   or the Crown chooses a quarter, and its middle names it ("I MORGON"
-   over "00–12"). A 2° gap at the top marks where the half day ends and
-   begins.
+4. A hand marks now. A 2° gap in the rim marks the seam where the twelve
+   hours end and begin: at now, or right after the finger on a face wound
+   on.
 5. The price is not on the dial. It stands on zero in Now's strip under
    it, with the passes and their figures; a tap on a pass lights its ticks
    at full strength.
 6. The sun's arc on the rim comes from the box's own solar forecast, never
    from astronomy or the phone's location, from now on. No forecast, no
-   arc. While a face shows it, the legend under the strip names it.
+   arc. While the plan has sun, the legend under the strip names it.
 7. The middle holds the time and the price, and a third line kept for
    what the plan does under a finger. Over the time, a line kept for the
    day: a time tomorrow says so there, never cut to fit beside it (Hannes,
@@ -442,20 +443,16 @@ as on a normal clock, so you lose the feel for when things happen"):
 and the rule for a finger; `FTWCharts/PlanDialFace.swift` draws. The
 phone's plan view, its `energy.ftw.plan-dial` widget (StandBy small and
 the lock screen's circle), the watch app and the watch's complication all
-draw that one face, the widgets and the complication on the half holding
-now. The watch's strip complication keeps the twelve hours from now. The plan view opens on the dial; the lanes are one
+draw that one face. The plan view opens on the dial; the lanes are one
 tap away in the toolbar, and the phone keeps the viewer's choice. Both
 put Now's strip under them: the lanes' over the whole plan with the
-battery's level in a row of its own, and the dial's over the face's own
-half day, its hours gone by included as fainter bars with no plan, so
-the strip's passes are the ticks the face has and a swipe turns both
-(Fredrik, 3 Nov 2026: a strip of the next twelve hours under tomorrow's
-face put three windows on one screen). Its kicker names the face,
-"TODAY 12–24" or "TOMORROW 00–12", and the cheapest line under it names
-the cheapest two hours of the whole plan ahead, the ones Now's and the
-lanes' sentence name, marked on the face that holds them. A drag
-round the ring costs one lookup per event, and only a change of quarter
-redraws, and then only the hand and the middle. Now keeps its straight
+battery's level in a row of its own, and the dial's over the twelve hours
+from now, as on Now. The cheapest line under the dial names the cheapest
+two hours of the whole plan ahead, the ones Now's and the lanes' sentence
+name, marked on the face when it is wound to them. A drag round the ring
+costs one lookup per event, and only a change of quarter redraws: within
+the twelve hours from now only the hand and the middle, past them the
+face too. Now keeps its straight
 strip, with gold for the battery giving power. Each battery run and car
 window on it is a pass (`PlanPass`, proposal 5, picked by Fredrik on
 1 Nov 2026): a tap chooses one, which then stands in full colour over a

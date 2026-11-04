@@ -6,17 +6,17 @@ import WidgetKit
 /// widget, the watch app and the watch's complication all draw this one
 /// face, so the four never differ.
 ///
-/// From the outside in: the rim, a hairline with a 2° gap at the top where
-/// the half day ends and begins; the sun as an area hanging in from it, as
-/// deep as the box's forecast expects the panels to make, a ghost with a
+/// From the outside in: the rim, a hairline with a 2° gap at the seam where
+/// the twelve hours end and begin; the sun as an area hanging in from it,
+/// as deep as the box's forecast expects the panels to make, a ghost with a
 /// dashed edge because it is a guess (Fredrik, 3 Nov 2026: the forecast is
-/// an area, as the rest is); the whole hours just outside the rim,
-/// as on a clock, the ones gone by fainter; a tick per quarter from now on,
-/// as long as the battery's planned power, cyan where it stores, gold where
-/// it gives power (as on Now's strip under it), a faint stub where it
-/// waits; the car's dotted arc with its goal. The hours gone by have no
-/// ticks. The hand is drawn apart (`PlanDialHand`), so a finger on the
-/// phone moves it without redrawing the face.
+/// an area, as the rest is); the whole hours just outside the rim, as on a
+/// clock; a tick per quarter, as long as the battery's planned power, cyan
+/// where it charges, gold where it discharges (as on Now's strip under it),
+/// a faint stub where it waits; the car's dotted arc with its goal. It
+/// draws the quarters of the dial's `window`, so a face wound on shows the
+/// hours after. The hand is drawn apart (`PlanDialHand`), so a finger on
+/// the phone moves it without redrawing the face.
 ///
 /// The pass a tap chose (`lit`) has its ticks at full strength; the rest
 /// stay a ghost.
@@ -106,7 +106,7 @@ struct PlanDialFace: View, Equatable {
     /// quarters of the chosen pass, or the rest.
     private func ticks(_ g: DialGeometry, _ action: PlanDial.Battery, lit wanted: Bool) -> Path {
         var p = Path()
-        for i in dial.first..<dial.turn where dial.quarters[i].battery == action {
+        for i in dial.window where dial.quarters[i].battery == action {
             guard let reach = dial.reach(i) else { continue }
             let mid = dial.quarters[i].startMs + PlanDial.quarterMs / 2
             guard (lit?.contains(mid) ?? false) == wanted else { continue }
@@ -120,7 +120,7 @@ struct PlanDialFace: View, Equatable {
     /// short stub, so the turn keeps its shape.
     private func stubs(_ g: DialGeometry) -> Path {
         var p = Path()
-        for i in dial.first..<dial.turn where dial.reach(i) == nil && i % 2 == 0 {
+        for i in dial.window where dial.reach(i) == nil && i % 2 == 0 {
             p.addPath(g.tick(at: dial.angle(quarter: i), from: g.inner, length: g.unit * 0.6, width: g.tickWidth * 0.8))
         }
         return p
@@ -130,7 +130,7 @@ struct PlanDialFace: View, Equatable {
     /// other quarter.
     private func carDots(_ g: DialGeometry) -> Path {
         var p = Path()
-        for i in dial.first..<dial.turn where dial.quarters[i].car && i % 2 == 0 {
+        for i in dial.window where dial.quarters[i].car && i % 2 == 0 {
             let c = g.point(dial.angle(quarter: i), g.carRadius)
             p.addEllipse(in: CGRect(x: c.x - g.dot / 2, y: c.y - g.dot / 2, width: g.dot, height: g.dot))
         }
@@ -150,15 +150,13 @@ struct PlanDialHand: View {
         GeometryReader { geo in
             let g = DialGeometry(side: min(geo.size.width, geo.size.height), size: size)
             ZStack {
-                if size == .app, let i = selected, i != dial.nowIndex {
+                if size == .app, let i = selected, i > 0 {
                     lockOn(g, i).fill(Theme.ink)
                 }
-                // From inside the ticks to just past the rim. A face after
-                // now's has none until a finger or the Crown chooses.
-                if dial.hasHand(selected: selected) {
-                    HandLine(along: along, seam: dial.seam, from: g.inner - g.unit * 1.2, to: g.rim + (size == .app ? 3 : 1))
-                        .stroke(Theme.ink, style: StrokeStyle(lineWidth: size == .app ? 1.5 : 1.2, lineCap: .round, lineJoin: .round))
-                }
+                // From inside the ticks to just past the rim, through the
+                // seam's gap while it points at now.
+                HandLine(along: along, seam: dial.seam, from: g.inner - g.unit * 1.2, to: g.rim + (size == .app ? 3 : 1))
+                    .stroke(Theme.ink, style: StrokeStyle(lineWidth: size == .app ? 1.5 : 1.2, lineCap: .round, lineJoin: .round))
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
@@ -312,11 +310,12 @@ private struct SunArea: View {
     static func shape(_ g: DialGeometry, _ dial: PlanDial) -> (area: Path, edge: Path) {
         var area = Path(), edge = Path()
         let depth = (g.rim - g.inner) * 0.5
-        var i = dial.first
-        while i < dial.turn {
+        let window = dial.window
+        var i = window.lowerBound
+        while i < window.upperBound {
             guard dial.sunReach(i) != nil else { i += 1; continue }
             var j = i
-            while j + 1 < dial.turn, dial.sunReach(j + 1) != nil { j += 1 }
+            while j + 1 < window.upperBound, dial.sunReach(j + 1) != nil { j += 1 }
             let a0 = max(dial.along(max(dial.grid.startMs(i), dial.nowMs)), DialGeometry.gap)
             var a1 = dial.along(dial.grid.endMs(j))
             if a1 <= a0 { a1 = 2 * .pi }
@@ -326,11 +325,11 @@ private struct SunArea: View {
             // area stops square.
             func at(_ a: Double, _ k: Int) -> CGPoint { g.point(dial.seam + a, g.rim - depth * CGFloat(dial.sunReach(k) ?? 0)) }
             var points = [g.point(dial.seam + a0, g.rim)]
-            if i == dial.first { points.append(at(a0, i)) }
+            if i == window.lowerBound { points.append(at(a0, i)) }
             for k in i...j {
                 points.append(at(min(max(dial.along(dial.grid.startMs(k) + PlanDial.quarterMs / 2), a0), a1), k))
             }
-            if j == dial.turn - 1 { points.append(at(a1, j)) }
+            if j == window.upperBound - 1 { points.append(at(a1, j)) }
             points.append(g.point(dial.seam + a1, g.rim))
             let profile = smooth(points)
             edge.addPath(profile)
@@ -382,7 +381,7 @@ private struct HourLabels: View {
             let onQuarter = abs(k - k.rounded()) < 0.01
             Text(verbatim: h.label)
                 .font(.system(size: g.label, weight: onQuarter ? .semibold : .regular, design: .monospaced))
-                .foregroundStyle(h.past ? Theme.ink3.opacity(0.6) : onQuarter ? Theme.ink2 : Theme.ink3)
+                .foregroundStyle(onQuarter ? Theme.ink2 : Theme.ink3)
                 .position(g.point(h.angle, g.labelRadius))
         }
     }
@@ -395,7 +394,7 @@ private struct CarGoals: View {
     let grey: Bool
 
     var body: some View {
-        ForEach(Array(dial.quarters.indices.filter { dial.quarters[$0].carGoalPct != nil }), id: \.self) { i in
+        ForEach(Array(dial.window.filter { dial.quarters[$0].carGoalPct != nil }), id: \.self) { i in
             Text(verbatim: "\(Int((dial.quarters[i].carGoalPct ?? 0).rounded()))\u{00A0}%")
                 .font(.system(size: g.label * 0.9, weight: .medium, design: .monospaced))
                 .foregroundStyle(grey ? Theme.ink3 : Theme.car)

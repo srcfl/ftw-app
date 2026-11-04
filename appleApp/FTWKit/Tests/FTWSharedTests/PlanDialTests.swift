@@ -2,9 +2,9 @@ import Foundation
 import Testing
 @testable import FTWShared
 
-/// The plan dial as the phone, its widget and the watch draw it: half a
-/// day to a face, a finger round the ring, the sun from the box's forecast
-/// and the words a finger reads. The plan and prices are `WatchTests`': from Wednesday
+/// The plan dial as the phone, its widget and the watch draw it: the
+/// twelve hours from now, a finger round the ring that winds the face on,
+/// the sun from the box's forecast and the words a finger reads. The plan and prices are `WatchTests`': from Wednesday
 /// 12:00 the battery discharges 17–19 and stores 22:00–23:30, the car
 /// charges 01:00–04:45 toward 80 %, and power costs 30 öre 02–04, 160 öre
 /// 17–21 and 70 öre otherwise.
@@ -13,11 +13,11 @@ import Testing
     func at(_ day: Int, _ hour: Int, _ minute: Int = 0) -> Double { watch.at(day, hour, minute) }
     func near(_ a: Double, _ b: Double) -> Bool { abs(a - b) < 1e-9 || abs(abs(a - b) - 2 * .pi) < 1e-9 }
 
-    /// Now's half day, or with `page` nil the twelve hours from now.
-    func dial(at t: Double? = nil, daylight: PlanEntry.Daylight? = nil, page: Int? = 0) -> PlanDial {
+    /// The twelve hours from now, or with `untilMs` the quarters on to it.
+    func dial(at t: Double? = nil, daylight: PlanEntry.Daylight? = nil, untilMs: Double? = nil) -> PlanDial {
         var plan = watch.plan()
         plan.daylight = daylight
-        return PlanDial(plan: plan, prices: watch.prices(), nowMs: t ?? at(14, 12, 7), page: page)
+        return PlanDial(plan: plan, prices: watch.prices(), nowMs: t ?? at(14, 12, 7), untilMs: untilMs)
     }
 
     /// Where a finger at quarter `i`'s middle sits, `r` from the centre.
@@ -26,89 +26,62 @@ import Testing
         return (r * sin(a), -r * cos(a))
     }
 
-    /// A face is half a day, noon to midnight or midnight to noon, with its
-    /// seam at the top. Now's face keeps the hours gone by: the plan starts
-    /// at now's quarter.
-    @Test func aFaceIsHalfADay() {
-        let d = dial(at: at(14, 17, 34))
-        #expect(d.grid.firstMs == at(14, 12) && d.grid.toMs == at(15, 0) && d.turn == 48)
-        #expect(near(d.seam, 0))
-        #expect(d.nowIndex == 22 && d.first == 22)
-        #expect(d.times[22] == "17:34" && d.times[23] == "17:45")
-        #expect(near(d.handAngle(selected: nil), d.angle(at(14, 17, 34))) && d.hasHand(selected: nil))
-        // Before now the plan says nothing.
-        #expect(d.quarters[10].batteryW == nil && d.quarters[10].minor == nil && d.reach(10) == nil)
-        #expect(d.quarters[22].battery == .gives && d.landmarks.contains(22))
-        // The next face is tonight's, midnight to noon: no hand until a
-        // finger chooses, and its name over the span.
-        let night = dial(at: at(14, 17, 34), page: 1)
-        #expect(night.grid.firstMs == at(15, 0) && night.grid.toMs == at(15, 12))
-        #expect(night.nowIndex == nil && night.first == 0 && !night.hasHand(selected: nil) && night.hasHand(selected: 4))
-        #expect(night.span == "00–12" && night.faceName == "TOMORROW 00–12" && night.day(0) == "TOMORROW")
-        #expect(night.quarters[night.grid.index(atMs: at(15, 2))!].car)
-        // In the morning the face is midnight to noon, and the next one
-        // this afternoon's.
-        let morning = dial(at: at(14, 8), page: 1)
-        #expect(morning.grid.firstMs == at(14, 12) && morning.span == "12–24" && morning.faceName == "12–24")
-        #expect(dial(at: at(14, 8)).span == "00–12")
+    /// The face opens on the twelve hours from now, its seam at now.
+    @Test func theFaceIsTheNextTwelveHours() {
+        let d = dial()
+        #expect(near(d.seam, d.angle(at(14, 12))) && d.offset == 0 && d.window == 0..<48)
+        #expect(d.times[0] == "12:07")
+        // The hand at now sits just past the seam, inside the first quarter.
+        #expect(d.handAngle(selected: nil) > d.seam)
+        #expect(d.handAngle(selected: nil) - d.seam < 2 * .pi / 48)
     }
 
-    /// A clock: 18 straight down and every hour of the half round the rim,
-    /// the ones gone by marked so.
+    /// A clock: 18 straight down, the real hours round the rim, none on
+    /// top of the hand or the seam.
     @Test func theHoursSitWhereAClockHasThem() {
-        let d = dial(at: at(14, 17, 34))
+        let d = dial()
         #expect(near(d.angle(at(14, 18)), .pi))
         #expect(near(d.angle(at(14, 15)), .pi / 2))
         #expect(near(d.angle(at(14, 21)), 1.5 * .pi))
         #expect(near(d.angle(at(15, 0)), 0))
-        #expect(d.hours.map(\.label) == ["12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23"])
+        // From 12:07 the turn runs to midnight: 13 to 23, with 12 and 00
+        // left off at the hand and the seam.
+        #expect(d.hours.map(\.label) == ["13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "23"])
         #expect(near(d.hours.first { $0.label == "18" }!.angle, .pi))
-        #expect(d.hours.filter(\.past).map(\.label) == ["12", "13", "14", "15", "16"])
-        // Tonight's face: 00 at the top, 06 at the foot, none gone by.
-        let night = dial(at: at(14, 17, 34), page: 1)
-        #expect(night.hours.first?.label == "00" && night.hours.contains { $0.label == "06" && near($0.angle, .pi) })
-        #expect(night.hours.allSatisfy { !$0.past })
+        // At 20:07, 06 sits at the foot, the next morning's.
+        #expect(dial(at: at(14, 20, 7)).hours.contains { $0.label == "06" && near($0.angle, .pi) })
+        // At 17:34, 18 is 26 minutes past the hand and stands at the foot;
+        // 05 is half an hour before the seam. Neither sits on either.
+        let evening = dial(at: at(14, 17, 34))
+        #expect(evening.hours.first?.label == "18" && evening.hours.last?.label == "05")
+        #expect(evening.hours.count == 12)
     }
 
-    /// The faces follow the plan to the end of tomorrow, and the Crown runs
-    /// across them a quarter at a time.
-    @Test func theFacesFollowThePlan() {
-        let bounds = PlanDial.pages(plan: watch.plan(), prices: watch.prices(), nowMs: at(14, 17, 34))
-        #expect(bounds == [at(14, 12), at(15, 0), at(15, 12), at(16, 0)])
-        // Prices for today only: the plan's car still reaches tonight.
-        #expect(PlanDial.pages(plan: watch.plan(), prices: watch.prices(days: 1), nowMs: at(14, 17, 34)) == [at(14, 12), at(15, 0), at(15, 12)])
-        // Nothing ahead still has now's face, in the household's zone.
-        let empty = PlanEntry(battery: [], charges: [], prices: [], currency: "SEK", boxStale: false, timeZone: WatchTests.zone)
-        #expect(PlanDial.pages(plan: empty, prices: nil, nowMs: at(14, 17, 34)) == [at(14, 12), at(15, 0)])
-        // Never past tomorrow, even with a plan that runs on.
-        var long = watch.plan()
-        long.battery = [PlanEntry.Slot(startMs: at(14, 8), durationMs: 72 * 3_600_000, batteryW: 0, reason: "test")]
-        #expect(PlanDial.pages(plan: long, prices: nil, nowMs: at(14, 8)).last == at(16, 0))
-        let now = at(14, 17, 34)
-        #expect(PlanDial.steps(faces: bounds, nowMs: now) == 26 + 96)
-        func step(_ q: Int) -> [Double] {
-            let s = PlanDial.step(q, faces: bounds, nowMs: now)
-            return [Double(s.page), s.atMs]
-        }
-        #expect(step(0) == [0, now])
-        #expect(step(25) == [0, at(14, 23, 45)])
-        #expect(step(26) == [1, at(15, 0)])
-        #expect(step(121) == [2, at(15, 23, 45)])
-    }
-
-    /// The night the clocks go back, the morning's face holds 13 hours.
-    @Test func theNightTheClocksGoBack() {
-        let d = PlanDial(plan: nil, prices: watch.prices(), nowMs: at(25, 1), page: 0)
-        #expect(d.grid.firstMs == at(25, 0) && d.turn == 52)
-    }
-
-    /// A swipe sideways across the middle turns the face once it has gone
-    /// 40 pt, mostly sideways.
-    @Test func aSwipeTurnsTheFace() {
-        #expect(FaceSwipe.step(CGSize(width: -41, height: 10)) == 1)
-        #expect(FaceSwipe.step(CGSize(width: 45, height: -20)) == -1)
-        #expect(FaceSwipe.step(CGSize(width: -30, height: 0)) == nil)
-        #expect(FaceSwipe.step(CGSize(width: -50, height: 40)) == nil)
+    /// A finger that runs on past the twelve hours winds the face on with
+    /// it, a quarter at a time, into tomorrow, and back.
+    @Test func aFingerWindsTheFaceOn() {
+        let d = dial(at: at(14, 17, 34), untilMs: at(16, 0))
+        #expect(d.quarters.count == 26 + 96 && d.maxOffset == 26 + 96 - 48)
+        // On past the seam the finger reads the quarter after the last.
+        let seam = finger(d, 0)
+        #expect(d.index(x: seam.x, y: seam.y, from: 47) == 48)
+        #expect(d.offset(keeping: 47) == 0 && d.offset(keeping: 48) == 1)
+        let one = d.wound(to: 1)
+        #expect(one.window == 1..<49 && near(one.seam, d.angle(d.grid.startMs(1))))
+        // The same place on the ring is now a turn on: tomorrow's 05:45.
+        let on = finger(one, 49)
+        #expect(one.index(x: on.x, y: on.y, from: 48) == 49)
+        #expect(one.time(49) == "05:45" && one.day(49) == "TOMORROW")
+        // Back, it winds back.
+        let two = d.wound(to: 2)
+        #expect(two.index(x: finger(two, 48).x, y: finger(two, 48).y, from: 49) == 48)
+        // A face wound to tomorrow's midnight has its hours, none on the
+        // seam at either end.
+        let night = d.wound(to: 26)
+        #expect(night.hours.first?.label == "01" && night.hours.last?.label == "11")
+        // Never past the plan's last quarter, nor before now.
+        #expect(d.offset(keeping: 500) == d.maxOffset && d.wound(to: 500).offset == d.maxOffset)
+        #expect(d.index(x: finger(d, 47).x, y: finger(d, 47).y, from: 0) == 0)
     }
 
     /// A tick is as long as the battery's planned power, against the most
@@ -131,20 +104,8 @@ import Testing
         }
     }
 
-    /// On now's face the hours gone by read nothing: a finger there stays
-    /// on now, or on the last quarter where the seam is nearer.
-    @Test func theHoursGoneByStayOnNow() {
-        let d = dial(at: at(14, 17, 34))
-        let early = finger(d, 10), late = finger(d, 15)
-        #expect(d.index(x: early.x, y: early.y, from: nil) == 47)
-        #expect(d.index(x: late.x, y: late.y, from: nil) == 22)
-        #expect(d.index(x: finger(d, 30).x, y: finger(d, 30).y, from: 29) == 30)
-        // Coming from now across the past, it stays at now.
-        #expect(d.index(x: late.x, y: late.y, from: 23) == 22)
-    }
-
-    /// Past the seam the finger winds no further: from the end it stays on
-    /// the last quarter, from now on the first.
+    /// With no more of the plan to wind into, the finger stops at the seam:
+    /// from the end it stays on the last quarter, from now on the first.
     @Test func theSeamStopsAFinger() {
         let d = dial()
         let start = finger(d, 0), end = finger(d, 47)
@@ -166,23 +127,27 @@ import Testing
         ])
         let d = dial(daylight: day)
         #expect(d.sun == [at(14, 12, 7)...at(14, 17, 30)])
-        // Round the face from its top: from now to sunset, 22 quarters on.
+        // Round the turn from the seam: from now to sunset, 22 quarters on.
         let quarter = 2 * Double.pi / 48
         #expect(d.sunAlong.count == 1)
         #expect(abs(d.sunAlong[0].lowerBound - 7.0 / 15 * quarter) < 1e-9)
         #expect(abs(d.sunAlong[0].upperBound - 22 * quarter) < 1e-9)
-        // At 02:07 the morning's face holds the sun from 07:45 to noon.
+        // With the seam at 02:00: the morning's sun sits 23 quarters on and
+        // runs to the end of the turn.
         let night = dial(at: at(15, 2, 7), daylight: day)
         #expect(night.sunAlong.count == 1)
-        #expect(abs(night.sunAlong[0].lowerBound - 31 * quarter) < 1e-9)
+        #expect(abs(night.sunAlong[0].lowerBound - 23 * quarter) < 1e-9)
         #expect(abs(night.sunAlong[0].upperBound - 2 * .pi) < 1e-9)
-        // At 18:07 the sun has set on this face; tomorrow morning's has it.
+        // At 18:07 the turn runs to 06:00 and holds no sun; wound on to
+        // tomorrow 06:00, the face holds tomorrow's.
         #expect(dial(at: at(14, 18, 7), daylight: day).sunAlong.isEmpty)
-        #expect(dial(at: at(14, 18, 7), daylight: day, page: 1).sun == [at(15, 7, 45)...at(15, 12)])
-        // A sun that never sets fills the face from now.
+        let morning = dial(at: at(14, 18, 7), daylight: day, untilMs: at(16, 0)).wound(to: 48)
+        #expect(morning.sunAlong.count == 1)
+        #expect(abs(morning.sunAlong[0].lowerBound - 7 * quarter) < 1e-9 && abs(morning.sunAlong[0].upperBound - 45 * quarter) < 1e-9)
+        // A sun that never sets fills the turn from now.
         let polar = PlanEntry.Daylight(covered: .init(fromMs: at(14, 0), toMs: at(16, 0)), sun: [.init(fromMs: at(14, 0), toMs: at(16, 0))])
         let whole = dial(at: at(14, 18, 7), daylight: polar).sunAlong
-        #expect(whole.count == 1 && abs(whole[0].lowerBound - (24 + 7.0 / 15) * quarter) < 1e-9 && abs(whole[0].upperBound - 2 * .pi) < 1e-9)
+        #expect(whole.count == 1 && abs(whole[0].lowerBound - 7.0 / 15 * quarter) < 1e-9 && abs(whole[0].upperBound - 2 * .pi) < 1e-9)
         // No forecast, no sky.
         #expect(dial().sun.isEmpty)
         // A forecast that has run out draws none either.
@@ -221,16 +186,15 @@ import Testing
         #expect(morning.sunReach(morning.grid.index(atMs: at(14, 9))!) == 0.25)
         #expect(morning.sunReach(morning.grid.index(atMs: at(14, 11))!) == 1)
         #expect(morning.sunReach(morning.grid.index(atMs: at(14, 7, 30))!) == nil)
-        // Gone by, no sun: at 12:07 the morning's quarters hold none.
-        let noon = dial(at: at(14, 12, 7), daylight: day)
-        #expect(noon.quarters.prefix(noon.first).allSatisfy { $0.sunW == nil })
-        #expect(noon.sunReach(noon.first) == 1)
+        // At 12:07 the quarter running now reads the forecast for the part
+        // of it to come.
+        #expect(dial(at: at(14, 12, 7), daylight: day).sunReach(0) == 1)
         // A record kept before the watts travelled draws no area.
         #expect(dial(at: at(14, 12, 7), daylight: .init(covered: day.covered, sun: day.sun)).quarters.allSatisfy { $0.sunW == nil })
     }
 
     @Test func theMiddleAndTheScrubLineAreMadeOnce() {
-        let d = dial(at: at(14, 17, 7), page: nil)
+        let d = dial(at: at(14, 17, 7))
         let six = d.grid.index(atMs: at(14, 18))!, ten = d.grid.index(atMs: at(14, 22))!, goal = d.grid.index(atMs: at(15, 4, 30))!
         #expect(d.times[0] == "17:07" && d.times[six] == "18:00")
         // Past midnight the day stands apart from the time, so neither is

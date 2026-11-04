@@ -1,16 +1,15 @@
 import FTWShared
 import SwiftUI
 
-/// The plan on the dial, half a day to a face: the half holding now, then
-/// the ones the plan reaches. The Crown steps the hand a quarter hour at a
-/// time with a tick for each, on past the face's end into the next half
-/// day, and a light tap at now, at the edges of the cheapest hours and at
-/// the car's goal. The middle shows that quarter's time and price, and the
-/// line under the dial says what is planned. A tap on the dial brings the
-/// hand back to now.
+/// The plan on the dial: the next twelve hours. The Crown steps the hand a
+/// quarter hour at a time with a tick for each, and on past the twelve
+/// hours the face winds on with it, into the rest of the plan; a light tap
+/// at now, at the edges of the cheapest hours and at the car's goal. The
+/// middle shows that quarter's time and price, and the line under the dial
+/// says what is planned. A tap on the dial brings the hand back to now.
 struct PlanPage: View {
     let model: WatchModel
-    /// Quarters on from now, across the faces.
+    /// Quarters on from now, as far as the plan reaches.
     @State private var quarter = 0
     @State private var scrub = ScrubStep()
     @State private var faces = DialMemo()
@@ -119,30 +118,27 @@ struct PlanPage: View {
     }
 }
 
-/// The faces worked out once per plan, minute and half day, so a turn of
-/// the Crown only reads them.
+/// The dial worked out once per plan and minute, to the end of the plan,
+/// so a turn of the Crown only reads it and winds the face.
 @Observable
 @MainActor
 final class DialMemo {
     @ObservationIgnored private var key: String?
-    @ObservationIgnored private var bounds: [Double] = []
-    @ObservationIgnored private var kept: [Int: PlanDial] = [:]
+    @ObservationIgnored private var kept: PlanDial?
 
-    /// Where the Crown is: `quarter` quarters on from now, clamped to the
-    /// plan's reach, on its face.
+    /// Where the Crown is: `quarter` quarters on from now, held to the
+    /// plan's reach, on the face wound as far as it needs.
     func place(_ quarter: Int, plan: CacheRecord<PlanEntry>?, prices: CacheRecord<PriceEntry>?, nowMs: Double) -> (dial: PlanDial, index: Int, step: Int, steps: Int) {
         let minute = (nowMs / 60_000).rounded(.down)
         let key = "\(plan?.readAtMs ?? 0)|\(prices?.readAtMs ?? 0)|\(minute)"
-        if key != self.key {
+        if key != self.key || kept == nil {
             self.key = key
-            bounds = PlanDial.pages(plan: plan?.value, prices: prices?.value, nowMs: nowMs)
-            kept = [:]
+            let zone = (plan?.value.timeZone ?? prices?.value.timeZone).flatMap(TimeZone.init(identifier:)) ?? .current
+            let reach = plan.map { PlanGlance.reach($0.value, fromMs: nowMs, calendar: ZoneClock.of(zone).calendar) }
+            kept = PlanDial(plan: plan?.value, prices: prices?.value, nowMs: nowMs, untilMs: reach)
         }
-        let steps = PlanDial.steps(faces: bounds, nowMs: nowMs)
-        let q = min(max(quarter, 0), steps - 1)
-        let at = PlanDial.step(q, faces: bounds, nowMs: nowMs)
-        let dial = kept[at.page] ?? PlanDial(plan: plan?.value, prices: prices?.value, nowMs: nowMs, page: at.page)
-        kept[at.page] = dial
-        return (dial, dial.grid.index(atMs: at.atMs) ?? dial.first, q, steps)
+        let dial = kept!
+        let q = min(max(quarter, 0), dial.quarters.count - 1)
+        return (dial.wound(to: dial.offset(keeping: q)), q, q, dial.quarters.count)
     }
 }
