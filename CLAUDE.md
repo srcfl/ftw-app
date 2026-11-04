@@ -404,14 +404,17 @@ as on a normal clock, so you lose the feel for when things happen"):
 1. A clock. One turn is twelve hours, 12 at the top and 6 at the bottom,
    so 18:00 sits straight down. It opens on the twelve hours from now,
    their whole hours round the rim as the household's clock reads them;
-   none on the hand or the seam. A finger that runs on past the seam winds
-   the face on with it, a quarter at a time, so the plan flows into
-   tomorrow under the finger, as far as the plan reaches (to the end of
-   tomorrow at most), and back; on lift the face returns to now. The
-   Crown does the same on the watch. Fredrik, 4 Nov 2026: faces of half a
-   day that stopped at noon, and a sideways swipe between them (0.6.7,
-   after xorath's note of 3 Nov), both felt wrong; every face holds twelve
-   hours.
+   none on the hand or the seam. A finger that runs on past the seam turns
+   the face to the next twelve hours, drawn whole at once as far as the
+   plan reaches (to the end of tomorrow at most), the one face melting
+   into the other (`.blurReplace` on the one spring; a plain fade under
+   Reduce Motion), and back across the seam the same way; on lift the
+   face returns to now. The Crown does the same on the watch. Fredrik,
+   4 Nov 2026: faces of half a day that stopped at noon, and a sideways
+   swipe between them (0.6.7, after xorath's note of 3 Nov), both felt
+   wrong; every face holds twelve hours, and a face wound on a quarter at
+   a time left the rest of the turn behind. Small, smooth transitions
+   matter.
 2. One tick per quarter hour, as long as the battery's planned power
    against the most it moves in the turn (at least 1 kW). Its colour is
    what the plan does with the battery: `Theme.stores` stores,
@@ -425,8 +428,7 @@ as on a normal clock, so you lose the feel for when things happen"):
 3. A dotted arc in `Theme.car` marks when the car charges, with its goal
    at the end.
 4. A hand marks now. A 2° gap in the rim marks the seam where the twelve
-   hours end and begin: at now, or right after the finger on a face wound
-   on.
+   hours end and begin, at now's place on the ring on every turn.
 5. The price is not on the dial. It stands on zero in Now's strip under
    it, with the passes and their figures; a tap on a pass lights its ticks
    at full strength.
@@ -449,10 +451,10 @@ put Now's strip under them: the lanes' over the whole plan with the
 battery's level in a row of its own, and the dial's over the twelve hours
 from now, as on Now. The cheapest line under the dial names the cheapest
 two hours of the whole plan ahead, the ones Now's and the lanes' sentence
-name, marked on the face when it is wound to them. A drag round the ring
-costs one lookup per event, and only a change of quarter redraws: within
-the twelve hours from now only the hand and the middle, past them the
-face too. Now keeps its straight
+name, marked on the face of the turn that holds them. A drag round the
+ring costs one lookup per event, and only a change of quarter redraws,
+and then only the hand and the middle; the face redraws when the finger
+crosses the seam. Now keeps its straight
 strip, with gold for the battery giving power. Each battery run and car
 window on it is a pass (`PlanPass`, proposal 5, picked by Fredrik on
 1 Nov 2026): a tap chooses one, which then stands in full colour over a

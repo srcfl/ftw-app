@@ -3,7 +3,8 @@ import SwiftUI
 
 /// The plan on the dial: the next twelve hours. The Crown steps the hand a
 /// quarter hour at a time with a tick for each, and on past the twelve
-/// hours the face winds on with it, into the rest of the plan; a light tap
+/// hours the face melts into the next twelve, into the rest of the plan,
+/// and back the same way; a light tap
 /// at now, at the edges of the cheapest hours and at the car's goal. The
 /// middle shows that quarter's time and price, and the line under the dial
 /// says what is planned. A tap on the dial brings the hand back to now.
@@ -14,6 +15,7 @@ struct PlanPage: View {
     @State private var scrub = ScrubStep()
     @State private var faces = DialMemo()
     @FocusState private var focused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         // The hand and the words move by the minute, never by the second.
@@ -29,7 +31,15 @@ struct PlanPage: View {
                 let side = max(80, min(geo.size.width - 4, geo.size.height - 30))
                 VStack(spacing: 2) {
                     ZStack {
-                        PlanDialView(dial: dial, selected: i, grey: moment.isGrey)
+                        // Across the seam the one face melts into the next.
+                        ZStack {
+                            PlanDialFace(dial: dial, grey: moment.isGrey)
+                                .equatable()
+                                .id(dial.offset)
+                                .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
+                        }
+                        .animation(Theme.spring, value: dial.offset)
+                        PlanDialHand(dial: dial, selected: i)
                         VStack(spacing: 0) {
                             // Tomorrow over the time, on a line kept so
                             // the time never moves.
@@ -127,7 +137,7 @@ final class DialMemo {
     @ObservationIgnored private var kept: PlanDial?
 
     /// Where the Crown is: `quarter` quarters on from now, held to the
-    /// plan's reach, on the face wound as far as it needs.
+    /// plan's reach, on the face of the twelve hours that hold it.
     func place(_ quarter: Int, plan: CacheRecord<PlanEntry>?, prices: CacheRecord<PriceEntry>?, nowMs: Double) -> (dial: PlanDial, index: Int, step: Int, steps: Int) {
         let minute = (nowMs / 60_000).rounded(.down)
         let key = "\(plan?.readAtMs ?? 0)|\(prices?.readAtMs ?? 0)|\(minute)"

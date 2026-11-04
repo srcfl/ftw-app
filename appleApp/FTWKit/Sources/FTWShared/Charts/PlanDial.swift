@@ -5,10 +5,11 @@ import Foundation
 /// 18:00 sits straight down as on any clock (Erik and Fredrik, 1 Nov 2026:
 /// the 24-hour face made people read the figures at the edge and think).
 /// The face opens on the twelve hours from now. A finger or the Crown that
-/// runs on past their end winds the face on with it, a quarter at a time,
-/// so the plan flows into tomorrow under the finger and back (Fredrik,
-/// 4 Nov 2026: a face that stopped at noon and a sideways swipe both felt
-/// wrong). Each quarter hour is one tick. Its length is the battery's
+/// runs on past their end turns the face to the next twelve, drawn whole
+/// at once as far as the plan reaches, and back across the seam to these
+/// (Fredrik, 4 Nov 2026: a face that stopped at noon and a sideways swipe
+/// both felt wrong, and a face wound on a quarter at a time left the rest
+/// of the turn behind). Each quarter hour is one tick. Its length is the battery's
 /// planned power, its colour what the battery does then, and a dotted arc
 /// inside marks the car's charging. The price has its own chart under the
 /// dial. The sun is an area in from the rim, from the box's own forecast,
@@ -71,12 +72,13 @@ public struct PlanDial: Equatable, Sendable {
     public let grid: SlotGrid
     /// From the quarter holding now: twelve hours, or to `untilMs`.
     public let quarters: [Quarter]
-    /// The first quarter on the face: 0 for the twelve hours from now, more
-    /// once a finger or the Crown has wound it on (`wound(to:)`).
+    /// The first quarter on the face: 0 for the twelve hours from now, 48
+    /// for the twelve after, once a finger or the Crown has turned it on
+    /// (`wound(to:)`).
     public private(set) var offset = 0
     /// The power a full-length tick stands for: the most the battery moves
-    /// in all the quarters, so a tick keeps its length as the face winds
-    /// on, and at least `leastFullW`.
+    /// in all the quarters, so a tick keeps its length from one turn to the
+    /// next, and at least `leastFullW`.
     public let fullW: Double
     /// The sun at the area's full depth: the most the forecast expects in
     /// all it covers, so a dull morning stands lower than a bright noon,
@@ -114,8 +116,8 @@ public struct PlanDial: Equatable, Sendable {
 
     /// The dial at `nowMs`. Prices come from the price record where it has
     /// them, else from the plan's own. `untilMs` runs the quarters on past
-    /// twelve hours to that time, so a finger can wind the face on into
-    /// the rest of the plan; the face itself is always twelve hours.
+    /// twelve hours to that time, so a finger can turn the face on into the
+    /// rest of the plan; the face itself is always twelve hours.
     public init(plan: PlanEntry?, prices: PriceEntry?, nowMs: Double, untilMs: Double? = nil) {
         let zoneID = plan?.timeZone ?? prices?.timeZone
         let zone = zoneID.flatMap(TimeZone.init(identifier:)) ?? .current
@@ -243,10 +245,10 @@ public struct PlanDial: Equatable, Sendable {
         hours = faceHours()
     }
 
-    // MARK: Winding on
+    // MARK: Turning on
 
-    /// The face wound on to begin at quarter `o`, held so it always shows
-    /// twelve hours of the quarters it has.
+    /// The face turned on to begin at quarter `o`, held to the turns the
+    /// plan reaches.
     public func wound(to o: Int) -> PlanDial {
         let o = min(max(0, o), maxOffset)
         guard o != offset else { return self }
@@ -257,14 +259,16 @@ public struct PlanDial: Equatable, Sendable {
     }
 
     /// Where the face begins with quarter `i` under a finger or the Crown:
-    /// at now while `i` is in the twelve hours from now, and past them with
-    /// `i` its last quarter, so the face moves on and back with the finger.
-    public func offset(keeping i: Int) -> Int { min(max(0, i - (Self.count - 1)), maxOffset) }
+    /// the start of the turn of twelve hours that holds it, so the face
+    /// shows the whole of that turn at once.
+    public func offset(keeping i: Int) -> Int { min(max(0, i / Self.count * Self.count), maxOffset) }
 
-    /// The furthest the face winds on: to the last quarter it has.
-    public var maxOffset: Int { max(0, quarters.count - Self.count) }
+    /// The furthest the face turns on: to the turn that holds the plan's
+    /// last quarter.
+    public var maxOffset: Int { max(0, (quarters.count - 1) / Self.count * Self.count) }
 
-    /// The quarters on the face.
+    /// The quarters on the face: a whole turn, or what the plan has of the
+    /// last.
     public var window: Range<Int> { offset..<min(quarters.count, offset + Self.count) }
 
     /// The whole hours on the face, none on the hand at now or the seam.
@@ -332,7 +336,8 @@ public struct PlanDial: Equatable, Sendable {
     /// Where the middle of quarter `i` sits.
     public func angle(quarter i: Int) -> Double { angle(grid.startMs(i) + Self.quarterMs / 2) }
 
-    /// Where the face begins and ends: at now, or where it is wound to.
+    /// Where the face begins and ends: at now, and on a turn after at the
+    /// same place on the ring.
     public var seam: Double { angle(grid.startMs(offset)) }
 
     /// The sun's spans on the face as distances round the turn from the
@@ -367,8 +372,8 @@ public struct PlanDial: Equatable, Sendable {
     /// centre, counted from now. One turn holds each quarter of the face
     /// once, so the angle finds it; the quarter before tells which turn.
     /// A finger that runs on past the face's end reads on into the
-    /// quarters after it, and the face winds on to keep it
-    /// (`offset(keeping:)`). Back past now it stays on now.
+    /// quarters after it, and the face turns to the twelve hours that hold
+    /// them (`offset(keeping:)`). Back past now it stays on now.
     public func index(x: Double, y: Double, from previous: Int?) -> Int {
         var a = atan2(x, -y)
         if a < 0 { a += 2 * .pi }

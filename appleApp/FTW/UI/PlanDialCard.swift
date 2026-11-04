@@ -12,8 +12,9 @@ private let signposts = OSSignposter(subsystem: "energy.ftw.app", category: .poi
 /// brackets close on its tick, the middle shows that quarter, `.selection`
 /// ticks per quarter and a light impact marks now, the cheapest hours'
 /// edges and the car's goal. A finger that runs on past the twelve hours
-/// winds the face on with it, so the plan flows into tomorrow, and back
-/// (Fredrik, 4 Nov 2026). On lift the face and the hand go back to now.
+/// turns the face to the next twelve, the one melting into the other, and
+/// back across the seam the same way (Fredrik, 4 Nov 2026: small, smooth
+/// transitions matter). On lift the face and the hand go back to now.
 /// VoiceOver steps it an hour at a time, as far as the plan reaches.
 ///
 /// The dial sits in the plan's scroll, so a finger on the ring scrubs only
@@ -28,9 +29,9 @@ private let signposts = OSSignposter(subsystem: "energy.ftw.app", category: .poi
 /// hands it here (`DialTouch`); the dial asks whether it started on the
 /// ring.
 ///
-/// The face never sees the finger: it reads only where the scrub model
-/// winds it, so within the twelve hours from now a drag redraws the hand
-/// and the middle alone, once per quarter, and past them the face too.
+/// The face never sees the finger: it reads only which turn the scrub
+/// model is on, so a drag redraws the hand and the middle alone, once per
+/// quarter, and the face only when the finger crosses the seam.
 struct PlanDialCard: View {
     let dial: PlanDial
     /// The plan is old or the box could not plan.
@@ -282,19 +283,27 @@ private enum DialLog {
     static let log = Logger(subsystem: "energy.ftw.app", category: "scrub")
 }
 
-/// The face, wound on as far as the quarter under the finger, or the one
-/// VoiceOver has stepped to, needs. Within the twelve hours from now that
-/// is the same face, which the comparison skips.
+/// The face of the twelve hours that hold the quarter under the finger, or
+/// the one VoiceOver has stepped to. Within one turn it is the same face,
+/// which the comparison skips; across the seam the one melts into the
+/// other, blurring as it fades, or under Reduce Motion simply fades.
 private struct WoundFace: View {
     let dial: PlanDial
     let model: ScrubModel
     let spoken: Int?
     let grey: Bool
     let lit: ClosedRange<Double>?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        PlanDialFace(dial: dial.wound(to: dial.offset(keeping: model.index ?? spoken ?? 0)), grey: grey, lit: lit)
-            .equatable()
+        let shown = dial.wound(to: dial.offset(keeping: model.index ?? spoken ?? 0))
+        ZStack {
+            PlanDialFace(dial: shown, grey: grey, lit: lit)
+                .equatable()
+                .id(shown.offset)
+                .transition(reduceMotion ? AnyTransition.opacity : AnyTransition(.blurReplace))
+        }
+        .animation(Theme.spring, value: shown.offset)
     }
 }
 

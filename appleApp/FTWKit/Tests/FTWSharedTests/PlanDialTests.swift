@@ -57,30 +57,30 @@ import Testing
         #expect(evening.hours.count == 12)
     }
 
-    /// A finger that runs on past the twelve hours winds the face on with
-    /// it, a quarter at a time, into tomorrow, and back.
-    @Test func aFingerWindsTheFaceOn() {
+    /// A finger that runs on past the twelve hours turns the face to the
+    /// next twelve, whole at once, and back across the seam.
+    @Test func aFingerTurnsTheFaceOn() {
         let d = dial(at: at(14, 17, 34), untilMs: at(16, 0))
-        #expect(d.quarters.count == 26 + 96 && d.maxOffset == 26 + 96 - 48)
-        // On past the seam the finger reads the quarter after the last.
+        #expect(d.quarters.count == 26 + 96 && d.maxOffset == 96)
+        // On past the seam the finger reads the quarter after the last, and
+        // the face is the twelve hours that hold it.
         let seam = finger(d, 0)
         #expect(d.index(x: seam.x, y: seam.y, from: 47) == 48)
-        #expect(d.offset(keeping: 47) == 0 && d.offset(keeping: 48) == 1)
-        let one = d.wound(to: 1)
-        #expect(one.window == 1..<49 && near(one.seam, d.angle(d.grid.startMs(1))))
+        #expect(d.offset(keeping: 47) == 0 && d.offset(keeping: 48) == 48 && d.offset(keeping: 95) == 48)
+        let next = d.wound(to: 48)
+        #expect(next.window == 48..<96 && near(next.seam, d.seam))
         // The same place on the ring is now a turn on: tomorrow's 05:45.
-        let on = finger(one, 49)
-        #expect(one.index(x: on.x, y: on.y, from: 48) == 49)
-        #expect(one.time(49) == "05:45" && one.day(49) == "TOMORROW")
-        // Back, it winds back.
-        let two = d.wound(to: 2)
-        #expect(two.index(x: finger(two, 48).x, y: finger(two, 48).y, from: 49) == 48)
-        // A face wound to tomorrow's midnight has its hours, none on the
-        // seam at either end.
-        let night = d.wound(to: 26)
-        #expect(night.hours.first?.label == "01" && night.hours.last?.label == "11")
-        // Never past the plan's last quarter, nor before now.
-        #expect(d.offset(keeping: 500) == d.maxOffset && d.wound(to: 500).offset == d.maxOffset)
+        let on = finger(next, 49)
+        #expect(next.index(x: on.x, y: on.y, from: 48) == 49)
+        #expect(next.time(49) == "05:45" && next.day(49) == "TOMORROW")
+        // Its hours are tomorrow's, none on the seam.
+        #expect(next.hours.first?.label == "06" && next.hours.last?.label == "17")
+        // Back across the seam, the finger is on today's turn again.
+        #expect(next.index(x: finger(next, 95).x, y: finger(next, 95).y, from: 48) == 47)
+        // The last turn holds what the plan has of it.
+        #expect(d.wound(to: 96).window == 96..<122)
+        // Never past the plan's last turn, nor before now.
+        #expect(d.offset(keeping: 500) == 96 && d.wound(to: 500).offset == 96)
         #expect(d.index(x: finger(d, 47).x, y: finger(d, 47).y, from: 0) == 0)
     }
 
