@@ -1,0 +1,80 @@
+name: iOS release on Discord
+
+# Tells Discord that a new FTW for iPhone build is on its way to the public
+# beta, as srcfl/ftw tells it about Core's betas (Fredrik, 5 Nov 2026). The
+# release script on the Mac starts this once it has given the build to Pilot
+# (appleApp/RELEASING.md). The words are the release notes' paragraph for the
+# version, at the commit the build came from; the webhook is this
+# repository's DISCORD_WEBHOOK secret.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version, as in 0.6.9
+        required: true
+      build:
+        description: Build number, as in 20261105.1530
+        required: true
+      revision:
+        description: The commit the build came from; main when empty
+        required: false
+        default: ''
+      dry_run:
+        description: Print the message without posting it
+        type: boolean
+        default: true
+  pull_request:
+    paths:
+      - .github/workflows/ios-release-discord.yml
+      - .github/scripts/ios_release_discord.py
+      - .github/scripts/test_ios_release_discord.py
+      - appleApp/store/en-US/release-notes.txt
+      - appleApp/FTW.xcconfig
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/ios-release-discord.yml
+      - .github/scripts/ios_release_discord.py
+      - .github/scripts/test_ios_release_discord.py
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-release-discord
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s .github/scripts -p 'test_ios_release_discord.py'
+
+  announce:
+    if: ${{ github.repository == 'srcfl/ftw-app' && github.event_name == 'workflow_dispatch' }}
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      # The script from the branch this runs on; the notes from the build's
+      # own commit.
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.revision || github.sha }}
+          path: build-source
+          sparse-checkout: appleApp
+      - name: Send the release notes
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          VERSION: ${{ inputs.version }}
+          BUILD: ${{ inputs.build }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [ "${DRY_RUN}" = true ]; then args+=(--dry-run); fi
+          python3 .github/scripts/ios_release_discord.py "${VERSION}" "${BUILD}" \
+            --app build-source/appleApp "${args[@]}"
