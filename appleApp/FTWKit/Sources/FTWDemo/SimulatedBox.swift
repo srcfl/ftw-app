@@ -86,6 +86,9 @@ public final class SimulatedBox {
     /// How long an answer about agents waits to leave: a box behind FTW
     /// Cloud, far from the phone.
     public var accessDelayMs: Double = 0
+    /// A battery that does the opposite of what FTW asked, as Core then
+    /// reports it: asked for 812 W one way while it runs the other.
+    public var batteryNotFollowing = false
 
     public nonisolated static let modes: [ModeInfo] = [
         ModeInfo(key: "planner_passive_arbitrage", label: "Passive arbitrage", tooltip: "Charge from the cheapest available source (PV when sunny, grid during cheap hours). Never exports from battery.", tier: "primary"),
@@ -609,7 +612,13 @@ public final class SimulatedBox {
             "command_at_ms": .number(now - 4_000), "observed_at_ms": .number(now - 1_000),
             "site_confirmation": moved ? "confirmed" : "no_clear_change",
         ]
-        if moved {
+        if batteryNotFollowing {
+            let asked: Double = bat >= 0 ? -812 : 812
+            battery = battery.setting("status", "not_following").setting("severity", "warning")
+                .setting("reason", .string(moved ? "power_wrong_direction" : "no_power_response")).setting("evidence", "measured")
+                .setting("requested_w", .number(asked)).setting("sent_w", .number(asked)).setting("readback_w", .number(asked))
+                .setting("actual_w", .number(bat)).setting("site_confirmation", "no_clear_change")
+        } else if moved {
             battery = battery.setting("confirmed_at_ms", .number(now - 2_000)).setting("site_evidence", [
                 "device_change_w": .number((bat * 0.4).rounded()), "grid_change_w": .number((bat * 0.4).rounded()),
                 "grid_before_w": .number(house.gridW - (bat * 0.4).rounded()), "grid_after_w": .number(house.gridW),
@@ -1032,6 +1041,9 @@ extension SimulatedBox {
             box.house.batteryExport = "allowed"
             box.house.modeKey = "planner_arbitrage"
         }
+        // `-FTWDemoNotFollowing YES`: the battery does the opposite of
+        // what FTW asked, as xorath's did on 5 Nov 2026.
+        if UserDefaults.standard.bool(forKey: "FTWDemoNotFollowing") { box.batteryNotFollowing = true }
         #endif
         // The demo is a Core that keeps cars, with one car on the charger.
         // For screenshots: `-FTWDemoCars two`, or `old` for a box from

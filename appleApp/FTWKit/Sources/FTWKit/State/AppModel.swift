@@ -21,6 +21,9 @@ public final class HomeModels {
     public let nodes: NodeModels
     /// Today over the grid, for the grid widget.
     public let gridToday: GridTodayShare
+    /// The box's answer to "Are we in control?", for the status line and
+    /// the control sheet.
+    public let control: ControlCheck
     /// Which notifications the box sends, for Home's switches.
     public let notify: NotifyRules
 
@@ -36,6 +39,7 @@ public final class HomeModels {
         cars = CarsModel(site: site, loadpoints: loadpoints)
         nodes = NodeModels(site: site, loadpoints: loadpoints, prices: prices, cache: cache)
         gridToday = GridTodayShare(site: site, history: nodes.history, prices: prices)
+        control = ControlCheck(site: site)
         notify = NotifyRules(site: site)
         // The nodes Now drew, so the next launch draws them in their places
         // before its first reading.

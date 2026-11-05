@@ -3,7 +3,8 @@ import FTWShared
 
 /// The mono line under Now's title: whether what is on screen is now, and
 /// who controls the home. `● LIVE · FTW IN CONTROL`, `○ AS OF 14:05 · FTW IN
-/// CONTROL`, `● LIVE · ▲ PAUSED · METER STALE`.
+/// CONTROL`, `● LIVE · ▲ PAUSED · METER STALE`, `● LIVE · ▲ BATTERY · NOT
+/// FOLLOWING`.
 ///
 /// It never counts seconds. Live is a lit dot; anything else is a hollow
 /// ring and the clock time of the oldest reading on screen, which holds
@@ -80,6 +81,9 @@ public struct StatusLine: Equatable, Sendable {
         case paused
         /// Devices the box reads stopped reporting.
         case quiet(Int)
+        /// The box's own answer: devices that need a look, as Core's
+        /// warnings and alarms (a battery that does not do what FTW asked).
+        case attention([ControlRow])
         /// Nothing known yet.
         case unknown
     }
@@ -115,7 +119,12 @@ public struct StatusLine: Equatable, Sendable {
         // An old reading's time alone reads as now when it is a minute
         // old: where the rest of the line does not say what is wrong, it
         // says NOT LIVE first.
-        let alarmed: Bool = { if case .paused = f.control { return true }; if case .quiet = f.control { return true }; return false }()
+        let alarmed: Bool = {
+            switch f.control {
+            case .paused, .quiet, .attention: return true
+            default: return false
+            }
+        }()
         let notLive = f.asOfMs == nil || alarmed ? nil : Part(text: NodeWords.text("NOT LIVE"), tone: .ink, spare: true)
         // Whether the second half says who controls the home: only when the
         // first half is about the readings, not about reaching the box.
@@ -163,6 +172,9 @@ public struct StatusLine: Equatable, Sendable {
         }
         if let receipt = f.receipt, f.reach != .ended {
             parts += Self.receipt(receipt)
+        } else if alarmed, says {
+            // What is wrong outranks saying the home is simulated.
+            parts += control(f.control)
         } else if f.reach == .demo {
             parts.append(ink(NodeWords.text("SIMULATED HOME")))
         } else if says {
@@ -177,6 +189,12 @@ public struct StatusLine: Equatable, Sendable {
         case .you: return [ink(NodeWords.text("YOU'RE IN CONTROL"))]
         case .paused: return [alarm(NodeWords.text("▲ PAUSED")), alarm(NodeWords.text("METER STALE"))]
         case .quiet(let n): return [alarm(n == 1 ? NodeWords.text("▲ 1 DEVICE QUIET") : NodeWords.format("▲ %@ DEVICES QUIET", String(n)))]
+        case .attention(let rows):
+            // One device by its kind and the sheet's own title for it;
+            // more by their count. The sheet says why.
+            guard let row = rows.first else { return [] }
+            guard rows.count == 1 else { return [alarm(NodeWords.format("▲ %@ DEVICES NEED A LOOK", String(rows.count)))] }
+            return [alarm("▲ " + ControlFeedback.kind(row).uppercased()), alarm(ControlFeedback.status(row).title.uppercased())]
         case .unknown: return []
         }
     }
@@ -206,7 +224,7 @@ extension StatusLine {
     /// - online: the phone has a network at all.
     /// - noCarrier: the app gave up connecting and holds a sentence of help.
     @MainActor
-    public static func facts(site: SiteModel, mode: ModeModel, demo: Bool, online: Bool, noCarrier: Bool, receipt: Receipt?) -> Facts {
+    public static func facts(site: SiteModel, mode: ModeModel, check: ControlCheck? = nil, demo: Bool, online: Bool, noCarrier: Bool, receipt: Receipt?) -> Facts {
         let s = site.session
         let reach: Reach
         if demo {
@@ -238,16 +256,19 @@ extension StatusLine {
                 asOf = site.readingAtMs ?? site.cachedAtMs
             }
         }
-        return Facts(reach: reach, control: control(site: site, mode: mode), receipt: receipt, asOfMs: asOf, zone: site.householdZone)
+        return Facts(reach: reach, control: control(site: site, mode: mode, attention: check?.attention ?? []), receipt: receipt, asOfMs: asOf, zone: site.householdZone)
     }
 
     @MainActor
-    static func control(site: SiteModel, mode: ModeModel) -> Control {
+    static func control(site: SiteModel, mode: ModeModel, attention: [ControlRow] = []) -> Control {
         let s = site.session
         guard !s.fields.isEmpty || site.heardFromBox else { return .unknown }
         if !s.dispatchBlockedBy.isEmpty { return .paused }
         let quiet = s.sources.values.filter { $0.state == .stale || $0.state == .down }.count
         if quiet > 0 { return .quiet(quiet) }
+        // What the stream cannot say: a device that does not do what it
+        // was told, in any mode.
+        if !attention.isEmpty { return .attention(attention) }
         if let actual = mode.actual, !ModeWords.isPlan(actual) { return .you }
         return .ftw
     }
