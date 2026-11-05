@@ -79,6 +79,30 @@ import FTWShared
         }
     }
 
+    /// xorath, 5 Nov 2026: the battery charged while FTW asked it to
+    /// discharge, the box's page said so, and the app said FTW was in
+    /// control. Core's warnings and alarms take the line in any mode.
+    @Test func aDeviceThatDoesNotFollowTakesTheLine() {
+        let battery = ControlRow(driver: "pixii", kind: "battery", status: "not_following", reason: "power_wrong_direction", severity: "warning")
+        let charger = ControlRow(driver: "easee", kind: "ev", status: "no_contact", reason: "readings_lost", severity: "alarm")
+        AppWords.$language.withValue(.en) {
+            let one = line(.live, .attention([battery]))
+            #expect(one.text == "LIVE · ▲ BATTERY · NOT FOLLOWING")
+            #expect(one.parts.map(\.tone) == [.ink, .alarm, .alarm])
+            #expect(one.opens == .control)
+            #expect(line(.live, .attention([charger])).text == "LIVE · ▲ CHARGER · LOST CONTROL")
+            #expect(line(.live, .attention([battery, charger])).text == "LIVE · ▲ 2 DEVICES NEED A LOOK")
+            #expect(line(.settled, .attention([battery]), asOf: Self.t).text == "AS OF 10:00 · ▲ BATTERY · NOT FOLLOWING")
+            // What is wrong outranks saying the home is simulated.
+            #expect(line(.demo, .attention([battery])).text == "DEMO · ▲ BATTERY · NOT FOLLOWING")
+            #expect(line(.demo).text == "DEMO · SIMULATED HOME")
+        }
+        AppWords.$language.withValue(.sv) {
+            #expect(line(.live, .attention([battery])).text == "LIVE · ▲ BATTERI · FÖLJER INTE")
+            #expect(line(.live, .attention([battery, charger])).text == "LIVE · ▲ 2 ENHETER BEHÖVER SES ÖVER")
+        }
+    }
+
     /// A mode change takes the second half of the line until the box has
     /// answered; confirmed is lime, refused is alarm red.
     @Test func aModeChangeShowsTheBoxsReceipt() {
@@ -274,6 +298,58 @@ import FTWShared
     }
 
     /// A manual mode is the household's own choice: the line says so.
+    /// The box's answer is read while a bar is on screen, and only again
+    /// when it may have changed: a steady home asks a few times a minute
+    /// at most, never on a timer.
+    @Test func aBatteryThatDoesNotFollowIsAskedForAndShown() async throws {
+        let rig = DemoRig()
+        rig.app.startDemo()
+        let home = try #require(rig.app.home)
+        let box = try #require(rig.box)
+        box.batteryNotFollowing = true
+        await rig.run(1_500)
+        home.control.activate()
+        await rig.run(1_500)
+        #expect(home.control.attention.map(\.reason).contains { $0 == "power_wrong_direction" || $0 == "no_power_response" })
+        if case .attention(let rows) = StatusLine.control(site: home.site, mode: home.nodes.mode, attention: home.control.attention) {
+            #expect(rows.count == 1)
+        } else {
+            Issue.record("the line does not say the battery needs a look")
+        }
+        let reads = box.receivedRequests.filter { $0 == "GET /api/status" }.count
+        #expect(reads >= 1)
+        await rig.run(30_000, step: 250)
+        let later = box.receivedRequests.filter { $0 == "GET /api/status" }.count
+        #expect(later - reads <= 3, "the answer was read \(later - reads) times in 30 s")
+        // Looking again a minute on asks again, and a battery that follows
+        // gives the line back.
+        home.control.deactivate()
+        // Nobody looks: the answer no longer speaks for now.
+        #expect(home.control.attention.isEmpty)
+        box.batteryNotFollowing = false
+        await rig.run(61_000, step: 500)
+        home.control.activate()
+        await rig.run(1_500)
+        #expect(home.control.attention.isEmpty)
+        #expect(StatusLine.control(site: home.site, mode: home.nodes.mode, attention: home.control.attention) == .ftw)
+        home.control.deactivate()
+    }
+
+    @Test func movedPowerAndAWaitingDeviceAskAgain() {
+        let bat = Contract.FID.batteryW, ev = Contract.FID.evW
+        #expect(!ControlCheck.moved([bat: 2_300], [bat: 2_000]))
+        #expect(ControlCheck.moved([bat: 2_300], [bat: -800]))
+        #expect(ControlCheck.moved([bat: 0], [bat: 600]))
+        #expect(!ControlCheck.moved([bat: 0, ev: 0], [bat: 300, ev: 400]))
+        #expect(ControlCheck.moved([ev: 11_000], [ev: 6_000]))
+        let waiting = ControlRow(driver: "pixii", kind: "battery", status: "waiting", reason: "waiting_response")
+        let car = ControlRow(driver: "easee", kind: "ev", status: "waiting", reason: "waiting_response")
+        let idle = ControlRow(driver: "pixii", kind: "battery", status: "following", reason: "idle")
+        #expect(ControlCheck.followUpMs([idle]) == nil)
+        #expect(ControlCheck.followUpMs([idle, waiting]) == ControlCheck.respondsMs)
+        #expect(ControlCheck.followUpMs([waiting, car]) == ControlCheck.carRespondsMs)
+    }
+
     @Test func aManualModeSaysYoureInControl() async throws {
         let rig = DemoRig()
         rig.app.startDemo()
