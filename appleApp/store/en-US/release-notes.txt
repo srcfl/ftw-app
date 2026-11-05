@@ -1,3 +1,5 @@
+New in 0.6.9: when a device does not do what FTW asked, the status line says so in red, as ▲ BATTERY · NOT FOLLOWING, in any mode. Tap it, and the first thing you read is why, in your box's own words. Home has Notifications: choose which notifications your box sends, the same choices as on the web, and let this iPhone show them. A new notification, on from the start, tells you when a device has not done what FTW asked for ten minutes. It needs your box's next update.
+
 New in 0.6.8: the plan's clock shows the twelve hours from now again. Drag a finger round past the end and the face turns to the next twelve hours, as far as the end of tomorrow, one face melting into the other; drag back and it turns back. On Apple Watch the Crown does the same. The sideways swipe and the dots are gone. Under BATTERY the plan says what the battery does, Charges or Discharges, and when, as 22:00–23:30. When the battery sells to the grid, that part is drawn in the grid's magenta: at the outer end of the clock's ticks, and on the strip and in the lanes where most of it is sold. The legend says selling.
 
 New in 0.6.7: the sun is a yellow area in from the edge of the plan's clock, as deep as your box's forecast, and the legend calls it sun forecast. The Energy tax refund row has left the app; your box's own History page still has it. The cheapest line under the clock names the cheapest two hours of the whole plan. The battery charges or discharges, in the same words on every screen. The version shows on the pairing page, and the car's line on Now wraps at the largest text sizes.
@@ -7,15 +9,3 @@ New in 0.6.6: on the plan's clock the hour after now shows sooner, so 18 no long
 New in 0.6.5: you can scrub the plan's strip again, under the clock and in the lanes. Drag sideways to read one quarter at a time, or rest your finger a moment. Drag up or down to scroll the page.
 
 New in 0.6.4: price bars start at zero under an even top, so 450 öre against 550 öre looks a fifth dearer, not five times. A dashed line shows the price now. Tap one of the battery's runs or the car's charge in the plan strip on Now, and three figures say when it runs, what it does to the level and the price it meets. The plan is a 12-hour clock with 18:00 straight down, and its ticks show the battery's power. Choose the price the app shows under Home: with or without the grid fee and tax, with or without VAT. The VAT choice needs your box's next update. The car's goal sits at the top of the car view, the whole view scrolls, and a charge that does not go all the way says the goal is still ahead. When your box runs on UTC, the car view shows the goal in the box's time, and with the box's next update the app offers your phone's time zone.
-
-New in 0.6.3: on Now, thin lines of light run between each arc of the ring and the home in the middle. They run in toward the home for power coming into it and out for power leaving it, and faster with more power. Each arc pulses once for every reading from your box. With Reduce Motion on, the ring stands still and an arrow shows the direction. Tapping a button on a notification no longer crashes the app. Tell us if Now feels slow or the phone gets warm.
-
-A new look. Now shows the flow as a ring of light, and the battery's and the car's levels as rings. Four tabs: Now, Plan, History and Home. History, live readings and the plan share one timeline that opens on today.
-
-Light means live: only a reading your box sent just now glows or moves. The plan is drawn pale everywhere, on Now, the dial, the Plan tab, the widgets and the watch. Tap the status line to see what each look means.
-
-Change the mode and the planning style in Plan. The watch shows the mode.
-
-Share assistant access from the iPhone with a short code.
-
-Two things need the next box update: the Apple Watch on its own through FTW Cloud, and FTW Cloud's last 48 hours of history while your box is away.
