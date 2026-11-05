@@ -2,7 +2,7 @@ import FTWKit
 import SwiftUI
 
 /// Home, the fourth tab: the home itself, in the system's own list. Its
-/// cars, its assistants and the watch; then the homes on this
+/// cars, its assistants, the watch and its notifications; then the homes on this
 /// phone, this phone's own settings, and what FTW is. What the title's
 /// menu and the settings sheet held before the tabs, in one place a
 /// newcomer finds.
@@ -25,6 +25,7 @@ struct HomeTabView: View {
             if app.watch.canAdd(home) {
                 WatchSettingsSection(app: app, home: home)
             }
+            notify
             homes
             phone
             price
@@ -53,6 +54,17 @@ struct HomeTabView: View {
             } header: {
                 Text(app.homeName)
             }
+        }
+    }
+
+    /// Which notifications the box sends, and whether this iPhone lets FTW
+    /// notify.
+    private var notify: some View {
+        Section {
+            NavigationLink { NotifySettingsView(home: home) } label: {
+                Label(L("Notifications"), systemImage: "bell")
+            }
+            .accessibilityIdentifier("settings.notify")
         }
     }
 

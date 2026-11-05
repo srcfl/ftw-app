@@ -21,6 +21,9 @@ public enum PushKind {
     public static let updateInstalled = "update.installed"
     public static let driverOffline = "driver.offline"
     public static let fuseOverLimit = "fuse.over_limit"
+    /// A device that has not done what FTW asked for ten minutes, by the
+    /// box's own answer to "Are we in control?".
+    public static let controlNotFollowing = "control.not_following"
     /// The one alert the service writes itself: a box that cannot reach the
     /// service cannot sign one.
     public static let boxUnreachable = "box.unreachable"
@@ -41,7 +44,7 @@ public enum PushKind {
     /// In the catalogue's order.
     public static let all = [
         chargingConnected, chargingSessionComplete, chargingGoalAtRisk, chargingInterrupted, updateInstalled,
-        driverOffline, fuseOverLimit, boxUnreachable, cloudGranted, cloudRevoked,
+        driverOffline, fuseOverLimit, controlNotFollowing, boxUnreachable, cloudGranted, cloudRevoked,
         agentAdded, agentRequest, agentExpiring, approvalKeySet, ownerAdded, carWhich,
     ]
 
