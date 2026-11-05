@@ -38,6 +38,10 @@ Apple moves menus, so trust the screen if it differs.
    ([`scripts/testflight-pilot.py`](scripts/testflight-pilot.py)). Without
    the key it says so, and **Actions → iOS public beta** does the same from
    GitHub, where the key lives as secrets; that workflow builds nothing.
+5. Once the build is in `Pilot`, the script tells Discord, as Core's betas
+   are told: it starts **Actions → iOS release on Discord**, which posts the
+   release notes' paragraph for the version through the repository's
+   `DISCORD_WEBHOOK` secret.
 
 ### Signing on this Mac
 
@@ -441,13 +445,15 @@ and the car view.
 
    `FTW_SKIP_TESTS=1` skips `swift test` when it just ran;
    `FTW_SKIP_PILOT=1` uploads without the public beta step;
+   `FTW_SKIP_DISCORD=1` leaves Discord untold;
    `FTW_XCODE_ACCOUNT=1` uploads through Xcode's signed-in account when
    the key is not on this Mac; `FTW_ARCHIVE=…` sends an archive the script
    already made, without building again.
 3. Internal testers get the build once Apple has processed it, usually
    within the hour. With the key on this Mac the script has already given
-   it to `Pilot` and submitted it for Beta App Review; without it, run
-   **Actions → iOS public beta** with the version and build it printed.
+   it to `Pilot`, submitted it for Beta App Review and told Discord;
+   without it, run **Actions → iOS public beta**, then **Actions → iOS
+   release on Discord**, with the version and build it printed.
 
 ## When the upload fails
 

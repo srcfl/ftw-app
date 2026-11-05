@@ -151,4 +151,17 @@ elif (( ${#auth[@]} == 0 )); then
 else
   say "Give it to Pilot and submit it for review"
   ASC_KEY_PATH=$key ASC_KEY_ID=$ASC_KEY_ID ASC_ISSUER_ID=$ASC_ISSUER_ID "${pilot[@]}"
+
+  # --- Discord ----------------------------------------------------------------
+
+  # Told as Core's betas are, by one run in GitHub, which holds the webhook.
+  # The words are the release notes' paragraph for this version at $sha.
+  if [[ -n ${FTW_SKIP_DISCORD:-} ]]; then
+    echo "Discord skipped (FTW_SKIP_DISCORD)."
+  elif gh workflow run ios-release-discord.yml --repo srcfl/ftw-app --ref main \
+      -f version="$version" -f build="$build" -f revision="$sha" -f dry_run=false; then
+    echo "Discord: Actions → iOS release on Discord announces $version ($build)."
+  else
+    echo "Discord not told. Run Actions → iOS release on Discord with $version, $build and $sha."
+  fi
 fi
