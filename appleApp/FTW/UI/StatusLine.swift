@@ -65,7 +65,8 @@ private struct HomeBar<Title: View>: ViewModifier {
 
 /// The line itself, in its own view so a reading redraws this line and not
 /// the screen under it. It reads the clock only to know whether a
-/// receipt still holds; nothing on it counts.
+/// receipt still holds; nothing on it counts. While it is on screen the
+/// home asks its box whether every device does what it was told.
 private struct StatusLineButton: View {
     let app: AppModel
     let home: HomeModels
@@ -77,6 +78,7 @@ private struct StatusLineButton: View {
         let line = StatusLine.make(StatusLine.facts(
             site: site,
             mode: mode,
+            check: home.control,
             demo: app.isDemo,
             online: NetworkState.shared.online,
             noCarrier: app.connectHelp != nil,
@@ -90,6 +92,8 @@ private struct StatusLineButton: View {
         .accessibilityValue(line.text)
         .accessibilityHint(L("Shows whether FTW is in control, and how it knows."))
         .accessibilityIdentifier("status.line")
+        .onAppear { home.control.activate() }
+        .onDisappear { home.control.deactivate() }
     }
 }
 

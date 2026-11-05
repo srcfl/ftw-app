@@ -112,6 +112,15 @@ native, and smooth enough to impress.
   read each quarter while a car is plugged in and every 15 s while its plan
   is being made or for a minute after a cable moved, and its shortfall
   when the car view opens and when the car's plan changes.
+  Core works out "Are we in control?" only when asked (`control_feedback`
+  in GET /api/status), so `ControlCheck` asks while a home's bar is on
+  screen: on looking once the answer is a minute old, when the stream's
+  facts change, at each quarter and each new plan, when the battery or
+  the car moved 500 W or 30 % since the answer (15 s apart at most), and
+  once more after Core's own wait for a device to respond. Core's
+  warnings and alarms take the status line in any mode (xorath, 5 Nov
+  2026: the battery charged while FTW asked it to discharge, the box's
+  page said so, and the app said it was in control).
 - **Ask by the data's age.** `LiveAsk` names what it wants by how old the
   data is (the five minutes, the quarter, the day) and keeps an answer
   while that name holds. A view appearing or a redial asks only when the

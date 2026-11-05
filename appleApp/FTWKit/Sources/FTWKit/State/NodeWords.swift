@@ -396,6 +396,7 @@ public enum NodeWords {
         "METER STALE": "MÄTAREN TYST",
         "▲ 1 DEVICE QUIET": "▲ 1 ENHET TYST",
         "▲ %@ DEVICES QUIET": "▲ %@ ENHETER TYSTA",
+        "▲ %@ DEVICES NEED A LOOK": "▲ %@ ENHETER BEHÖVER SES ÖVER",
         "SENDING…": "SKICKAR…",
         "▲ NOT CONFIRMED": "▲ EJ BEKRÄFTAT",
         "Status": "Status",

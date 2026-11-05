@@ -9,23 +9,23 @@ import SwiftUI
 struct ControlSheet: View {
     let app: AppModel
     let home: HomeModels
-    @State private var check: ControlCheck
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorSchemeContrast) private var contrast
 
-    init(app: AppModel, home: HomeModels) {
-        self.app = app
-        self.home = home
-        _check = State(initialValue: ControlCheck(site: home.site))
-    }
-
+    private var check: ControlCheck { home.control }
     private var site: SiteModel { home.site }
+    private func needsLook(_ row: ControlRow) -> Bool { row.severity == "warning" || row.severity == "alarm" }
     private var zone: TimeZone { site.session.box.flatMap { TimeZone(identifier: $0.tz) } ?? .current }
 
     var body: some View {
         NavigationStack {
             List {
                 homeSection
+                // What needs a look comes straight under the answer, before
+                // the legend, so the sheet opens on why.
+                ForEach(check.rows.filter(needsLook)) { row in
+                    DeviceSection(row: row, live: check.live, zone: zone)
+                }
                 legend
                 if let help = app.connectHelp {
                     Section {
@@ -38,7 +38,7 @@ struct ControlSheet: View {
                     }
                     .listRowBackground(Theme.raised)
                 }
-                ForEach(check.rows) { row in
+                ForEach(check.rows.filter { !needsLook($0) }) { row in
                     DeviceSection(row: row, live: check.live, zone: zone)
                 }
             }
