@@ -24,6 +24,8 @@ public final class HomeModels {
     /// The box's answer to "Are we in control?", for the status line and
     /// the control sheet.
     public let control: ControlCheck
+    /// Which notifications the box sends, for Home's switches.
+    public let notify: NotifyRules
 
     /// `cache` is what the app left for its widgets. Each model opens on
     /// the sealed home file first, and on these records where it has none.
@@ -38,6 +40,7 @@ public final class HomeModels {
         nodes = NodeModels(site: site, loadpoints: loadpoints, prices: prices, cache: cache)
         gridToday = GridTodayShare(site: site, history: nodes.history, prices: prices)
         control = ControlCheck(site: site)
+        notify = NotifyRules(site: site)
         // The nodes Now drew, so the next launch draws them in their places
         // before its first reading.
         site.keep { [weak site, weak loadpoints] home in

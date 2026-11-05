@@ -79,6 +79,14 @@ enum Notifications {
         }
     }
 
+    /// Whether this iPhone lets FTW notify, for Home's notifications.
+    static func allowed() async -> UNAuthorizationStatus {
+        await UNUserNotificationCenter.current().notificationSettings().authorizationStatus
+    }
+
+    /// FTW's own page in the iPhone's Settings, where a refusal is undone.
+    static var settingsURL: URL? { URL(string: UIApplication.openNotificationSettingsURLString) }
+
     static func received(token: Data) {
         #if DEBUG
         log.notice("push token \(token.byteArray.hex, privacy: .public) (\(environment.rawValue, privacy: .public))")

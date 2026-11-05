@@ -517,6 +517,8 @@ public final class SimulatedBox {
     /// Priced beside the route, never from the method, as the box does.
     static let routes: [(method: String, path: String, tier: Tier, op: String?)] = [
         ("GET", "/api/status", .read, nil),
+        ("GET", "/api/notifications/rules", .read, nil),
+        ("PUT", "/api/notifications/rules", .configure, nil),
         ("GET", "/api/cloud", .configure, nil),
         ("DELETE", "/api/cloud", .configure, nil),
         ("GET", "/api/cloud/stats-policy", .configure, nil),
@@ -636,6 +638,44 @@ public final class SimulatedBox {
         return [battery, car]
     }
 
+    /// The box's notification rules, as Core seeds them: off, apart from
+    /// FTW Cloud, access, which car and a device that does not follow. A
+    /// template rule the phone does not name rides along untouched.
+    public private(set) var notifyOn = false
+    public private(set) var notifyRules: [JSON] = [
+        ["type": "driver_offline", "enabled": false, "threshold_s": 600, "priority": 4, "cooldown_s": 3600],
+        ["type": "charging.connected", "enabled": false, "priority": 3, "cooldown_s": 60],
+        ["type": "charging.session_complete", "enabled": false, "priority": 3],
+        ["type": "charging.interrupted", "enabled": false, "priority": 4, "cooldown_s": 3600],
+        ["type": "charging.goal_at_risk", "enabled": false, "priority": 4],
+        ["type": "update.installed", "enabled": false, "priority": 2],
+        ["type": "driver.offline", "enabled": false, "threshold_s": 600, "priority": 4, "cooldown_s": 3600],
+        ["type": "fuse.over_limit", "enabled": false, "threshold_s": 30, "priority": 5, "cooldown_s": 900],
+        ["type": "control.not_following", "enabled": true, "threshold_s": 600, "priority": 4, "cooldown_s": 3600],
+        ["type": "cloud.granted", "enabled": true, "priority": 3],
+        ["type": "cloud.revoked", "enabled": true, "priority": 3],
+        ["type": "agent.added", "enabled": true, "priority": 3],
+        ["type": "agent.request", "enabled": true, "priority": 4],
+        ["type": "agent.expiring", "enabled": true, "priority": 3],
+        ["type": "approval.key.set", "enabled": true, "priority": 3],
+        ["type": "owner.added", "enabled": true, "priority": 3],
+        ["type": "car.which", "enabled": true, "priority": 3],
+    ]
+
+    private func notifyState() -> JSON {
+        .object([("enabled", .bool(notifyOn)), ("events", .array(notifyRules))])
+    }
+
+    /// The PUT: each entry replaces the rule of its type whole; types not
+    /// named keep what they had.
+    private func putNotifyRules(_ body: JSON?) {
+        if let on = body?["enabled"]?.bool { notifyOn = on }
+        for e in body?["events"]?.array ?? [] {
+            guard let type = e["type"]?.string else { continue }
+            if let i = notifyRules.firstIndex(where: { $0["type"]?.string == type }) { notifyRules[i] = e } else { notifyRules.append(e) }
+        }
+    }
+
     private func cloudConsentState() -> JSON {
         [
             "state": .string(cloudCopyOn ? "on" : "off"), "connected": true,
@@ -673,6 +713,11 @@ public final class SimulatedBox {
             cloudTermsAccepted = false
             statisticsOn = false
             return (200, cloudConsentState())
+        case ("GET", "/api/notifications/rules"):
+            return (200, notifyState())
+        case ("PUT", "/api/notifications/rules"):
+            putNotifyRules(body)
+            return (200, notifyState())
         case ("GET", "/api/status"):
             let perPhase = house.gridW / 3
             return (200, [
