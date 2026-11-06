@@ -62,11 +62,12 @@ enum HomeRoute: Hashable {
 
     /// Where a home opens: Now, at its root. Debug builds take `-FTWTab
     /// car`, `-FTWNode battery`, `-FTWTab history` and the like, so every
-    /// screen of the demo can be photographed.
+    /// screen of the demo can be photographed. `-FTWNode car` is the car's
+    /// day, as History opens it; `-FTWTab car` the car view.
     static var initial: (tab: HomeTab, path: [HomeRoute]) {
         #if DEBUG
         let defaults = UserDefaults.standard
-        if let node = defaults.string(forKey: "FTWNode").flatMap(EnergyNode.init(rawValue:)) { return (.now, [.node(node)]) }
+        if let node = defaults.string(forKey: "FTWNode").flatMap(EnergyNode.init(rawValue:)) { return (.now, [node == .car ? .day(.car) : .node(node)]) }
         switch defaults.string(forKey: "FTWTab") {
         case "car": return (.now, [.car(nil)])
         case "plan": return (.plan, [])
@@ -206,6 +207,11 @@ private struct TabStack<Root: View>: View {
         switch route {
         case .car(let id):
             CarView(app: app, home: home, id: id)
+        case .node(.car):
+            // The car on the ring opens the car itself, on the charger with
+            // a car on it, so Charge now is one tap from Now (xorath, 6 Nov
+            // 2026). History's row still opens the car's day.
+            CarView(app: app, home: home, id: home.loadpoints.points.first(where: \.pluggedIn)?.id)
         case .node(let node):
             NodeView(app: app, home: home, node: node, zoom: zoom)
         case .day(let node):

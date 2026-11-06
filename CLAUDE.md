@@ -175,10 +175,11 @@ native, and smooth enough to impress.
   in Low Power Mode.
 - **Four tabs** (Ring / Quiet step 3, 24 Oct 2026), the system's
   `TabView`: Now, Plan, History and Home (`HomeTab`). Each keeps its own
-  stack, and a second tap on a tab takes it to its top. History tells
-  today: the savings, then a row per node with its energy in words and
-  its day drawn midnight to midnight on one shared axis, each into that
-  node's view on Today. Home holds what the title's menu and the
+  stack, and a second tap on a tab takes it to its top. The car on the ring
+  opens the car view, with Charge now at its foot (xorath, 6 Nov 2026).
+  History tells today: the savings, then a row per node with its energy in
+  words and its day drawn midnight to midnight on one shared axis, each
+  into that node's view on Today. Home holds what the title's menu and the
   settings sheet held: the cars, assistants, the watch, the homes, this
   phone and About. Now's title is the home's name and opens nothing. The
   mode and the planning style change in Plan alone (Fredrik, 25 October
