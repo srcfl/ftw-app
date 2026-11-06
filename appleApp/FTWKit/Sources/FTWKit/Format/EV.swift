@@ -446,6 +446,7 @@ public enum AppWords {
         "Charger status is out of date.": "Laddarens status är inaktuell.",
         "Waiting for the charger's first report.": "Väntar på laddarens första rapport.",
         "Paused by you": "Pausad av dig",
+        "Charging waits for a choice. FTW could not confirm the charger.": "Laddningen väntar på ett val. FTW kunde inte bekräfta laddaren.",
         "Charging now at %@": "Laddar nu med %@",
         "Charging at %@": "Laddar med %@",
         "Charge now sent to the charger": "Ladda nu är skickat till laddaren",
@@ -857,6 +858,7 @@ public enum EVText {
 
     /// What the charger is doing, in a few words. Power leads when there is any.
     public static func status(_ lp: Loadpoint, zone: TimeZone = .current) -> String {
+        if lp.manualRestoreUnconfirmed { return AppWords.text("Charging waits for a choice. FTW could not confirm the charger.") }
         if let c = lp.charger, c.available != true {
             return AppWords.text(c.known ? "Charger status is out of date." : "Waiting for the charger's first report.")
         }
@@ -878,6 +880,36 @@ public enum EVText {
         if lp.manualChargeW == 0 { return true }
         if lp.manual?.state == "paused" || lp.manual?.state == "pausing" { return true }
         return lp.manualChargeW == nil && (lp.manual?.requestedW == 0 || lp.manual?.requestedA == 0)
+    }
+
+    /// Charge now is on, in the box's account. A hold the box keeps at zero
+    /// because it could not confirm the charger is neither this nor a pause:
+    /// nobody chose it, and it waits for a choice.
+    public static func isHolding(_ lp: Loadpoint) -> Bool {
+        lp.manualActive && !lp.manualRestoreUnconfirmed && !isPaused(lp)
+    }
+
+    public enum HoldChoice: CaseIterable, Identifiable, Sendable {
+        case plan, chargeNow, pause
+        public var id: Self { self }
+    }
+
+    /// What the car's three controls mark as chosen, or nil while the box
+    /// waits for the owner to choose (the web and the box's page offer all
+    /// three then too).
+    public static func holdChoice(_ lp: Loadpoint) -> HoldChoice? {
+        if lp.manualRestoreUnconfirmed { return nil }
+        if isPaused(lp) { return .pause }
+        return lp.manualActive ? .chargeNow : .plan
+    }
+
+    /// Whether a tap sends a command. The chosen one sends nothing, except
+    /// Charge now while the car draws nothing: a person who presses it wants
+    /// the car charging and must see the box answer (xorath, 6 Nov 2026), and
+    /// the box takes the same hold again.
+    public static func tapSends(_ choice: HoldChoice, _ lp: Loadpoint) -> Bool {
+        guard holdChoice(lp) == choice else { return true }
+        return choice == .chargeNow && lp.powerW <= ReceiptLog.drawingW
     }
 
     /// The hold is intent; only a fresh charger reading proves charging.

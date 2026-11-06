@@ -188,6 +188,28 @@ import FTWShared
         }
     }
 
+    /// The box waits for a choice after losing sight of the charger. Charge
+    /// now reaches it, and the hold it reads back is the owner's.
+    @Test func chargeNowEndsTheWaitForAChoice() async throws {
+        try await AppWords.$language.withValue(.en) {
+            let rig = Rig()
+            let loadpoints = try rig.start()
+            rig.box?.house.manualHoldW = 0
+            rig.box?.house.manualRestoreUnconfirmed = true
+            loadpoints.activate()
+            await rig.run(1_500)
+            let waiting = try #require(loadpoints.points.first)
+            #expect(EVText.holdChoice(waiting) == nil)
+            #expect(loadpoints.answer(locked: false).canChargeNow)
+            let tap = Task { await loadpoints.chargeNow(waiting) }
+            await rig.run(3_000)
+            await tap.value
+            let now = try #require(loadpoints.points.first)
+            #expect(EVText.holdChoice(now) == .chargeNow)
+            #expect(!now.manualRestoreUnconfirmed)
+        }
+    }
+
     /// Received and never confirmed, and the charger does not hold it: the
     /// card that showed it on its way closes, never having said "on", and
     /// the answer says the box has not confirmed.

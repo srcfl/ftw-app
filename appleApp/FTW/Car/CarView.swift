@@ -503,43 +503,22 @@ struct Readiness: View {
 // MARK: Charge now, Pause, Back to the plan
 
 /// Plan · Charge now · Pause, always in these places, in one glass group.
-/// The one the box reports is chosen; the one asked for turns while it
-/// travels. A tap on Plan while the car is on its plan opens the goal the
-/// plan works to; a tap on any other chosen one does nothing. Under them
-/// the receipt log has room of its own, reserved, so nothing moves when it
-/// arrives.
+/// The one the box reports is chosen, and none while it waits for the owner
+/// to choose; the one asked for turns while it travels. A tap on Plan while
+/// the car is on its plan opens the goal the plan works to. A tap on Charge
+/// now while the car draws nothing asks again (`EVText.tapSends`). Under
+/// them the receipt log has room of its own, reserved, so nothing moves when
+/// it arrives.
 struct ControlBar: View {
     let lp: Loadpoint
     let model: LoadpointsModel
     var editGoal: (() -> Void)?
     @Environment(\.dynamicTypeSize) private var typeSize
 
-    enum Choice: CaseIterable, Identifiable {
-        case plan, chargeNow, pause
-        var id: Self { self }
-
-        var title: String {
-            switch self {
-            case .plan: return L("Plan")
-            case .chargeNow: return L("Charge now")
-            case .pause: return L("Pause")
-            }
-        }
-
-        var symbol: String {
-            switch self {
-            case .plan: return "calendar.badge.clock"
-            case .chargeNow: return "bolt.fill"
-            case .pause: return "pause.fill"
-            }
-        }
-    }
+    typealias Choice = EVText.HoldChoice
 
     /// What the box reports the charger is doing.
-    private var current: Choice {
-        if EVText.isPaused(lp) { return .pause }
-        return lp.manualActive ? .chargeNow : .plan
-    }
+    private var current: Choice? { EVText.holdChoice(lp) }
 
     /// The choice on its way to the box.
     private var asked: Choice? {
@@ -613,7 +592,7 @@ struct ControlBar: View {
     private func plain(_ c: Choice, chosen: Bool, waiting: Bool, stacked: Bool) -> some View {
         Button {
             if chosen, c == .plan { editGoal?() }
-            guard !chosen, !model.holdSending(lp) else { return }
+            guard EVText.tapSends(c, lp), !model.holdSending(lp) else { return }
             Task {
                 switch c {
                 case .plan: await model.backToPlan(lp)
@@ -643,6 +622,24 @@ struct ControlBar: View {
         .accessibilityValue(waiting ? L("Sending to your box…") : "")
         .accessibilityHint(chosen && c == .plan && editGoal != nil ? C("Change the goal") : "")
         .accessibilityIdentifier("car.control.\(c)")
+    }
+}
+
+extension EVText.HoldChoice {
+    var title: String {
+        switch self {
+        case .plan: return L("Plan")
+        case .chargeNow: return L("Charge now")
+        case .pause: return L("Pause")
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .plan: return "calendar.badge.clock"
+        case .chargeNow: return "bolt.fill"
+        case .pause: return "pause.fill"
+        }
     }
 }
 

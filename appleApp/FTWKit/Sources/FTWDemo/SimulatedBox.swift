@@ -464,6 +464,7 @@ public final class SimulatedBox {
             result(cmdId, "applied", observed: house.safetyK)
             sendBulk(Envelope(t: "plan", b: sessionPlan().wire))
         case Contract.opLoadpointHold:
+            house.manualRestoreUnconfirmed = false
             if args["clear"]?.bool == true {
                 house.manualHoldW = nil
             } else {
@@ -838,6 +839,7 @@ public final class SimulatedBox {
             "phases": 3,
             "voltage_v": 230,
             "manual_active": .bool(h.manualHoldW != nil),
+            "manual_restore_unconfirmed": .bool(h.manualRestoreUnconfirmed),
             "manual_charge_w": h.manualHoldW.map { .number($0) } ?? .null,
             "surplus_only": .bool(h.surplusOnly),
             "charger": ["known": true, "available": true, "updated_at_ms": .number(scheduler.nowMs - 2_000)],
@@ -1044,6 +1046,12 @@ extension SimulatedBox {
         // `-FTWDemoNotFollowing YES`: the battery does the opposite of
         // what FTW asked, as xorath's did on 5 Nov 2026.
         if UserDefaults.standard.bool(forKey: "FTWDemoNotFollowing") { box.batteryNotFollowing = true }
+        // `-FTWDemoChargerUnconfirmed YES`: the box lost sight of the charger
+        // during Charge now and waits for a choice.
+        if UserDefaults.standard.bool(forKey: "FTWDemoChargerUnconfirmed") {
+            box.house.manualHoldW = 0
+            box.house.manualRestoreUnconfirmed = true
+        }
         #endif
         // The demo is a Core that keeps cars, with one car on the charger.
         // For screenshots: `-FTWDemoCars two`, or `old` for a box from
