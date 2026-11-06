@@ -458,6 +458,13 @@ as on a normal clock, so you lose the feel for when things happen"):
    2 Nov 2026). No battery ring and no glass disc in
    the app; the widget keeps a dark ground so it reads on any wallpaper.
 
+8. The end of the twelve hours sits just behind the hand, where the eye
+   looks for what has just been (xorath, 6 Nov 2026: at 23:30 tomorrow's
+   sun read as sun that had just set). So the plan and the sun fade over
+   the turn's last three hours, sharp at the hand, a pass someone chose
+   excepted, and tomorrow's sun says so on the rim, between two hours. The
+   widgets keep their marks whole.
+
 `FTWShared/Charts/PlanDial.swift` holds the quarters, the sun, the words
 and the rule for a finger; `FTWCharts/PlanDialFace.swift` draws. The
 phone's plan view, its `energy.ftw.plan-dial` widget (StandBy small and

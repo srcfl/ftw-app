@@ -23,6 +23,12 @@ import WidgetKit
 /// The pass a tap chose (`lit`) has its ticks at full strength; the rest
 /// stay a ghost.
 ///
+/// On a clock the end of the twelve hours sits just behind the hand, where
+/// the eye looks for what has just been: at 23:30 tomorrow's sun read as
+/// sun that had just set (xorath, 6 Nov 2026). So the marks fade out over
+/// the turn's last three hours, sharp at the hand, and a sun on the next
+/// day says so on the rim.
+///
 /// Every mark is a still path filled once. Nothing glows but the sun's
 /// area in the dark, held still: a plan is intent, not a reading, so in
 /// full colour every hue is a ghost at `Theme.plan`, as on Now's strip. A
@@ -56,35 +62,46 @@ struct PlanDialFace: View, Equatable {
                 if size == .app {
                     rim(g).stroke(Theme.ink.opacity(0.18), style: StrokeStyle(lineWidth: 0.5, lineCap: .butt, lineJoin: .round))
                     HourLabels(g: g, dial: dial)
+                    if !grey, g.side >= 200 { SunDay(g: g, dial: dial, plan: sunPlan) }
                 }
-                // The sun is the box's forecast, a guess: a ghost with a
-                // dashed edge. Too small for an area, a widget keeps the
-                // dashed arc.
-                if size == .app {
-                    SunArea(g: g, dial: dial, grey: grey, plan: sunPlan)
-                } else {
-                    sun(g).stroke(grey ? Theme.ink3 : Theme.solar.opacity(sunPlan), style: StrokeStyle(lineWidth: g.sunWidth, lineCap: .butt, lineJoin: .round, dash: g.sunDash))
-                }
-                stubs(g).fill(grey ? Theme.oldPlan : Theme.ink3.opacity(0.6))
-                ticks(g, .gives, lit: false).fill(grey ? Theme.oldPlan : Theme.gives.opacity(lit == nil ? plan : plan * 0.6))
-                ticks(g, .gives, lit: false, sold: true).fill(grey ? Theme.oldPlan : Theme.grid.opacity(lit == nil ? plan : plan * 0.6))
-                ticks(g, .stores, lit: false).fill(grey ? Theme.oldPlan : Theme.stores.opacity(lit == nil ? plan : plan * 0.6))
-                    .widgetAccentable()
+                marks(g, plan: plan, sunPlan: sunPlan)
+                    .mask(TurnFade(dial: dial, on: size == .app))
+                // A pass someone chose stands at full strength wherever it
+                // falls on the turn.
                 if !grey, lit != nil {
                     ticks(g, .gives, lit: true).fill(Theme.gives)
                     ticks(g, .gives, lit: true, sold: true).fill(Theme.grid)
                     ticks(g, .stores, lit: true).fill(Theme.stores)
                 }
-                carDots(g).fill(grey ? Theme.ink3 : Theme.car.opacity(plan))
-                    .widgetAccentable()
-                // The goal sits inside the car's arc. On a watch that is
-                // where the hand's time and price are, so it shows only on
-                // a dial as large as the phone's.
-                if size == .app, g.side >= 200 { CarGoals(g: g, dial: dial, grey: grey) }
             }
             .frame(width: geo.size.width, height: geo.size.height)
         }
         .accessibilityHidden(true)
+    }
+
+    /// What the plan and the forecast say, all of it fading together.
+    private func marks(_ g: DialGeometry, plan: Double, sunPlan: Double) -> some View {
+        ZStack {
+            // The sun is the box's forecast, a guess: a ghost with a
+            // dashed edge. Too small for an area, a widget keeps the
+            // dashed arc.
+            if size == .app {
+                SunArea(g: g, dial: dial, grey: grey, plan: sunPlan)
+            } else {
+                sun(g).stroke(grey ? Theme.ink3 : Theme.solar.opacity(sunPlan), style: StrokeStyle(lineWidth: g.sunWidth, lineCap: .butt, lineJoin: .round, dash: g.sunDash))
+            }
+            stubs(g).fill(grey ? Theme.oldPlan : Theme.ink3.opacity(0.6))
+            ticks(g, .gives, lit: false).fill(grey ? Theme.oldPlan : Theme.gives.opacity(lit == nil ? plan : plan * 0.6))
+            ticks(g, .gives, lit: false, sold: true).fill(grey ? Theme.oldPlan : Theme.grid.opacity(lit == nil ? plan : plan * 0.6))
+            ticks(g, .stores, lit: false).fill(grey ? Theme.oldPlan : Theme.stores.opacity(lit == nil ? plan : plan * 0.6))
+                .widgetAccentable()
+            carDots(g).fill(grey ? Theme.ink3 : Theme.car.opacity(plan))
+                .widgetAccentable()
+            // The goal sits inside the car's arc. On a watch that is
+            // where the hand's time and price are, so it shows only on
+            // a dial as large as the phone's.
+            if size == .app, g.side >= 200 { CarGoals(g: g, dial: dial, grey: grey) }
+        }
     }
 
     // MARK: Paths
@@ -373,6 +390,59 @@ private struct SunArea: View {
         path.addLine(to: p[p.count - 2])
         path.addLine(to: p[p.count - 1])
         return path
+    }
+}
+
+/// What keeps a mark's strength round the turn: whole from the seam on, down
+/// to `PlanDial.turnFadeFloor` over the last `turnFadeShare`, and whole again
+/// at the seam. Off, it keeps everything.
+private struct TurnFade: View {
+    let dial: PlanDial
+    let on: Bool
+
+    var body: some View {
+        if on {
+            let start = Angle.radians(dial.seam - .pi / 2)
+            AngularGradient(
+                stops: [
+                    .init(color: .black, location: 0),
+                    .init(color: .black, location: 1 - PlanDial.turnFadeShare),
+                    .init(color: .black.opacity(PlanDial.turnFadeFloor), location: 1),
+                ],
+                center: .center,
+                startAngle: start,
+                endAngle: start + .radians(2 * .pi)
+            )
+        } else {
+            Color.black
+        }
+    }
+}
+
+/// "TOMORROW" round the rim, between two hours beside tomorrow's sun, in the
+/// sun's colour: the one word that tells it from the sun that has just been.
+private struct SunDay: View {
+    let g: DialGeometry
+    let dial: PlanDial
+    let plan: Double
+
+    var body: some View {
+        if let angle = dial.sunTomorrowAngle {
+            let word = Array(dial.tomorrowWord)
+            let size = g.label * 0.8
+            // On the lower half the word runs the other way round, or it
+            // would stand on its head.
+            let lower = angle > .pi / 2 && angle < 3 * .pi / 2
+            let pitch = Double(size) * 0.68 / Double(g.labelRadius) * (lower ? -1 : 1)
+            ForEach(word.indices, id: \.self) { k in
+                let a = angle + (Double(k) - Double(word.count - 1) / 2) * pitch
+                Text(String(word[k]))
+                    .font(.system(size: size, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Theme.solar.opacity(plan))
+                    .rotationEffect(.radians(lower ? a + .pi : a))
+                    .position(g.point(a, g.labelRadius))
+            }
+        }
     }
 }
 
