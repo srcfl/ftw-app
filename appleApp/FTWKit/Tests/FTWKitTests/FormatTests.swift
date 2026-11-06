@@ -52,6 +52,41 @@ import Testing
         }
     }
 
+    /// After the box lost sight of the charger it keeps a zero hold nobody
+    /// chose. The phone once read that as Charge now already on, so the
+    /// button did nothing, while the web's worked (xorath, 6 Nov 2026).
+    @Test func aHoldTheBoxCouldNotConfirmWaitsForAChoice() throws {
+        try AppWords.$language.withValue(.en) {
+            let waiting = Loadpoint(try JSON(parsing: Array(#"{"id":"a","plugged_in":true,"manual_active":true,"manual_charge_w":0,"manual_restore_unconfirmed":true,"manual":{"state":"paused"}}"#.utf8)))
+            #expect(EVText.holdChoice(waiting) == nil)
+            #expect(!EVText.isHolding(waiting))
+            #expect(!EVText.isPaused(waiting))
+            for choice in EVText.HoldChoice.allCases { #expect(EVText.tapSends(choice, waiting)) }
+            #expect(EVText.status(waiting) == "Charging waits for a choice. FTW could not confirm the charger.")
+        }
+    }
+
+    @Test func aTapOnTheChosenOneSendsOnlyForACarNotDrawing() throws {
+        func lp(_ json: String) throws -> Loadpoint { Loadpoint(try JSON(parsing: Array(json.utf8))) }
+        let plan = try lp(#"{"id":"a","plugged_in":true}"#)
+        #expect(EVText.holdChoice(plan) == .plan)
+        #expect(!EVText.tapSends(.plan, plan))
+        #expect(EVText.tapSends(.chargeNow, plan))
+        #expect(EVText.tapSends(.pause, plan))
+
+        let idle = try lp(#"{"id":"a","plugged_in":true,"manual_active":true,"manual_charge_w":11000,"current_power_w":0}"#)
+        #expect(EVText.holdChoice(idle) == .chargeNow)
+        #expect(EVText.tapSends(.chargeNow, idle))
+
+        let drawing = try lp(#"{"id":"a","plugged_in":true,"manual_active":true,"manual_charge_w":11000,"current_power_w":7200}"#)
+        #expect(!EVText.tapSends(.chargeNow, drawing))
+        #expect(EVText.tapSends(.plan, drawing))
+
+        let paused = try lp(#"{"id":"a","plugged_in":true,"manual_active":true,"manual_charge_w":0}"#)
+        #expect(EVText.holdChoice(paused) == .pause)
+        #expect(!EVText.tapSends(.pause, paused))
+    }
+
     /// A level from the car is as old as the car's report. Any other level
     /// is the box's account as of its answer.
     @Test func theCarsLevelCarriesWhenItWasRead() throws {

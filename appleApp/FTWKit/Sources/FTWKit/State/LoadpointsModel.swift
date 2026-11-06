@@ -608,7 +608,7 @@ public final class LoadpointsModel: Activatable {
     /// Whether Charge now is on for this charger, in the box's account. The
     /// box ends the hold when the car is unplugged; its flag says so.
     static func holding(_ lp: Loadpoint) -> Bool {
-        lp.manualActive && !EVText.isPaused(lp)
+        EVText.isHolding(lp)
     }
 
     /// MEASURED on the receipt: lane 0 shows the car doing what was asked,

@@ -39,6 +39,8 @@ public final class SimulatedHouse {
     /// FTW cannot read.
     public var carReportedAtMs: Double?
     public private(set) var evW: Double = 0
+    /// The box could not confirm the charger: a zero hold nobody chose.
+    public var manualRestoreUnconfirmed = false
     public var manualHoldW: Double? {
         didSet { if manualHoldW != oldValue { manualSinceMs = manualHoldW == nil ? nil : lastStepMs } }
     }

@@ -354,12 +354,12 @@ private struct FlowSection: View {
     private var carActions: CarActions? {
         guard canCommand, let lp = carPoint, lp.pluggedIn, !loadpoints.holdSending(lp) else { return nil }
         let paused = EVText.isPaused(lp)
-        let holding = lp.manualActive && !paused
+        let holding = EVText.isHolding(lp)
         let model = loadpoints
         return CarActions(
             chargeNow: holding ? nil : { Task { await model.chargeNow(lp) } },
             pause: paused ? nil : { Task { await model.pause(lp) } },
-            backToPlan: holding || paused ? { Task { await model.backToPlan(lp) } } : nil
+            backToPlan: holding || paused || lp.manualRestoreUnconfirmed ? { Task { await model.backToPlan(lp) } } : nil
         )
     }
 }
