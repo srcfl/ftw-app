@@ -28,7 +28,7 @@ CODE_SIGN_IDENTITY[sdk=iphonesimulator*] = -
 CODE_SIGN_IDENTITY[sdk=watchsimulator*] = -
 
 // The commit Source & licenses links to, which the license asks the app to
-// offer. CI passes the full commit (xcodebuild … FTW_SOURCE_REVISION=$GITHUB_SHA).
+// offer. scripts/release.sh passes the full commit (FTW_SOURCE_REVISION=<sha>).
 // Left empty, the "Record the source revision" phase asks git, and a tree
 // with changes is a local build that links to the repository instead.
 FTW_SOURCE_REVISION =

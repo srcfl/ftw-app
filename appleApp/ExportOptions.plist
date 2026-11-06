@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  How .github/workflows/ios-release.yml exports the archive: signed for the
-  App Store by Xcode, with Sourceful's team, and sent straight to App Store
-  Connect. The workflow sets the version and build number itself, so Xcode
-  must not change them.
+  How scripts/release.sh exports the archive: signed for the App Store by
+  Xcode, with Sourceful's team and Apple's cloud-managed distribution
+  certificate, and sent straight to App Store Connect. The script sets the
+  version and build number itself, so Xcode must not change them.
 -->
 <plist version="1.0">
 <dict>
