@@ -353,6 +353,33 @@ public struct PlanDial: Equatable, Sendable {
     /// same place on the ring.
     public var seam: Double { angle(grid.startMs(offset)) }
 
+    /// How much of the turn, up to the seam, fades: three hours.
+    public static let turnFadeShare = 0.25
+    /// The strength left of a mark at the very end of the turn.
+    public static let turnFadeFloor = 0.25
+
+    /// Where the rim says "tomorrow": the half hour nearest the middle of the
+    /// first run of sun on the face that the next day holds, so the word sits
+    /// between two hours and clear of the hand. Nil with no such sun, as on a
+    /// face wound past tomorrow, and for the sun of a morning already begun.
+    public var sunTomorrowAngle: Double? {
+        let lastTomorrow = tomorrowFrom + 96
+        guard let first = window.first(where: { $0 >= tomorrowFrom && $0 < lastTomorrow && sunReach($0) != nil }) else { return nil }
+        var last = first
+        while last + 1 < window.upperBound, sunReach(last + 1) != nil { last += 1 }
+        let middle = (grid.startMs(first) + grid.endMs(last)) / 2
+        let clock = ZoneClock.of(zone)
+        let halfHour = 1_800_000.0
+        // Half past, never on the hour, where a figure stands.
+        var at = clock.alignDown(middle, stepMs: 2 * halfHour) + halfHour
+        let end = grid.startMs(offset) + Double(Self.count) * Self.quarterMs
+        if end - at < 2 * halfHour { at -= 2 * halfHour }
+        guard at >= grid.startMs(offset) else { return nil }
+        return angle(at)
+    }
+
+    public var tomorrowWord: String { PriceWord.tomorrow.text }
+
     /// The sun's spans on the face as distances round the turn from the
     /// seam, 0 to 2π. A span under way at the seam starts at 0, never a
     /// whole turn on, and one that runs to the end of the face ends at 2π.

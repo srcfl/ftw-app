@@ -26,6 +26,30 @@ import Testing
         return (r * sin(a), -r * cos(a))
     }
 
+    /// Tomorrow's sun sits just behind the hand at night, and read as sun
+    /// that had just set (xorath, 6 Nov 2026). The rim names its day, between
+    /// two hours; today's sun needs no word.
+    @Test func tomorrowsSunIsNamedOnTheRim() throws {
+        let hours = [14, 15].flatMap { d in (7..<17).map { h in PlanEntry.Daylight.Step(fromMs: at(d, h), toMs: at(d, h + 1), w: 3_000) } }
+        let day = PlanEntry.Daylight(covered: .init(fromMs: at(14, 0), toMs: at(16, 0)), sun: [
+            .init(fromMs: at(14, 7), toMs: at(14, 17)),
+            .init(fromMs: at(15, 7), toMs: at(15, 17)),
+        ], power: hours)
+        // 23:20: the face ends at 11:15 tomorrow, so the run's middle is 09:07.
+        let night = dial(at: at(14, 23, 20), daylight: day)
+        #expect(near(try #require(night.sunTomorrowAngle), night.angle(at(15, 9, 30))))
+        // By day the sun on the face is today's.
+        #expect(dial(at: at(14, 12), daylight: day).sunTomorrowAngle == nil)
+        // Past midnight it is today's again.
+        #expect(dial(at: at(15, 1), daylight: day).sunTomorrowAngle == nil)
+        // A run at the very end of the turn: the word stays clear of the hand.
+        let late = dial(at: at(14, 19, 30), daylight: day)
+        #expect(near(try #require(late.sunTomorrowAngle), late.angle(at(15, 6, 30))))
+        // No forecast of the sun's power, no area and no word.
+        let plain = PlanEntry.Daylight(covered: day.covered, sun: day.sun)
+        #expect(dial(at: at(14, 23, 20), daylight: plain).sunTomorrowAngle == nil)
+    }
+
     /// The face opens on the twelve hours from now, its seam at now.
     @Test func theFaceIsTheNextTwelveHours() {
         let d = dial()
