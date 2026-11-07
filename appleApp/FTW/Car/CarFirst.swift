@@ -83,7 +83,7 @@ struct CarHero: View {
                     .foregroundStyle(Theme.ink2)
                     .contentTransition(.opacity)
                     .accessibilityIdentifier("car.origin")
-                if let limit = CarText.limit(car) {
+                if let limit = CarText.limit(car, goalPct: goalPct) {
                     Text(limit)
                         .font(.subheadline)
                         .foregroundStyle(Theme.ink2)
@@ -112,6 +112,7 @@ struct ChargerLine: View {
     let lp: Loadpoint?
     let model: LoadpointsModel
     let cars: CarsModel
+    let site: SiteModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -137,6 +138,15 @@ struct ChargerLine: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Theme.ink)
                     .accessibilityIdentifier("car.charger")
+                // What happens next, so a car away from home reads as one
+                // FTW will look after, not as a screen with parts missing.
+                let goal = car.goal.map { CarsModel.schedule($0, nowMs: site.minuteMs, zone: model.zone) }
+                if let next = CarText.unplugged(goal, levelPct: cars.level(car)?.pct, nowMs: site.minuteMs, zone: model.zone) {
+                    Text(next)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
         .accessibilityElement(children: .combine)
@@ -272,39 +282,40 @@ struct CarLevelBlock: View {
     var body: some View {
         let level = cars.level(car)
         let fromCar = level?.source == .vehicle && level?.estimate == false
-        VStack(alignment: .leading, spacing: 10) {
-            Kicker(L("How full is the car?"))
-            if level == nil || level?.source == .assumed {
-                Text(canControl ? L("Nobody has told FTW the car's level yet. Choose it below.") : C("Level unknown"))
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        // The ring already says how full a car is that reports its own
+        // level, so its correction is one quiet button, not a question.
+        if fromCar, !correcting {
             if canControl {
-                if fromCar, !correcting {
-                    Button(L("Correct the level")) {
-                        withAnimation(Theme.spring) { correcting = true }
-                    }
-                    .buttonStyle(.glass)
-                } else {
+                Button(L("Correct the level")) {
+                    withAnimation(Theme.spring) { correcting = true }
+                }
+                .buttonStyle(.borderless)
+                .font(.footnote)
+                .foregroundStyle(Theme.ink2)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                Kicker(L("How full is the car?"))
+                if level == nil || level?.source == .assumed {
+                    Text(canControl ? L("Nobody has told FTW the car's level yet. Choose it below.") : C("Level unknown"))
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if canControl {
                     LevelChips(current: cars.chosenLevel(car) ?? level?.pct ?? EVText.assumedPct) { pct in
                         Task { await cars.setLevel(car, pct: pct) }
                     }
                 }
+                if let receipt = cars.receipt(level: car), let outcome = cars.outcome(level: car) {
+                    CommandReceipt(receipt: receipt, text: outcome.text, tone: outcome.tone)
+                        .transition(.opacity)
+                }
             }
-            if let receipt = cars.receipt(level: car), let outcome = cars.outcome(level: car) {
-                CommandReceipt(receipt: receipt, text: outcome.text, tone: outcome.tone)
-                    .transition(.opacity)
-            }
-            if fromCar, !correcting, canControl {
-                Text(L("Only correct it if the car shows something else."))
-                    .font(.footnote)
-                    .foregroundStyle(Theme.ink3)
-            }
+            .animation(Theme.spring, value: cars.receipt(level: car))
+            .sensoryFeedback(.selection, trigger: cars.chosenLevel(car))
+            .sensoryFeedback(trigger: cars.outcome(level: car)?.tone) { _, tone in LevelBlock.feedback(tone) }
         }
-        .animation(Theme.spring, value: cars.receipt(level: car))
-        .sensoryFeedback(.selection, trigger: cars.chosenLevel(car))
-        .sensoryFeedback(trigger: cars.outcome(level: car)?.tone) { _, tone in LevelBlock.feedback(tone) }
     }
 }
 
@@ -334,7 +345,9 @@ struct CarGoalBlock: View {
                 }
                 if let lp, let next = EVText.nextGoal(lp, nowMs: site.minuteMs, zone: zone), lp.schedule != nil {
                     Hint(next, tone: Theme.ink2)
-                } else {
+                } else if lp != nil {
+                    // Off the charger the line under "Not plugged in" names
+                    // the next time, so it is not said twice.
                     Hint(AppWords.format("Next: %@", AppWords.day(EVText.nextDeadlineMs(s, nowMs: site.minuteMs, zone: zone), nowMs: site.minuteMs, zone: zone)), tone: Theme.ink2)
                 }
                 if let lp, let r = model.readiness(lp) {

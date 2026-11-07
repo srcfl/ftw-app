@@ -64,7 +64,7 @@ struct CarView: View {
                 if let car {
                     CarHero(car: car, cars: cars, site: home.site, zone: model.zone, editGoal: editGoal)
                         .padding(.horizontal, 20)
-                    ChargerLine(car: car, lp: lp, model: model, cars: cars)
+                    ChargerLine(car: car, lp: lp, model: model, cars: cars, site: home.site)
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
                     if let lp {
