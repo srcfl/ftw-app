@@ -50,7 +50,7 @@ struct CarHero: View {
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
                 .accessibilityIdentifier("car.name")
-            LevelRing(pct: level?.pct ?? 0, goalPct: goalPct, tint: Theme.car, lit: !faint, glows: false, thickness: max(9, ring * 0.06)) {
+            LevelRing(pct: level?.pct ?? 0, goalPct: goalPct, goalLabel: goalPct.map(AppWords.percent), tint: Theme.car, lit: !faint, glows: false, thickness: max(9, ring * 0.06)) {
                 VStack(spacing: 2) {
                     Text(level.map(CarText.percent) ?? "—")
                         .font(Theme.figure(min(figureSize, ring * 0.27)))
@@ -60,13 +60,8 @@ struct CarHero: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.5)
                         .accessibilityIdentifier("car.level")
-                    if let goalPct {
-                        Text(CarWords.format("Goal %@", AppWords.percent(goalPct)))
-                            .font(.subheadline)
-                            .foregroundStyle(Theme.ink2)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    } else if editGoal != nil {
+                    // The goal's figure stands by its mark on the ring.
+                    if goalPct == nil, editGoal != nil {
                         Text(C("Set a goal"))
                             .font(.subheadline)
                             .foregroundStyle(Theme.ink2)
@@ -83,7 +78,7 @@ struct CarHero: View {
                     .foregroundStyle(Theme.ink2)
                     .contentTransition(.opacity)
                     .accessibilityIdentifier("car.origin")
-                if let limit = CarText.limit(car) {
+                if let limit = CarText.limit(car, goalPct: goalPct) {
                     Text(limit)
                         .font(.subheadline)
                         .foregroundStyle(Theme.ink2)
@@ -112,14 +107,22 @@ struct ChargerLine: View {
     let lp: Loadpoint?
     let model: LoadpointsModel
     let cars: CarsModel
+    let site: SiteModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 4) {
             if let lp {
-                Text(CarText.charger(lp))
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(Theme.ink)
-                    .accessibilityIdentifier("car.charger")
+                // Which charger, only where there is more than one.
+                if model.points.count > 1 {
+                    Text(CarText.charger(lp))
+                        .font(.footnote)
+                        .foregroundStyle(Theme.ink2)
+                        .accessibilityIdentifier("car.charger")
+                }
+                StatusLines(lp: lp, model: model, site: site)
+                if let r = model.readiness(lp) {
+                    Readiness(readiness: r, text: EVText.readiness(r, level: model.level(lp), nowMs: site.minuteMs, zone: model.zone))
+                }
                 if let c = lp.chargerCar, let note = CarText.identified(c, name: { cars.car($0)?.shownName }) {
                     Text(note)
                         .font(.footnote)
@@ -137,9 +140,17 @@ struct ChargerLine: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(Theme.ink)
                     .accessibilityIdentifier("car.charger")
+                // When it will be ready, so a car away from home reads as
+                // one FTW will look after, not as a screen with parts gone.
+                let goal = car.goal.map { CarsModel.schedule($0, nowMs: site.minuteMs, zone: model.zone) }
+                if let next = CarText.unplugged(goal, levelPct: cars.level(car)?.pct, nowMs: site.minuteMs, zone: model.zone) {
+                    Text(next)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
-        .accessibilityElement(children: .combine)
     }
 }
 
@@ -272,39 +283,40 @@ struct CarLevelBlock: View {
     var body: some View {
         let level = cars.level(car)
         let fromCar = level?.source == .vehicle && level?.estimate == false
-        VStack(alignment: .leading, spacing: 10) {
-            Kicker(L("How full is the car?"))
-            if level == nil || level?.source == .assumed {
-                Text(canControl ? L("Nobody has told FTW the car's level yet. Choose it below.") : C("Level unknown"))
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        // The ring already says how full a car is that reports its own
+        // level, so its correction is one quiet button, not a question.
+        if fromCar, !correcting {
             if canControl {
-                if fromCar, !correcting {
-                    Button(L("Correct the level")) {
-                        withAnimation(Theme.spring) { correcting = true }
-                    }
-                    .buttonStyle(.glass)
-                } else {
+                Button(L("Correct the level")) {
+                    withAnimation(Theme.spring) { correcting = true }
+                }
+                .buttonStyle(.borderless)
+                .font(.footnote)
+                .foregroundStyle(Theme.ink2)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                Kicker(L("How full is the car?"))
+                if level == nil || level?.source == .assumed {
+                    Text(canControl ? L("Nobody has told FTW the car's level yet. Choose it below.") : C("Level unknown"))
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if canControl {
                     LevelChips(current: cars.chosenLevel(car) ?? level?.pct ?? EVText.assumedPct) { pct in
                         Task { await cars.setLevel(car, pct: pct) }
                     }
                 }
+                if let receipt = cars.receipt(level: car), let outcome = cars.outcome(level: car) {
+                    CommandReceipt(receipt: receipt, text: outcome.text, tone: outcome.tone)
+                        .transition(.opacity)
+                }
             }
-            if let receipt = cars.receipt(level: car), let outcome = cars.outcome(level: car) {
-                CommandReceipt(receipt: receipt, text: outcome.text, tone: outcome.tone)
-                    .transition(.opacity)
-            }
-            if fromCar, !correcting, canControl {
-                Text(L("Only correct it if the car shows something else."))
-                    .font(.footnote)
-                    .foregroundStyle(Theme.ink3)
-            }
+            .animation(Theme.spring, value: cars.receipt(level: car))
+            .sensoryFeedback(.selection, trigger: cars.chosenLevel(car))
+            .sensoryFeedback(trigger: cars.outcome(level: car)?.tone) { _, tone in LevelBlock.feedback(tone) }
         }
-        .animation(Theme.spring, value: cars.receipt(level: car))
-        .sensoryFeedback(.selection, trigger: cars.chosenLevel(car))
-        .sensoryFeedback(trigger: cars.outcome(level: car)?.tone) { _, tone in LevelBlock.feedback(tone) }
     }
 }
 
@@ -324,25 +336,30 @@ struct CarGoalBlock: View {
             Kicker(L("Goal"))
             if let goal = car.goal {
                 let s = CarsModel.schedule(goal, nowMs: site.minuteMs, zone: zone)
-                Text(EVText.goal(s, at: Date(timeIntervalSince1970: site.minuteMs / 1000), zone: zone))
-                    .font(.headline)
-                    .foregroundStyle(Theme.ink)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("car.goal")
+                // One row: the goal, and a tap to change it. When it is
+                // reached, or why not, stands with what the car does now.
+                Button { editing = true } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(EVText.goal(s, at: Date(timeIntervalSince1970: site.minuteMs / 1000), zone: zone))
+                            .font(.headline)
+                            .foregroundStyle(Theme.ink)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("car.goal")
+                        Spacer(minLength: 0)
+                        if cars.canControl {
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(Theme.ink3)
+                        }
+                    }
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(!cars.canControl)
+                .accessibilityHint(cars.canControl ? C("Change the goal") : "")
                 if cars.fromCache, let at = cars.readAtMs {
                     Hint(AppWords.format("Last known %@.", AppWords.clock(at, zone: zone)), tone: Theme.ink2)
-                }
-                if let lp, let next = EVText.nextGoal(lp, nowMs: site.minuteMs, zone: zone), lp.schedule != nil {
-                    Hint(next, tone: Theme.ink2)
-                } else {
-                    Hint(AppWords.format("Next: %@", AppWords.day(EVText.nextDeadlineMs(s, nowMs: site.minuteMs, zone: zone), nowMs: site.minuteMs, zone: zone)), tone: Theme.ink2)
-                }
-                if let lp, let r = model.readiness(lp) {
-                    Readiness(readiness: r, text: EVText.readiness(r, level: model.level(lp), nowMs: site.minuteMs, zone: zone))
-                }
-                if cars.canControl {
-                    Button(L("Change")) { editing = true }
-                        .buttonStyle(.glass)
                 }
             } else {
                 Text(L("No goal yet. Without one, FTW only charges from spare solar."))

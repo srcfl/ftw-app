@@ -30,7 +30,7 @@ import FTWShared
     "goal":{"target_permille":800,"ready_by_min":420,"days":127,"finish_at_limit":false},"surplus_only":false,"sources":["tesla-ha"]}],"removed":null}
     """
 
-    @Test func theHomeBoxsCarReadsAsTheCarsOwnLevelAnHourOld() throws {
+    @MainActor @Test func theHomeBoxsCarReadsAsTheCarsOwnLevelAnHourOld() throws {
         try AppWords.$language.withValue(.en) {
             let wire = try JSON(parsing: Array(Self.homeBox.utf8))
             let car = try #require(wire["cars"]?.array?.first.flatMap(Car.init))
@@ -51,7 +51,17 @@ import FTWShared
             #expect(CarText.percent(level) == "72\u{00A0}%")
             #expect(CarText.origin(level, nowMs: read, zone: CarTextTests.stockholm) == "from the car · 1 h ago")
             #expect(CarText.origin(level, nowMs: read + 3 * 3_600_000, zone: CarTextTests.stockholm) == "from the car · 4 h ago")
-            #expect(CarText.limit(car) == "Limit 80\u{00A0}%")
+            // The car's limit is said only where it keeps FTW from the goal.
+            #expect(CarText.limit(car, goalPct: 90) == "The car stops at 80\u{00A0}%, under its goal.")
+            #expect(CarText.limit(car, goalPct: 80) == nil)
+            #expect(CarText.limit(car, goalPct: nil) == nil)
+            // Off the charger, the next thing that happens.
+            let goal = CarsModel.schedule(try #require(car.goal), nowMs: read, zone: CarTextTests.stockholm)
+            let next = try #require(CarText.unplugged(goal, levelPct: 72, nowMs: read, zone: CarTextTests.stockholm))
+            #expect(next.hasPrefix("Plug it in, and it is charged by "))
+            #expect(next.hasSuffix(" 07:00."))
+            #expect(CarText.unplugged(goal, levelPct: 80, nowMs: read, zone: CarTextTests.stockholm) == "It has reached its goal.")
+            #expect(CarText.unplugged(nil, levelPct: 72, nowMs: read, zone: CarTextTests.stockholm) == nil)
             #expect(level.asLevel(nowMs: read).origin == .carEarlier)
             #expect(level.legacySource == "vehicle")
         }

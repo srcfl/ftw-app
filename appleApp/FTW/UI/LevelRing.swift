@@ -6,11 +6,15 @@ import SwiftUI
 /// that is a fact though not a live reading, such as the car's (`glows`
 /// false); a level FTW assumes is ink. It glows only while live, in the
 /// dark, and never with Reduce Transparency. A goal, such as the car's, is
-/// a short mark across the ring. What sits in the middle is the caller's.
+/// a short mark across the ring, with its figure beside it when the caller
+/// gives one. What sits in the middle is the caller's.
 /// A new level turns the arc with the app's spring.
 struct LevelRing<Middle: View>: View {
     let pct: Double
     var goalPct: Double?
+    /// "80 %" beside the goal's mark, outside the ring, so the mark needs
+    /// no words elsewhere.
+    var goalLabel: String?
     let tint: Color
     /// The colour is earned: a live reading, or a level the box knows.
     let lit: Bool
@@ -42,6 +46,19 @@ struct LevelRing<Middle: View>: View {
         // The stroke and a goal's mark stay inside the frame it is given,
         // and the ring keeps its size whether a goal comes or goes.
         .padding(thickness + 1)
+        .overlay {
+            if let goalPct, let goalLabel {
+                GeometryReader { geo in
+                    let a = 2 * Double.pi * min(1, max(0, goalPct / 100))
+                    let r = min(geo.size.width, geo.size.height) / 2 + 14
+                    Text(goalLabel)
+                        .font(.system(.footnote, design: .monospaced).weight(.medium))
+                        .foregroundStyle(Theme.ink2)
+                        .fixedSize()
+                        .position(x: geo.size.width / 2 + r * CGFloat(sin(a)), y: geo.size.height / 2 - r * CGFloat(cos(a)))
+                }
+            }
+        }
         .animation(Theme.spring, value: pct)
         .animation(Theme.spring, value: goalPct)
     }
