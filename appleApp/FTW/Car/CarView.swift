@@ -64,14 +64,10 @@ struct CarView: View {
                 if let car {
                     CarHero(car: car, cars: cars, site: home.site, zone: model.zone, editGoal: editGoal)
                         .padding(.horizontal, 20)
+                    // What the car does now, and when it is ready or why not.
                     ChargerLine(car: car, lp: lp, model: model, cars: cars, site: home.site)
                         .padding(.horizontal, 20)
-                        .padding(.top, 16)
-                    if let lp {
-                        StatusLines(lp: lp, model: model, site: home.site)
-                            .padding(.horizontal, 20)
-                            .padding(.top, 4)
-                    }
+                        .padding(.top, 20)
                     CarGoalBlock(car: car, lp: lp, cars: cars, model: model, site: home.site, editing: $editingGoal)
                         .padding(.horizontal, 20)
                         .padding(.top, 28)

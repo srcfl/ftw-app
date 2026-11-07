@@ -58,7 +58,7 @@ import FTWShared
             // Off the charger, the next thing that happens.
             let goal = CarsModel.schedule(try #require(car.goal), nowMs: read, zone: CarTextTests.stockholm)
             let next = try #require(CarText.unplugged(goal, levelPct: 72, nowMs: read, zone: CarTextTests.stockholm))
-            #expect(next.hasPrefix("Plug it in, and FTW charges it to the goal by "))
+            #expect(next.hasPrefix("Plug it in, and it is charged by "))
             #expect(next.hasSuffix(" 07:00."))
             #expect(CarText.unplugged(goal, levelPct: 80, nowMs: read, zone: CarTextTests.stockholm) == "It has reached its goal.")
             #expect(CarText.unplugged(nil, levelPct: 72, nowMs: read, zone: CarTextTests.stockholm) == nil)

@@ -81,7 +81,7 @@ public enum CarWords {
         "assumed at plug-in": "antagen vid inkoppling",
         "yesterday %@": "i går %@",
         "The car stops at %@, under its goal.": "Bilen stannar vid %@, under målet.",
-        "Plug it in, and FTW charges it to the goal by %@.": "Koppla in den, så laddar FTW den till målet senast %@.",
+        "Plug it in, and it is charged by %@.": "Koppla in den, så är den laddad senast %@.",
         "It has reached its goal.": "Den har nått sitt mål.",
         // The goal's level, inside the car's ring.
         "Goal %@": "Mål %@",
@@ -196,14 +196,14 @@ public enum CarText {
         return CarWords.format("The car stops at %@, under its goal.", AppWords.percent(pct))
     }
 
-    /// What happens to a car on no charger, after "Not plugged in": "Plug it
-    /// in, and FTW charges it to the goal by tomorrow 08:00." Nil without a
-    /// goal, whose own words say what FTW does then.
+    /// When a car on no charger is ready, after "Not plugged in": "Plug it
+    /// in, and it is charged by tomorrow 08:00." Nil without a goal, whose
+    /// own words say what FTW does then.
     public static func unplugged(_ s: Loadpoint.Schedule?, levelPct: Double?, nowMs: Double, zone: TimeZone) -> String? {
         guard let s else { return nil }
         if let goal = goalPct(s), let levelPct, levelPct >= goal { return CarWords.text("It has reached its goal.") }
         let by = EVText.nextDeadlineMs(s, nowMs: nowMs, zone: zone)
-        return CarWords.format("Plug it in, and FTW charges it to the goal by %@.", AppWords.day(by, nowMs: nowMs, zone: zone))
+        return CarWords.format("Plug it in, and it is charged by %@.", AppWords.day(by, nowMs: nowMs, zone: zone))
     }
 
     /// A charger's name as the box gives it: its driver, capitalised.
